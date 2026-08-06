@@ -20,6 +20,7 @@ import SimpleJob from './SimpleJob';
 import AdvancedConfigEditor from '@/components/AdvancedConfigEditor';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { apiClient } from '@/utils/api';
+import { isMac } from '@/helpers/basic';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -31,6 +32,7 @@ export default function TrainingForm() {
   const [gpuIDs, setGpuIDs] = useState<string | null>(null);
   const { settings, isSettingsLoaded } = useSettings();
   const { gpuList, isGPUInfoLoaded } = useGPUInfo();
+  const noGpuAvailable = isGPUInfoLoaded && !isMac() && gpuList.length === 0;
   const { datasets, status: datasetFetchStatus } = useDatasetList();
   const [datasetOptions, setDatasetOptions] = useState<{ value: string; label: string }[]>([]);
   const [showAdvancedView, setShowAdvancedView] = useState(false);
@@ -150,6 +152,10 @@ export default function TrainingForm() {
 
   const saveJob = async () => {
     if (status === 'saving') return;
+    if (!isMac() && gpuIDs === null) {
+      alert('No trainable GPU was detected. Verify ROCm or NVIDIA GPU monitoring before creating a job.');
+      return;
+    }
     setStatus('saving');
 
     apiClient
@@ -207,7 +213,10 @@ export default function TrainingForm() {
               <SelectInput
                 value={`${gpuIDs}`}
                 onChange={value => setGpuIDs(value)}
-                options={gpuList.map((gpu: any) => ({ value: `${gpu.index}`, label: `GPU #${gpu.index}` }))}
+                options={gpuList.map((gpu: any) => ({
+                  value: `${gpu.index}`,
+                  label: `GPU #${gpu.index} — ${gpu.name}`,
+                }))}
               />
             </div>
             <div className="hidden sm:block mx-4 bg-gray-200 dark:bg-gray-800 w-1 h-6"></div>
@@ -265,7 +274,7 @@ export default function TrainingForm() {
           <Button
             className="text-white bg-green-600 hover:bg-green-700 px-2 sm:px-3 py-1 rounded-md text-xs sm:text-base"
             onClick={() => saveJob()}
-            disabled={status === 'saving'}
+            disabled={status === 'saving' || noGpuAvailable}
           >
             {status === 'saving' ? (
               'Saving...'
@@ -286,6 +295,12 @@ export default function TrainingForm() {
         style={{ display: 'none' }}
         onChange={handleFileSelected}
       />
+
+      {noGpuAvailable && (
+        <div className="mx-4 mt-4 rounded border border-yellow-700 bg-yellow-900 px-4 py-3 text-yellow-200">
+          No trainable GPU was detected. Verify ROCm or NVIDIA GPU monitoring before creating a job.
+        </div>
+      )}
 
       {showAdvancedView ? (
         <div className="pt-[48px] absolute top-0 left-0 w-full h-full overflow-auto">

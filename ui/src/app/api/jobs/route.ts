@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import prisma from '@/server/prisma';
 import { isMac } from '@/helpers/basic';
 import { cached } from '@/server/apiCache';
+import { resolveGpuIds } from '@/server/jobGpu';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -59,10 +60,9 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { id, name, job_config } = body;
-    let gpu_ids: string = body.gpu_ids;
-
-    if (isMac()) {
-      gpu_ids = 'mps';
+    const gpu_ids = resolveGpuIds(body.gpu_ids, isMac());
+    if (gpu_ids === null) {
+      return NextResponse.json({ error: 'A GPU selection is required' }, { status: 400 });
     }
 
     const extra: any = {};
