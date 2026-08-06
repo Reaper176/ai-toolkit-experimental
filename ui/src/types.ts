@@ -177,6 +177,8 @@ export interface QuantizeKwargsConfig {
 
 export interface ModelConfig {
   name_or_path: string;
+  te_name_or_path?: string;
+  vae_path?: string;
   quantize: boolean;
   quantize_te: boolean;
   qtype: string;

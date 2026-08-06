@@ -1,6 +1,7 @@
 import { GroupedSelectOption, JobConfig, SelectOption } from '@/types';
 import { modelArchs, ModelArch } from './options';
 import { objectCopy } from '@/utils/basic';
+import { clearUnsupportedAnimaPaths } from '@/helpers/animaModelPaths';
 
 const expandDatasetDefaults = (
   defaults: { [key: string]: any },
@@ -35,6 +36,15 @@ export const handleModelArchChange = (
   // update the defaults when a model is selected
   const newArch = modelArchs.find(model => model.name === newArchName);
 
+  const supportsAnimaPaths =
+    newArch?.additionalSections?.includes('model.te_name_or_path') === true &&
+    newArch.additionalSections.includes('model.vae_path');
+  const currentModel = jobConfig.config.process[0].model;
+  const cleanedModel = clearUnsupportedAnimaPaths(currentModel, supportsAnimaPaths);
+  if (cleanedModel !== currentModel) {
+    setJobConfig(cleanedModel, 'config.process[0].model');
+  }
+
   // update vram setting
   if (!newArch?.additionalSections?.includes('model.low_vram')) {
     setJobConfig(false, 'config.process[0].model.low_vram');
@@ -43,7 +53,7 @@ export const handleModelArchChange = (
   // handle layer offloading setting
   if (!newArch?.additionalSections?.includes('model.layer_offloading')) {
     if ('layer_offloading' in jobConfig.config.process[0].model) {
-      const newModel = objectCopy(jobConfig.config.process[0].model);
+      const newModel = objectCopy(cleanedModel);
       delete newModel.layer_offloading;
       delete newModel.layer_offloading_text_encoder_percent;
       delete newModel.layer_offloading_transformer_percent;

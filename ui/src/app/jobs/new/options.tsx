@@ -32,6 +32,8 @@ type AdditionalSections =
   | 'model.multistage'
   | 'model.layer_offloading'
   | 'model.low_vram'
+  | 'model.te_name_or_path'
+  | 'model.vae_path'
   | 'model.qie.match_target_res'
   | 'model.assistant_lora_path'
   | 'model.unconditional_lora_path'
@@ -90,7 +92,12 @@ export const modelArchs: ModelArch[] = [
       ],
     },
     disableSections: ['network.conv'],
-    additionalSections: ['model.low_vram', 'model.layer_offloading'],
+    additionalSections: [
+      'model.low_vram',
+      'model.layer_offloading',
+      'model.te_name_or_path',
+      'model.vae_path',
+    ],
   },
   {
     name: 'flux',

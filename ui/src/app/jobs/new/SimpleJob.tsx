@@ -299,6 +299,26 @@ export default function SimpleJob({
               placeholder=""
               required
             />
+            {modelArch?.additionalSections?.includes('model.te_name_or_path') && (
+              <TextInput
+                label="Text Encoder Path"
+                value={jobConfig.config.process[0].model.te_name_or_path ?? ''}
+                onChange={(value: string | undefined) => {
+                  setJobConfig(value?.trim() || undefined, 'config.process[0].model.te_name_or_path');
+                }}
+                placeholder="/path/to/qwen_3_06b_base.safetensors"
+              />
+            )}
+            {modelArch?.additionalSections?.includes('model.vae_path') && (
+              <TextInput
+                label="VAE Path"
+                value={jobConfig.config.process[0].model.vae_path ?? ''}
+                onChange={(value: string | undefined) => {
+                  setJobConfig(value?.trim() || undefined, 'config.process[0].model.vae_path');
+                }}
+                placeholder="/path/to/qwen_image_vae.safetensors"
+              />
+            )}
             {modelArch?.additionalSections?.includes('model.assistant_lora_path') && (
               <TextInput
                 label="Training Adapter Path"
