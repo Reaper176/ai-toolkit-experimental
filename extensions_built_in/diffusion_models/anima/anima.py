@@ -25,6 +25,8 @@ except ImportError as e:
         "Diffusers is out of date. Update diffusers to the latest version by doing pip uninstall diffusers and then pip install -r requirements.txt"
     ) from e
 
+from .single_file import build_anima_single_file_pipeline, select_anima_loading_mode
+
 
 scheduler_config = {
     "base_image_seq_len": 256,
@@ -254,12 +256,20 @@ class AnimaModel(BaseModel):
         dtype = self.torch_dtype
         self.print_and_status_update("Loading Anima model")
 
-        pipe: AnimaModularPipeline = AnimaAutoBlocks().init_pipeline(self.model_config.name_or_path)
-        load_kwargs = {"torch_dtype": dtype}
-        model_path = os.path.abspath(os.path.expanduser(str(self.model_config.name_or_path)))
-        if os.path.isdir(model_path):
-            load_kwargs["pretrained_model_name_or_path"] = model_path
-        pipe.load_components(**load_kwargs)
+        if select_anima_loading_mode(self.model_config.name_or_path) == "single_file":
+            pipe: AnimaModularPipeline = build_anima_single_file_pipeline(
+                self.model_config.name_or_path,
+                self.model_config.te_name_or_path,
+                self.model_config.vae_path,
+                dtype,
+            )
+        else:
+            pipe = AnimaAutoBlocks().init_pipeline(self.model_config.name_or_path)
+            load_kwargs = {"torch_dtype": dtype}
+            model_path = os.path.abspath(os.path.expanduser(str(self.model_config.name_or_path)))
+            if os.path.isdir(model_path):
+                load_kwargs["pretrained_model_name_or_path"] = model_path
+            pipe.load_components(**load_kwargs)
         pipe.update_components(scheduler=self.get_train_scheduler())
 
         transformer = pipe.transformer

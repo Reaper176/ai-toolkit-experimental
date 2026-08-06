@@ -1,10 +1,12 @@
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, call, patch
 
 import torch
 
+from extensions_built_in.diffusion_models.anima.anima import AnimaModel, AnimaTrainableModel
 from extensions_built_in.diffusion_models.anima.single_file import (
     ANIMA_BASE_REPO,
     build_anima_single_file_pipeline,
@@ -495,6 +497,126 @@ class AnimaSingleFileTests(unittest.TestCase):
     def test_normalize_qwen_image_vae_rejects_key_collisions(self):
         with self.assertRaisesRegex(ValueError, "duplicate"):
             normalize_qwen_image_vae_state_dict({"conv1.weight": 1, "quant_conv.weight": 2})
+
+
+class AnimaModelRoutingTest(unittest.TestCase):
+    def make_model(self, name_or_path):
+        model = object.__new__(AnimaModel)
+        model.model_config = SimpleNamespace(
+            name_or_path=name_or_path,
+            te_name_or_path="/models/qwen.safetensors",
+            vae_path="/models/vae.safetensors",
+            quantize=False,
+            quantize_te=False,
+            layer_offloading=False,
+            low_vram=True,
+        )
+        model.torch_dtype = torch.bfloat16
+        model.device_torch = torch.device("cpu")
+        model.get_train_scheduler = Mock(return_value="training-scheduler")
+        model.print_and_status_update = Mock()
+        return model
+
+    @staticmethod
+    def make_pipeline():
+        pipe = Mock()
+        pipe.transformer = Mock(name="transformer")
+        pipe.text_conditioner = Mock(name="text_conditioner")
+        pipe.text_encoder = Mock(name="text_encoder")
+        pipe.vae = Mock(name="vae")
+        pipe.tokenizer = Mock(name="tokenizer")
+        pipe.t5_tokenizer = Mock(name="t5_tokenizer")
+        pipe.scheduler = Mock(name="scheduler")
+        return pipe
+
+    @patch(
+        "extensions_built_in.diffusion_models.anima.anima.build_anima_single_file_pipeline"
+    )
+    @patch("extensions_built_in.diffusion_models.anima.anima.AnimaAutoBlocks")
+    def test_load_model_routes_safetensors_to_component_assembly(
+        self, auto_blocks_class, build_pipeline
+    ):
+        pipe = self.make_pipeline()
+        build_pipeline.return_value = pipe
+        model = self.make_model("/models/anima.safetensors")
+
+        AnimaModel.load_model(model)
+
+        build_pipeline.assert_called_once_with(
+            "/models/anima.safetensors",
+            "/models/qwen.safetensors",
+            "/models/vae.safetensors",
+            torch.bfloat16,
+        )
+        auto_blocks_class.assert_not_called()
+        pipe.load_components.assert_not_called()
+        pipe.update_components.assert_called_once_with(scheduler="training-scheduler")
+        self.assertIs(model.noise_scheduler, pipe.scheduler)
+        self.assertIs(model.vae, pipe.vae)
+        self.assertEqual(model.text_encoder, [pipe.text_encoder])
+        self.assertEqual(model.tokenizer, [pipe.tokenizer])
+        self.assertIs(model.t5_tokenizer, pipe.t5_tokenizer)
+        self.assertIsInstance(model.model, AnimaTrainableModel)
+        self.assertIs(model.model.transformer, pipe.transformer)
+        self.assertIs(model.model.text_conditioner, pipe.text_conditioner)
+        self.assertIs(model.pipeline, pipe)
+        pipe.transformer.to.assert_called_once_with("cpu")
+        pipe.text_conditioner.to.assert_called_once_with("cpu")
+        self.assertEqual(
+            pipe.text_encoder.to.call_args_list,
+            [call(torch.device("cpu"), dtype=torch.bfloat16), call("cpu")],
+        )
+        pipe.text_encoder.requires_grad_.assert_called_once_with(False)
+        pipe.text_encoder.eval.assert_called_once_with()
+        self.assertEqual(
+            model.print_and_status_update.call_args_list,
+            [
+                call("Loading Anima model"),
+                call("Moving transformer to CPU"),
+                call("Model Loaded"),
+            ],
+        )
+
+    @patch(
+        "extensions_built_in.diffusion_models.anima.anima.build_anima_single_file_pipeline"
+    )
+    @patch("extensions_built_in.diffusion_models.anima.anima.AnimaAutoBlocks")
+    def test_load_model_preserves_repository_pipeline_loading(
+        self, auto_blocks_class, build_pipeline
+    ):
+        name_or_path = "circlestone-labs/Anima-Base-v1.0-Diffusers"
+        pipe = self.make_pipeline()
+        auto_blocks_class.return_value.init_pipeline.return_value = pipe
+        model = self.make_model(name_or_path)
+
+        AnimaModel.load_model(model)
+
+        build_pipeline.assert_not_called()
+        auto_blocks_class.return_value.init_pipeline.assert_called_once_with(name_or_path)
+        pipe.load_components.assert_called_once_with(torch_dtype=torch.bfloat16)
+        pipe.update_components.assert_called_once_with(scheduler="training-scheduler")
+
+    @patch(
+        "extensions_built_in.diffusion_models.anima.anima.build_anima_single_file_pipeline"
+    )
+    @patch("extensions_built_in.diffusion_models.anima.anima.AnimaAutoBlocks")
+    def test_load_model_preserves_local_diffusers_directory_loading(
+        self, auto_blocks_class, build_pipeline
+    ):
+        pipe = self.make_pipeline()
+        auto_blocks_class.return_value.init_pipeline.return_value = pipe
+        with tempfile.TemporaryDirectory() as directory:
+            model = self.make_model(directory)
+
+            AnimaModel.load_model(model)
+
+            build_pipeline.assert_not_called()
+            auto_blocks_class.return_value.init_pipeline.assert_called_once_with(directory)
+            pipe.load_components.assert_called_once_with(
+                torch_dtype=torch.bfloat16,
+                pretrained_model_name_or_path=os.path.abspath(directory),
+            )
+            pipe.update_components.assert_called_once_with(scheduler="training-scheduler")
 
 
 if __name__ == "__main__":
