@@ -11,6 +11,7 @@ from diffusers import (
     AutoencoderKLQwenImage,
     CosmosTransformer3DModel,
 )
+from diffusers.loaders.single_file_utils import convert_cosmos_transformer_checkpoint_to_diffusers
 from safetensors.torch import load_file
 from transformers import Qwen3Config, Qwen3Model
 
@@ -53,26 +54,90 @@ def load_component_state_dict(model, state_dict, component, path):
     return model
 
 
+def _load_anima_transformer_reference_state_dict():
+    config = CosmosTransformer3DModel.load_config(ANIMA_BASE_REPO, subfolder="transformer")
+    with init_empty_weights():
+        model = CosmosTransformer3DModel.from_config(config)
+    return model.state_dict()
+
+
+def _summarize_keys(keys, limit=8):
+    keys = sorted(keys)
+    summary = ", ".join(keys[:limit])
+    if len(keys) > limit:
+        summary += f", ... ({len(keys)} total)"
+    return summary
+
+
+def _validate_transformer_state_dict(state_dict, reference_state_dict, checkpoint_path):
+    state_keys = set(state_dict)
+    reference_keys = set(reference_state_dict)
+    missing = reference_keys - state_keys
+    unexpected = state_keys - reference_keys
+    shape_mismatches = [
+        key
+        for key in state_keys & reference_keys
+        if tuple(state_dict[key].shape) != tuple(reference_state_dict[key].shape)
+    ]
+
+    problems = []
+    if missing:
+        problems.append(f"missing keys: {_summarize_keys(missing)}")
+    if unexpected:
+        problems.append(f"unexpected keys: {_summarize_keys(unexpected)}")
+    if shape_mismatches:
+        shapes = [
+            f"{key} checkpoint {tuple(state_dict[key].shape)} != model {tuple(reference_state_dict[key].shape)}"
+            for key in sorted(shape_mismatches)[:8]
+        ]
+        if len(shape_mismatches) > 8:
+            shapes.append(f"... ({len(shape_mismatches)} total)")
+        problems.append(f"shape mismatches: {', '.join(shapes)}")
+
+    if problems:
+        details = "; ".join(problems)
+        raise ValueError(f"Failed to load transformer weights from {checkpoint_path}: {details}")
+
+
 def load_local_transformer(state_dict, dtype, checkpoint_path=None):
     """Build the Anima transformer from local weights and the official config."""
     source = checkpoint_path or "the local Anima checkpoint"
     try:
+        converted_state_dict = convert_cosmos_transformer_checkpoint_to_diffusers(state_dict)
+        reference_state_dict = _load_anima_transformer_reference_state_dict()
+    except Exception as error:
+        raise ValueError(
+            f"Failed to prepare transformer weights from {source} using configuration from {ANIMA_BASE_REPO}: {error}"
+        ) from error
+
+    _validate_transformer_state_dict(converted_state_dict, reference_state_dict, source)
+    del reference_state_dict
+
+    try:
         return CosmosTransformer3DModel.from_single_file(
-            state_dict,
+            converted_state_dict,
             config=ANIMA_BASE_REPO,
             subfolder="transformer",
             torch_dtype=dtype,
             low_cpu_mem_usage=True,
         )
     except Exception as error:
-        raise ValueError(f"Failed to load transformer weights from {source}: {error}") from error
+        raise ValueError(
+            f"Failed to load transformer weights from {source} using configuration from {ANIMA_BASE_REPO}: {error}"
+        ) from error
 
 
 def load_local_conditioner(state_dict, checkpoint_path, dtype):
     """Build the Anima text conditioner from official config and local weights."""
-    config = AnimaTextConditioner.load_config(ANIMA_BASE_REPO, subfolder="text_conditioner")
-    with init_empty_weights():
-        conditioner = AnimaTextConditioner.from_config(config)
+    try:
+        config = AnimaTextConditioner.load_config(ANIMA_BASE_REPO, subfolder="text_conditioner")
+        with init_empty_weights():
+            conditioner = AnimaTextConditioner.from_config(config)
+    except Exception as error:
+        raise ValueError(
+            f"Failed to initialize Anima text conditioner for {checkpoint_path} "
+            f"using configuration from {ANIMA_BASE_REPO}: {error}"
+        ) from error
     state_dict = cast_floating_state_dict(state_dict, dtype)
     return load_component_state_dict(
         conditioner,
@@ -84,21 +149,38 @@ def load_local_conditioner(state_dict, checkpoint_path, dtype):
 
 def load_local_qwen3(path, dtype):
     """Build the Qwen3 text encoder from official config and local weights."""
-    config = Qwen3Config.from_pretrained(ANIMA_BASE_REPO, subfolder="text_encoder")
-    with init_empty_weights():
-        text_encoder = Qwen3Model(config)
-    state_dict = normalize_qwen3_state_dict(load_file(path, device="cpu"))
-    state_dict = cast_floating_state_dict(state_dict, dtype)
+    try:
+        config = Qwen3Config.from_pretrained(ANIMA_BASE_REPO, subfolder="text_encoder")
+        with init_empty_weights():
+            text_encoder = Qwen3Model(config)
+    except Exception as error:
+        raise ValueError(
+            f"Failed to initialize Qwen3 text encoder for {path} "
+            f"using configuration from {ANIMA_BASE_REPO}: {error}"
+        ) from error
+    try:
+        state_dict = normalize_qwen3_state_dict(load_file(path, device="cpu"))
+        state_dict = cast_floating_state_dict(state_dict, dtype)
+    except Exception as error:
+        raise ValueError(f"Failed to read or normalize Qwen3 text encoder weights from {path}: {error}") from error
     return load_component_state_dict(text_encoder, state_dict, "Qwen3 text encoder", path)
 
 
 def load_local_vae(path, dtype):
     """Build the Qwen Image VAE from official config and normalized local weights."""
-    config = AutoencoderKLQwenImage.load_config(ANIMA_BASE_REPO, subfolder="vae")
-    with init_empty_weights():
-        vae = AutoencoderKLQwenImage.from_config(config)
-    state_dict = normalize_qwen_image_vae_state_dict(load_file(path, device="cpu"))
-    state_dict = cast_floating_state_dict(state_dict, dtype)
+    try:
+        config = AutoencoderKLQwenImage.load_config(ANIMA_BASE_REPO, subfolder="vae")
+        with init_empty_weights():
+            vae = AutoencoderKLQwenImage.from_config(config)
+    except Exception as error:
+        raise ValueError(
+            f"Failed to initialize Qwen Image VAE for {path} using configuration from {ANIMA_BASE_REPO}: {error}"
+        ) from error
+    try:
+        state_dict = normalize_qwen_image_vae_state_dict(load_file(path, device="cpu"))
+        state_dict = cast_floating_state_dict(state_dict, dtype)
+    except Exception as error:
+        raise ValueError(f"Failed to read or normalize Qwen Image VAE weights from {path}: {error}") from error
     return load_component_state_dict(vae, state_dict, "Qwen Image VAE", path)
 
 
@@ -116,16 +198,29 @@ def build_anima_single_file_pipeline(
         text_encoder_path = validate_local_safetensors(text_encoder_path, "Text encoder")
         vae_path = validate_local_safetensors(vae_path, "VAE")
 
-    pipe = AnimaAutoBlocks().init_pipeline(ANIMA_BASE_REPO)
+    try:
+        pipe = AnimaAutoBlocks().init_pipeline(ANIMA_BASE_REPO)
+    except Exception as error:
+        raise ValueError(f"Failed to load Anima pipeline metadata from {ANIMA_BASE_REPO}: {error}") from error
     metadata_components = ["tokenizer", "t5_tokenizer", "scheduler"]
-    pipe.load_components(names=metadata_components)
+    try:
+        pipe.load_components(names=metadata_components)
+    except Exception as error:
+        names = ", ".join(metadata_components)
+        raise ValueError(f"Failed to load Anima metadata components {names} from {ANIMA_BASE_REPO}: {error}") from error
     missing_components = [name for name in metadata_components if pipe.components.get(name) is None]
     if missing_components:
         missing = ", ".join(missing_components)
         raise ValueError(f"Missing required Anima metadata component(s) {missing} from {ANIMA_BASE_REPO}")
 
-    checkpoint_state = load_file(checkpoint_path, device="cpu")
-    transformer_state, conditioner_state = split_anima_checkpoint_state_dict(checkpoint_state)
+    try:
+        checkpoint_state = load_file(checkpoint_path, device="cpu")
+    except Exception as error:
+        raise ValueError(f"Failed to read Anima model checkpoint from {checkpoint_path}: {error}") from error
+    try:
+        transformer_state, conditioner_state = split_anima_checkpoint_state_dict(checkpoint_state)
+    except Exception as error:
+        raise ValueError(f"Failed to split Anima model checkpoint from {checkpoint_path}: {error}") from error
     del checkpoint_state
 
     transformer = load_local_transformer(transformer_state, dtype, checkpoint_path)
@@ -146,13 +241,18 @@ def build_anima_single_file_pipeline(
 
 def select_anima_loading_mode(name_or_path):
     """Return the loader mode without attempting to load model data."""
-    candidate = os.path.abspath(os.path.expanduser(str(name_or_path)))
+    configured = str(name_or_path)
+    expanded = os.path.expanduser(configured)
+    candidate = os.path.abspath(expanded)
     if os.path.isdir(candidate):
         return "pipeline"
-    if candidate.lower().endswith(".safetensors"):
-        return "single_file"
     if os.path.isfile(candidate):
-        raise ValueError("Anima model checkpoint files must use the .safetensors extension")
+        if candidate.lower().endswith(".safetensors"):
+            return "single_file"
+        raise ValueError(f"Anima model checkpoint {candidate} must use the .safetensors extension")
+    explicit_local_path = os.path.isabs(expanded) or configured.startswith(("./", "../"))
+    if explicit_local_path and candidate.lower().endswith(".safetensors"):
+        return "single_file"
     return "pipeline"
 
 

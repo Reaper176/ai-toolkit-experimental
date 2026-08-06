@@ -1,4 +1,5 @@
 import os
+import re
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -55,16 +56,28 @@ class AnimaSingleFileTests(unittest.TestCase):
             load_component_state_dict(model, {}, "transformer", "/models/anima.safetensors")
 
     @patch("extensions_built_in.diffusion_models.anima.single_file.CosmosTransformer3DModel.from_single_file")
-    def test_load_local_transformer_uses_official_config_and_local_state(self, from_single_file):
+    @patch("extensions_built_in.diffusion_models.anima.single_file._load_anima_transformer_reference_state_dict")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.convert_cosmos_transformer_checkpoint_to_diffusers")
+    def test_load_local_transformer_uses_official_config_and_local_state(
+        self,
+        convert_state_dict,
+        reference_state_dict,
+        from_single_file,
+    ):
         state_dict = {"net.block.weight": torch.ones(1)}
+        converted_state_dict = {"block.weight": torch.ones(1)}
         transformer = Mock()
+        convert_state_dict.return_value = converted_state_dict
+        reference_state_dict.return_value = converted_state_dict
         from_single_file.return_value = transformer
 
         result = load_local_transformer(state_dict, torch.bfloat16, "/models/anima.safetensors")
 
         self.assertIs(result, transformer)
+        convert_state_dict.assert_called_once_with(state_dict)
+        reference_state_dict.assert_called_once_with()
         from_single_file.assert_called_once_with(
-            state_dict,
+            converted_state_dict,
             config=ANIMA_BASE_REPO,
             subfolder="transformer",
             torch_dtype=torch.bfloat16,
@@ -72,21 +85,126 @@ class AnimaSingleFileTests(unittest.TestCase):
         )
 
     @patch("extensions_built_in.diffusion_models.anima.single_file.CosmosTransformer3DModel.from_single_file")
-    def test_load_local_transformer_wraps_errors_with_checkpoint_context(self, from_single_file):
+    @patch("extensions_built_in.diffusion_models.anima.single_file._load_anima_transformer_reference_state_dict")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.convert_cosmos_transformer_checkpoint_to_diffusers")
+    def test_load_local_transformer_rejects_missing_converted_keys(
+        self,
+        convert_state_dict,
+        reference_state_dict,
+        from_single_file,
+    ):
+        convert_state_dict.return_value = {"block.weight": torch.ones(1)}
+        reference_state_dict.return_value = {
+            "block.weight": torch.empty(1, device="meta"),
+            "block.bias": torch.empty(1, device="meta"),
+        }
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"transformer.*\/models\/anima\.safetensors.*missing.*block\.bias",
+        ):
+            load_local_transformer({"source": torch.ones(1)}, torch.bfloat16, "/models/anima.safetensors")
+        from_single_file.assert_not_called()
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.CosmosTransformer3DModel.from_single_file")
+    @patch("extensions_built_in.diffusion_models.anima.single_file._load_anima_transformer_reference_state_dict")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.convert_cosmos_transformer_checkpoint_to_diffusers")
+    def test_load_local_transformer_rejects_unexpected_converted_keys(
+        self,
+        convert_state_dict,
+        reference_state_dict,
+        from_single_file,
+    ):
+        convert_state_dict.return_value = {
+            "block.weight": torch.ones(1),
+            "extra.weight": torch.ones(1),
+        }
+        reference_state_dict.return_value = {"block.weight": torch.empty(1, device="meta")}
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"transformer.*\/models\/anima\.safetensors.*unexpected.*extra\.weight",
+        ):
+            load_local_transformer({"source": torch.ones(1)}, torch.bfloat16, "/models/anima.safetensors")
+        from_single_file.assert_not_called()
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.CosmosTransformer3DModel.from_single_file")
+    @patch("extensions_built_in.diffusion_models.anima.single_file._load_anima_transformer_reference_state_dict")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.convert_cosmos_transformer_checkpoint_to_diffusers")
+    def test_load_local_transformer_rejects_shape_mismatches(
+        self,
+        convert_state_dict,
+        reference_state_dict,
+        from_single_file,
+    ):
+        convert_state_dict.return_value = {"block.weight": torch.ones(2, 3)}
+        reference_state_dict.return_value = {"block.weight": torch.empty(3, 2, device="meta")}
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"transformer.*\/models\/anima\.safetensors.*shape.*block\.weight.*\(2, 3\).*\(3, 2\)",
+        ):
+            load_local_transformer({"source": torch.ones(1)}, torch.bfloat16, "/models/anima.safetensors")
+        from_single_file.assert_not_called()
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.CosmosTransformer3DModel.from_single_file")
+    @patch(
+        "extensions_built_in.diffusion_models.anima.single_file._load_anima_transformer_reference_state_dict",
+        return_value={},
+    )
+    @patch(
+        "extensions_built_in.diffusion_models.anima.single_file.convert_cosmos_transformer_checkpoint_to_diffusers",
+        return_value={},
+    )
+    def test_load_local_transformer_wraps_errors_with_checkpoint_context(
+        self,
+        convert_state_dict,
+        reference_state_dict,
+        from_single_file,
+    ):
         from_single_file.side_effect = RuntimeError("shape mismatch")
 
-        with self.assertRaisesRegex(ValueError, r"transformer.*\/models\/anima\.safetensors.*shape mismatch"):
+        with self.assertRaisesRegex(
+            ValueError,
+            rf"transformer.*\/models\/anima\.safetensors.*{ANIMA_BASE_REPO}.*shape mismatch",
+        ):
             load_local_transformer({}, torch.bfloat16, "/models/anima.safetensors")
 
     @patch("extensions_built_in.diffusion_models.anima.single_file.CosmosTransformer3DModel.from_single_file")
-    def test_load_local_transformer_wraps_non_runtime_errors_with_checkpoint_context(self, from_single_file):
+    @patch(
+        "extensions_built_in.diffusion_models.anima.single_file._load_anima_transformer_reference_state_dict",
+        return_value={},
+    )
+    @patch(
+        "extensions_built_in.diffusion_models.anima.single_file.convert_cosmos_transformer_checkpoint_to_diffusers",
+        return_value={},
+    )
+    def test_load_local_transformer_wraps_non_runtime_errors_with_checkpoint_context(
+        self,
+        convert_state_dict,
+        reference_state_dict,
+        from_single_file,
+    ):
         from_single_file.side_effect = NotImplementedError("unsupported conversion")
 
         with self.assertRaisesRegex(ValueError, r"transformer.*\/models\/anima\.safetensors.*unsupported conversion"):
             load_local_transformer({}, torch.bfloat16, "/models/anima.safetensors")
 
     @patch("extensions_built_in.diffusion_models.anima.single_file.CosmosTransformer3DModel.from_single_file")
-    def test_load_local_transformer_wraps_unexpected_conversion_errors(self, from_single_file):
+    @patch(
+        "extensions_built_in.diffusion_models.anima.single_file._load_anima_transformer_reference_state_dict",
+        return_value={},
+    )
+    @patch(
+        "extensions_built_in.diffusion_models.anima.single_file.convert_cosmos_transformer_checkpoint_to_diffusers",
+        return_value={},
+    )
+    def test_load_local_transformer_wraps_unexpected_conversion_errors(
+        self,
+        convert_state_dict,
+        reference_state_dict,
+        from_single_file,
+    ):
         from_single_file.side_effect = Exception("conversion hook failed")
 
         with self.assertRaisesRegex(ValueError, r"transformer.*\/models\/anima\.safetensors.*conversion hook failed"):
@@ -125,6 +243,16 @@ class AnimaSingleFileTests(unittest.TestCase):
             "Anima text conditioner",
             "/models/anima.safetensors",
         )
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.AnimaTextConditioner")
+    def test_load_local_conditioner_wraps_official_config_errors(self, conditioner_class):
+        conditioner_class.load_config.side_effect = OSError("offline")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            rf"Anima text conditioner.*\/models\/anima\.safetensors.*{ANIMA_BASE_REPO}.*offline",
+        ):
+            load_local_conditioner({}, "/models/anima.safetensors", torch.bfloat16)
 
     @patch("extensions_built_in.diffusion_models.anima.single_file.load_component_state_dict")
     @patch("extensions_built_in.diffusion_models.anima.single_file.cast_floating_state_dict")
@@ -171,6 +299,40 @@ class AnimaSingleFileTests(unittest.TestCase):
             "/models/qwen.safetensors",
         )
 
+    @patch("extensions_built_in.diffusion_models.anima.single_file.Qwen3Config")
+    def test_load_local_qwen3_wraps_official_config_errors(self, config_class):
+        config_class.from_pretrained.side_effect = OSError("offline")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            rf"Qwen3 text encoder.*\/models\/qwen\.safetensors.*{ANIMA_BASE_REPO}.*offline",
+        ):
+            load_local_qwen3("/models/qwen.safetensors", torch.bfloat16)
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.normalize_qwen3_state_dict")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_file")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.init_empty_weights")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.Qwen3Model")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.Qwen3Config")
+    def test_load_local_qwen3_wraps_local_read_and_normalization_errors(
+        self,
+        config_class,
+        model_class,
+        init_empty_weights,
+        load_file,
+        normalize,
+    ):
+        path = "/models/qwen.safetensors"
+        load_file.side_effect = OSError("bad safetensors header")
+        with self.assertRaisesRegex(ValueError, r"Qwen3 text encoder.*\/models\/qwen\.safetensors.*bad safetensors"):
+            load_local_qwen3(path, torch.bfloat16)
+
+        load_file.side_effect = None
+        load_file.return_value = {"model.weight": torch.ones(1)}
+        normalize.side_effect = ValueError("duplicate normalized key")
+        with self.assertRaisesRegex(ValueError, r"Qwen3 text encoder.*\/models\/qwen\.safetensors.*duplicate"):
+            load_local_qwen3(path, torch.bfloat16)
+
     @patch("extensions_built_in.diffusion_models.anima.single_file.load_component_state_dict")
     @patch("extensions_built_in.diffusion_models.anima.single_file.cast_floating_state_dict")
     @patch("extensions_built_in.diffusion_models.anima.single_file.normalize_qwen_image_vae_state_dict")
@@ -213,6 +375,38 @@ class AnimaSingleFileTests(unittest.TestCase):
             "Qwen Image VAE",
             "/models/vae.safetensors",
         )
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.AutoencoderKLQwenImage")
+    def test_load_local_vae_wraps_official_config_errors(self, vae_class):
+        vae_class.load_config.side_effect = OSError("offline")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            rf"Qwen Image VAE.*\/models\/vae\.safetensors.*{ANIMA_BASE_REPO}.*offline",
+        ):
+            load_local_vae("/models/vae.safetensors", torch.bfloat16)
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.normalize_qwen_image_vae_state_dict")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_file")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.init_empty_weights")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.AutoencoderKLQwenImage")
+    def test_load_local_vae_wraps_local_read_and_normalization_errors(
+        self,
+        vae_class,
+        init_empty_weights,
+        load_file,
+        normalize,
+    ):
+        path = "/models/vae.safetensors"
+        load_file.side_effect = OSError("bad safetensors header")
+        with self.assertRaisesRegex(ValueError, r"Qwen Image VAE.*\/models\/vae\.safetensors.*bad safetensors"):
+            load_local_vae(path, torch.bfloat16)
+
+        load_file.side_effect = None
+        load_file.return_value = {"conv1.weight": torch.ones(1)}
+        normalize.side_effect = ValueError("duplicate normalized key")
+        with self.assertRaisesRegex(ValueError, r"Qwen Image VAE.*\/models\/vae\.safetensors.*duplicate"):
+            load_local_vae(path, torch.bfloat16)
 
     @patch("extensions_built_in.diffusion_models.anima.single_file.load_local_vae")
     @patch("extensions_built_in.diffusion_models.anima.single_file.load_local_qwen3")
@@ -395,10 +589,102 @@ class AnimaSingleFileTests(unittest.TestCase):
         load_qwen3.assert_not_called()
         load_vae.assert_not_called()
 
+    @patch("extensions_built_in.diffusion_models.anima.single_file.AnimaAutoBlocks")
+    def test_build_pipeline_wraps_official_pipeline_metadata_errors(self, auto_blocks_class):
+        auto_blocks_class.return_value.init_pipeline.side_effect = OSError("offline")
+
+        with self.assertRaisesRegex(ValueError, rf"Anima pipeline metadata.*{ANIMA_BASE_REPO}.*offline"):
+            build_anima_single_file_pipeline(
+                "/models/anima.safetensors",
+                "/models/qwen.safetensors",
+                "/models/vae.safetensors",
+                torch.bfloat16,
+                validate_paths=False,
+            )
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_file")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.AnimaAutoBlocks")
+    def test_build_pipeline_wraps_metadata_component_load_errors(self, auto_blocks_class, load_file):
+        pipe = Mock()
+        pipe.load_components.side_effect = OSError("tokenizer download failed")
+        auto_blocks_class.return_value.init_pipeline.return_value = pipe
+
+        with self.assertRaisesRegex(
+            ValueError,
+            rf"Anima metadata components.*tokenizer.*t5_tokenizer.*scheduler.*{ANIMA_BASE_REPO}.*download failed",
+        ):
+            build_anima_single_file_pipeline(
+                "/models/anima.safetensors",
+                "/models/qwen.safetensors",
+                "/models/vae.safetensors",
+                torch.bfloat16,
+                validate_paths=False,
+            )
+
+        load_file.assert_not_called()
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_local_transformer")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_file")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.AnimaAutoBlocks")
+    def test_build_pipeline_wraps_checkpoint_read_errors(self, auto_blocks_class, load_file, load_transformer):
+        pipe = Mock()
+        pipe.components = {
+            "tokenizer": Mock(),
+            "t5_tokenizer": Mock(),
+            "scheduler": Mock(),
+        }
+        auto_blocks_class.return_value.init_pipeline.return_value = pipe
+        load_file.side_effect = OSError("bad safetensors header")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"Anima model.*\/models\/anima\.safetensors.*bad safetensors header",
+        ):
+            build_anima_single_file_pipeline(
+                "/models/anima.safetensors",
+                "/models/qwen.safetensors",
+                "/models/vae.safetensors",
+                torch.bfloat16,
+                validate_paths=False,
+            )
+
+        load_transformer.assert_not_called()
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_local_transformer")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_file")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.AnimaAutoBlocks")
+    def test_build_pipeline_wraps_checkpoint_prefix_errors(self, auto_blocks_class, load_file, load_transformer):
+        pipe = Mock()
+        pipe.components = {
+            "tokenizer": Mock(),
+            "t5_tokenizer": Mock(),
+            "scheduler": Mock(),
+        }
+        auto_blocks_class.return_value.init_pipeline.return_value = pipe
+        load_file.return_value = {"other.weight": torch.ones(1)}
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"Anima model.*\/models\/anima\.safetensors.*transformer weights under net",
+        ):
+            build_anima_single_file_pipeline(
+                "/models/anima.safetensors",
+                "/models/qwen.safetensors",
+                "/models/vae.safetensors",
+                torch.bfloat16,
+                validate_paths=False,
+            )
+
+        load_transformer.assert_not_called()
+
     def test_missing_safetensors_path_selects_single_file(self):
         with tempfile.TemporaryDirectory() as directory:
             checkpoint = os.path.join(directory, "missing.safetensors")
             self.assertEqual(select_anima_loading_mode(checkpoint), "single_file")
+        self.assertEqual(select_anima_loading_mode("./models/missing.safetensors"), "single_file")
+
+    def test_safetensors_suffix_hub_id_selects_pipeline(self):
+        self.assertEqual(select_anima_loading_mode("owner/model.safetensors"), "pipeline")
 
     def test_safetensors_suffix_directory_selects_pipeline(self):
         with tempfile.TemporaryDirectory(suffix=".safetensors") as directory:
@@ -411,7 +697,10 @@ class AnimaSingleFileTests(unittest.TestCase):
 
     def test_existing_non_safetensors_file_is_rejected(self):
         with tempfile.NamedTemporaryFile(suffix=".bin") as checkpoint:
-            with self.assertRaisesRegex(ValueError, r"Anima model checkpoint.*\.safetensors"):
+            with self.assertRaisesRegex(
+                ValueError,
+                rf"Anima model checkpoint.*{re.escape(os.path.abspath(checkpoint.name))}.*\.safetensors",
+            ):
                 select_anima_loading_mode(checkpoint.name)
 
     def test_validate_local_safetensors_rejects_invalid_values(self):
