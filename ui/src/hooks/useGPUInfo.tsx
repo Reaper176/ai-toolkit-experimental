@@ -4,6 +4,7 @@ import { GPUApiResponse, GpuInfo } from '@/types';
 import { useEffect, useState } from 'react';
 import { apiClient } from '@/utils/api';
 import usePollLoop from '@/hooks/usePollLoop';
+import { shouldRetryGpuInfo } from '@/helpers/gpu';
 
 export default function useGPUInfo(gpuIds: null | number[] = null, reloadInterval: null | number = null) {
   const [gpuList, setGpuList] = useState<GpuInfo[]>([]);
@@ -14,6 +15,11 @@ export default function useGPUInfo(gpuIds: null | number[] = null, reloadInterva
     setStatus('loading');
     try {
       const data: GPUApiResponse = await apiClient.get('/api/gpu').then(res => res.data);
+      if (shouldRetryGpuInfo(data)) {
+        setGpuList([]);
+        setStatus('error');
+        return;
+      }
       let gpus = data.gpus.sort((a, b) => a.index - b.index);
       if (gpuIds) {
         gpus = gpus.filter(gpu => gpuIds.includes(gpu.index));

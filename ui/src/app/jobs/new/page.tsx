@@ -33,6 +33,7 @@ export default function TrainingForm() {
   const { settings, isSettingsLoaded } = useSettings();
   const { gpuList, isGPUInfoLoaded } = useGPUInfo();
   const noGpuAvailable = isGPUInfoLoaded && !isMac() && gpuList.length === 0;
+  const nonMacGpuSelectionMissing = !isMac() && (gpuIDs === null || gpuIDs.trim() === '');
   const { datasets, status: datasetFetchStatus } = useDatasetList();
   const [datasetOptions, setDatasetOptions] = useState<{ value: string; label: string }[]>([]);
   const [showAdvancedView, setShowAdvancedView] = useState(false);
@@ -138,11 +139,11 @@ export default function TrainingForm() {
 
   useEffect(() => {
     if (isGPUInfoLoaded) {
-      if (gpuIDs === null && gpuList.length > 0) {
+      if ((gpuIDs === null || gpuIDs.trim() === '') && gpuList.length > 0) {
         setGpuIDs(`${gpuList[0].index}`);
       }
     }
-  }, [gpuList, isGPUInfoLoaded]);
+  }, [gpuIDs, gpuList, isGPUInfoLoaded]);
 
   useEffect(() => {
     if (isSettingsLoaded) {
@@ -152,7 +153,7 @@ export default function TrainingForm() {
 
   const saveJob = async () => {
     if (status === 'saving') return;
-    if (!isMac() && gpuIDs === null) {
+    if (nonMacGpuSelectionMissing) {
       alert('No trainable GPU was detected. Verify ROCm or NVIDIA GPU monitoring before creating a job.');
       return;
     }
@@ -274,7 +275,7 @@ export default function TrainingForm() {
           <Button
             className="text-white bg-green-600 hover:bg-green-700 px-2 sm:px-3 py-1 rounded-md text-xs sm:text-base"
             onClick={() => saveJob()}
-            disabled={status === 'saving' || noGpuAvailable}
+            disabled={status === 'saving' || nonMacGpuSelectionMissing}
           >
             {status === 'saving' ? (
               'Saving...'
