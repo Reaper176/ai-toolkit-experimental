@@ -30,17 +30,31 @@ Older npm releases will ignore the additional package metadata and retain their
 existing installation behavior.
 
 Because the manager hashes both UI manifests, changing `package.json`
-invalidates the cached `ui_deps_hash`. The next update or launch will rerun
-`npm install`, execute the approved scripts under npm 12, and replace the false
-success state without special migration code.
+invalidates the cached `ui_deps_hash` and causes the next update or launch to
+rerun `npm install`. However, npm considers an existing dependency tree current
+even when a lifecycle script was blocked during its original installation. It
+does not retroactively execute that script after an approval is added.
+
+The manager will therefore validate SQLite before accepting either a cached or
+newly installed dependency tree. It will run Node with `require("sqlite3")` in
+the UI directory. A successful load preserves the current fast path. A failed
+load causes the normal incremental `npm install` followed by a targeted
+`npm rebuild sqlite3`, then a second load check. The manager records the
+`ui_deps_hash` only after the binding loads successfully. This repairs existing
+broken installations without rebuilding healthy installations or every native
+dependency.
 
 ## Error Handling
 
-The existing manager behavior remains unchanged. A nonzero npm exit still
-causes a warning and prevents the new manifest hash from being saved. npm 12's
-successful exit after blocking unapproved scripts is handled by the manifest
-policy: all currently required scripts are approved, while newly introduced
-scripts remain blocked until reviewed.
+A nonzero npm install or SQLite rebuild exit causes a warning and prevents the
+new manifest hash from being saved. The same is true if SQLite still cannot be
+loaded after a successful rebuild command. A cached dependency tree is treated
+as ready only when its manifest hash matches and the binding load succeeds.
+
+npm 12's successful exit after blocking unapproved scripts is handled in two
+layers: the manifest approves all currently required scripts while newly
+introduced scripts remain blocked until reviewed, and runtime validation keeps
+the manager from treating an incomplete SQLite installation as ready.
 
 The Node 20/npm 12 compatibility warning is outside this fix. It is not the
 cause of the missing SQLite binding and changing runtime selection would widen
@@ -54,15 +68,26 @@ Add a focused regression test that reads `ui/package.json` and
 approval entries matching their lockfile versions. This catches missing,
 un-pinned, stale, or blanket approvals without running network installs.
 
+Add manager unit coverage using mocked subprocess results for these paths:
+
+- a valid cached dependency tree remains a no-op;
+- a cached tree with a missing SQLite binding does not take the fast path;
+- a missing binding triggers only `npm rebuild sqlite3` after installation;
+- a successful rebuild is revalidated before the hash is saved;
+- a failed rebuild or second load check does not save the hash.
+
 Then perform an installation/build integration check:
 
-1. Run the UI dependency installation with the repository manifests.
-2. Confirm `require("sqlite3")` loads its native binding.
+1. Run the manager-owned UI dependency installation with the repository
+   manifests and a deliberately absent SQLite binding when reproducing the
+   recovery path.
+2. Confirm the targeted rebuild makes `require("sqlite3")` load successfully.
 3. Confirm `npm run build` completes.
 4. Confirm the install does not leave either UI manifest modified.
 
 ## Scope
 
-This change updates npm lifecycle-script policy and its regression coverage
-only. It does not upgrade Node, npm, Prisma, SQLite, Sharp, or unrelated UI
-dependencies.
+This change updates npm lifecycle-script policy, adds targeted SQLite binding
+validation/recovery to the existing UI dependency manager, and adds regression
+coverage for both. It does not upgrade Node, npm, Prisma, SQLite, Sharp, or
+unrelated UI dependencies.
