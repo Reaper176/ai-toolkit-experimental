@@ -120,14 +120,14 @@ def _normalize_qwen_image_vae_key(key):
     match = re.fullmatch(r"encoder\.downsamples\.(\d+)\.residual\.(\d+)\.(.+)", key)
     if match:
         block_index, residual_index, suffix = match.groups()
-        mapped = _map_residual_key(f"encoder.down_blocks.{block_index}.resnets.0", residual_index, suffix)
+        mapped = _map_residual_key(f"encoder.down_blocks.{block_index}", residual_index, suffix)
         return mapped or key
     match = re.fullmatch(r"encoder\.downsamples\.(\d+)\.shortcut\.(.+)", key)
     if match:
         return f"encoder.down_blocks.{match.group(1)}.conv_shortcut.{match.group(2)}"
     match = re.fullmatch(r"encoder\.downsamples\.(\d+)\.(resample|time_conv)\.(.+)", key)
     if match:
-        return f"encoder.down_blocks.{match.group(1)}.downsamplers.0.{match.group(2)}.{match.group(3)}"
+        return f"encoder.down_blocks.{match.group(1)}.{match.group(2)}.{match.group(3)}"
 
     match = re.fullmatch(r"decoder\.upsamples\.(\d+)\.residual\.(\d+)\.(.+)", key)
     if match:
