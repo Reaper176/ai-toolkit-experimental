@@ -172,6 +172,24 @@ def find_npm(env=None):
     return shutil.which("npm.cmd" if IS_WINDOWS else "npm", path=path)
 
 
+def find_node(env=None):
+    """Node from the local .node/ copy when installed, else the system."""
+    path = (env or npm_env()).get("PATH")
+    return shutil.which("node.exe" if IS_WINDOWS else "node", path=path)
+
+
+def _sqlite_binding_available(node, env):
+    if node is None:
+        return False
+    code, _ = run(
+        [node, "-e", 'require("sqlite3")'],
+        cwd=UI_DIR,
+        env=env,
+        check=False,
+    )
+    return code == 0
+
+
 def _ui_deps_hash():
     return file_hash(
         [
@@ -205,14 +223,17 @@ def ensure_ui_deps(env=None, dry_run=False):
         warn("ui/package-lock.json is missing — skipping UI dependency install.")
         return False
     want = _ui_deps_hash()
-    if env_mod.venv_exists() and env_mod.load_state().get(UI_STATE_KEY) == want:
-        if os.path.isdir(os.path.join(UI_DIR, "node_modules")):
+    env = env or npm_env()
+    node = find_node(env)
+    cached = env_mod.venv_exists() and env_mod.load_state().get(UI_STATE_KEY) == want
+    if cached and os.path.isdir(os.path.join(UI_DIR, "node_modules")):
+        if _sqlite_binding_available(node, env):
             ok("UI dependencies already installed.")
             return False
+        warn("Cached UI dependencies have a broken SQLite binding — repairing.")
     if dry_run:
         info("[dry-run] would run: npm install --no-save (in %s)" % UI_DIR)
         return False
-    env = env or npm_env()
     npm = find_npm(env)
     if npm is None:
         warn("npm not found — skipping UI dependency install.")
@@ -237,6 +258,18 @@ def ensure_ui_deps(env=None, dry_run=False):
     if code != 0:
         warn("UI dependency install failed — the UI may not start.")
         return False
+    if not _sqlite_binding_available(node, env):
+        info("Rebuilding SQLite native binding...")
+        code, _ = run(
+            [npm, "rebuild", "sqlite3"],
+            cwd=UI_DIR,
+            env=env,
+            stream=True,
+            check=False,
+        )
+        if code != 0 or not _sqlite_binding_available(node, env):
+            warn("SQLite native binding repair failed — the UI may not start.")
+            return False
     if env_mod.venv_exists():
         state = env_mod.load_state()
         state[UI_STATE_KEY] = want
