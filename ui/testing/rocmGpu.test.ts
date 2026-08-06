@@ -68,6 +68,21 @@ assert.equal(cardZero.temperature, 0);
 assert.equal(cardZero.power.draw, 0);
 assert.equal(cardTwo.power.draw, 32.142);
 
+const MALFORMED_LOW_MEMORY_OUTPUT = JSON.stringify({
+  card0: {
+    'GPU use (%)': '27',
+    'VRAM Total Memory (B)': String(24 * 1024 ** 3),
+    'VRAM Total Used Memory (B)': String(5 * 1024 ** 3),
+    'Card Series': 'AMD Radeon RX 7900 XTX',
+  },
+  card1: {
+    'VRAM Total Memory (B)': String(512 * 1024 ** 2),
+  },
+});
+const cardsWithMalformedIntegratedGpu = parseRocmSmiJson(MALFORMED_LOW_MEMORY_OUTPUT);
+assert.equal(cardsWithMalformedIntegratedGpu.length, 1);
+assert.equal(cardsWithMalformedIntegratedGpu[0].name, 'AMD Radeon RX 7900 XTX');
+
 assert.throws(() => parseRocmSmiJson('not-json'), /Invalid ROCm SMI JSON/);
 assert.throws(() => parseRocmSmiJson('null'), /Invalid ROCm SMI JSON/);
 assert.throws(() => parseRocmSmiJson('[]'), /Invalid ROCm SMI JSON/);

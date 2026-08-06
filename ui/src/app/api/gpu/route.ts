@@ -138,39 +138,41 @@ async function getGpuInfo() {
   // Check if nvidia-smi is available
   const hasNvidiaSmi = await checkNvidiaSmi(isWindows);
 
-  if (!hasNvidiaSmi) {
-    if (platform === 'linux') {
-      try {
-        const rocmGpus = await getRocmGpuStats();
-        return {
-          hasNvidiaSmi: false,
-          isMac: false,
-          backend: 'rocm' as const,
-          gpus: rocmGpus,
-          ...(rocmGpus.length === 0 ? { error: 'No trainable ROCm GPUs detected' } : {}),
-        };
-      } catch {
-        // Fall through to the backend-neutral unavailable response.
-      }
+  if (hasNvidiaSmi) {
+    try {
+      const gpuStats = await getGpuStats(isWindows);
+      return {
+        hasNvidiaSmi: true,
+        isMac: false,
+        backend: 'nvidia' as const,
+        gpus: gpuStats,
+      };
+    } catch (error) {
+      console.warn('NVIDIA GPU query failed:', error);
     }
-
-    return {
-      hasNvidiaSmi: false,
-      isMac: false,
-      backend: null,
-      gpus: [],
-      error: 'No supported GPU monitoring tool was found',
-    };
   }
 
-  // Get GPU stats
-  const gpuStats = await getGpuStats(isWindows);
+  if (platform === 'linux') {
+    try {
+      const rocmGpus = await getRocmGpuStats();
+      return {
+        hasNvidiaSmi,
+        isMac: false,
+        backend: 'rocm' as const,
+        gpus: rocmGpus,
+        ...(rocmGpus.length === 0 ? { error: 'No trainable ROCm GPUs detected' } : {}),
+      };
+    } catch (error) {
+      console.warn('GPU monitoring backend probe failed:', error);
+    }
+  }
 
   return {
-    hasNvidiaSmi: true,
+    hasNvidiaSmi,
     isMac: false,
-    backend: 'nvidia' as const,
-    gpus: gpuStats,
+    backend: null,
+    gpus: [],
+    error: 'No supported GPU monitoring tool was found',
   };
 }
 
