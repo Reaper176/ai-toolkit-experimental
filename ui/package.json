@@ -54,5 +54,12 @@
   "optionalDependencies": {
     "macstats": "^4.2.0"
   },
+  "allowScripts": {
+    "@prisma/client@6.3.1": true,
+    "@prisma/engines@6.3.1": true,
+    "prisma@6.3.1": true,
+    "sharp@0.34.5": true,
+    "sqlite3@6.0.1": true
+  },
   "prettier": "prettier-basic"
 }
