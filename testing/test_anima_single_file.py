@@ -76,6 +76,20 @@ class AnimaSingleFileTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"transformer.*\/models\/anima\.safetensors.*shape mismatch"):
             load_local_transformer({}, torch.bfloat16, "/models/anima.safetensors")
 
+    @patch("extensions_built_in.diffusion_models.anima.single_file.CosmosTransformer3DModel.from_single_file")
+    def test_load_local_transformer_wraps_non_runtime_errors_with_checkpoint_context(self, from_single_file):
+        from_single_file.side_effect = NotImplementedError("unsupported conversion")
+
+        with self.assertRaisesRegex(ValueError, r"transformer.*\/models\/anima\.safetensors.*unsupported conversion"):
+            load_local_transformer({}, torch.bfloat16, "/models/anima.safetensors")
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.CosmosTransformer3DModel.from_single_file")
+    def test_load_local_transformer_wraps_unexpected_conversion_errors(self, from_single_file):
+        from_single_file.side_effect = Exception("conversion hook failed")
+
+        with self.assertRaisesRegex(ValueError, r"transformer.*\/models\/anima\.safetensors.*conversion hook failed"):
+            load_local_transformer({}, torch.bfloat16, "/models/anima.safetensors")
+
     @patch("extensions_built_in.diffusion_models.anima.single_file.load_component_state_dict")
     @patch("extensions_built_in.diffusion_models.anima.single_file.cast_floating_state_dict")
     @patch("extensions_built_in.diffusion_models.anima.single_file.init_empty_weights")
@@ -228,6 +242,11 @@ class AnimaSingleFileTests(unittest.TestCase):
         validate_path.side_effect = lambda path, component: next(validated_paths)
 
         pipe = Mock()
+        pipe.components = {
+            "tokenizer": Mock(name="tokenizer"),
+            "t5_tokenizer": Mock(name="t5_tokenizer"),
+            "scheduler": Mock(name="scheduler"),
+        }
         auto_blocks = Mock()
         auto_blocks_class.return_value = auto_blocks
         auto_blocks.init_pipeline.side_effect = lambda repo: events.append(("init_pipeline", repo)) or pipe
@@ -329,6 +348,45 @@ class AnimaSingleFileTests(unittest.TestCase):
                         )
 
         auto_blocks_class.assert_not_called()
+        load_file.assert_not_called()
+        load_transformer.assert_not_called()
+        load_conditioner.assert_not_called()
+        load_qwen3.assert_not_called()
+        load_vae.assert_not_called()
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_local_vae")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_local_qwen3")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_local_conditioner")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_local_transformer")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_file")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.AnimaAutoBlocks")
+    def test_build_pipeline_rejects_missing_metadata_before_loading_local_weights(
+        self,
+        auto_blocks_class,
+        load_file,
+        load_transformer,
+        load_conditioner,
+        load_qwen3,
+        load_vae,
+    ):
+        pipe = Mock()
+        pipe.components = {
+            "tokenizer": Mock(name="tokenizer"),
+            "t5_tokenizer": None,
+            "scheduler": Mock(name="scheduler"),
+        }
+        auto_blocks_class.return_value.init_pipeline.return_value = pipe
+
+        with self.assertRaisesRegex(ValueError, rf"t5_tokenizer.*{ANIMA_BASE_REPO}"):
+            build_anima_single_file_pipeline(
+                "/models/anima.safetensors",
+                "/models/qwen.safetensors",
+                "/models/vae.safetensors",
+                torch.bfloat16,
+                validate_paths=False,
+            )
+
+        pipe.load_components.assert_called_once_with(names=["tokenizer", "t5_tokenizer", "scheduler"])
         load_file.assert_not_called()
         load_transformer.assert_not_called()
         load_conditioner.assert_not_called()

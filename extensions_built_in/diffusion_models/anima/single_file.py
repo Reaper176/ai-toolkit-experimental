@@ -64,7 +64,7 @@ def load_local_transformer(state_dict, dtype, checkpoint_path=None):
             torch_dtype=dtype,
             low_cpu_mem_usage=True,
         )
-    except (OSError, RuntimeError, ValueError) as error:
+    except Exception as error:
         raise ValueError(f"Failed to load transformer weights from {source}: {error}") from error
 
 
@@ -117,7 +117,12 @@ def build_anima_single_file_pipeline(
         vae_path = validate_local_safetensors(vae_path, "VAE")
 
     pipe = AnimaAutoBlocks().init_pipeline(ANIMA_BASE_REPO)
-    pipe.load_components(names=["tokenizer", "t5_tokenizer", "scheduler"])
+    metadata_components = ["tokenizer", "t5_tokenizer", "scheduler"]
+    pipe.load_components(names=metadata_components)
+    missing_components = [name for name in metadata_components if pipe.components.get(name) is None]
+    if missing_components:
+        missing = ", ".join(missing_components)
+        raise ValueError(f"Missing required Anima metadata component(s) {missing} from {ANIMA_BASE_REPO}")
 
     checkpoint_state = load_file(checkpoint_path, device="cpu")
     transformer_state, conditioner_state = split_anima_checkpoint_state_dict(checkpoint_state)
