@@ -29,7 +29,6 @@ Create `testing/test_ui_install_scripts.py` with:
 
 ```python
 import json
-import contextlib
 import unittest
 from pathlib import Path
 
@@ -158,6 +157,7 @@ git commit -m "fix: approve required npm install scripts"
 Create `testing/test_manager_nodejs.py` with:
 
 ```python
+import contextlib
 import unittest
 from unittest import mock
 
