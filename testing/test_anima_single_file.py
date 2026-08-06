@@ -580,6 +580,96 @@ class AnimaModelRoutingTest(unittest.TestCase):
     @patch(
         "extensions_built_in.diffusion_models.anima.anima.build_anima_single_file_pipeline"
     )
+    def test_single_file_route_preserves_quantization_and_layer_offloading(
+        self, build_pipeline
+    ):
+        pipe = self.make_pipeline()
+        build_pipeline.return_value = pipe
+        model = self.make_model("/models/anima.safetensors")
+        model.model_config.quantize = True
+        model.model_config.qtype = "transformer-qtype"
+        model.model_config.quantize_te = True
+        model.model_config.qtype_te = "text-encoder-qtype"
+        model.model_config.layer_offloading = True
+        model.model_config.layer_offloading_transformer_percent = 0.25
+        model.model_config.layer_offloading_text_encoder_percent = 0.5
+
+        workflow = Mock()
+        with (
+            patch("extensions_built_in.diffusion_models.anima.anima.quantize_model") as quantize_model,
+            patch("extensions_built_in.diffusion_models.anima.anima.get_qtype") as get_qtype,
+            patch("extensions_built_in.diffusion_models.anima.anima.quantize") as quantize,
+            patch("extensions_built_in.diffusion_models.anima.anima.freeze") as freeze,
+            patch("extensions_built_in.diffusion_models.anima.anima.MemoryManager.attach") as attach,
+            patch("extensions_built_in.diffusion_models.anima.anima.flush"),
+        ):
+            get_qtype.side_effect = ["conditioner-weights", "text-encoder-weights"]
+            workflow.attach_mock(quantize_model, "quantize_model")
+            workflow.attach_mock(get_qtype, "get_qtype")
+            workflow.attach_mock(quantize, "quantize")
+            workflow.attach_mock(freeze, "freeze")
+            workflow.attach_mock(attach, "attach")
+
+            AnimaModel.load_model(model)
+
+        self.assertEqual(
+            workflow.mock_calls,
+            [
+                call.quantize_model(model, pipe.transformer),
+                call.get_qtype("transformer-qtype"),
+                call.quantize(pipe.text_conditioner, weights="conditioner-weights"),
+                call.freeze(pipe.text_conditioner),
+                call.attach(pipe.transformer, torch.device("cpu"), offload_percent=0.25),
+                call.attach(pipe.text_encoder, torch.device("cpu"), offload_percent=0.5),
+                call.attach(pipe.text_conditioner, torch.device("cpu"), offload_percent=0.5),
+                call.get_qtype("text-encoder-qtype"),
+                call.quantize(pipe.text_encoder, weights="text-encoder-weights"),
+                call.freeze(pipe.text_encoder),
+            ],
+        )
+        self.assertEqual(
+            model.print_and_status_update.call_args_list,
+            [
+                call("Loading Anima model"),
+                call("Quantizing Transformer"),
+                call("Quantizing Text Conditioner"),
+                call("Moving transformer to CPU"),
+                call("Quantizing Text Encoder"),
+                call("Model Loaded"),
+            ],
+        )
+
+    @patch(
+        "extensions_built_in.diffusion_models.anima.anima.build_anima_single_file_pipeline"
+    )
+    def test_single_file_route_preserves_non_low_vram_device_placement(
+        self, build_pipeline
+    ):
+        pipe = self.make_pipeline()
+        build_pipeline.return_value = pipe
+        model = self.make_model("/models/anima.safetensors")
+        model.model_config.low_vram = False
+        model.device_torch = torch.device("cuda:0")
+
+        AnimaModel.load_model(model)
+
+        pipe.transformer.to.assert_called_once_with(
+            torch.device("cuda:0"), dtype=torch.bfloat16
+        )
+        pipe.text_conditioner.to.assert_called_once_with(
+            torch.device("cuda:0"), dtype=torch.bfloat16
+        )
+        pipe.text_encoder.to.assert_called_once_with(
+            torch.device("cuda:0"), dtype=torch.bfloat16
+        )
+        self.assertEqual(
+            model.print_and_status_update.call_args_list,
+            [call("Loading Anima model"), call("Model Loaded")],
+        )
+
+    @patch(
+        "extensions_built_in.diffusion_models.anima.anima.build_anima_single_file_pipeline"
+    )
     @patch("extensions_built_in.diffusion_models.anima.anima.AnimaAutoBlocks")
     def test_load_model_preserves_repository_pipeline_loading(
         self, auto_blocks_class, build_pipeline
