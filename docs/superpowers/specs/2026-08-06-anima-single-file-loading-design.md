@@ -82,8 +82,9 @@ The loader performs these steps in order:
    `AnimaTextConditioner` created from the official conditioner configuration.
 5. Create the Qwen3 text encoder from its official configuration and strictly
    load the local `te_name_or_path` safetensors.
-6. Create the Qwen Image VAE from its official configuration and load the local
-   `vae_path` through its supported original-checkpoint conversion path.
+6. Create the Qwen Image VAE from its official configuration, normalize the
+   ComfyUI-style VAE keys into Diffusers component keys, and strictly load the
+   local `vae_path` weights.
 7. Load the tokenizers and scheduler metadata, register all resolved components
    on the modular pipeline, and continue through the existing scheduler update,
    quantization, layer offloading, and device-placement flow.
@@ -131,6 +132,7 @@ Automated tests will cover:
 - selection of pipeline mode versus local single-file mode;
 - validation of required local paths and file extensions;
 - separation and prefix normalization of transformer and conditioner tensors;
+- deterministic normalization of ComfyUI Qwen Image VAE keys;
 - rejection of missing or incompatible conditioner tensors;
 - the regression that a `.safetensors` path is not passed directly to
   `AnimaAutoBlocks.init_pipeline`;
