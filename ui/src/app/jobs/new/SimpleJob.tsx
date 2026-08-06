@@ -33,6 +33,7 @@ import { FlipHorizontal2, FlipVertical2 } from 'lucide-react';
 import { handleModelArchChange } from './utils';
 import { IoFlaskSharp } from 'react-icons/io5';
 import { isMac } from '@/helpers/basic';
+import { normalizeOptionalModelPath } from '@/helpers/animaModelPaths';
 
 type Props = {
   jobConfig: JobConfig;
@@ -304,7 +305,7 @@ export default function SimpleJob({
                 label="Text Encoder Path"
                 value={jobConfig.config.process[0].model.te_name_or_path ?? ''}
                 onChange={(value: string | undefined) => {
-                  setJobConfig(value?.trim() || undefined, 'config.process[0].model.te_name_or_path');
+                  setJobConfig(normalizeOptionalModelPath(value), 'config.process[0].model.te_name_or_path');
                 }}
                 placeholder="/path/to/qwen_3_06b_base.safetensors"
               />
@@ -314,7 +315,7 @@ export default function SimpleJob({
                 label="VAE Path"
                 value={jobConfig.config.process[0].model.vae_path ?? ''}
                 onChange={(value: string | undefined) => {
-                  setJobConfig(value?.trim() || undefined, 'config.process[0].model.vae_path');
+                  setJobConfig(normalizeOptionalModelPath(value), 'config.process[0].model.vae_path');
                 }}
                 placeholder="/path/to/qwen_image_vae.safetensors"
               />

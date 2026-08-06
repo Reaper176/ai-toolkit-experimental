@@ -36,11 +36,8 @@ export const handleModelArchChange = (
   // update the defaults when a model is selected
   const newArch = modelArchs.find(model => model.name === newArchName);
 
-  const supportsAnimaPaths =
-    newArch?.additionalSections?.includes('model.te_name_or_path') === true &&
-    newArch.additionalSections.includes('model.vae_path');
   const currentModel = jobConfig.config.process[0].model;
-  const cleanedModel = clearUnsupportedAnimaPaths(currentModel, supportsAnimaPaths);
+  const cleanedModel = clearUnsupportedAnimaPaths(currentModel, newArch?.additionalSections);
   if (cleanedModel !== currentModel) {
     setJobConfig(cleanedModel, 'config.process[0].model');
   }
