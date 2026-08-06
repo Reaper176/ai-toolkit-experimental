@@ -82,7 +82,7 @@ class AnimaSingleFileTests(unittest.TestCase):
             "decoder.middle.1.proj.bias": "decoder.mid_block.attentions.0.proj.bias",
             "encoder.downsamples.0.residual.0.gamma": "encoder.down_blocks.0.norm1.gamma",
             "encoder.downsamples.1.residual.6.weight": "encoder.down_blocks.1.conv2.weight",
-            "encoder.downsamples.2.residual.3.gamma": "encoder.down_blocks.2.norm2.gamma",
+            "encoder.downsamples.3.residual.3.gamma": "encoder.down_blocks.3.norm2.gamma",
             "encoder.downsamples.3.residual.6.weight": "encoder.down_blocks.3.conv2.weight",
             "encoder.downsamples.3.shortcut.weight": "encoder.down_blocks.3.conv_shortcut.weight",
             "encoder.downsamples.2.resample.1.weight": "encoder.down_blocks.2.resample.1.weight",
