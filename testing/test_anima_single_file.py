@@ -1,8 +1,19 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import Mock, call, patch
+
+import torch
 
 from extensions_built_in.diffusion_models.anima.single_file import (
+    ANIMA_BASE_REPO,
+    build_anima_single_file_pipeline,
+    cast_floating_state_dict,
+    load_component_state_dict,
+    load_local_conditioner,
+    load_local_qwen3,
+    load_local_transformer,
+    load_local_vae,
     normalize_qwen3_state_dict,
     normalize_qwen_image_vae_state_dict,
     select_anima_loading_mode,
@@ -12,6 +23,318 @@ from extensions_built_in.diffusion_models.anima.single_file import (
 
 
 class AnimaSingleFileTests(unittest.TestCase):
+    def test_cast_floating_state_dict_only_casts_floating_tensors(self):
+        floating = torch.ones(1, dtype=torch.float32)
+        integer = torch.ones(1, dtype=torch.int64)
+
+        result = cast_floating_state_dict({"floating": floating, "integer": integer}, torch.bfloat16)
+
+        self.assertEqual(result["floating"].dtype, torch.bfloat16)
+        self.assertIs(result["integer"], integer)
+
+    def test_load_component_state_dict_uses_strict_assign_loading(self):
+        model = torch.nn.Linear(2, 1)
+        state_dict = {key: value.detach().clone() for key, value in model.state_dict().items()}
+
+        with patch.object(model, "load_state_dict", wraps=model.load_state_dict) as load_state_dict:
+            result = load_component_state_dict(model, state_dict, "transformer", "/models/anima.safetensors")
+
+        self.assertIs(result, model)
+        load_state_dict.assert_called_once_with(state_dict, strict=True, assign=True)
+
+    def test_load_component_state_dict_wraps_incompatibility_with_context(self):
+        model = Mock()
+        model.load_state_dict.side_effect = RuntimeError("Missing key(s) in state_dict")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"transformer.*\/models\/anima\.safetensors.*Missing key",
+        ):
+            load_component_state_dict(model, {}, "transformer", "/models/anima.safetensors")
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.CosmosTransformer3DModel.from_single_file")
+    def test_load_local_transformer_uses_official_config_and_local_state(self, from_single_file):
+        state_dict = {"net.block.weight": torch.ones(1)}
+        transformer = Mock()
+        from_single_file.return_value = transformer
+
+        result = load_local_transformer(state_dict, torch.bfloat16, "/models/anima.safetensors")
+
+        self.assertIs(result, transformer)
+        from_single_file.assert_called_once_with(
+            state_dict,
+            config=ANIMA_BASE_REPO,
+            subfolder="transformer",
+            torch_dtype=torch.bfloat16,
+            low_cpu_mem_usage=True,
+        )
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.CosmosTransformer3DModel.from_single_file")
+    def test_load_local_transformer_wraps_errors_with_checkpoint_context(self, from_single_file):
+        from_single_file.side_effect = RuntimeError("shape mismatch")
+
+        with self.assertRaisesRegex(ValueError, r"transformer.*\/models\/anima\.safetensors.*shape mismatch"):
+            load_local_transformer({}, torch.bfloat16, "/models/anima.safetensors")
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_component_state_dict")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.cast_floating_state_dict")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.init_empty_weights")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.AnimaTextConditioner")
+    def test_load_local_conditioner_builds_from_official_config_and_strictly_loads_local_state(
+        self,
+        conditioner_class,
+        init_empty_weights,
+        cast_state_dict,
+        load_component,
+    ):
+        config = {"hidden_size": 8}
+        model = Mock()
+        raw_state = {"proj.weight": torch.ones(1)}
+        cast_state = {"proj.weight": torch.ones(1, dtype=torch.bfloat16)}
+        conditioner_class.load_config.return_value = config
+        conditioner_class.from_config.return_value = model
+        cast_state_dict.return_value = cast_state
+        load_component.return_value = model
+
+        result = load_local_conditioner(raw_state, "/models/anima.safetensors", torch.bfloat16)
+
+        self.assertIs(result, model)
+        conditioner_class.load_config.assert_called_once_with(ANIMA_BASE_REPO, subfolder="text_conditioner")
+        init_empty_weights.assert_called_once_with()
+        conditioner_class.from_config.assert_called_once_with(config)
+        cast_state_dict.assert_called_once_with(raw_state, torch.bfloat16)
+        load_component.assert_called_once_with(
+            model,
+            cast_state,
+            "Anima text conditioner",
+            "/models/anima.safetensors",
+        )
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_component_state_dict")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.cast_floating_state_dict")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.normalize_qwen3_state_dict")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_file")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.init_empty_weights")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.Qwen3Model")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.Qwen3Config")
+    def test_load_local_qwen3_normalizes_before_strict_loading(
+        self,
+        config_class,
+        model_class,
+        init_empty_weights,
+        load_file,
+        normalize,
+        cast_state_dict,
+        load_component,
+    ):
+        config = Mock()
+        model = Mock()
+        raw_state = {"model.layers.0.weight": torch.ones(1)}
+        normalized_state = {"layers.0.weight": torch.ones(1)}
+        cast_state = {"layers.0.weight": torch.ones(1, dtype=torch.bfloat16)}
+        config_class.from_pretrained.return_value = config
+        model_class.return_value = model
+        load_file.return_value = raw_state
+        normalize.return_value = normalized_state
+        cast_state_dict.return_value = cast_state
+        load_component.return_value = model
+
+        result = load_local_qwen3("/models/qwen.safetensors", torch.bfloat16)
+
+        self.assertIs(result, model)
+        config_class.from_pretrained.assert_called_once_with(ANIMA_BASE_REPO, subfolder="text_encoder")
+        init_empty_weights.assert_called_once_with()
+        model_class.assert_called_once_with(config)
+        load_file.assert_called_once_with("/models/qwen.safetensors", device="cpu")
+        normalize.assert_called_once_with(raw_state)
+        cast_state_dict.assert_called_once_with(normalized_state, torch.bfloat16)
+        load_component.assert_called_once_with(
+            model,
+            cast_state,
+            "Qwen3 text encoder",
+            "/models/qwen.safetensors",
+        )
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_component_state_dict")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.cast_floating_state_dict")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.normalize_qwen_image_vae_state_dict")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_file")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.init_empty_weights")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.AutoencoderKLQwenImage")
+    def test_load_local_vae_normalizes_before_strict_loading(
+        self,
+        vae_class,
+        init_empty_weights,
+        load_file,
+        normalize,
+        cast_state_dict,
+        load_component,
+    ):
+        config = {"latent_channels": 16}
+        model = Mock()
+        raw_state = {"conv1.weight": torch.ones(1)}
+        normalized_state = {"quant_conv.weight": torch.ones(1)}
+        cast_state = {"quant_conv.weight": torch.ones(1, dtype=torch.bfloat16)}
+        vae_class.load_config.return_value = config
+        vae_class.from_config.return_value = model
+        load_file.return_value = raw_state
+        normalize.return_value = normalized_state
+        cast_state_dict.return_value = cast_state
+        load_component.return_value = model
+
+        result = load_local_vae("/models/vae.safetensors", torch.bfloat16)
+
+        self.assertIs(result, model)
+        vae_class.load_config.assert_called_once_with(ANIMA_BASE_REPO, subfolder="vae")
+        init_empty_weights.assert_called_once_with()
+        vae_class.from_config.assert_called_once_with(config)
+        load_file.assert_called_once_with("/models/vae.safetensors", device="cpu")
+        normalize.assert_called_once_with(raw_state)
+        cast_state_dict.assert_called_once_with(normalized_state, torch.bfloat16)
+        load_component.assert_called_once_with(
+            model,
+            cast_state,
+            "Qwen Image VAE",
+            "/models/vae.safetensors",
+        )
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_local_vae")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_local_qwen3")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_local_conditioner")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_local_transformer")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.split_anima_checkpoint_state_dict")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_file")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.validate_local_safetensors")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.AnimaAutoBlocks")
+    def test_build_pipeline_assembles_only_local_model_components(
+        self,
+        auto_blocks_class,
+        validate_path,
+        load_file,
+        split_state_dict,
+        load_transformer,
+        load_conditioner,
+        load_qwen3,
+        load_vae,
+    ):
+        checkpoint_path = "/requested/anima.safetensors"
+        text_encoder_path = "/requested/qwen.safetensors"
+        vae_path = "/requested/vae.safetensors"
+        validated_checkpoint = "/validated/anima.safetensors"
+        validated_text_encoder = "/validated/qwen.safetensors"
+        validated_vae = "/validated/vae.safetensors"
+        validated_paths = iter((validated_checkpoint, validated_text_encoder, validated_vae))
+        events = []
+        validate_path.side_effect = lambda path, component: next(validated_paths)
+
+        pipe = Mock()
+        auto_blocks = Mock()
+        auto_blocks_class.return_value = auto_blocks
+        auto_blocks.init_pipeline.side_effect = lambda repo: events.append(("init_pipeline", repo)) or pipe
+        pipe.load_components.side_effect = lambda **kwargs: events.append(("load_components", kwargs))
+
+        checkpoint_state = {"checkpoint": "state"}
+        transformer_state = {"transformer": "state"}
+        conditioner_state = {"conditioner": "state"}
+        load_file.side_effect = lambda path, device: events.append(("load_file", path, device)) or checkpoint_state
+        split_state_dict.side_effect = (
+            lambda state: events.append(("split", state)) or (transformer_state, conditioner_state)
+        )
+
+        transformer = Mock(name="transformer")
+        conditioner = Mock(name="conditioner")
+        text_encoder = Mock(name="text_encoder")
+        vae = Mock(name="vae")
+        load_transformer.side_effect = lambda *args, **kwargs: events.append(("transformer", args, kwargs)) or transformer
+        load_conditioner.side_effect = lambda *args, **kwargs: events.append(("conditioner", args, kwargs)) or conditioner
+        load_qwen3.side_effect = lambda *args, **kwargs: events.append(("qwen3", args, kwargs)) or text_encoder
+        load_vae.side_effect = lambda *args, **kwargs: events.append(("vae", args, kwargs)) or vae
+        pipe.update_components.side_effect = lambda **kwargs: events.append(("update_components", kwargs))
+
+        result = build_anima_single_file_pipeline(
+            checkpoint_path,
+            text_encoder_path,
+            vae_path,
+            torch.bfloat16,
+        )
+
+        self.assertIs(result, pipe)
+        self.assertEqual(
+            validate_path.call_args_list,
+            [
+                call(checkpoint_path, "Anima model"),
+                call(text_encoder_path, "Text encoder"),
+                call(vae_path, "VAE"),
+            ],
+        )
+        auto_blocks.init_pipeline.assert_called_once_with(ANIMA_BASE_REPO)
+        self.assertNotIn(checkpoint_path, auto_blocks.init_pipeline.call_args.args)
+        pipe.load_components.assert_called_once_with(names=["tokenizer", "t5_tokenizer", "scheduler"])
+        load_file.assert_called_once_with(validated_checkpoint, device="cpu")
+        split_state_dict.assert_called_once_with(checkpoint_state)
+        load_transformer.assert_called_once_with(transformer_state, torch.bfloat16, validated_checkpoint)
+        load_conditioner.assert_called_once_with(conditioner_state, validated_checkpoint, torch.bfloat16)
+        load_qwen3.assert_called_once_with(validated_text_encoder, torch.bfloat16)
+        load_vae.assert_called_once_with(validated_vae, torch.bfloat16)
+        pipe.update_components.assert_called_once_with(
+            transformer=transformer,
+            text_conditioner=conditioner,
+            text_encoder=text_encoder,
+            vae=vae,
+        )
+        self.assertEqual(
+            [event[0] for event in events],
+            [
+                "init_pipeline",
+                "load_components",
+                "load_file",
+                "split",
+                "transformer",
+                "conditioner",
+                "qwen3",
+                "vae",
+                "update_components",
+            ],
+        )
+
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_local_vae")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_local_qwen3")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_local_conditioner")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_local_transformer")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.load_file")
+    @patch("extensions_built_in.diffusion_models.anima.single_file.AnimaAutoBlocks")
+    def test_build_pipeline_rejects_invalid_paths_before_construction(
+        self,
+        auto_blocks_class,
+        load_file,
+        load_transformer,
+        load_conditioner,
+        load_qwen3,
+        load_vae,
+    ):
+        with tempfile.NamedTemporaryFile(suffix=".safetensors") as valid_file:
+            invalid_cases = (
+                ("", valid_file.name, valid_file.name, ValueError, "Anima model.*blank"),
+                (valid_file.name, "/missing/qwen.safetensors", valid_file.name, FileNotFoundError, "Text encoder.*missing"),
+                (valid_file.name, valid_file.name, "  ", ValueError, "VAE.*blank"),
+            )
+            for checkpoint_path, text_encoder_path, vae_path, error_type, message in invalid_cases:
+                with self.subTest(message=message):
+                    with self.assertRaisesRegex(error_type, message):
+                        build_anima_single_file_pipeline(
+                            checkpoint_path,
+                            text_encoder_path,
+                            vae_path,
+                            torch.bfloat16,
+                        )
+
+        auto_blocks_class.assert_not_called()
+        load_file.assert_not_called()
+        load_transformer.assert_not_called()
+        load_conditioner.assert_not_called()
+        load_qwen3.assert_not_called()
+        load_vae.assert_not_called()
+
     def test_safetensors_path_selects_single_file(self):
         self.assertEqual(select_anima_loading_mode("/models/anima.safetensors"), "single_file")
 
