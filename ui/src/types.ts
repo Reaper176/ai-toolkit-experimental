@@ -39,6 +39,8 @@ export interface GpuInfo {
   fan: GpuFan;
 }
 
+export type GPUBackend = 'nvidia' | 'rocm' | 'mps' | null;
+
 export interface CpuInfo {
   name: string;
   cores: number;
@@ -52,6 +54,7 @@ export interface CpuInfo {
 export interface GPUApiResponse {
   hasNvidiaSmi: boolean;
   isMac: boolean;
+  backend: GPUBackend;
   gpus: GpuInfo[];
   error?: string;
 }

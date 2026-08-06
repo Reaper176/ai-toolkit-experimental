@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import os from 'os';
 import { cached } from '@/server/apiCache';
 import { loadMacstats } from '@/server/macstats';
+import { parseRocmSmiJson } from '@/server/rocmGpu';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 interface MacGpuResult {
   name: string;
@@ -101,6 +103,7 @@ async function getGpuInfo() {
       return {
         hasNvidiaSmi: false,
         isMac: true,
+        backend: 'mps' as const,
         gpus: [
           {
             index: 0,
@@ -126,6 +129,7 @@ async function getGpuInfo() {
     return {
       hasNvidiaSmi: false,
       isMac: true,
+      backend: null,
       gpus: [],
       error: 'Could not read Mac GPU stats',
     };
@@ -135,11 +139,27 @@ async function getGpuInfo() {
   const hasNvidiaSmi = await checkNvidiaSmi(isWindows);
 
   if (!hasNvidiaSmi) {
+    if (platform === 'linux') {
+      try {
+        const rocmGpus = await getRocmGpuStats();
+        return {
+          hasNvidiaSmi: false,
+          isMac: false,
+          backend: 'rocm' as const,
+          gpus: rocmGpus,
+          ...(rocmGpus.length === 0 ? { error: 'No trainable ROCm GPUs detected' } : {}),
+        };
+      } catch {
+        // Fall through to the backend-neutral unavailable response.
+      }
+    }
+
     return {
       hasNvidiaSmi: false,
       isMac: false,
+      backend: null,
       gpus: [],
-      error: 'nvidia-smi not found or not accessible',
+      error: 'No supported GPU monitoring tool was found',
     };
   }
 
@@ -148,6 +168,8 @@ async function getGpuInfo() {
 
   return {
     hasNvidiaSmi: true,
+    isMac: false,
+    backend: 'nvidia' as const,
     gpus: gpuStats,
   };
 }
@@ -157,17 +179,27 @@ export async function GET() {
     const gpuInfo = await cached('gpu-info', getGpuInfo);
     return NextResponse.json(gpuInfo);
   } catch (error) {
-    console.error('Error fetching NVIDIA GPU stats:', error);
+    console.error('Error fetching GPU stats:', error);
     return NextResponse.json(
       {
         hasNvidiaSmi: false,
         isMac: false,
+        backend: null,
         gpus: [],
         error: `Failed to fetch GPU stats: ${error instanceof Error ? error.message : String(error)}`,
       },
       { status: 500 },
     );
   }
+}
+
+async function getRocmGpuStats() {
+  const { stdout } = await execFileAsync(
+    'rocm-smi',
+    ['--showproductname', '--showuse', '--showmeminfo', 'vram', '--showtemp', '--showpower', '--json'],
+    { encoding: 'utf-8', timeout: 5000, maxBuffer: 1024 * 1024 },
+  );
+  return parseRocmSmiJson(stdout);
 }
 
 async function checkNvidiaSmi(isWindows: boolean): Promise<boolean> {
