@@ -147,6 +147,8 @@ def build_anima_single_file_pipeline(
 def select_anima_loading_mode(name_or_path):
     """Return the loader mode without attempting to load model data."""
     candidate = os.path.abspath(os.path.expanduser(str(name_or_path)))
+    if os.path.isdir(candidate):
+        return "pipeline"
     if candidate.lower().endswith(".safetensors"):
         return "single_file"
     if os.path.isfile(candidate):

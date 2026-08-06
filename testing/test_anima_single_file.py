@@ -395,8 +395,14 @@ class AnimaSingleFileTests(unittest.TestCase):
         load_qwen3.assert_not_called()
         load_vae.assert_not_called()
 
-    def test_safetensors_path_selects_single_file(self):
-        self.assertEqual(select_anima_loading_mode("/models/anima.safetensors"), "single_file")
+    def test_missing_safetensors_path_selects_single_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = os.path.join(directory, "missing.safetensors")
+            self.assertEqual(select_anima_loading_mode(checkpoint), "single_file")
+
+    def test_safetensors_suffix_directory_selects_pipeline(self):
+        with tempfile.TemporaryDirectory(suffix=".safetensors") as directory:
+            self.assertEqual(select_anima_loading_mode(directory), "pipeline")
 
     def test_hub_id_and_directory_select_pipeline(self):
         self.assertEqual(select_anima_loading_mode("circlestone-labs/Anima-Base-v1.0-Diffusers"), "pipeline")
@@ -696,6 +702,28 @@ class AnimaModelRoutingTest(unittest.TestCase):
         pipe = self.make_pipeline()
         auto_blocks_class.return_value.init_pipeline.return_value = pipe
         with tempfile.TemporaryDirectory() as directory:
+            model = self.make_model(directory)
+
+            AnimaModel.load_model(model)
+
+            build_pipeline.assert_not_called()
+            auto_blocks_class.return_value.init_pipeline.assert_called_once_with(directory)
+            pipe.load_components.assert_called_once_with(
+                torch_dtype=torch.bfloat16,
+                pretrained_model_name_or_path=os.path.abspath(directory),
+            )
+            pipe.update_components.assert_called_once_with(scheduler="training-scheduler")
+
+    @patch(
+        "extensions_built_in.diffusion_models.anima.anima.build_anima_single_file_pipeline"
+    )
+    @patch("extensions_built_in.diffusion_models.anima.anima.AnimaAutoBlocks")
+    def test_load_model_preserves_safetensors_suffix_directory_loading(
+        self, auto_blocks_class, build_pipeline
+    ):
+        pipe = self.make_pipeline()
+        auto_blocks_class.return_value.init_pipeline.return_value = pipe
+        with tempfile.TemporaryDirectory(suffix=".safetensors") as directory:
             model = self.make_model(directory)
 
             AnimaModel.load_model(model)
