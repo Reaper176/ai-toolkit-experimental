@@ -21,8 +21,9 @@ const TWO_CARD_OUTPUT = JSON.stringify({
   },
 });
 
-const [gpu] = parseRocmSmiJson(TWO_CARD_OUTPUT);
-assert.equal(parseRocmSmiJson(TWO_CARD_OUTPUT).length, 1);
+const gpus = parseRocmSmiJson(TWO_CARD_OUTPUT);
+assert.equal(gpus.length, 1);
+const [gpu] = gpus;
 assert.deepEqual(gpu, {
   index: 0,
   name: 'AMD Radeon RX 7900 XTX',
@@ -35,20 +36,41 @@ assert.deepEqual(gpu, {
   fan: { speed: 0 },
 });
 
-const cardTwoOnly = JSON.stringify({
+const SPARSE_CARD_OUTPUT = JSON.stringify({
   card2: {
     'GPU use (%)': '10',
     'VRAM Total Memory (B)': String(4 * 1024 ** 3),
     'VRAM Total Used Memory (B)': String(1024 ** 3),
-    'Card Series': 'AMD Test GPU',
+    'Card Series': 'AMD Test GPU 2',
+    'Current Socket Graphics Package Power (W)': '32.142',
+  },
+  card3: {
+    'GPU use (%)': '5',
+    'VRAM Total Memory (B)': String(2 * 1024 ** 3 - 1),
+    'VRAM Total Used Memory (B)': String(256 * 1024 ** 2),
+    'Card Series': 'AMD Below Threshold GPU',
+  },
+  card0: {
+    'GPU use (%)': '20',
+    'VRAM Total Memory (B)': String(2 * 1024 ** 3),
+    'VRAM Total Used Memory (B)': String(512 * 1024 ** 2),
+    'Card Series': 'AMD Test GPU 0',
   },
 });
-const [cardTwo] = parseRocmSmiJson(cardTwoOnly);
-assert.equal(cardTwo.index, 2);
-assert.equal(cardTwo.temperature, 0);
-assert.equal(cardTwo.power.draw, 0);
+const sparseCards = parseRocmSmiJson(SPARSE_CARD_OUTPUT);
+assert.equal(sparseCards.length, 2);
+assert.deepEqual(
+  sparseCards.map(({ index }) => index),
+  [0, 2],
+);
+const [cardZero, cardTwo] = sparseCards;
+assert.equal(cardZero.temperature, 0);
+assert.equal(cardZero.power.draw, 0);
+assert.equal(cardTwo.power.draw, 32.142);
 
 assert.throws(() => parseRocmSmiJson('not-json'), /Invalid ROCm SMI JSON/);
+assert.throws(() => parseRocmSmiJson('null'), /Invalid ROCm SMI JSON/);
+assert.throws(() => parseRocmSmiJson('[]'), /Invalid ROCm SMI JSON/);
 assert.throws(
   () => parseRocmSmiJson(JSON.stringify({ card0: { 'Card Series': 'Missing memory' } })),
   /missing required fields/i,
