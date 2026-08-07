@@ -37,8 +37,20 @@ class Ideogram4CaptionerExtension(Extension):
         return Ideogram4Captioner
 
 
+class DINOv3TaggerCaptionerExtension(Extension):
+    uid = "DINOv3TaggerCaptioner"
+    name = "DINOv3 Tagger Captioner"
+
+    @classmethod
+    def get_process(cls):
+        from .DINOv3TaggerCaptioner import DINOv3TaggerCaptioner
+
+        return DINOv3TaggerCaptioner
+
+
 AI_TOOLKIT_EXTENSIONS = [
     AceStepCaptionerExtension,
     Qwen3VLCaptionerExtension,
     Ideogram4CaptionerExtension,
+    DINOv3TaggerCaptionerExtension,
 ]

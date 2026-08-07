@@ -42,6 +42,10 @@ from extensions_built_in.captioner.dinov3_tagger.model import (
     split_checkpoint_state_dict,
     strict_assign,
 )
+from extensions_built_in.captioner.DINOv3TaggerCaptioner import (
+    DINOv3TaggerCaptioner,
+    DINOv3TaggerConfig,
+)
 
 
 class DINOv3TaggerSupportTest(unittest.TestCase):
@@ -618,7 +622,9 @@ class DINOv3TaggerModelTest(unittest.TestCase):
         self.assertEqual(assign.call_count, 2)
         assigned_backbone = assign.call_args_list[0].args[1]
         self.assertEqual(assigned_backbone["norm.weight"].dtype, torch.bfloat16)
-        self.assertEqual(assign.call_args_list[1].args[1]["weight"].dtype, torch.float32)
+        self.assertEqual(
+            assign.call_args_list[1].args[1]["weight"].dtype, torch.float32
+        )
         model.backbone.to.assert_called_once_with(
             device=torch.device("cpu"), dtype=torch.bfloat16
         )
@@ -639,6 +645,235 @@ class DINOv3TaggerModelTest(unittest.TestCase):
                 device=torch.device("cpu"),
                 dtype=torch.bfloat16,
             )
+
+
+class DINOv3TaggerCaptionerTest(unittest.TestCase):
+    def config(self, **overrides):
+        return DINOv3TaggerConfig(
+            **{
+                "model_name_or_path": "/models/tagger.safetensors",
+                "extensions": ["jpg"],
+                "path_to_caption": "/images",
+                **overrides,
+            }
+        )
+
+    def captioner(self, **config_overrides):
+        captioner = object.__new__(DINOv3TaggerCaptioner)
+        captioner.caption_config = self.config(**config_overrides)
+        captioner.device_torch = torch.device("cpu")
+        captioner.torch_dtype = torch.float32
+        captioner.model = Mock(return_value=torch.tensor([[2.0, 3.0, -2.0]]))
+        captioner.vocabulary = TaggerVocabulary(
+            "/models/vocab.json",
+            ("general tag", "artist tag", "character (name)"),
+            ("general", "artist", "character"),
+        )
+        return captioner
+
+    def test_config_has_approved_defaults_and_disables_quantization(self):
+        config = self.config(quantize=True)
+        self.assertIsNone(config.vocab_path)
+        self.assertEqual(config.selection_mode, "threshold")
+        self.assertEqual(config.threshold, 0.50)
+        self.assertEqual(config.top_k, 30)
+        self.assertEqual(config.included_categories, DEFAULT_INCLUDED_CATEGORIES)
+        self.assertFalse(config.use_underscores)
+        self.assertFalse(config.escape_parentheses)
+        self.assertEqual(config.max_res, 1024)
+        self.assertFalse(config.quantize)
+
+    def test_config_rejects_invalid_tagger_options(self):
+        invalid = (
+            ({"selection_mode": "all"}, "selection_mode"),
+            ({"threshold": -0.1}, "threshold"),
+            ({"threshold": 1.1}, "threshold"),
+            ({"top_k": 0}, "top_k"),
+            ({"top_k": True}, "top_k"),
+            ({"max_res": PATCH_SIZE - 1}, "max_res"),
+            ({"max_res": True}, "max_res"),
+            ({"included_categories": ["general", "unknown"]}, "Unknown"),
+        )
+        for options, message in invalid:
+            with (
+                self.subTest(options=options),
+                self.assertRaisesRegex(ValueError, message),
+            ):
+                self.config(**options)
+
+    @patch("extensions_built_in.captioner.DINOv3TaggerCaptioner.load_tagger_model")
+    @patch("extensions_built_in.captioner.DINOv3TaggerCaptioner.load_vocabulary")
+    @patch("extensions_built_in.captioner.DINOv3TaggerCaptioner.resolve_vocab_path")
+    @patch(
+        "extensions_built_in.captioner.DINOv3TaggerCaptioner.validate_checkpoint_path"
+    )
+    def test_load_validates_and_loads_vocab_before_model(
+        self, validate, resolve, load_vocab, load_model
+    ):
+        events = []
+        validate.side_effect = (
+            lambda path: events.append("checkpoint") or "/real/model.safetensors"
+        )
+        resolve.side_effect = (
+            lambda checkpoint, vocab: events.append("resolve") or "/real/vocab.json"
+        )
+        vocabulary = TaggerVocabulary(
+            "/real/vocab.json", ("one", "two", "three"), ("general",) * 3
+        )
+        load_vocab.side_effect = lambda path: events.append("vocab") or vocabulary
+        model = Mock()
+        load_model.side_effect = lambda *args, **kwargs: events.append("model") or model
+        captioner = self.captioner(vocab_path="/configured/vocab.json")
+        captioner.model = None
+        captioner.vocabulary = None
+        captioner.print_and_status_update = Mock()
+
+        captioner.load_model()
+
+        self.assertEqual(events, ["checkpoint", "resolve", "vocab", "model"])
+        resolve.assert_called_once_with(
+            "/real/model.safetensors", "/configured/vocab.json"
+        )
+        load_model.assert_called_once_with(
+            "/real/model.safetensors",
+            3,
+            device=torch.device("cpu"),
+            dtype=torch.float32,
+        )
+        self.assertEqual(
+            captioner.caption_config.model_name_or_path, "/real/model.safetensors"
+        )
+        self.assertEqual(captioner.caption_config.vocab_path, "/real/vocab.json")
+        self.assertIs(captioner.vocabulary, vocabulary)
+        self.assertIs(captioner.model, model)
+
+    @patch(
+        "extensions_built_in.captioner.DINOv3TaggerCaptioner.load_tagger_model",
+        side_effect=RuntimeError("cannot build"),
+    )
+    @patch("extensions_built_in.captioner.DINOv3TaggerCaptioner.load_vocabulary")
+    @patch(
+        "extensions_built_in.captioner.DINOv3TaggerCaptioner.resolve_vocab_path",
+        return_value="/real/vocab.json",
+    )
+    @patch(
+        "extensions_built_in.captioner.DINOv3TaggerCaptioner.validate_checkpoint_path",
+        return_value="/real/model.safetensors",
+    )
+    def test_load_failure_leaves_no_partial_loaded_state(
+        self, _validate, _resolve, load_vocab, _load_model
+    ):
+        load_vocab.return_value = TaggerVocabulary(
+            "/real/vocab.json", ("one",), ("general",)
+        )
+        captioner = self.captioner()
+        captioner.print_and_status_update = Mock()
+        with self.assertRaisesRegex(RuntimeError, "cannot build"):
+            captioner.load_model()
+        self.assertIsNone(captioner.model)
+        self.assertIsNone(captioner.vocabulary)
+
+    @patch(
+        "extensions_built_in.captioner.DINOv3TaggerCaptioner.preprocess_image",
+        return_value=torch.zeros(1, 3, 16, 16),
+    )
+    def test_inference_masks_categories_before_threshold_and_formats(self, preprocess):
+        captioner = self.captioner(
+            threshold=0.5, use_underscores=True, escape_parentheses=True
+        )
+        captioner.model.return_value = torch.tensor([[2.0, 8.0, 1.0]])
+        result = captioner.get_caption_for_file("/images/example.png")
+        self.assertEqual(result, r"general_tag, character_\(name\)")
+        preprocess.assert_called_once_with("/images/example.png", max_res=1024)
+
+    @patch(
+        "extensions_built_in.captioner.DINOv3TaggerCaptioner.preprocess_image",
+        return_value=torch.zeros(1, 3, 16, 16),
+    )
+    def test_inference_supports_top_k_and_empty_threshold_results(self, _preprocess):
+        captioner = self.captioner(selection_mode="top_k", top_k=1)
+        captioner.model.return_value = torch.tensor([[1.0, 9.0, 2.0]])
+        self.assertEqual(
+            captioner.get_caption_for_file("/images/top-k.png"), "character (name)"
+        )
+        captioner.caption_config.selection_mode = "threshold"
+        captioner.caption_config.threshold = 1.0
+        with patch("builtins.print") as diagnostic:
+            self.assertEqual(captioner.get_caption_for_file("/images/empty.png"), "")
+        self.assertIn("/images/empty.png", diagnostic.call_args.args[0])
+
+    def test_inference_requires_both_model_and_vocabulary(self):
+        captioner = self.captioner()
+        captioner.model = None
+        with self.assertRaisesRegex(RuntimeError, "/images/unloaded.png.*not loaded"):
+            captioner.get_caption_for_file("/images/unloaded.png")
+        captioner.model = Mock()
+        captioner.vocabulary = None
+        with self.assertRaisesRegex(RuntimeError, "/images/unloaded.png.*not loaded"):
+            captioner.get_caption_for_file("/images/unloaded.png")
+
+    @patch(
+        "extensions_built_in.captioner.DINOv3TaggerCaptioner.preprocess_image",
+        side_effect=OSError("bad pixels"),
+    )
+    def test_inference_wraps_failures_with_image_path(self, _preprocess):
+        captioner = self.captioner()
+        with self.assertRaisesRegex(RuntimeError, "/images/broken.png.*bad pixels"):
+            captioner.get_caption_for_file("/images/broken.png")
+
+    def test_inference_does_not_swallow_process_control_exceptions(self):
+        captioner = self.captioner()
+        for exception in (KeyboardInterrupt(), SystemExit()):
+            with (
+                self.subTest(exception=type(exception).__name__),
+                patch(
+                    "extensions_built_in.captioner.DINOv3TaggerCaptioner.preprocess_image",
+                    side_effect=exception,
+                ),
+                self.assertRaises(type(exception)),
+            ):
+                captioner.get_caption_for_file("/images/stopped.png")
+
+    @patch("extensions_built_in.captioner.DINOv3TaggerCaptioner.preprocess_image")
+    def test_inference_moves_pixels_to_device_without_forcing_model_dtype(
+        self, preprocess
+    ):
+        pixels = Mock()
+        moved_pixels = Mock()
+        pixels.to.return_value = moved_pixels
+        preprocess.return_value = pixels
+        captioner = self.captioner()
+
+        captioner.get_caption_for_file("/images/device.png")
+
+        pixels.to.assert_called_once_with(device=torch.device("cpu"))
+        captioner.model.assert_called_once_with(moved_pixels)
+
+    @patch("extensions_built_in.captioner.DINOv3TaggerCaptioner.torch.autocast")
+    def test_autocast_is_limited_to_supported_accelerator_dtypes(self, autocast):
+        cpu = self.captioner()
+        with cpu._autocast_context():
+            pass
+        autocast.assert_not_called()
+        cuda = self.captioner()
+        cuda.device_torch = torch.device("cuda")
+        cuda.torch_dtype = torch.bfloat16
+        with cuda._autocast_context():
+            pass
+        autocast.assert_called_once_with(device_type="cuda", dtype=torch.bfloat16)
+        autocast.reset_mock()
+        cuda.torch_dtype = torch.float32
+        with cuda._autocast_context():
+            pass
+        autocast.assert_not_called()
+
+    def test_registry_appends_lazy_dinov3_extension(self):
+        from extensions_built_in.captioner import AI_TOOLKIT_EXTENSIONS
+
+        extension = AI_TOOLKIT_EXTENSIONS[-1]
+        self.assertEqual(extension.uid, "DINOv3TaggerCaptioner")
+        self.assertEqual(extension.name, "DINOv3 Tagger Captioner")
+        self.assertIs(extension.get_process(), DINOv3TaggerCaptioner)
 
 
 if __name__ == "__main__":
