@@ -403,7 +403,7 @@ class DINOv3TaggerModelTest(unittest.TestCase):
         )
         self.assertEqual(set(head), {"projection.weight"})
 
-    def test_split_rejects_duplicate_normalized_and_unknown_rope_keys(self):
+    def test_split_rejects_duplicate_normalized_keys(self):
         with self.assertRaisesRegex(ValueError, "Duplicate.*layer.0.layer_scale1"):
             split_checkpoint_state_dict(
                 {
@@ -413,13 +413,39 @@ class DINOv3TaggerModelTest(unittest.TestCase):
                 },
                 "/models/tagger.safetensors",
             )
-        with self.assertRaisesRegex(ValueError, "unsupported.*rope_embeddings.weight"):
-            split_checkpoint_state_dict(
+
+    def test_split_drops_only_exact_known_rope_cache_paths(self):
+        backbone, _ = split_checkpoint_state_dict(
+            {
+                "backbone.norm.weight": torch.ones(2),
+                "backbone.rope_embeddings.buffer": torch.ones(1),
+                "backbone.rope_embeddings.inv_freq": torch.ones(1),
+                "backbone.unknown.rope_embeddings.buffer": torch.ones(1),
+                "backbone.rope_embeddings.weight": torch.ones(2),
+                "projection.weight": torch.ones(3, FEATURE_DIM),
+            },
+            "/models/tagger.safetensors",
+        )
+        self.assertEqual(
+            set(backbone),
+            {
+                "norm.weight",
+                "unknown.rope_embeddings.buffer",
+                "rope_embeddings.weight",
+            },
+        )
+        tiny = torch.nn.Linear(2, 2)
+        with self.assertRaisesRegex(
+            ValueError, "Unexpected key.*unknown.rope_embeddings.buffer"
+        ):
+            strict_assign(
+                tiny,
                 {
-                    "backbone.norm.weight": torch.ones(2),
-                    "backbone.rope_embeddings.weight": torch.ones(2),
-                    "projection.weight": torch.ones(3, FEATURE_DIM),
+                    "weight": torch.ones(2, 2),
+                    "bias": torch.ones(2),
+                    "unknown.rope_embeddings.buffer": torch.ones(1),
                 },
+                "tiny backbone",
                 "/models/tagger.safetensors",
             )
 
@@ -534,6 +560,7 @@ class DINOv3TaggerModelTest(unittest.TestCase):
             ((500, 1000), 512, (256, 512)),
             ((64, 32), 512, (64, 32)),
             ((101, 51), 512, (96, 48)),
+            ((100, 99), 512, (96, 80)),
             ((10000, 1), 512, (512, 16)),
         )
         for original, max_res, expected in cases:

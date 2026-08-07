@@ -31,7 +31,9 @@ FEATURE_DIM = 6400
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
-_KNOWN_ROPE_BUFFERS = frozenset({"buffer", "inv_freq"})
+_KNOWN_ROPE_BUFFER_PATHS = frozenset(
+    {"rope_embeddings.buffer", "rope_embeddings.inv_freq"}
+)
 
 
 @lru_cache(maxsize=32)
@@ -244,11 +246,6 @@ class LowRankHead(nn.Module):
         return self.proj_up(self.proj_down(features))
 
 
-def _is_known_rope_buffer(key: str) -> bool:
-    parts = key.split(".")
-    return len(parts) >= 2 and parts[-2] == "rope_embeddings" and parts[-1] in _KNOWN_ROPE_BUFFERS
-
-
 def split_checkpoint_state_dict(
     state_dict: Mapping[str, torch.Tensor],
     checkpoint_path: str,
@@ -270,13 +267,8 @@ def split_checkpoint_state_dict(
             normalized = normalized.removeprefix("model.")
         if normalized.endswith(".lambda1") and ".layer_scale" in normalized:
             normalized = normalized.removesuffix(".lambda1")
-        if "rope_embeddings" in normalized:
-            if _is_known_rope_buffer(normalized):
-                continue
-            raise ValueError(
-                f"DINOv3 checkpoint {checkpoint_path} has unsupported derived "
-                f"RoPE key: {normalized}"
-            )
+        if normalized in _KNOWN_ROPE_BUFFER_PATHS:
+            continue
         if normalized in backbone:
             raise ValueError(
                 f"Duplicate normalized DINOv3 backbone key in "
@@ -564,7 +556,9 @@ def calculate_image_size(
         raise ValueError(
             f"DINOv3 max_res must be an integer of at least {PATCH_SIZE}"
         )
-    scale = min(1.0, max_res / max(width, height))
+    long_edge = max(width, height)
+    target_long_edge = snap_dimension(min(long_edge, max_res))
+    scale = target_long_edge / long_edge
     return (
         snap_dimension(round(width * scale)),
         snap_dimension(round(height * scale)),
