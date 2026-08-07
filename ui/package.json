@@ -10,6 +10,7 @@
     "db_build_start": "npm run update_db && npm run build && npm run start",
     "build_and_start": "npm run install_deps && npm run db_build_start",
     "test:anima-model-paths": "node testing/runAnimaModelPathTests.mjs",
+    "test:dinov3-tagger-captioner": "node testing/runDinov3TaggerTests.mjs",
     "lint": "next lint",
     "update_db": "npx prisma generate && npx prisma db push",
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,css,scss}\""

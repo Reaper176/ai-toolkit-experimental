@@ -1,0 +1,23 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "allowJs": false,
+    "baseUrl": "..",
+    "incremental": false,
+    "isolatedModules": false,
+    "jsx": "react-jsx",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "paths": { "@/*": ["src/*"] },
+    "rootDir": "..",
+    "target": "es2020"
+  },
+  "include": [
+    "../src/components/CaptionSimpleJob.tsx",
+    "../src/helpers/captionJobConfig.ts",
+    "dinov3TaggerOptions.test.ts",
+    "dinov3TaggerTypeChange.test.ts"
+  ],
+  "exclude": ["../.next", "../node_modules"]
+}

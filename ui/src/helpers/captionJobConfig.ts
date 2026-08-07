@@ -1,6 +1,5 @@
-import { CaptionJobConfig } from "@/types";
-import { captionerTypes } from "./captionOptions";
-
+import { CaptionJobConfig } from '@/types';
+import { captionerTypes } from './captionOptions';
 
 export const defaultCaptionJobConfig: CaptionJobConfig = {
   job: 'extension',
@@ -12,8 +11,8 @@ export const defaultCaptionJobConfig: CaptionJobConfig = {
         sqlite_db_path: './aitk_db.db',
         device: 'cuda',
         caption: {
-          model_name_or_path: "ACE-Step/acestep-transcriber",
-          model_name_or_path2: "ACE-Step/acestep-captioner",
+          model_name_or_path: 'ACE-Step/acestep-transcriber',
+          model_name_or_path2: 'ACE-Step/acestep-captioner',
           dtype: 'bf16',
           quantize: true,
           qtype: 'float8',
@@ -29,7 +28,6 @@ export const defaultCaptionJobConfig: CaptionJobConfig = {
   },
 };
 
-
 const repairDefaults = (defaults: { [key: string]: any }) => {
   let newDefaults: { [key: string]: any } = {};
   // if the key doesnt start with config.process[0]., then add it
@@ -41,9 +39,9 @@ const repairDefaults = (defaults: { [key: string]: any }) => {
     }
   }
   return newDefaults;
-}
+};
 
-
+const copyCaptionDefault = (value: unknown) => (Array.isArray(value) ? [...value] : value);
 
 export const handleCaptionerTypeChange = (
   currentTypeName: string,
@@ -67,10 +65,10 @@ export const handleCaptionerTypeChange = (
 
   // revert defaults from previous model
   for (const key in currentDefaults) {
-    setJobConfig(currentDefaults[key][1], key);
+    setJobConfig(copyCaptionDefault(currentDefaults[key][1]), key);
   }
 
   for (const key in newDefaults) {
-    setJobConfig(newDefaults[key][0], key);
+    setJobConfig(copyCaptionDefault(newDefaults[key][0]), key);
   }
 };

@@ -3,6 +3,7 @@ import {
   Checkbox,
   CreatableSelectInput,
   FormGroup,
+  NumberInput,
   SelectInput,
   TextAreaInput,
   TextInput,
@@ -17,6 +18,7 @@ import {
   maxResOptions,
   quantizationOptions,
 } from '@/helpers/captionOptions';
+import { DINOV3_CATEGORIES, normalizeOptionalVocabPath, toggleCategory } from '@/helpers/dinov3TaggerOptions';
 
 type Props = {
   jobConfig: CaptionJobConfig;
@@ -89,6 +91,54 @@ const CaptionSimpleJob: React.FC<Props> = ({ jobConfig, setJobConfig, gpuIDs, se
           />
         </div>
       )}
+      {additionalSections.includes('caption.vocab_path') && (
+        <div className="mt-4">
+          <CreatableSelectInput
+            label="Vocabulary Path (optional)"
+            value={jobConfig.config.process[0].caption.vocab_path || ''}
+            onChange={value => setJobConfig(normalizeOptionalVocabPath(value), 'config.process[0].caption.vocab_path')}
+            options={[]}
+          />
+        </div>
+      )}
+      {additionalSections.includes('caption.selection_mode') && (
+        <div className="mt-4">
+          <SelectInput
+            label="Tag Selection"
+            value={jobConfig.config.process[0].caption.selection_mode || 'threshold'}
+            onChange={value => setJobConfig(value, 'config.process[0].caption.selection_mode')}
+            options={[
+              { value: 'threshold', label: 'Confidence threshold' },
+              { value: 'top_k', label: 'Top count' },
+            ]}
+          />
+        </div>
+      )}
+      {additionalSections.includes('caption.threshold_or_top_k') &&
+        jobConfig.config.process[0].caption.selection_mode !== 'top_k' && (
+          <div className="mt-4">
+            <NumberInput
+              label="Confidence Threshold"
+              value={jobConfig.config.process[0].caption.threshold ?? 0.5}
+              min={0}
+              max={1}
+              onChange={value => value !== null && setJobConfig(value, 'config.process[0].caption.threshold')}
+            />
+          </div>
+        )}
+      {additionalSections.includes('caption.threshold_or_top_k') &&
+        jobConfig.config.process[0].caption.selection_mode === 'top_k' && (
+          <div className="mt-4">
+            <NumberInput
+              label="Top Tag Count"
+              value={jobConfig.config.process[0].caption.top_k ?? 30}
+              min={1}
+              onChange={value =>
+                value !== null && setJobConfig(Math.max(1, Math.trunc(value)), 'config.process[0].caption.top_k')
+              }
+            />
+          </div>
+        )}
       {additionalSections.includes('caption.fixed_caption') && (
         <div className="mt-4">
           <TextInput
@@ -107,20 +157,22 @@ const CaptionSimpleJob: React.FC<Props> = ({ jobConfig, setJobConfig, gpuIDs, se
       )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
         <div>
-          <SelectInput
-            label="Quantize"
-            value={jobConfig.config.process[0].caption.quantize ? jobConfig.config.process[0].caption.qtype : ''}
-            onChange={value => {
-              if (value === '') {
-                setJobConfig(false, 'config.process[0].caption.quantize');
-                value = defaultQtype;
-              } else {
-                setJobConfig(true, 'config.process[0].caption.quantize');
-              }
-              setJobConfig(value, 'config.process[0].caption.qtype');
-            }}
-            options={quantizationOptions}
-          />
+          {selectedCaptionOption?.supportsQuantization !== false && (
+            <SelectInput
+              label="Quantize"
+              value={jobConfig.config.process[0].caption.quantize ? jobConfig.config.process[0].caption.qtype : ''}
+              onChange={value => {
+                if (value === '') {
+                  setJobConfig(false, 'config.process[0].caption.quantize');
+                  value = defaultQtype;
+                } else {
+                  setJobConfig(true, 'config.process[0].caption.quantize');
+                }
+                setJobConfig(value, 'config.process[0].caption.qtype');
+              }}
+              options={quantizationOptions}
+            />
+          )}
           <div className="mt-4">
             <CreatableSelectInput
               label="Caption Extension"
@@ -168,11 +220,13 @@ const CaptionSimpleJob: React.FC<Props> = ({ jobConfig, setJobConfig, gpuIDs, se
         </div>
         <div>
           <FormGroup label="Options">
-            <Checkbox
-              label="Low VRAM"
-              checked={jobConfig.config.process[0].caption.low_vram}
-              onChange={value => setJobConfig(value, 'config.process[0].caption.low_vram')}
-            />
+            {selectedCaptionOption?.supportsLowVram !== false && (
+              <Checkbox
+                label="Low VRAM"
+                checked={jobConfig.config.process[0].caption.low_vram}
+                onChange={value => setJobConfig(value, 'config.process[0].caption.low_vram')}
+              />
+            )}
             <Checkbox
               label="Recaption"
               checked={jobConfig.config.process[0].caption.recaption}
@@ -193,6 +247,41 @@ const CaptionSimpleJob: React.FC<Props> = ({ jobConfig, setJobConfig, gpuIDs, se
           </FormGroup>
         </div>
       </div>
+      {additionalSections.includes('caption.included_categories') && (
+        <div className="mt-4">
+          <FormGroup label="Tag Categories">
+            {DINOV3_CATEGORIES.map(([value, label]) => (
+              <Checkbox
+                key={value}
+                label={label}
+                checked={(jobConfig.config.process[0].caption.included_categories || []).includes(value)}
+                onChange={enabled =>
+                  setJobConfig(
+                    toggleCategory(jobConfig.config.process[0].caption.included_categories || [], value, enabled),
+                    'config.process[0].caption.included_categories',
+                  )
+                }
+              />
+            ))}
+          </FormGroup>
+        </div>
+      )}
+      {additionalSections.includes('caption.tag_formatting') && (
+        <div className="mt-4">
+          <FormGroup label="Tag Formatting">
+            <Checkbox
+              label="Use underscores"
+              checked={jobConfig.config.process[0].caption.use_underscores || false}
+              onChange={value => setJobConfig(value, 'config.process[0].caption.use_underscores')}
+            />
+            <Checkbox
+              label="Escape parentheses"
+              checked={jobConfig.config.process[0].caption.escape_parentheses || false}
+              onChange={value => setJobConfig(value, 'config.process[0].caption.escape_parentheses')}
+            />
+          </FormGroup>
+        </div>
+      )}
       {additionalSections.includes('caption.caption_prompt') && (
         <div className="mt-4">
           <TextAreaInput

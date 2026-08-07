@@ -303,7 +303,14 @@ export interface CaptionProcessConfig {
     fixed_caption?: string;
     caption_extension?: string;
     thinking?: boolean;
-  }
+    vocab_path?: string;
+    selection_mode?: 'threshold' | 'top_k';
+    threshold?: number;
+    top_k?: number;
+    included_categories?: string[];
+    use_underscores?: boolean;
+    escape_parentheses?: boolean;
+  };
 }
 
 export interface CaptionConfigObject {
