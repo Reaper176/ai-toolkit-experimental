@@ -18,6 +18,18 @@ from .dinov3_tagger.support import (
 )
 
 
+def _parse_bool(value, field: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized == "true":
+            return True
+        if normalized == "false":
+            return False
+    raise ValueError(f"DINOv3 {field} must be true or false")
+
+
 class DINOv3TaggerConfig(CaptionConfig):
     """Validated caption-job options specific to the DINOv3 tagger."""
 
@@ -33,8 +45,12 @@ class DINOv3TaggerConfig(CaptionConfig):
         self.threshold = kwargs.get("threshold", 0.50)
         self.top_k = kwargs.get("top_k", 30)
         included = kwargs.get("included_categories", DEFAULT_INCLUDED_CATEGORIES)
-        self.use_underscores = bool(kwargs.get("use_underscores", False))
-        self.escape_parentheses = bool(kwargs.get("escape_parentheses", False))
+        self.use_underscores = _parse_bool(
+            kwargs.get("use_underscores", False), "use_underscores"
+        )
+        self.escape_parentheses = _parse_bool(
+            kwargs.get("escape_parentheses", False), "escape_parentheses"
+        )
 
         if self.selection_mode not in {"threshold", "top_k"}:
             raise ValueError("DINOv3 selection_mode must be 'threshold' or 'top_k'")

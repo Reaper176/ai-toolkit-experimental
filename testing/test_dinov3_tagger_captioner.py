@@ -381,6 +381,27 @@ class DINOv3TaggerModelTest(unittest.TestCase):
         )
         self.assertFalse(model.backbone.layer[0].attention.k_proj.bias is not None)
 
+    def test_projection_head_runs_fp32_outside_active_autocast(self):
+        class AutocastAwareBackbone(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.saw_autocast = False
+
+            def forward(self, _pixel_values):
+                self.saw_autocast = torch.is_autocast_enabled("cpu")
+                return torch.ones(1, 5, D_MODEL, dtype=torch.bfloat16)
+
+        model = DINOv3TaggerModel.__new__(DINOv3TaggerModel)
+        torch.nn.Module.__init__(model)
+        model.backbone = AutocastAwareBackbone()
+        model.head = torch.nn.Linear(FEATURE_DIM, 2, bias=False, dtype=torch.float32)
+
+        with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+            output = model(torch.zeros(1, 3, 16, 16, dtype=torch.bfloat16))
+
+        self.assertTrue(model.backbone.saw_autocast)
+        self.assertEqual(output.dtype, torch.float32)
+
     def test_rope_leaves_cls_and_register_tokens_unchanged(self):
         query = torch.arange(1 * 1 * 7 * 64, dtype=torch.float32).reshape(1, 1, 7, 64)
         key = query + 1
@@ -700,6 +721,28 @@ class DINOv3TaggerCaptionerTest(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, message),
             ):
                 self.config(**options)
+
+    def test_config_parses_only_deliberate_boolean_values(self):
+        recognized = (
+            (True, True),
+            (False, False),
+            ("true", True),
+            ("TRUE", True),
+            (" false ", False),
+        )
+        for value, expected in recognized:
+            with self.subTest(value=value):
+                config = self.config(use_underscores=value, escape_parentheses=value)
+                self.assertIs(config.use_underscores, expected)
+                self.assertIs(config.escape_parentheses, expected)
+
+        for field in ("use_underscores", "escape_parentheses"):
+            for value in (None, 0, 1, [], {}, "yes", ""):
+                with (
+                    self.subTest(field=field, value=value),
+                    self.assertRaisesRegex(ValueError, field),
+                ):
+                    self.config(**{field: value})
 
     @patch("extensions_built_in.captioner.DINOv3TaggerCaptioner.load_tagger_model")
     @patch("extensions_built_in.captioner.DINOv3TaggerCaptioner.load_vocabulary")

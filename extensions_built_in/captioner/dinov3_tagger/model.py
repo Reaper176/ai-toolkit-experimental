@@ -227,6 +227,10 @@ class DINOv3TaggerModel(nn.Module):
         cls = hidden_states[:, 0]
         registers = hidden_states[:, 1 : 1 + N_REGISTERS].flatten(1)
         features = torch.cat((cls, registers), dim=-1).float()
+        device_type = features.device.type
+        if device_type in {"cpu", "cuda"}:
+            with torch.autocast(device_type=device_type, enabled=False):
+                return self.head(features)
         return self.head(features)
 
 
