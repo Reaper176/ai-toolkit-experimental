@@ -1,10 +1,10 @@
 """Pure helpers for validating and selecting DINOv3 tagger vocabulary tags."""
 
 from dataclasses import dataclass
-import glob
 import json
 import os
 from pathlib import Path
+from types import MappingProxyType
 from typing import Collection, Literal, Sequence
 
 import torch
@@ -24,18 +24,20 @@ CATEGORY_NAMES = (
     "lore",
 )
 DEFAULT_INCLUDED_CATEGORIES = frozenset({"general", "character", "species_meta"})
-SOURCE_CATEGORY_NAMES = {
-    -1: "unassigned",
-    0: "general",
-    1: "artist",
-    2: "contributor",
-    3: "copyright",
-    4: "character",
-    5: "species_meta",
-    6: "disambiguation",
-    7: "meta",
-    8: "lore",
-}
+SOURCE_CATEGORY_NAMES = MappingProxyType(
+    {
+        -1: "unassigned",
+        0: "general",
+        1: "artist",
+        2: "contributor",
+        3: "copyright",
+        4: "character",
+        5: "species_meta",
+        6: "disambiguation",
+        7: "meta",
+        8: "lore",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -83,15 +85,15 @@ def resolve_vocab_path(checkpoint_path: str, value: str | None) -> str:
     if value is not None and str(value).strip():
         return _validate_vocab_path(_absolute_path(str(value)))
 
-    directory = os.path.dirname(checkpoint_path)
-    exact_path = os.path.join(directory, EXACT_VOCAB_FILENAME)
-    if os.path.isfile(exact_path):
-        return _validate_vocab_path(_absolute_path(exact_path))
+    directory = Path(checkpoint_path).parent
+    exact_path = directory / EXACT_VOCAB_FILENAME
+    if exact_path.is_file():
+        return _validate_vocab_path(str(exact_path.resolve()))
 
     candidates = sorted(
-        _absolute_path(candidate)
-        for candidate in glob.glob(os.path.join(directory, "*vocab*.json"))
-        if os.path.isfile(candidate)
+        str(candidate.resolve())
+        for candidate in directory.glob("*vocab*.json")
+        if candidate.is_file()
     )
     if not candidates:
         raise FileNotFoundError(
@@ -113,7 +115,7 @@ def load_vocabulary(path: str) -> TaggerVocabulary:
     try:
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ValueError(
             f"Failed to read DINOv3 tagger vocabulary {path}: {error}"
         ) from error
@@ -135,16 +137,9 @@ def load_vocabulary(path: str) -> TaggerVocabulary:
     if not isinstance(category_map, dict):
         raise ValueError(f"DINOv3 tagger vocabulary {path} has invalid tag2category")
 
-    missing = [tag for tag in tags if tag not in category_map]
-    if missing:
-        raise ValueError(
-            f"DINOv3 tagger vocabulary {path} lacks categories for: "
-            f"{', '.join(missing[:8])}"
-        )
-
     categories: list[str] = []
     for tag in tags:
-        source_id = category_map[tag]
+        source_id = category_map.get(tag, -1)
         if isinstance(source_id, bool) or not isinstance(source_id, int):
             raise ValueError(
                 f"DINOv3 tagger vocabulary {path} has non-integer category "
@@ -175,6 +170,8 @@ def select_tag_indices(
             "Tag scores and vocabulary categories must have matching "
             "one-dimensional lengths"
         )
+    if not torch.isfinite(scores).all().item():
+        raise ValueError("DINOv3 tag scores must be finite")
 
     unknown = set(included_categories) - set(CATEGORY_NAMES)
     if unknown:

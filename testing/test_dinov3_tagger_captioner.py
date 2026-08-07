@@ -69,6 +69,13 @@ class DINOv3TaggerSupportTest(unittest.TestCase):
             DEFAULT_INCLUDED_CATEGORIES,
             frozenset({"general", "character", "species_meta"}),
         )
+        original_unassigned = SOURCE_CATEGORY_NAMES[-1]
+        try:
+            with self.assertRaises(TypeError):
+                SOURCE_CATEGORY_NAMES[-1] = "changed"
+        finally:
+            if SOURCE_CATEGORY_NAMES[-1] != original_unassigned:
+                SOURCE_CATEGORY_NAMES[-1] = original_unassigned
         vocabulary = TaggerVocabulary("/tmp/vocab.json", ("tag",), ("general",))
         with self.assertRaises(AttributeError):
             vocabulary.path = "/tmp/other.json"
@@ -126,6 +133,16 @@ class DINOv3TaggerSupportTest(unittest.TestCase):
             self.write_vocab(fallback)
             self.assertEqual(resolve_vocab_path(str(checkpoint), None), str(fallback))
 
+    def test_fallback_vocab_discovery_supports_metacharacters_in_directory_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "tagger[local]"
+            root.mkdir()
+            checkpoint = root / "tagger.safetensors"
+            checkpoint.touch()
+            fallback = root / "custom_vocab.json"
+            self.write_vocab(fallback)
+            self.assertEqual(resolve_vocab_path(str(checkpoint), None), str(fallback))
+
     def test_zero_or_multiple_vocab_candidates_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -165,6 +182,9 @@ class DINOv3TaggerSupportTest(unittest.TestCase):
             path.write_text("not json", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "vocabulary.*vocab.json"):
                 load_vocabulary(str(path))
+            path.write_bytes(b"\xff")
+            with self.assertRaisesRegex(ValueError, "Failed to read.*vocab.json"):
+                load_vocabulary(str(path))
             path.write_text(json.dumps([]), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "invalid root"):
                 load_vocabulary(str(path))
@@ -178,14 +198,25 @@ class DINOv3TaggerSupportTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "invalid tag2category"):
                 load_vocabulary(str(path))
 
-    def test_vocab_rejects_duplicate_incomplete_and_unknown_categories(self):
+    def test_vocab_missing_categories_become_unassigned_and_extras_are_ignored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "vocab.json"
+            self.write_vocab(
+                path,
+                ["known", "missing one", "missing two", "missing three"],
+                {"known": 0, "unmatched mapping key": 5},
+            )
+            vocabulary = load_vocabulary(str(path))
+            self.assertEqual(
+                vocabulary.categories,
+                ("general", "unassigned", "unassigned", "unassigned"),
+            )
+
+    def test_vocab_rejects_duplicate_and_unknown_categories(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "vocab.json"
             self.write_vocab(path, ["duplicate", "duplicate"], {"duplicate": 0})
             with self.assertRaisesRegex(ValueError, "duplicate"):
-                load_vocabulary(str(path))
-            self.write_vocab(path, ["known", "missing"], {"known": 0})
-            with self.assertRaisesRegex(ValueError, "lacks categories.*missing"):
                 load_vocabulary(str(path))
             self.write_vocab(path, ["tag"], {"tag": "general"})
             with self.assertRaisesRegex(ValueError, "non-integer category"):
@@ -271,6 +302,16 @@ class DINOv3TaggerSupportTest(unittest.TestCase):
             select_tag_indices(scores, **{**kwargs, "threshold": 1.1})
         with self.assertRaisesRegex(ValueError, "positive"):
             select_tag_indices(scores, **{**kwargs, "top_k": 0})
+        with self.assertRaisesRegex(ValueError, "finite"):
+            select_tag_indices(
+                torch.tensor([float("nan")]),
+                **{**kwargs, "mode": "threshold"},
+            )
+        with self.assertRaisesRegex(ValueError, "finite"):
+            select_tag_indices(
+                torch.tensor([float("inf")]),
+                **{**kwargs, "mode": "top_k"},
+            )
 
     def test_tag_formatting_supports_all_approved_modes(self):
         tags = ["looking at viewer", "character (series)"]
