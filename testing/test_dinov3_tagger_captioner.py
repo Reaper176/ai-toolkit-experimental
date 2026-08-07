@@ -2,8 +2,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 import torch
+from accelerate import init_empty_weights
+from PIL import Image
 
 from extensions_built_in.captioner.dinov3_tagger.support import (
     CATEGORY_NAMES,
@@ -16,6 +19,28 @@ from extensions_built_in.captioner.dinov3_tagger.support import (
     resolve_vocab_path,
     select_tag_indices,
     validate_checkpoint_path,
+)
+from extensions_built_in.captioner.dinov3_tagger.model import (
+    D_FFN,
+    D_MODEL,
+    FEATURE_DIM,
+    HEAD_DIM,
+    LN_EPS,
+    N_HEADS,
+    N_LAYERS,
+    N_REGISTERS,
+    PATCH_SIZE,
+    ROPE_RESCALE,
+    ROPE_THETA,
+    DINOv3TaggerModel,
+    apply_rope,
+    build_projection_head,
+    cast_backbone_state_dict,
+    calculate_image_size,
+    load_tagger_model,
+    preprocess_image,
+    split_checkpoint_state_dict,
+    strict_assign,
 )
 
 
@@ -323,6 +348,270 @@ class DINOv3TaggerSupportTest(unittest.TestCase):
             format_tags(tags, use_underscores=True, escape_parentheses=True),
             r"looking_at_viewer, character_\(series\)",
         )
+
+
+class DINOv3TaggerModelTest(unittest.TestCase):
+    def test_fixed_vith16_plus_configuration(self):
+        self.assertEqual(
+            (
+                D_MODEL,
+                N_HEADS,
+                HEAD_DIM,
+                N_LAYERS,
+                D_FFN,
+                N_REGISTERS,
+                PATCH_SIZE,
+                ROPE_THETA,
+                ROPE_RESCALE,
+                LN_EPS,
+                FEATURE_DIM,
+            ),
+            (1280, 20, 64, 32, 5120, 4, 16, 100.0, 2.0, 1e-5, 6400),
+        )
+        with init_empty_weights():
+            model = DINOv3TaggerModel(torch.nn.Identity())
+        self.assertEqual(len(model.backbone.layer), 32)
+        self.assertEqual(
+            tuple(model.backbone.embeddings.patch_embeddings.weight.shape),
+            (1280, 3, 16, 16),
+        )
+        self.assertFalse(model.backbone.layer[0].attention.k_proj.bias is not None)
+
+    def test_rope_leaves_cls_and_register_tokens_unchanged(self):
+        query = torch.arange(1 * 1 * 7 * 64, dtype=torch.float32).reshape(1, 1, 7, 64)
+        key = query + 1
+        cos = torch.zeros(1, 1, 2, 64)
+        sin = torch.ones(1, 1, 2, 64)
+        rotated_query, rotated_key = apply_rope(query, key, cos, sin)
+        self.assertTrue(torch.equal(rotated_query[..., :5, :], query[..., :5, :]))
+        self.assertTrue(torch.equal(rotated_key[..., :5, :], key[..., :5, :]))
+        self.assertFalse(torch.equal(rotated_query[..., 5:, :], query[..., 5:, :]))
+
+    def test_split_normalizes_backbone_keys_and_keeps_dense_head(self):
+        backbone, head = split_checkpoint_state_dict(
+            {
+                "backbone.model.layer.0.layer_scale1.lambda1": torch.ones(2),
+                "backbone.embeddings.patch_embeddings.weight": torch.ones(2, 3, 1, 1),
+                "backbone.rope_embeddings.buffer": torch.ones(1),
+                "projection.weight": torch.ones(3, FEATURE_DIM),
+            },
+            "/models/tagger.safetensors",
+        )
+        self.assertEqual(
+            set(backbone),
+            {"layer.0.layer_scale1", "embeddings.patch_embeddings.weight"},
+        )
+        self.assertEqual(set(head), {"projection.weight"})
+
+    def test_split_rejects_duplicate_normalized_and_unknown_rope_keys(self):
+        with self.assertRaisesRegex(ValueError, "Duplicate.*layer.0.layer_scale1"):
+            split_checkpoint_state_dict(
+                {
+                    "backbone.model.layer.0.layer_scale1": torch.ones(2),
+                    "backbone.model.layer.0.layer_scale1.lambda1": torch.ones(2),
+                    "projection.weight": torch.ones(3, FEATURE_DIM),
+                },
+                "/models/tagger.safetensors",
+            )
+        with self.assertRaisesRegex(ValueError, "unsupported.*rope_embeddings.weight"):
+            split_checkpoint_state_dict(
+                {
+                    "backbone.norm.weight": torch.ones(2),
+                    "backbone.rope_embeddings.weight": torch.ones(2),
+                    "projection.weight": torch.ones(3, FEATURE_DIM),
+                },
+                "/models/tagger.safetensors",
+            )
+
+    def test_split_rejects_missing_backbone_or_head(self):
+        with self.assertRaisesRegex(ValueError, "backbone.*tagger.safetensors"):
+            split_checkpoint_state_dict(
+                {"projection.weight": torch.ones(3, FEATURE_DIM)},
+                "/models/tagger.safetensors",
+            )
+        with self.assertRaisesRegex(ValueError, "projection-head.*tagger.safetensors"):
+            split_checkpoint_state_dict(
+                {"backbone.norm.weight": torch.ones(2)},
+                "/models/tagger.safetensors",
+            )
+
+    def test_dense_head_is_inferred_from_vocab_and_feature_dimensions(self):
+        weight = torch.ones(3, FEATURE_DIM)
+        module, remapped = build_projection_head(
+            {"projection.weight": weight}, 3, "/models/tagger.safetensors"
+        )
+        self.assertIsInstance(module, torch.nn.Linear)
+        self.assertIsNone(module.bias)
+        self.assertIs(remapped["weight"], weight)
+
+    def test_low_rank_head_is_inferred_and_remapped(self):
+        down = torch.ones(4, FEATURE_DIM)
+        up = torch.ones(3, 4)
+        module, remapped = build_projection_head(
+            {"projection.down.weight": down, "projection.up.weight": up},
+            3,
+            "/models/tagger.safetensors",
+        )
+        self.assertEqual(module.proj_down.out_features, 4)
+        self.assertEqual(module.proj_up.out_features, 3)
+        self.assertEqual(set(remapped), {"proj_down.weight", "proj_up.weight"})
+
+    def test_head_rejects_vocab_mismatch_extra_and_ambiguous_weights(self):
+        with self.assertRaisesRegex(
+            ValueError, "output.*vocabulary.*tagger.safetensors"
+        ):
+            build_projection_head(
+                {"projection.weight": torch.ones(4, FEATURE_DIM)},
+                3,
+                "/models/tagger.safetensors",
+            )
+        with self.assertRaisesRegex(ValueError, "extra.*projection.extra"):
+            build_projection_head(
+                {
+                    "projection.weight": torch.ones(3, FEATURE_DIM),
+                    "projection.extra": torch.ones(1),
+                },
+                3,
+                "/models/tagger.safetensors",
+            )
+        with self.assertRaisesRegex(ValueError, "infer.*tagger.safetensors"):
+            build_projection_head(
+                {
+                    "projection.a.weight": torch.ones(4, FEATURE_DIM),
+                    "projection.b.weight": torch.ones(5, FEATURE_DIM),
+                    "projection.up.weight": torch.ones(3, 4),
+                },
+                3,
+                "/models/tagger.safetensors",
+            )
+
+    def test_head_rejects_malformed_bias_shapes(self):
+        with self.assertRaisesRegex(ValueError, "bias.*shape"):
+            build_projection_head(
+                {
+                    "projection.weight": torch.ones(3, FEATURE_DIM),
+                    "projection.bias": torch.ones(4),
+                },
+                3,
+                "/models/tagger.safetensors",
+            )
+
+    def test_backbone_casting_changes_only_floating_tensors(self):
+        original_int = torch.tensor([1], dtype=torch.int64)
+        state = {
+            "weight": torch.ones(2, dtype=torch.float32),
+            "already": torch.ones(2, dtype=torch.bfloat16),
+            "counter": original_int,
+        }
+        result = cast_backbone_state_dict(state, torch.bfloat16)
+        self.assertIs(result, state)
+        self.assertEqual(state["weight"].dtype, torch.bfloat16)
+        self.assertEqual(state["already"].dtype, torch.bfloat16)
+        self.assertIs(state["counter"], original_int)
+
+    def test_strict_assign_wraps_incompatibility_with_path(self):
+        model = Mock()
+        model.load_state_dict.side_effect = RuntimeError("size mismatch")
+        with self.assertRaisesRegex(
+            ValueError, "DINOv3 backbone.*tagger.safetensors.*size mismatch"
+        ):
+            strict_assign(model, {}, "DINOv3 backbone", "/models/tagger.safetensors")
+        model.load_state_dict.assert_called_once_with({}, strict=True, assign=True)
+
+    def test_strict_assign_rejects_remaining_meta_parameters(self):
+        module = torch.nn.Linear(2, 2, device="meta")
+        with self.assertRaisesRegex(ValueError, "meta parameters remain.*bias"):
+            strict_assign(
+                module,
+                {"weight": torch.ones(2, 2), "bias": torch.ones(2, device="meta")},
+                "tiny component",
+                "/models/tagger.safetensors",
+            )
+
+    def test_resize_preserves_aspect_never_upscales_and_snaps(self):
+        cases = (
+            ((1000, 500), 512, (512, 256)),
+            ((500, 1000), 512, (256, 512)),
+            ((64, 32), 512, (64, 32)),
+            ((101, 51), 512, (96, 48)),
+            ((10000, 1), 512, (512, 16)),
+        )
+        for original, max_res, expected in cases:
+            with self.subTest(original=original):
+                self.assertEqual(calculate_image_size(*original, max_res), expected)
+        with self.assertRaisesRegex(ValueError, "max_res"):
+            calculate_image_size(100, 100, 0)
+
+    def test_preprocess_uses_expected_shape_dtype_and_normalization(self):
+        image = Image.new("RGB", (1000, 500), color="white")
+        tensor = preprocess_image(image, max_res=512)
+        self.assertEqual(tuple(tensor.shape), (1, 3, 256, 512))
+        self.assertEqual(tensor.dtype, torch.float32)
+        expected = torch.tensor(
+            [(1 - 0.485) / 0.229, (1 - 0.456) / 0.224, (1 - 0.406) / 0.225]
+        )
+        self.assertTrue(torch.allclose(tensor[0, :, 0, 0], expected))
+
+    @patch("extensions_built_in.captioner.dinov3_tagger.model.init_empty_weights")
+    @patch("extensions_built_in.captioner.dinov3_tagger.model.DINOv3TaggerModel")
+    @patch("extensions_built_in.captioner.dinov3_tagger.model.build_projection_head")
+    @patch("extensions_built_in.captioner.dinov3_tagger.model.load_file")
+    def test_loader_reads_once_casts_backbone_and_strictly_assigns_components(
+        self, load_file, build_head, model_class, empty_weights
+    ):
+        checkpoint_state = {
+            "backbone.norm.weight": torch.ones(2),
+            "projection.weight": torch.ones(3, FEATURE_DIM, dtype=torch.float16),
+        }
+        load_file.return_value = checkpoint_state
+        head = Mock()
+        remapped_head = {"weight": checkpoint_state["projection.weight"]}
+        build_head.return_value = (head, remapped_head)
+        model = Mock()
+        model.backbone = Mock()
+        model.head = head
+        model_class.return_value = model
+        empty_weights.return_value.__enter__.return_value = None
+        empty_weights.return_value.__exit__.return_value = None
+
+        with patch(
+            "extensions_built_in.captioner.dinov3_tagger.model.strict_assign",
+            side_effect=lambda component, *_args: component,
+        ) as assign:
+            result = load_tagger_model(
+                "/models/tagger.safetensors",
+                3,
+                device=torch.device("cpu"),
+                dtype=torch.bfloat16,
+            )
+
+        self.assertIs(result, model)
+        load_file.assert_called_once_with("/models/tagger.safetensors", device="cpu")
+        empty_weights.assert_called_once_with()
+        self.assertEqual(assign.call_count, 2)
+        assigned_backbone = assign.call_args_list[0].args[1]
+        self.assertEqual(assigned_backbone["norm.weight"].dtype, torch.bfloat16)
+        self.assertEqual(assign.call_args_list[1].args[1]["weight"].dtype, torch.float32)
+        model.backbone.to.assert_called_once_with(
+            device=torch.device("cpu"), dtype=torch.bfloat16
+        )
+        model.head.to.assert_called_once_with(
+            device=torch.device("cpu"), dtype=torch.float32
+        )
+        model.eval.assert_called_once_with()
+
+    @patch("extensions_built_in.captioner.dinov3_tagger.model.load_file")
+    def test_loader_wraps_checkpoint_read_failure(self, load_file):
+        load_file.side_effect = OSError("broken header")
+        with self.assertRaisesRegex(
+            ValueError, "read.*tagger.safetensors.*broken header"
+        ):
+            load_tagger_model(
+                "/models/tagger.safetensors",
+                3,
+                device=torch.device("cpu"),
+                dtype=torch.bfloat16,
+            )
 
 
 if __name__ == "__main__":
