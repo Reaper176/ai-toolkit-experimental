@@ -55,6 +55,23 @@ assert.ok(
     ([key, value]) => key === 'config.process[0].caption.model_name_or_path' && value === 'Qwen/Qwen3-VL-8B-Instruct',
   ),
 );
+for (const key of ['quantize', 'low_vram']) {
+  assert.ok(
+    updates.some(([path, value]) => path === `config.process[0].caption.${key}` && value === true),
+    `${key} was not restored when leaving DINOv3 for Qwen`,
+  );
+}
+
+const leavingForAce: Array<[string, unknown]> = [];
+handleCaptionerTypeChange('DINOv3TaggerCaptioner', 'AceStepCaptioner', config, (value, key) => {
+  leavingForAce.push([key, value]);
+});
+for (const key of ['quantize', 'low_vram']) {
+  assert.ok(
+    leavingForAce.some(([path, value]) => path === `config.process[0].caption.${key}` && value === true),
+    `${key} was not restored when leaving DINOv3 for Ace Step`,
+  );
+}
 
 function enterDino(): Array<[string, unknown]> {
   const entering: Array<[string, unknown]> = [];
@@ -68,6 +85,12 @@ const entering = enterDino();
 assert.ok(entering.some(([key, value]) => key === 'config.process[0].caption.model_name_or_path' && value === ''));
 assert.ok(entering.some(([key, value]) => key === 'config.process[0].caption.vocab_path' && value === undefined));
 assert.ok(!entering.some(([, value]) => typeof value === 'string' && value.includes('/run/media/john/')));
+for (const key of ['quantize', 'low_vram']) {
+  assert.ok(
+    entering.some(([path, value]) => path === `config.process[0].caption.${key}` && value === false),
+    `${key} was not disabled when entering DINOv3`,
+  );
+}
 
 const firstCategories = entering.find(
   ([key]) => key === 'config.process[0].caption.included_categories',
