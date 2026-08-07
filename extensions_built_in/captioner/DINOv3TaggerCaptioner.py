@@ -118,10 +118,14 @@ class DINOv3TaggerCaptioner(BaseCaptioner):
         try:
             if self.model is None or self.vocabulary is None:
                 raise RuntimeError("DINOv3 tagger model and vocabulary are not loaded")
+            if self.device_torch.type == "cpu" and self.torch_dtype == torch.float16:
+                raise ValueError(
+                    "DINOv3 CPU float16 inference is not supported; use bf16 or fp32"
+                )
 
             pixel_values = preprocess_image(
                 file_path, max_res=self.caption_config.max_res
-            ).to(device=self.device_torch)
+            ).to(device=self.device_torch, dtype=self.torch_dtype)
             with self._autocast_context():
                 logits = self.model(pixel_values)[0]
             scores = torch.sigmoid(logits.float()).cpu()

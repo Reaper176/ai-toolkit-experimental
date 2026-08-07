@@ -835,9 +835,7 @@ class DINOv3TaggerCaptionerTest(unittest.TestCase):
                 captioner.get_caption_for_file("/images/stopped.png")
 
     @patch("extensions_built_in.captioner.DINOv3TaggerCaptioner.preprocess_image")
-    def test_inference_moves_pixels_to_device_without_forcing_model_dtype(
-        self, preprocess
-    ):
+    def test_inference_moves_fp32_pixels_to_cpu_with_model_dtype(self, preprocess):
         pixels = Mock()
         moved_pixels = Mock()
         pixels.to.return_value = moved_pixels
@@ -846,8 +844,41 @@ class DINOv3TaggerCaptionerTest(unittest.TestCase):
 
         captioner.get_caption_for_file("/images/device.png")
 
-        pixels.to.assert_called_once_with(device=torch.device("cpu"))
+        pixels.to.assert_called_once_with(
+            device=torch.device("cpu"), dtype=torch.float32
+        )
         captioner.model.assert_called_once_with(moved_pixels)
+
+    @patch("extensions_built_in.captioner.DINOv3TaggerCaptioner.preprocess_image")
+    def test_inference_casts_pixels_to_bfloat16_for_cpu_bfloat16_model(
+        self, preprocess
+    ):
+        pixels = Mock()
+        moved_pixels = Mock()
+        pixels.to.return_value = moved_pixels
+        preprocess.return_value = pixels
+        captioner = self.captioner()
+        captioner.torch_dtype = torch.bfloat16
+
+        captioner.get_caption_for_file("/images/cpu-bf16.png")
+
+        pixels.to.assert_called_once_with(
+            device=torch.device("cpu"), dtype=torch.bfloat16
+        )
+        captioner.model.assert_called_once_with(moved_pixels)
+
+    @patch("extensions_built_in.captioner.DINOv3TaggerCaptioner.preprocess_image")
+    def test_inference_rejects_cpu_float16_before_model_call(self, preprocess):
+        preprocess.return_value = Mock()
+        captioner = self.captioner()
+        captioner.torch_dtype = torch.float16
+
+        with self.assertRaisesRegex(
+            RuntimeError, "/images/cpu-fp16.png.*CPU float16.*bf16 or fp32"
+        ):
+            captioner.get_caption_for_file("/images/cpu-fp16.png")
+
+        captioner.model.assert_not_called()
 
     @patch("extensions_built_in.captioner.DINOv3TaggerCaptioner.torch.autocast")
     def test_autocast_is_limited_to_supported_accelerator_dtypes(self, autocast):
