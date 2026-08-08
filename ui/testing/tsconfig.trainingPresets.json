@@ -17,9 +17,11 @@
     "../src/components/TrainingPresetSelect.tsx",
     "../src/components/TrainingPresetControl.tsx",
     "../src/components/TrainingPresetDialog.tsx",
+    "../src/app/jobs/new/jobConfig.ts",
     "../src/helpers/trainingPresets.ts",
     "../src/server/trainingPresetService.ts",
     "../src/server/trainingPresetRouteHandlers.ts",
+    "trainingPresetPageIntegration.test.ts",
     "trainingPreset*.test.ts",
     "trainingPreset*.test.tsx"
   ],

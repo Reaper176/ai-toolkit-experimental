@@ -19,6 +19,7 @@ import { FaChevronLeft } from 'react-icons/fa';
 import SimpleJob from './SimpleJob';
 import AdvancedConfigEditor from '@/components/AdvancedConfigEditor';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { TrainingPresetControl } from '@/components/TrainingPresetControl';
 import { apiClient } from '@/utils/api';
 import { isMac } from '@/helpers/basic';
 
@@ -261,6 +262,15 @@ export default function TrainingForm() {
             <div className="hidden sm:block mx-4 bg-gray-200 dark:bg-gray-800 w-1 h-6"></div>
           </>
         )}
+
+        <div className="flex-shrink-0 px-1 sm:px-2">
+          <TrainingPresetControl
+            jobConfig={jobConfig}
+            onJobConfigChange={next => setJobConfig(next)}
+            migrateJobConfig={migrateJobConfig}
+          />
+        </div>
+        <div className="hidden sm:block mx-2 bg-gray-200 dark:bg-gray-800 w-1 h-6"></div>
 
         <div className="pr-1 sm:pr-2 flex-shrink-0">
           <Button

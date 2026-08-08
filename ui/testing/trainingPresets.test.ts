@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import type { JobConfig } from '../src/types';
+import { migrateJobConfig } from '../src/app/jobs/new/jobConfig';
 import {
   MAX_PRESET_NAME_LENGTH,
   MAX_PRESET_SNAPSHOT_BYTES,
@@ -424,6 +425,103 @@ const snapshotWithLegacyPrompts = structuredClone(preset);
 (snapshotWithLegacyPrompts.config.process[0] as any).sample.prompts = ['untrusted preset prompt'];
 const withoutPresetPrompts = applyTrainingPreset(jobFixture(), snapshotWithLegacyPrompts, (job: JobConfig) => job);
 assert.equal('prompts' in (withoutPresetPrompts.config.process[0] as any).sample, false);
+
+const lifecyclePresetJob = presetJobFixture();
+const lifecyclePresetProcess = lifecyclePresetJob.config.process[0] as any;
+lifecyclePresetProcess.type = 'concept_slider';
+lifecyclePresetProcess.model = {
+  arch: 'qwen_image',
+  name_or_path: 'Qwen/Qwen-Image',
+  model_kwargs: { preset_only: true },
+};
+lifecyclePresetProcess.network = { type: 'lokr', linear: 48, linear_alpha: 24 };
+lifecyclePresetProcess.train = { steps: 4321, optimizer: 'prodigy', lr: 0.0002 };
+lifecyclePresetProcess.sample = {
+  sampler: 'flowmatch',
+  sample_every: 73,
+  guidance_scale: 4.25,
+  width: 768,
+  height: 1024,
+  samples: [{ prompt: 'preset prompt must not be applied' }],
+};
+const lifecyclePreset = sanitizeTrainingPreset(lifecyclePresetJob);
+
+for (const scenario of [
+  { name: 'new', jobName: 'new-job', promptKind: 'samples' },
+  { name: 'edit', jobName: 'edited-job', promptKind: 'samples' },
+  { name: 'clone', jobName: 'source-job_copy', promptKind: 'samples' },
+  { name: 'legacy import', jobName: 'imported-job', promptKind: 'prompts' },
+] as const) {
+  const currentJob = jobFixture() as any;
+  const currentProcess = currentJob.config.process[0];
+  currentJob.config.name = scenario.jobName;
+  currentJob.meta = { name: `[${scenario.name}]`, version: 'legacy', lifecycle: scenario.name };
+  currentProcess.training_folder = `/${scenario.name}/output`;
+  currentProcess.sqlite_db_path = `/${scenario.name}/jobs.sqlite`;
+  currentProcess.device = process.platform === 'darwin' ? 'mps' : `device:${scenario.name}`;
+  currentProcess.trigger_word = `TRIGGER_${scenario.name}`;
+  currentProcess.datasets = [{ folder_path: `/${scenario.name}/images`, num_repeats: 7 }];
+  currentProcess.model = {
+    arch: 'flux',
+    name_or_path: 'old/model',
+    model_kwargs: { stale_old_model_field: true },
+    stale_model_specific_field: 'remove me',
+  };
+  currentProcess.network = { type: 'lora', linear: 4 };
+  currentProcess.train = { steps: 12, optimizer: 'adamw8bit' };
+  currentProcess.sample = {
+    sampler: 'old-sampler',
+    sample_every: 2,
+    guidance_scale: 1,
+    width: 256,
+    height: 256,
+    ...(scenario.promptKind === 'prompts'
+      ? { prompts: [`${scenario.name} legacy prompt`] }
+      : { samples: [{ prompt: `${scenario.name} sample prompt`, seed: 99 }] }),
+  };
+  const currentBefore = structuredClone(currentJob);
+  const presetBefore = structuredClone(lifecyclePreset);
+
+  const result = applyTrainingPreset(currentJob, lifecyclePreset, migrateJobConfig) as any;
+  const resultProcess = result.config.process[0];
+
+  assert.equal(result.config.name, scenario.jobName, `${scenario.name}: name`);
+  assert.deepEqual(result.meta, currentJob.meta, `${scenario.name}: meta`);
+  assert.equal(resultProcess.training_folder, currentProcess.training_folder, `${scenario.name}: training folder`);
+  assert.equal(resultProcess.sqlite_db_path, currentProcess.sqlite_db_path, `${scenario.name}: sqlite path`);
+  assert.equal(resultProcess.device, currentProcess.device, `${scenario.name}: device`);
+  assert.equal(resultProcess.trigger_word, currentProcess.trigger_word, `${scenario.name}: trigger`);
+  assert.deepEqual(resultProcess.datasets, currentProcess.datasets, `${scenario.name}: datasets`);
+  assert.deepEqual(
+    resultProcess.sample.samples,
+    scenario.promptKind === 'prompts' ? [{ prompt: `${scenario.name} legacy prompt` }] : currentProcess.sample.samples,
+    `${scenario.name}: samples`,
+  );
+  assert.equal('prompts' in resultProcess.sample, false, `${scenario.name}: legacy prompts normalized`);
+  assert.equal(resultProcess.type, 'concept_slider', `${scenario.name}: process type`);
+  assert.equal(resultProcess.model.arch, 'qwen_image', `${scenario.name}: model architecture`);
+  assert.equal(resultProcess.model.name_or_path, 'Qwen/Qwen-Image', `${scenario.name}: model path`);
+  assert.deepEqual(resultProcess.model.model_kwargs, { preset_only: true }, `${scenario.name}: model kwargs`);
+  assert.equal('stale_model_specific_field' in resultProcess.model, false, `${scenario.name}: stale model fields`);
+  assert.deepEqual(resultProcess.network, { type: 'lokr', linear: 48, linear_alpha: 24 });
+  assert.equal(resultProcess.train.optimizer, 'prodigy');
+  assert.equal(resultProcess.train.steps, 4321);
+  assert.equal(resultProcess.sample.sample_every, 73);
+  assert.equal(resultProcess.sample.guidance_scale, 4.25);
+  assert.equal(resultProcess.sample.width, 768);
+  assert.equal(resultProcess.sample.height, 1024);
+  assert.deepEqual(currentJob, currentBefore, `${scenario.name}: current input must not mutate`);
+  assert.deepEqual(lifecyclePreset, presetBefore, `${scenario.name}: preset input must not mutate`);
+}
+
+const absentLifecycleCurrent = jobFixture() as any;
+delete absentLifecycleCurrent.config.process[0].trigger_word;
+delete absentLifecycleCurrent.config.process[0].datasets;
+delete absentLifecycleCurrent.config.process[0].sample.samples;
+const absentLifecycleApplied = applyTrainingPreset(absentLifecycleCurrent, lifecyclePreset, migrateJobConfig) as any;
+assert.equal('trigger_word' in absentLifecycleApplied.config.process[0], false);
+assert.equal('datasets' in absentLifecycleApplied.config.process[0], false);
+assert.equal('samples' in absentLifecycleApplied.config.process[0].sample, false);
 
 const throwingCurrent = jobFixture();
 const throwingSnapshot = sanitizeTrainingPreset(presetJobFixture());

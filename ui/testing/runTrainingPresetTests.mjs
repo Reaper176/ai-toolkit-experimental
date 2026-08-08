@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -50,6 +50,9 @@ try {
   outputDirectory = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
   assertSafe(outputDirectory);
   run(process.execPath, [tsc, '--project', 'testing/tsconfig.trainingPresets.json', '--outDir', outputDirectory]);
+  const aliasScope = join(outputDirectory, 'node_modules', '@');
+  mkdirSync(dirname(aliasScope), { recursive: true });
+  symlinkSync(join(outputDirectory, 'src'), aliasScope, process.platform === 'win32' ? 'junction' : 'dir');
   const requiredCompiledTest = join(outputDirectory, 'testing', requiredTestFile);
   if (!existsSync(requiredCompiledTest)) {
     throw new Error(`Required compiled test artifact is missing: ${requiredTestFile}`);
