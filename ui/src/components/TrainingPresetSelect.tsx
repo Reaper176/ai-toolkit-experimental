@@ -149,7 +149,7 @@ export interface TrainingPresetApi {
 }
 
 export async function createTrainingPreset(
-  api: TrainingPresetApi,
+  api: Pick<TrainingPresetApi, 'post'>,
   nameInput: unknown,
   jobConfig: JobConfig,
 ): Promise<TrainingPresetRecord> {
@@ -159,7 +159,7 @@ export async function createTrainingPreset(
 }
 
 export async function updateTrainingPreset(
-  api: TrainingPresetApi,
+  api: Pick<TrainingPresetApi, 'put'>,
   presetId: string,
   jobConfig: JobConfig,
 ): Promise<TrainingPresetRecord> {
@@ -169,8 +169,87 @@ export async function updateTrainingPreset(
   return validateTrainingPresetRecord(response.data);
 }
 
-export async function deleteTrainingPreset(api: TrainingPresetApi, presetId: string): Promise<void> {
+export async function deleteTrainingPreset(api: Pick<TrainingPresetApi, 'delete'>, presetId: string): Promise<void> {
   await api.delete(`/api/training-presets/${encodeURIComponent(presetId)}`);
+}
+
+export interface TrainingPresetActionLock {
+  active: boolean;
+}
+
+export function createTrainingPresetActionLock(): TrainingPresetActionLock {
+  return { active: false };
+}
+
+export interface DeleteTrainingPresetControllerState {
+  presets: readonly TrainingPresetRecord[];
+  selectedPresetId: string | null;
+  jobConfig: JobConfig;
+  undoConfig: JobConfig | null;
+}
+
+type DeleteTrainingPresetNextState = Omit<DeleteTrainingPresetControllerState, 'presets'> & {
+  presets: TrainingPresetRecord[];
+};
+
+export type DeleteTrainingPresetResult =
+  | {
+      status: 'refreshed';
+      state: DeleteTrainingPresetNextState;
+    }
+  | {
+      status: 'refresh-failed';
+      state: DeleteTrainingPresetNextState;
+      error: string;
+      retryable: true;
+    }
+  | { status: 'busy' };
+
+export async function deleteTrainingPresetAndRefresh(
+  api: Pick<TrainingPresetApi, 'delete'> & {
+    get(url: string): Promise<{ data: unknown }>;
+  },
+  lock: TrainingPresetActionLock,
+  presetId: string,
+  currentState: DeleteTrainingPresetControllerState,
+): Promise<DeleteTrainingPresetResult> {
+  if (lock.active) return { status: 'busy' };
+  lock.active = true;
+  try {
+    await deleteTrainingPreset(api, presetId);
+    try {
+      const response = await api.get('/api/training-presets');
+      const presets = validateTrainingPresetListResponse(response.data);
+      return {
+        status: 'refreshed',
+        state: {
+          ...currentState,
+          presets,
+          selectedPresetId:
+            currentState.selectedPresetId === presetId
+              ? null
+              : reconcileSelectedPresetId(currentState.selectedPresetId, presets),
+        },
+      };
+    } catch (refreshError) {
+      const presets = sortTrainingPresetRecords(currentState.presets.filter(preset => preset.id !== presetId));
+      return {
+        status: 'refresh-failed',
+        state: {
+          ...currentState,
+          presets,
+          selectedPresetId:
+            currentState.selectedPresetId === presetId
+              ? null
+              : reconcileSelectedPresetId(currentState.selectedPresetId, presets),
+        },
+        error: extractTrainingPresetApiError(refreshError, 'Unable to refresh training presets after deletion.'),
+        retryable: true,
+      };
+    }
+  } finally {
+    lock.active = false;
+  }
 }
 
 export interface TrainingPresetSelectProps {

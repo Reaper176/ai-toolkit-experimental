@@ -10,7 +10,9 @@ import {
   PRESET_ACTION_UPDATE,
   TrainingPresetSelect,
   createTrainingPreset,
+  createTrainingPresetActionLock,
   deleteTrainingPreset,
+  deleteTrainingPresetAndRefresh,
   extractTrainingPresetApiError,
   handleTrainingPresetSelection,
   parseTrainingPresetSelection,
@@ -210,6 +212,123 @@ async function testRequestContracts(): Promise<void> {
     { method: 'put', url: '/api/training-presets/a%3Ab%2Fc', body: { job_config: current } },
     { method: 'delete', url: '/api/training-presets/a%3Ab%2Fc' },
   ]);
+
+  const deleted = record('deleted', 'Deleted');
+  const stale = record('stale', 'Stale');
+  const concurrent = record('concurrent', 'Concurrent');
+  const orchestrationCalls: string[] = [];
+  const jobBeforeDelete = jobFixture(501);
+  const undoBeforeDelete = jobFixture(502);
+  const refreshed = await deleteTrainingPresetAndRefresh(
+    {
+      delete: async url => {
+        orchestrationCalls.push(`DELETE ${url}`);
+        return { data: { ok: true } };
+      },
+      get: async url => {
+        orchestrationCalls.push(`GET ${url}`);
+        return { data: { presets: [concurrent] } };
+      },
+    },
+    createTrainingPresetActionLock(),
+    deleted.id,
+    {
+      presets: [deleted, stale],
+      selectedPresetId: deleted.id,
+      jobConfig: jobBeforeDelete,
+      undoConfig: undoBeforeDelete,
+    },
+  );
+  assert.deepEqual(orchestrationCalls, ['DELETE /api/training-presets/deleted', 'GET /api/training-presets']);
+  assert.equal(refreshed.status, 'refreshed');
+  if (refreshed.status === 'refreshed') {
+    assert.deepEqual(
+      refreshed.state.presets.map(item => item.id),
+      ['concurrent'],
+    );
+    assert.equal(refreshed.state.selectedPresetId, null);
+    assert.equal(refreshed.state.jobConfig, jobBeforeDelete);
+    assert.equal(refreshed.state.undoConfig, undoBeforeDelete);
+  }
+  assert.equal(jobBeforeDelete.config.process[0].train.steps, 501);
+  assert.equal(undoBeforeDelete.config.process[0].train.steps, 502);
+
+  const reconciled = await deleteTrainingPresetAndRefresh(
+    {
+      delete: async () => ({ data: { ok: true } }),
+      get: async () => ({ data: { presets: [concurrent] } }),
+    },
+    createTrainingPresetActionLock(),
+    deleted.id,
+    {
+      presets: [deleted, stale],
+      selectedPresetId: stale.id,
+      jobConfig: jobBeforeDelete,
+      undoConfig: undoBeforeDelete,
+    },
+  );
+  assert.equal(reconciled.status === 'refreshed' ? reconciled.state.selectedPresetId : 'wrong-status', null);
+
+  const refreshFailed = await deleteTrainingPresetAndRefresh(
+    {
+      delete: async () => ({ data: { ok: true } }),
+      get: async () => {
+        throw { response: { data: { error: 'List temporarily unavailable' } } };
+      },
+    },
+    createTrainingPresetActionLock(),
+    deleted.id,
+    {
+      presets: [deleted, stale],
+      selectedPresetId: deleted.id,
+      jobConfig: jobBeforeDelete,
+      undoConfig: undoBeforeDelete,
+    },
+  );
+  assert.equal(refreshFailed.status, 'refresh-failed');
+  if (refreshFailed.status === 'refresh-failed') {
+    assert.deepEqual(
+      refreshFailed.state.presets.map(item => item.id),
+      ['stale'],
+    );
+    assert.equal(refreshFailed.state.selectedPresetId, null);
+    assert.equal(refreshFailed.state.jobConfig, jobBeforeDelete);
+    assert.equal(refreshFailed.state.undoConfig, undoBeforeDelete);
+    assert.equal(refreshFailed.error, 'List temporarily unavailable');
+    assert.equal(refreshFailed.retryable, true);
+  }
+
+  let releaseDelete!: () => void;
+  const deleteStarted = new Promise<void>(resolve => {
+    releaseDelete = resolve;
+  });
+  let concurrentDeleteCalls = 0;
+  const lockedApi = {
+    delete: async () => {
+      concurrentDeleteCalls += 1;
+      await deleteStarted;
+      return { data: { ok: true } };
+    },
+    get: async () => ({ data: { presets: [] } }),
+  };
+  const sharedLock = createTrainingPresetActionLock();
+  const firstDelete = deleteTrainingPresetAndRefresh(lockedApi, sharedLock, deleted.id, {
+    presets: [deleted],
+    selectedPresetId: deleted.id,
+    jobConfig: jobBeforeDelete,
+    undoConfig: undoBeforeDelete,
+  });
+  await Promise.resolve();
+  const blockedDelete = await deleteTrainingPresetAndRefresh(lockedApi, sharedLock, stale.id, {
+    presets: [stale],
+    selectedPresetId: stale.id,
+    jobConfig: jobBeforeDelete,
+    undoConfig: undoBeforeDelete,
+  });
+  assert.equal(blockedDelete.status, 'busy');
+  assert.equal(concurrentDeleteCalls, 1);
+  releaseDelete();
+  assert.equal((await firstDelete).status, 'refreshed');
 }
 
 testRequestContracts()

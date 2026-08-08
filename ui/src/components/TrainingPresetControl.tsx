@@ -7,8 +7,9 @@ import { apiClient } from '../utils/api';
 import { openConfirm } from './ConfirmModal';
 import {
   TrainingPresetSelect,
+  createTrainingPresetActionLock,
   createTrainingPreset,
-  deleteTrainingPreset,
+  deleteTrainingPresetAndRefresh,
   extractTrainingPresetApiError,
   preparePresetApplication,
   reconcileSelectedPresetId,
@@ -42,6 +43,7 @@ export function TrainingPresetControl({ jobConfig, onJobConfigChange, migrateJob
   const pendingRef = useRef(false);
   const confirmationOpenRef = useRef(false);
   const fetchControllerRef = useRef<AbortController | null>(null);
+  const deleteActionLockRef = useRef(createTrainingPresetActionLock());
   const jobConfigRef = useRef(jobConfig);
   const changeRef = useRef(onJobConfigChange);
   const migrateRef = useRef(migrateJobConfig);
@@ -228,11 +230,24 @@ export function TrainingPresetControl({ jobConfig, onJobConfigChange, migrateJob
           endConfirmation();
           if (!beginPending()) return;
           try {
-            await deleteTrainingPreset(apiClient, selected.id);
+            fetchControllerRef.current?.abort();
+            const result = await deleteTrainingPresetAndRefresh(apiClient, deleteActionLockRef.current, selected.id, {
+              presets,
+              selectedPresetId,
+              jobConfig: jobConfigRef.current,
+              undoConfig,
+            });
             if (!mountedRef.current) return;
-            setPresets(current => current.filter(preset => preset.id !== selected.id));
-            setSelectedPresetId(null);
-            setError(null);
+            if (result.status === 'busy') return;
+            setPresets(result.state.presets);
+            setSelectedPresetId(result.state.selectedPresetId);
+            if (result.status === 'refresh-failed') {
+              setFetchFailed(true);
+              setError(result.error);
+            } else {
+              setFetchFailed(false);
+              setError(null);
+            }
           } catch (requestError) {
             if (mountedRef.current) {
               setError(extractTrainingPresetApiError(requestError, 'Unable to delete training preset.'));
