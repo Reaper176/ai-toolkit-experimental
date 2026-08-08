@@ -6,8 +6,10 @@ import { sanitizeTrainingPreset, type TrainingPresetRecord } from '../src/helper
 import { TrainingPresetControl } from '../src/components/TrainingPresetControl';
 import type { TrainingPresetDialogViewProps } from '../src/components/TrainingPresetDialog';
 import {
+  PRESET_ACTION_DELETE,
   PRESET_ACTION_UNDO,
   PRESET_ACTION_SAVE,
+  PRESET_ACTION_UPDATE,
   TRAINING_PRESET_REQUEST_TIMEOUT_MS,
   presetValue,
   type TrainingPresetApi,
@@ -54,6 +56,11 @@ function TestDialog(props: TrainingPresetDialogViewProps) {
   if (props.state.kind === 'closed') return null;
   return (
     <section data-dialog={props.state.kind}>
+      <h2 data-dialog-title>
+        {props.state.kind === 'save'
+          ? 'Save training preset'
+          : `${props.state.kind === 'update' ? 'Update' : 'Delete'} “${props.state.presetName}”`}
+      </h2>
       {props.state.kind === 'save' && (
         <input
           aria-label="Test preset name"
@@ -362,6 +369,150 @@ async function run(): Promise<void> {
     staleAfterUnmount();
     await Promise.resolve();
     assert.equal(calls.filter(call => call.startsWith('POST')).length, postsBeforeUnmount);
+
+    const originalJob = jobFixture(100);
+    const loaded = record('loaded', 'Loaded preset');
+    const updated = { ...record('loaded', 'Updated preset'), updated_at: '2026-02-01T00:00:00.000Z' };
+    const authoritativeLists = [[loaded], [updated], []];
+    const actionCalls: Array<{
+      method: string;
+      url: string;
+      body?: unknown;
+      signal: AbortSignal;
+      timeout: number;
+    }> = [];
+    const actionApi: TrainingPresetApi = {
+      get: async (url, options) => {
+        actionCalls.push({ method: 'GET', url, signal: options.signal, timeout: options.timeout });
+        const presets = authoritativeLists.shift();
+        assert.ok(presets, 'unexpected extra GET');
+        return { data: { presets } };
+      },
+      post: async () => {
+        throw new Error('unexpected POST');
+      },
+      put: async (url, body, options) => {
+        actionCalls.push({ method: 'PUT', url, body, signal: options.signal, timeout: options.timeout });
+        return { data: updated };
+      },
+      delete: async (url, options) => {
+        actionCalls.push({ method: 'DELETE', url, signal: options.signal, timeout: options.timeout });
+        return { data: { ok: true } };
+      },
+    };
+    const actionDependencies = { api: actionApi, Dialog: TestDialog };
+    const configChanges: JobConfig[] = [];
+    const actionElement = (config: JobConfig) => (
+      <TrainingPresetControl
+        jobConfig={config}
+        onJobConfigChange={value => configChanges.push(value)}
+        migrateJobConfig={value => value}
+        dependencies={actionDependencies}
+      />
+    );
+    let actionRenderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      actionRenderer = TestRenderer.create(actionElement(originalJob));
+    });
+    const actionRoot = actionRenderer.root;
+    assert.deepEqual(
+      actionCalls.map(call => call.method),
+      ['GET'],
+    );
+
+    act(() => select(actionRoot).props.onChange({ currentTarget: { value: presetValue(loaded.id) } }));
+    const firstApplied = configChanges[0];
+    assert.equal(firstApplied.config.process[0].train.steps, 200);
+    act(() => actionRenderer.update(actionElement(firstApplied)));
+    assert.equal(actionRoot.findAllByProps({ value: PRESET_ACTION_UNDO }).length, 1);
+
+    act(() => select(actionRoot).props.onChange({ currentTarget: { value: PRESET_ACTION_UNDO } }));
+    assert.deepEqual(configChanges[1], originalJob);
+    act(() => actionRenderer.update(actionElement(configChanges[1])));
+    assert.equal(actionRoot.findAllByProps({ value: PRESET_ACTION_UNDO }).length, 0);
+    assert.equal(select(actionRoot).props.value, presetValue(loaded.id));
+    const stillSelectedOption = actionRoot.findAll(
+      node => node.type === 'option' && node.props.value === presetValue(loaded.id),
+    )[0];
+    assert.deepEqual(stillSelectedOption.children, [loaded.name]);
+
+    act(() => select(actionRoot).props.onChange({ currentTarget: { value: presetValue(loaded.id) } }));
+    const currentApplied = configChanges[2];
+    act(() => actionRenderer.update(actionElement(currentApplied)));
+    assert.equal(actionRoot.findAllByProps({ value: PRESET_ACTION_UNDO }).length, 1);
+
+    act(() => select(actionRoot).props.onChange({ currentTarget: { value: PRESET_ACTION_UPDATE } }));
+    assert.match(String(actionRoot.findByProps({ 'data-dialog-title': true }).children[0]), /Loaded preset/);
+    const staleUpdateConfirm = actionRoot.findByProps({ 'data-confirm': true }).props.onClick;
+    act(() => actionRoot.findByProps({ 'data-close': 'cancel' }).props.onClick());
+    act(() => select(actionRoot).props.onChange({ currentTarget: { value: PRESET_ACTION_DELETE } }));
+    assert.match(String(actionRoot.findByProps({ 'data-dialog-title': true }).children[0]), /Delete/);
+    act(() => staleUpdateConfirm());
+    assert.deepEqual(
+      actionCalls.map(call => call.method),
+      ['GET'],
+    );
+    assert.equal(actionRoot.findByProps({ 'data-confirm': true }).props.disabled, false);
+    act(() => actionRoot.findByProps({ 'data-close': 'cancel' }).props.onClick());
+
+    act(() => select(actionRoot).props.onChange({ currentTarget: { value: PRESET_ACTION_UPDATE } }));
+    assert.match(String(actionRoot.findByProps({ 'data-dialog-title': true }).children[0]), /Loaded preset/);
+    await act(async () => {
+      actionRoot.findByProps({ 'data-confirm': true }).props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    assert.deepEqual(
+      actionCalls.map(call => call.method),
+      ['GET', 'PUT', 'GET'],
+    );
+    assert.equal(actionCalls[1].url, '/api/training-presets/loaded');
+    assert.deepEqual(actionCalls[1].body, { job_config: currentApplied });
+    assert.equal(configChanges.length, 3);
+    assert.equal(actionRoot.findAllByProps({ 'data-dialog': 'update' }).length, 0);
+    assert.equal(select(actionRoot).props.disabled, false);
+    assert.equal(select(actionRoot).props.value, presetValue(updated.id));
+    assert.equal(actionRoot.findAllByProps({ value: PRESET_ACTION_UNDO }).length, 1);
+
+    act(() => select(actionRoot).props.onChange({ currentTarget: { value: PRESET_ACTION_DELETE } }));
+    assert.match(String(actionRoot.findByProps({ 'data-dialog-title': true }).children[0]), /Updated preset/);
+    await act(async () => {
+      actionRoot.findByProps({ 'data-confirm': true }).props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    assert.deepEqual(
+      actionCalls.map(call => call.method),
+      ['GET', 'PUT', 'GET', 'DELETE', 'GET'],
+    );
+    assert.deepEqual(
+      actionCalls.map(call => `${call.method} ${call.url}`),
+      [
+        'GET /api/training-presets',
+        'PUT /api/training-presets/loaded',
+        'GET /api/training-presets',
+        'DELETE /api/training-presets/loaded',
+        'GET /api/training-presets',
+      ],
+    );
+    assert.equal(actionCalls[3].url, '/api/training-presets/loaded');
+    assert.equal(configChanges.length, 3);
+    assert.equal(actionRoot.findAllByProps({ 'data-dialog': 'delete' }).length, 0);
+    assert.equal(select(actionRoot).props.disabled, false);
+    assert.equal(select(actionRoot).props.value, '');
+    assert.equal(actionRoot.findAllByProps({ value: PRESET_ACTION_UNDO }).length, 1);
+    for (const call of actionCalls) {
+      assert.ok(call.signal instanceof AbortSignal);
+      assert.equal(call.timeout, TRAINING_PRESET_REQUEST_TIMEOUT_MS);
+    }
+    assert.equal(actionCalls[1].signal, actionCalls[2].signal, 'PUT and its GET share one controller');
+    assert.equal(actionCalls[3].signal, actionCalls[4].signal, 'DELETE and its GET share one controller');
+    assert.notEqual(actionCalls[1].signal, actionCalls[3].signal);
+    assert.equal(actionCalls[0].signal.aborted, true, 'first mutation supersedes the initial GET controller');
+    assert.equal(actionCalls[1].signal.aborted, true, 'delete supersedes the completed update controller');
+    assert.equal(actionCalls[3].signal.aborted, false);
+    await act(async () => actionRenderer.unmount());
+    assert.equal(actionCalls[3].signal.aborted, true, 'unmount aborts the current delete controller');
 
     const unexpectedWarnings = rendererWarnings.filter(
       args => !String(args[0]).includes('react-test-renderer is deprecated'),
