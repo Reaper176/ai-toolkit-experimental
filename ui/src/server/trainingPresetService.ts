@@ -49,17 +49,25 @@ class TrainingPresetServiceError extends Error {
 }
 
 export class TrainingPresetValidationError extends TrainingPresetServiceError {}
+export class TrainingPresetPayloadTooLargeError extends TrainingPresetServiceError {
+  constructor() {
+    super('Preset request must not exceed 1 MiB');
+  }
+}
 export class TrainingPresetConflictError extends TrainingPresetServiceError {}
 export class TrainingPresetNotFoundError extends TrainingPresetServiceError {}
 export class TrainingPresetCorruptError extends TrainingPresetServiceError {}
 
 export interface TrainingPresetErrorResponse {
-  status: 400 | 404 | 409 | 500;
+  status: 400 | 404 | 409 | 413 | 500;
   error: string;
   shouldLog: boolean;
 }
 
 export function mapTrainingPresetError(error: unknown): TrainingPresetErrorResponse {
+  if (error instanceof TrainingPresetPayloadTooLargeError) {
+    return { status: 413, error: error.message, shouldLog: false };
+  }
   if (error instanceof TrainingPresetValidationError) {
     return { status: 400, error: error.message, shouldLog: false };
   }
@@ -145,7 +153,7 @@ function compareText(left: string, right: string): number {
 
 export function parsePresetRequestText(text: string): { name: unknown; job_config: JobConfig } {
   if (new TextEncoder().encode(text).byteLength > MAX_PRESET_REQUEST_BYTES) {
-    throw new TrainingPresetValidationError('Preset request must not exceed 1 MiB');
+    throw new TrainingPresetPayloadTooLargeError();
   }
 
   let body: unknown;
@@ -164,7 +172,56 @@ export function parsePresetRequestText(text: string): { name: unknown; job_confi
   return { name: body.name, job_config: body.job_config as JobConfig };
 }
 
-export function createTrainingPresetService(store: TrainingPresetStore) {
+export async function readPresetRequestText(request: Pick<Request, 'body' | 'headers'>): Promise<string> {
+  const declaredLength = request.headers.get('content-length');
+  if (/^\d+$/.test(declaredLength ?? '') && Number(declaredLength) > MAX_PRESET_REQUEST_BYTES) {
+    throw new TrainingPresetPayloadTooLargeError();
+  }
+
+  if (request.body === null) return '';
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_PRESET_REQUEST_BYTES) {
+        try {
+          await reader.cancel();
+        } catch {
+          // Rejection is already determined by the byte limit; cancellation is best-effort.
+        }
+        throw new TrainingPresetPayloadTooLargeError();
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new TrainingPresetValidationError('Preset request body must contain valid UTF-8');
+  }
+}
+
+export interface TrainingPresetService {
+  list(): Promise<TrainingPresetRecord[]>;
+  create(nameInput: unknown, currentJobConfig: JobConfig): Promise<TrainingPresetRecord>;
+  update(idInput: unknown, currentJobConfig: JobConfig): Promise<TrainingPresetRecord>;
+  remove(idInput: unknown): Promise<void>;
+}
+
+export function createTrainingPresetService(store: TrainingPresetStore): TrainingPresetService {
   return {
     async list(): Promise<TrainingPresetRecord[]> {
       const records = (await store.findMany()).map(deserializeRow);

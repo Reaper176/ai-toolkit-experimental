@@ -11,6 +11,8 @@ const tsc = join(uiRoot, 'node_modules', 'typescript', 'bin', 'tsc');
 const requiredTestFile = 'trainingPresets.test.js';
 const optionalTestFiles = [
   'trainingPresetService.test.js',
+  'trainingPresetRouteHandlers.test.js',
+  'trainingPresetPrismaIntegration.test.js',
   'trainingPresetSelect.test.js',
   'trainingPresetPage.test.js',
   'trainingPresetPageIntegration.test.js',
@@ -18,7 +20,11 @@ const optionalTestFiles = [
 let outputDirectory;
 
 function run(command, args) {
-  const result = spawnSync(command, args, { cwd: uiRoot, stdio: 'inherit' });
+  const result = spawnSync(command, args, {
+    cwd: uiRoot,
+    env: { ...process.env, NODE_PATH: join(uiRoot, 'node_modules') },
+    stdio: 'inherit',
+  });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${basename(command)} exited with status ${result.status}`);
 }

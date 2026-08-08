@@ -13,6 +13,11 @@
     "rootDir": "..",
     "target": "es2020"
   },
-  "include": ["../src/helpers/trainingPresets.ts", "../src/server/trainingPresetService.ts", "trainingPreset*.test.ts"],
+  "include": [
+    "../src/helpers/trainingPresets.ts",
+    "../src/server/trainingPresetService.ts",
+    "../src/server/trainingPresetRouteHandlers.ts",
+    "trainingPreset*.test.ts"
+  ],
   "exclude": ["../.next", "../node_modules"]
 }
