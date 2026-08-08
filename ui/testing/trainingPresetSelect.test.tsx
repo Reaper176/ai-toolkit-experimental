@@ -405,6 +405,44 @@ async function testRequestContracts(): Promise<void> {
     assert.match(staleDeleteResult.error, /deleted.*refreshed list/i);
   }
 
+  const preservedSelectionResult = await deleteTrainingPresetAndRefresh(
+    {
+      delete: async () => ({ data: { ok: true } }),
+      get: async () => ({ data: { presets: [deleted, concurrent] } }),
+    },
+    createTrainingPresetActionLock(),
+    deleted.id,
+    {
+      presets: [deleted, concurrent],
+      selectedPresetId: concurrent.id,
+      jobConfig: jobBeforeDelete,
+      undoConfig: undoBeforeDelete,
+    },
+  );
+  assert.equal(preservedSelectionResult.status, 'reconciliation-failed');
+  if (preservedSelectionResult.status === 'reconciliation-failed') {
+    assert.equal(preservedSelectionResult.state.selectedPresetId, concurrent.id);
+  }
+
+  const concurrentlyMissingSelection = await deleteTrainingPresetAndRefresh(
+    {
+      delete: async () => ({ data: { ok: true } }),
+      get: async () => ({ data: { presets: [deleted] } }),
+    },
+    createTrainingPresetActionLock(),
+    deleted.id,
+    {
+      presets: [deleted, stale],
+      selectedPresetId: stale.id,
+      jobConfig: jobBeforeDelete,
+      undoConfig: undoBeforeDelete,
+    },
+  );
+  assert.equal(concurrentlyMissingSelection.status, 'reconciliation-failed');
+  if (concurrentlyMissingSelection.status === 'reconciliation-failed') {
+    assert.equal(concurrentlyMissingSelection.state.selectedPresetId, null);
+  }
+
   const createController = new AbortController();
   const createCalls: string[] = [];
   const createResult = await createTrainingPresetAndRefresh(

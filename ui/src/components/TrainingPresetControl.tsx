@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef, useState, type ComponentType } from 'react';
 import type { JobConfig } from '../types';
 import { normalizePresetName, type TrainingPresetRecord } from '../helpers/trainingPresets';
 import { apiClient } from '../utils/api';
@@ -8,6 +8,8 @@ import {
   CLOSED_TRAINING_PRESET_DIALOG,
   TrainingPresetDialogView,
   trainingPresetDialogReducer,
+  type TrainingPresetDialogViewProps,
+  type TrainingPresetDialogState,
 } from './TrainingPresetDialog';
 import {
   TRAINING_PRESET_REQUEST_TIMEOUT_MS,
@@ -24,6 +26,7 @@ import {
   updateTrainingPresetAndRefresh,
   validateTrainingPresetListResponse,
   type TrainingPresetMutationResult,
+  type TrainingPresetApi,
   type TrainingPresetSelection,
 } from './TrainingPresetSelect';
 
@@ -31,13 +34,26 @@ export interface TrainingPresetControlProps {
   jobConfig: JobConfig;
   onJobConfigChange: (jobConfig: JobConfig) => void;
   migrateJobConfig: (jobConfig: JobConfig) => JobConfig;
+  dependencies?: Partial<TrainingPresetControlDependencies>;
+}
+
+export interface TrainingPresetControlDependencies {
+  api: TrainingPresetApi;
+  Dialog: ComponentType<TrainingPresetDialogViewProps>;
 }
 
 function localError(prefix: string, error: unknown): string {
   return error instanceof Error && error.message.trim() !== '' ? `${prefix}: ${error.message}` : prefix;
 }
 
-export function TrainingPresetControl({ jobConfig, onJobConfigChange, migrateJobConfig }: TrainingPresetControlProps) {
+export function TrainingPresetControl({
+  jobConfig,
+  onJobConfigChange,
+  migrateJobConfig,
+  dependencies,
+}: TrainingPresetControlProps) {
+  const api = dependencies?.api ?? apiClient;
+  const Dialog = dependencies?.Dialog ?? TrainingPresetDialogView;
   const [presets, setPresets] = useState<TrainingPresetRecord[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [undoConfig, setUndoConfig] = useState<JobConfig | null>(null);
@@ -46,6 +62,7 @@ export function TrainingPresetControl({ jobConfig, onJobConfigChange, migrateJob
   const [error, setError] = useState<string | null>(null);
   const [fetchFailed, setFetchFailed] = useState(false);
   const [dialog, dispatchDialog] = useReducer(trainingPresetDialogReducer, CLOSED_TRAINING_PRESET_DIALOG);
+  const dialogRef = useRef(dialog);
   const mountedRef = useRef(false);
   const pendingRef = useRef(false);
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -56,6 +73,7 @@ export function TrainingPresetControl({ jobConfig, onJobConfigChange, migrateJob
   jobConfigRef.current = jobConfig;
   changeRef.current = onJobConfigChange;
   migrateRef.current = migrateJobConfig;
+  dialogRef.current = dialog;
 
   const startRequest = useCallback(() => {
     requestControllerRef.current?.abort();
@@ -72,7 +90,7 @@ export function TrainingPresetControl({ jobConfig, onJobConfigChange, migrateJob
       setError(null);
     }
     try {
-      const response = await apiClient.get('/api/training-presets', {
+      const response = await api.get('/api/training-presets', {
         signal: controller.signal,
         timeout: TRAINING_PRESET_REQUEST_TIMEOUT_MS,
       });
@@ -87,7 +105,7 @@ export function TrainingPresetControl({ jobConfig, onJobConfigChange, migrateJob
     } finally {
       if (mountedRef.current && requestControllerRef.current === controller) setLoading(false);
     }
-  }, [startRequest]);
+  }, [api, startRequest]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -173,12 +191,13 @@ export function TrainingPresetControl({ jobConfig, onJobConfigChange, migrateJob
     }
   };
 
-  const confirmDialog = async () => {
-    if (dialog.kind === 'closed' || pendingRef.current) return;
+  const confirmDialog = async (expectedDialog: TrainingPresetDialogState) => {
+    if (dialogRef.current !== expectedDialog || expectedDialog.kind === 'closed' || pendingRef.current) return;
+    const activeDialog = expectedDialog;
     let normalizedName: string | undefined;
-    if (dialog.kind === 'save') {
+    if (activeDialog.kind === 'save') {
       try {
-        normalizedName = normalizePresetName(dialog.name).name;
+        normalizedName = normalizePresetName(activeDialog.name).name;
       } catch {
         dispatchDialog({ type: 'validate-save' });
         return;
@@ -189,26 +208,20 @@ export function TrainingPresetControl({ jobConfig, onJobConfigChange, migrateJob
     const state = { presets, selectedPresetId, jobConfig: jobConfigRef.current, undoConfig };
     try {
       const result =
-        dialog.kind === 'save'
-          ? await createTrainingPresetAndRefresh(
-              apiClient,
-              actionLockRef.current,
-              normalizedName!,
-              state,
-              controller.signal,
-            )
-          : dialog.kind === 'update'
+        activeDialog.kind === 'save'
+          ? await createTrainingPresetAndRefresh(api, actionLockRef.current, normalizedName!, state, controller.signal)
+          : activeDialog.kind === 'update'
             ? await updateTrainingPresetAndRefresh(
-                apiClient,
+                api,
                 actionLockRef.current,
-                dialog.presetId,
+                activeDialog.presetId,
                 state,
                 controller.signal,
               )
             : await deleteTrainingPresetAndRefresh(
-                apiClient,
+                api,
                 actionLockRef.current,
-                dialog.presetId,
+                activeDialog.presetId,
                 state,
                 controller.signal,
               );
@@ -217,9 +230,9 @@ export function TrainingPresetControl({ jobConfig, onJobConfigChange, migrateJob
     } catch (requestError) {
       if (!mountedRef.current || isTrainingPresetCancellation(requestError, controller.signal)) return;
       const fallback =
-        dialog.kind === 'save'
+        activeDialog.kind === 'save'
           ? 'Unable to save training preset.'
-          : dialog.kind === 'update'
+          : activeDialog.kind === 'update'
             ? 'Unable to update training preset.'
             : 'Unable to delete training preset.';
       const message = extractTrainingPresetApiError(requestError, fallback);
@@ -259,12 +272,12 @@ export function TrainingPresetControl({ jobConfig, onJobConfigChange, migrateJob
           )}
         </div>
       )}
-      <TrainingPresetDialogView
+      <Dialog
         state={dialog}
         pending={pending}
         onClose={() => dispatchDialog({ type: 'close' })}
         onNameChange={value => dispatchDialog({ type: 'set-name', value })}
-        onConfirm={() => void confirmDialog()}
+        onConfirm={() => void confirmDialog(dialog)}
       />
     </div>
   );

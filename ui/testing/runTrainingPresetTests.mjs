@@ -14,6 +14,7 @@ const optionalTestFiles = [
   'trainingPresetRouteHandlers.test.js',
   'trainingPresetPrismaIntegration.test.js',
   'trainingPresetSelect.test.js',
+  'trainingPresetControl.test.js',
   'trainingPresetPage.test.js',
   'trainingPresetPageIntegration.test.js',
 ];

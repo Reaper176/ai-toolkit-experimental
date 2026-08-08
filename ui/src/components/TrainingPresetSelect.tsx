@@ -374,12 +374,13 @@ export async function deleteTrainingPresetAndRefresh(
   ).then(result => {
     if (result.status === 'refreshed' && result.state.presets.some(preset => preset.id === presetId)) {
       const presets = result.state.presets.filter(preset => preset.id !== presetId);
+      const selectedPresetId = reconcileSelectedPresetId(currentState.selectedPresetId, presets);
       return {
         status: 'reconciliation-failed' as const,
         state: {
           ...result.state,
           presets,
-          selectedPresetId: null,
+          selectedPresetId,
         },
         error: 'Deleted training preset remained in the refreshed list.',
         retryable: true as const,
