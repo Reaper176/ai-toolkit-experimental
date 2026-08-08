@@ -102,13 +102,19 @@ export function TrainingPresetDialogContent({
             <input
               autoFocus
               aria-label="Preset name"
+              aria-invalid={state.error ? true : undefined}
+              aria-describedby={state.error ? 'training-preset-name-error' : undefined}
               className="mt-1 w-full rounded border border-gray-600 bg-gray-900 px-3 py-2"
               value={state.name}
               disabled={pending}
               onChange={event => onNameChange(event.currentTarget.value)}
             />
           </label>
-          {state.error && <p className="mt-2 text-sm text-red-400">{state.error}</p>}
+          {state.error && (
+            <p id="training-preset-name-error" role="alert" className="mt-2 text-sm text-red-400">
+              {state.error}
+            </p>
+          )}
         </form>
       ) : (
         <>
@@ -117,7 +123,11 @@ export function TrainingPresetDialogContent({
               ? 'Replace this preset with the current training settings?'
               : 'This training preset will be permanently deleted.'}
           </p>
-          {state.kind !== 'closed' && state.error && <p className="mt-2 text-sm text-red-400">{state.error}</p>}
+          {state.kind !== 'closed' && state.error && (
+            <p role="alert" className="mt-2 text-sm text-red-400">
+              {state.error}
+            </p>
+          )}
         </>
       )}
       <div className="mt-5 flex justify-end gap-2">

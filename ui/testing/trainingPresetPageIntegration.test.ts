@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import ts from 'typescript';
 
@@ -13,6 +13,19 @@ const advancedSourceFile = ts.createSourceFile(
   true,
   ts.ScriptKind.TSX,
 );
+const runnerSource = readFileSync(resolve(process.cwd(), 'testing/runTrainingPresetTests.mjs'), 'utf8');
+assert.doesNotMatch(runnerSource, /optionalTestFiles/, 'every committed preset test artifact must be mandatory');
+assert.doesNotMatch(
+  runnerSource,
+  /if\s*\(existsSync\(compiledTest\)\)/,
+  'the preset runner must fail when any compiled test artifact is missing',
+);
+for (const sourceTest of readdirSync(resolve(process.cwd(), 'testing')).filter(file =>
+  /^trainingPreset.*\.test\.tsx?$/.test(file),
+)) {
+  const compiledTest = sourceTest.replace(/\.tsx?$/, '.js');
+  assert.match(runnerSource, new RegExp(`['"]${compiledTest}['"]`), `${compiledTest} must be required by the runner`);
+}
 
 function visitDescendants(node: ts.Node, predicate: (candidate: ts.Node) => boolean): ts.Node[] {
   const matches: ts.Node[] = [];

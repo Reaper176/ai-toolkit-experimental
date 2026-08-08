@@ -81,6 +81,10 @@ function requireNonblankString(value: unknown, path: string): asserts value is s
   }
 }
 
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function validateTrainingProcess(process: PlainProcess, path: string): void {
   requireNonblankString(process.type, `${path}.type`);
   if (!isPlainObject(process.model)) throw new Error(`${path}.model must be a plain object`);
@@ -143,6 +147,14 @@ export function normalizePresetName(input: unknown): { name: string; nameKey: st
   return { name, nameKey: name.toLowerCase() };
 }
 
+export function compareTrainingPresetRecords(
+  left: Pick<TrainingPresetRecord, 'id' | 'name'>,
+  right: Pick<TrainingPresetRecord, 'id' | 'name'>,
+): number {
+  const caseInsensitive = left.name.localeCompare(right.name, 'en', { sensitivity: 'base' });
+  return caseInsensitive || compareText(left.name, right.name) || compareText(left.id, right.id);
+}
+
 export function validateTrainingPresetSnapshot(untrusted: unknown): TrainingPresetSnapshotV1 {
   if (!isPlainObject(untrusted)) throw new Error('Training preset snapshot must be a plain object');
   assertJsonSafe(untrusted, '$');
@@ -176,6 +188,9 @@ export function validateTrainingPresetSnapshot(untrusted: unknown): TrainingPres
 }
 
 export function sanitizeTrainingPreset(jobConfig: JobConfig): TrainingPresetSnapshotV1 {
+  if (!isPlainObject(jobConfig) || jobConfig.job !== 'extension') {
+    throw new Error('Job config job must be extension');
+  }
   const copied = deepCopy(jobConfig, 'Job config');
   const { process } = getJobParts(copied, 'Job config');
   const sanitizedProcess = deepCopy(process, 'Job process');

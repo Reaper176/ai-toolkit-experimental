@@ -8,14 +8,13 @@ const TEMP_PREFIX = 'ai-toolkit-training-presets-';
 const testingDirectory = dirname(fileURLToPath(import.meta.url));
 const uiRoot = resolve(testingDirectory, '..');
 const tsc = join(uiRoot, 'node_modules', 'typescript', 'bin', 'tsc');
-const requiredTestFile = 'trainingPresets.test.js';
-const optionalTestFiles = [
+const testFiles = [
+  'trainingPresets.test.js',
   'trainingPresetService.test.js',
   'trainingPresetRouteHandlers.test.js',
   'trainingPresetPrismaIntegration.test.js',
   'trainingPresetSelect.test.js',
   'trainingPresetControl.test.js',
-  'trainingPresetPage.test.js',
   'trainingPresetPageIntegration.test.js',
   'trainingPresetAdvancedSync.test.js',
   'trainingPresetPageState.test.js',
@@ -55,14 +54,12 @@ try {
   const aliasScope = join(outputDirectory, 'node_modules', '@');
   mkdirSync(dirname(aliasScope), { recursive: true });
   symlinkSync(join(outputDirectory, 'src'), aliasScope, process.platform === 'win32' ? 'junction' : 'dir');
-  const requiredCompiledTest = join(outputDirectory, 'testing', requiredTestFile);
-  if (!existsSync(requiredCompiledTest)) {
-    throw new Error(`Required compiled test artifact is missing: ${requiredTestFile}`);
-  }
-  run(process.execPath, [requiredCompiledTest]);
-  for (const testFile of optionalTestFiles) {
+  for (const testFile of testFiles) {
     const compiledTest = join(outputDirectory, 'testing', testFile);
-    if (existsSync(compiledTest)) run(process.execPath, [compiledTest]);
+    if (!existsSync(compiledTest)) {
+      throw new Error(`Required compiled test artifact is missing: ${testFile}`);
+    }
+    run(process.execPath, [compiledTest]);
   }
 } finally {
   if (outputDirectory !== undefined && existsSync(outputDirectory)) {

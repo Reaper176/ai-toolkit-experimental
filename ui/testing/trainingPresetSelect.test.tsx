@@ -167,6 +167,19 @@ assert.match(saveDialogMarkup, /Save training preset/);
 assert.match(saveDialogMarkup, /<h2 id="training-preset-dialog-title"/);
 assert.match(saveDialogMarkup, /aria-label="Preset name"/);
 assert.match(saveDialogMarkup, /value=""/);
+const invalidSaveDialogMarkup = renderToStaticMarkup(
+  <TrainingPresetDialogContent
+    state={{ kind: 'save', name: '', error: 'Preset name is required' }}
+    pending={false}
+    onClose={() => undefined}
+    onNameChange={() => undefined}
+    onConfirm={() => undefined}
+  />,
+);
+assert.match(invalidSaveDialogMarkup, /aria-invalid="true"/);
+assert.match(invalidSaveDialogMarkup, /aria-describedby="training-preset-name-error"/);
+assert.match(invalidSaveDialogMarkup, /id="training-preset-name-error"/);
+assert.match(invalidSaveDialogMarkup, /role="alert"/);
 
 assert.deepEqual(
   sortTrainingPresetRecords(unsorted).map(item => item.id),
@@ -180,6 +193,22 @@ assert.deepEqual(
   validateTrainingPresetListResponse({ presets: unsorted }).map(item => item.id),
   ['b', 'a', 'z'],
 );
+const originalLocaleCompare = String.prototype.localeCompare;
+let localeCompareCalls = 0;
+String.prototype.localeCompare = function (
+  other: string,
+  locales?: Intl.LocalesArgument,
+  options?: Intl.CollatorOptions,
+) {
+  localeCompareCalls += 1;
+  return originalLocaleCompare.call(this, other, locales, options);
+};
+try {
+  sortTrainingPresetRecords([record('zulu', 'Zulu'), record('abaco', 'ábaco')]);
+} finally {
+  String.prototype.localeCompare = originalLocaleCompare;
+}
+assert.ok(localeCompareCalls > 0, 'preset sorting must use localeCompare');
 for (const malformed of [null, {}, { presets: 'no' }, { presets: [{ id: '', name: 'x', snapshot: {} }] }]) {
   assert.throws(() => validateTrainingPresetListResponse(malformed), /training preset/i);
 }

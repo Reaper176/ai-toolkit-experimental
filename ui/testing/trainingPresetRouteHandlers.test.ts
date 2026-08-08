@@ -4,7 +4,12 @@ import type { TrainingPresetRecord } from '../src/helpers/trainingPresets';
 import {
   MAX_PRESET_REQUEST_BYTES,
   TrainingPresetPayloadTooLargeError,
+  createTrainingPresetService,
   mapTrainingPresetError,
+  type TrainingPresetCreateData,
+  type TrainingPresetRow,
+  type TrainingPresetStore,
+  type TrainingPresetUpdateData,
 } from '../src/server/trainingPresetService';
 import {
   createTrainingPresetCollectionHandlers,
@@ -61,6 +66,43 @@ class FakeService implements TrainingPresetServiceApi {
   }
 
   async remove(): Promise<void> {}
+}
+
+class RecordingStore implements TrainingPresetStore {
+  createCalls = 0;
+  updateCalls = 0;
+  rows: TrainingPresetRow[] = [];
+
+  async findMany(): Promise<TrainingPresetRow[]> {
+    return structuredClone(this.rows);
+  }
+
+  async findUnique(args: { where: { id?: string; name_key?: string } }): Promise<TrainingPresetRow | null> {
+    const found = this.rows.find(row =>
+      args.where.id !== undefined ? row.id === args.where.id : row.name_key === args.where.name_key,
+    );
+    return found === undefined ? null : structuredClone(found);
+  }
+
+  async create(args: { data: TrainingPresetCreateData }): Promise<TrainingPresetRow> {
+    this.createCalls += 1;
+    const now = new Date('2026-01-01T00:00:00.000Z');
+    const created = { id: 'created', ...args.data, created_at: now, updated_at: now };
+    this.rows.push(created);
+    return structuredClone(created);
+  }
+
+  async update(args: { where: { id: string }; data: TrainingPresetUpdateData }): Promise<TrainingPresetRow> {
+    this.updateCalls += 1;
+    const existing = this.rows.find(row => row.id === args.where.id);
+    assert(existing);
+    Object.assign(existing, args.data);
+    return structuredClone(existing);
+  }
+
+  async delete(): Promise<TrainingPresetRow> {
+    throw new Error('not used');
+  }
 }
 
 interface TrackedBody {
@@ -185,6 +227,22 @@ async function main(): Promise<void> {
   );
   assert.equal(invalidUtf8Response.status, 400);
   assert.equal(invalidUtf8Service.updateCalls, 0);
+
+  const craftedJob = { ...jobFixture(), job: 'caption' } as unknown as JobConfig;
+  const invalidCreateStore = new RecordingStore();
+  const invalidCreateResponse = await createTrainingPresetCollectionHandlers(
+    createTrainingPresetService(invalidCreateStore),
+    () => undefined,
+  ).POST(
+    new Request('http://localhost/api/training-presets', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Crafted', job_config: craftedJob }),
+    }),
+  );
+  assert.equal(invalidCreateResponse.status, 400);
+  assert.match(String(((await invalidCreateResponse.json()) as { error: string }).error), /job.*extension/i);
+  assert.equal(invalidCreateStore.createCalls, 0);
+  assert.equal(invalidCreateStore.rows.length, 0);
 
   console.log('Training preset route handler tests passed');
 }

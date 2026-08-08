@@ -5,6 +5,7 @@ import type { JobConfig } from '../types';
 import {
   SNAPSHOT_SCHEMA_VERSION,
   applyTrainingPreset,
+  compareTrainingPresetRecords,
   normalizePresetName,
   type TrainingPresetRecord,
   validateTrainingPresetSnapshot,
@@ -57,15 +58,8 @@ export function handleTrainingPresetSelection(
   onSelect(selection);
 }
 
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
 export function sortTrainingPresetRecords(presets: readonly TrainingPresetRecord[]): TrainingPresetRecord[] {
-  return [...presets].sort((left, right) => {
-    const folded = compareText(left.name.toLowerCase(), right.name.toLowerCase());
-    return folded || compareText(left.name, right.name) || compareText(left.id, right.id);
-  });
+  return [...presets].sort(compareTrainingPresetRecords);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -419,10 +413,7 @@ export function TrainingPresetSelect({
   disabled,
   onSelect,
 }: TrainingPresetSelectProps) {
-  const sortedPresets = [...presets].sort((left, right) => {
-    const folded = compareText(left.name.toLowerCase(), right.name.toLowerCase());
-    return folded || compareText(left.name, right.name) || compareText(left.id, right.id);
-  });
+  const sortedPresets = [...presets].sort(compareTrainingPresetRecords);
   const selectedValue =
     selectedPresetId !== null && sortedPresets.some(preset => preset.id === selectedPresetId)
       ? presetValue(selectedPresetId)

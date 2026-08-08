@@ -145,6 +145,23 @@ async function main(): Promise<void> {
   assert.equal(listed[0].created_at, '2025-01-01T00:00:00.000Z');
   assert.equal(listed[0].updated_at, '2025-01-02T00:00:00.000Z');
 
+  const originalLocaleCompare = String.prototype.localeCompare;
+  let localeCompareCalls = 0;
+  String.prototype.localeCompare = function (
+    other: string,
+    locales?: Intl.LocalesArgument,
+    options?: Intl.CollatorOptions,
+  ) {
+    localeCompareCalls += 1;
+    return originalLocaleCompare.call(this, other, locales, options);
+  };
+  try {
+    await createTrainingPresetService(new FakeStore([row('zulu', 'Zulu'), row('abaco', 'ábaco')])).list();
+  } finally {
+    String.prototype.localeCompare = originalLocaleCompare;
+  }
+  assert.ok(localeCompareCalls > 0, 'service preset sorting must use localeCompare');
+
   const createStore = new FakeStore();
   const created = await createTrainingPresetService(createStore).create('  Useful Preset  ', jobFixture());
   assert.equal(created.name, 'Useful Preset');
@@ -155,6 +172,20 @@ async function main(): Promise<void> {
   }
   assert.equal('samples' in createdProcess.sample, false);
   assert.equal('prompts' in createdProcess.sample, false);
+
+  const invalidCreateStore = new FakeStore();
+  await assert.rejects(
+    createTrainingPresetService(invalidCreateStore).create('Not training', {
+      ...jobFixture(),
+      job: 'caption',
+    } as unknown as JobConfig),
+    error => {
+      assert(error instanceof TrainingPresetValidationError);
+      assert.match(error.message, /job_config.*job.*extension/i);
+      return true;
+    },
+  );
+  assert.equal(invalidCreateStore.rows.length, 0, 'invalid job must not be created');
 
   const source = jobFixture('isolated/model');
   const isolatedStore = new FakeStore();
@@ -169,6 +200,17 @@ async function main(): Promise<void> {
   assert.equal(updated.name, 'Keep Name');
   assert.equal((updated.snapshot.config.process[0] as any).model.name_or_path, 'new/model');
   assert.deepEqual(Object.keys(updateStore.lastUpdate ?? {}).sort(), ['preset_config', 'schema_version']);
+
+  const invalidUpdateStore = new FakeStore([row('keep', 'Keep Name', 'old/model')]);
+  await assert.rejects(
+    createTrainingPresetService(invalidUpdateStore).update('keep', {
+      ...jobFixture(),
+      job: 'caption',
+    } as unknown as JobConfig),
+    TrainingPresetValidationError,
+  );
+  assert.equal(invalidUpdateStore.lastUpdate, undefined, 'invalid job must not be updated');
+  assert.equal(JSON.parse(invalidUpdateStore.rows[0].preset_config).config.process[0].model.name_or_path, 'old/model');
 
   const deleteStore = new FakeStore([row('remove-me', 'Remove Me')]);
   await createTrainingPresetService(deleteStore).remove('remove-me');

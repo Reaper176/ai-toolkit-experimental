@@ -126,6 +126,10 @@ expectThrows(
   /exactly one process/i,
 );
 expectThrows(
+  () => sanitizeTrainingPreset({ ...jobFixture(), job: 'caption' } as unknown as JobConfig),
+  /job.*extension/i,
+);
+expectThrows(
   () =>
     sanitizeTrainingPreset({
       ...jobFixture(),

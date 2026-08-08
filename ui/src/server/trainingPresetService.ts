@@ -2,6 +2,7 @@ import type { JobConfig } from '../types';
 import {
   MAX_PRESET_SNAPSHOT_BYTES,
   SNAPSHOT_SCHEMA_VERSION,
+  compareTrainingPresetRecords,
   normalizePresetName,
   sanitizeTrainingPreset,
   validateTrainingPresetSnapshot,
@@ -147,10 +148,6 @@ function deserializeRow(row: TrainingPresetRow): TrainingPresetRecord {
   }
 }
 
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
 export function parsePresetRequestText(text: string): { name: unknown; job_config: JobConfig } {
   if (new TextEncoder().encode(text).byteLength > MAX_PRESET_REQUEST_BYTES) {
     throw new TrainingPresetPayloadTooLargeError();
@@ -225,15 +222,7 @@ export function createTrainingPresetService(store: TrainingPresetStore): Trainin
   return {
     async list(): Promise<TrainingPresetRecord[]> {
       const records = (await store.findMany()).map(deserializeRow);
-      return records.sort((left, right) => {
-        const leftNormalized = left.name.toLowerCase();
-        const rightNormalized = right.name.toLowerCase();
-        return (
-          compareText(leftNormalized, rightNormalized) ||
-          compareText(left.name, right.name) ||
-          compareText(left.id, right.id)
-        );
-      });
+      return records.sort(compareTrainingPresetRecords);
     },
 
     async create(nameInput: unknown, currentJobConfig: JobConfig): Promise<TrainingPresetRecord> {
