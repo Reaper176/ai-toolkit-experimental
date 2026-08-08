@@ -200,17 +200,23 @@ export function applyTrainingPreset(
 ): JobConfig {
   const snapshot = validateTrainingPresetSnapshot(untrustedSnapshot);
   const currentCopy = deepCopy(currentJob, 'Current job config');
+  const original = getJobParts(currentCopy, 'Current job config');
+  const configName = captureProperty(original.config, 'name');
+  const meta = captureProperty(original.root, 'meta');
+  const protectedProcess = Object.fromEntries(
+    PROCESS_PROTECTED_KEYS.map(key => [key, captureProperty(original.process, key)]),
+  ) as Record<(typeof PROCESS_PROTECTED_KEYS)[number], PropertyCapture>;
+  const originalSample = isPlainObject(original.process.sample) ? original.process.sample : {};
+  const preserveSamples =
+    Object.prototype.hasOwnProperty.call(originalSample, 'samples') ||
+    Object.prototype.hasOwnProperty.call(originalSample, 'prompts');
+
   const normalizedCurrent = deepCopy(migrate(currentCopy), 'Migrated current job config');
   const current = getJobParts(normalizedCurrent, 'Migrated current job config');
   validateTrainingProcess(current.process, 'config.process[0]');
 
-  const configName = captureProperty(current.config, 'name');
-  const meta = captureProperty(current.root, 'meta');
-  const protectedProcess = Object.fromEntries(
-    PROCESS_PROTECTED_KEYS.map(key => [key, captureProperty(current.process, key)]),
-  ) as Record<(typeof PROCESS_PROTECTED_KEYS)[number], PropertyCapture>;
   const currentSample = isPlainObject(current.process.sample) ? current.process.sample : {};
-  const samples = captureProperty(currentSample, 'samples');
+  const samples = preserveSamples ? captureProperty(currentSample, 'samples') : { present: false };
 
   const candidateProcess = deepCopy(snapshot.config.process[0], 'Training preset process');
   const candidate: Record<string, unknown> = {

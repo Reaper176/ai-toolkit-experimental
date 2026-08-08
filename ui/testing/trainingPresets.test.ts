@@ -515,13 +515,56 @@ for (const scenario of [
 }
 
 const absentLifecycleCurrent = jobFixture() as any;
-delete absentLifecycleCurrent.config.process[0].trigger_word;
-delete absentLifecycleCurrent.config.process[0].datasets;
+delete absentLifecycleCurrent.config.name;
+delete absentLifecycleCurrent.meta;
+for (const key of ['training_folder', 'sqlite_db_path', 'device', 'trigger_word', 'datasets']) {
+  delete absentLifecycleCurrent.config.process[0][key];
+}
 delete absentLifecycleCurrent.config.process[0].sample.samples;
+delete absentLifecycleCurrent.config.process[0].sample.prompts;
+const absentLifecycleCurrentBefore = structuredClone(absentLifecycleCurrent);
+const absentLifecyclePresetBefore = structuredClone(lifecyclePreset);
 const absentLifecycleApplied = applyTrainingPreset(absentLifecycleCurrent, lifecyclePreset, migrateJobConfig) as any;
-assert.equal('trigger_word' in absentLifecycleApplied.config.process[0], false);
-assert.equal('datasets' in absentLifecycleApplied.config.process[0], false);
+assert.equal('name' in absentLifecycleApplied.config, false);
+assert.equal('meta' in absentLifecycleApplied, false);
+for (const key of ['training_folder', 'sqlite_db_path', 'device', 'trigger_word', 'datasets']) {
+  assert.equal(key in absentLifecycleApplied.config.process[0], false, `${key} must remain absent`);
+}
 assert.equal('samples' in absentLifecycleApplied.config.process[0].sample, false);
+assert.equal('prompts' in absentLifecycleApplied.config.process[0].sample, false);
+assert.deepEqual(absentLifecycleCurrent, absentLifecycleCurrentBefore, 'absent current input must not mutate');
+assert.deepEqual(lifecyclePreset, absentLifecyclePresetBefore, 'absent preset input must not mutate');
+
+const migrationIntroducedApplied = applyTrainingPreset(
+  absentLifecycleCurrent,
+  lifecyclePreset,
+  (jobConfig: JobConfig) => {
+    const migrated = migrateJobConfig(jobConfig) as any;
+    migrated.config.name = 'migration-added-name';
+    migrated.meta = { name: 'migration-added-meta', version: '0' };
+    const process = migrated.config.process[0];
+    process.training_folder = '/migration-added/output';
+    process.sqlite_db_path = '/migration-added/jobs.sqlite';
+    process.device = 'migration-added-device';
+    process.trigger_word = 'MIGRATION_ADDED';
+    process.datasets = [{ folder_path: '/migration-added/images' }];
+    process.sample.samples = [{ prompt: 'migration-added prompt' }];
+    return migrated;
+  },
+) as any;
+assert.equal('name' in migrationIntroducedApplied.config, false);
+assert.equal('meta' in migrationIntroducedApplied, false);
+for (const key of ['training_folder', 'sqlite_db_path', 'device', 'trigger_word', 'datasets']) {
+  assert.equal(key in migrationIntroducedApplied.config.process[0], false, `${key} added by migration must be removed`);
+}
+assert.equal('samples' in migrationIntroducedApplied.config.process[0].sample, false);
+assert.equal('prompts' in migrationIntroducedApplied.config.process[0].sample, false);
+assert.deepEqual(
+  absentLifecycleCurrent,
+  absentLifecycleCurrentBefore,
+  'migration must not mutate absent current input',
+);
+assert.deepEqual(lifecyclePreset, absentLifecyclePresetBefore, 'migration must not mutate absent preset input');
 
 const throwingCurrent = jobFixture();
 const throwingSnapshot = sanitizeTrainingPreset(presetJobFixture());

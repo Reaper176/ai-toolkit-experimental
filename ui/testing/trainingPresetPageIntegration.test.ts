@@ -1,66 +1,196 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import ts = require('typescript');
+import ts from 'typescript';
 
 const pageSource = readFileSync(resolve(process.cwd(), 'src/app/jobs/new/page.tsx'), 'utf8');
-const normalizedSource = pageSource.replace(/\s+/g, ' ');
-
-assert.equal(
-  (pageSource.match(/import\s+(?:\{\s*)?TrainingPresetControl(?:\s*\})?\s+from\s+['"][^'"]+['"]/g) ?? []).length,
-  1,
-  'the training page must import TrainingPresetControl exactly once',
-);
-
 const sourceFile = ts.createSourceFile('page.tsx', pageSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const presetNodes: ts.JsxSelfClosingElement[] = [];
-function visit(node: ts.Node): void {
-  if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(sourceFile) === 'TrainingPresetControl') {
-    presetNodes.push(node);
+
+function visitDescendants(node: ts.Node, predicate: (candidate: ts.Node) => boolean): ts.Node[] {
+  const matches: ts.Node[] = [];
+  function visit(candidate: ts.Node): void {
+    if (predicate(candidate)) matches.push(candidate);
+    ts.forEachChild(candidate, visit);
   }
-  ts.forEachChild(node, visit);
+  visit(node);
+  return matches;
 }
-visit(sourceFile);
-assert.equal(presetNodes.length, 1, 'TrainingPresetControl must be a single self-closing JSX element');
-for (let ancestor = presetNodes[0].parent; !ts.isSourceFile(ancestor); ancestor = ancestor.parent) {
-  assert.equal(ts.isConditionalExpression(ancestor), false, 'preset control must not be conditionally rendered');
-  assert.equal(
-    ts.isBinaryExpression(ancestor) && ancestor.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken,
-    false,
-    'preset control must not be inside a logical conditional',
+
+function jsxTagName(node: ts.JsxElement | ts.JsxSelfClosingElement): string {
+  return ts.isJsxElement(node) ? node.openingElement.tagName.getText(sourceFile) : node.tagName.getText(sourceFile);
+}
+
+function isJsxTag(node: ts.Node, name: string): node is ts.JsxElement | ts.JsxSelfClosingElement {
+  return (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) && jsxTagName(node) === name;
+}
+
+function jsxAttributes(node: ts.JsxElement | ts.JsxSelfClosingElement): ts.JsxAttributes {
+  return ts.isJsxElement(node) ? node.openingElement.attributes : node.attributes;
+}
+
+function getAttribute(node: ts.JsxElement | ts.JsxSelfClosingElement, name: string): ts.JsxAttribute | undefined {
+  return jsxAttributes(node).properties.find(
+    (property): property is ts.JsxAttribute =>
+      ts.isJsxAttribute(property) && property.name.getText(sourceFile) === name,
   );
 }
+
+function getAttributeExpression(node: ts.JsxElement | ts.JsxSelfClosingElement, name: string): ts.Expression {
+  const attribute = getAttribute(node, name);
+  assert.ok(attribute, `TrainingPresetControl must have a ${name} attribute`);
+  assert.ok(attribute.initializer && ts.isJsxExpression(attribute.initializer), `${name} must use a JSX expression`);
+  assert.ok(attribute.initializer.expression, `${name} expression must not be empty`);
+  return attribute.initializer.expression;
+}
+
+function unwrapParentheses(expression: ts.Expression): ts.Expression {
+  let current = expression;
+  while (ts.isParenthesizedExpression(current)) current = current.expression;
+  return current;
+}
+
+const presetImports = sourceFile.statements.filter((statement): statement is ts.ImportDeclaration => {
+  if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) return false;
+  return statement.moduleSpecifier.text === '@/components/TrainingPresetControl';
+});
+assert.equal(presetImports.length, 1, 'the training page must import TrainingPresetControl exactly once');
+const presetImportClause = presetImports[0].importClause;
+assert.ok(presetImportClause, 'TrainingPresetControl import must bind the component');
+const importsPresetControl =
+  presetImportClause.name?.text === 'TrainingPresetControl' ||
+  (presetImportClause.namedBindings !== undefined &&
+    ts.isNamedImports(presetImportClause.namedBindings) &&
+    presetImportClause.namedBindings.elements.some(element => element.name.text === 'TrainingPresetControl'));
+assert.equal(importsPresetControl, true, 'the preset import must bind TrainingPresetControl');
+
+const trainingForms = sourceFile.statements.filter(
+  (statement): statement is ts.FunctionDeclaration =>
+    ts.isFunctionDeclaration(statement) &&
+    statement.name?.text === 'TrainingForm' &&
+    statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.DefaultKeyword) === true,
+);
+assert.equal(trainingForms.length, 1, 'the page must have one default TrainingForm function');
+const trainingForm = trainingForms[0];
+assert.ok(trainingForm.body, 'TrainingForm must have a body');
+const returns = trainingForm.body.statements.filter(ts.isReturnStatement);
+assert.equal(returns.length, 1, 'TrainingForm must have one top-level return');
+assert.ok(returns[0].expression, 'TrainingForm must return JSX');
+
+const topBars = visitDescendants(returns[0].expression, node => isJsxTag(node, 'TopBar')) as ts.JsxElement[];
+assert.equal(topBars.length, 1, 'TrainingForm must render one TopBar');
+const topBar = topBars[0];
+assert.ok(ts.isJsxElement(topBar), 'TopBar must contain child controls');
+
+const presetControls = visitDescendants(returns[0].expression, node =>
+  isJsxTag(node, 'TrainingPresetControl'),
+) as Array<ts.JsxElement | ts.JsxSelfClosingElement>;
+assert.equal(presetControls.length, 1, 'TrainingForm must render exactly one TrainingPresetControl');
+const presetControl = presetControls[0];
+
+let presetWrapper: ts.Node = presetControl;
+while (presetWrapper.parent !== topBar && !ts.isSourceFile(presetWrapper)) presetWrapper = presetWrapper.parent;
+assert.equal(presetWrapper.parent, topBar, 'TrainingPresetControl must be inside TopBar');
+assert.ok(ts.isJsxElement(presetWrapper), 'TrainingPresetControl must be wrapped by a direct TopBar child');
+assert.equal(jsxTagName(presetWrapper), 'div', 'TrainingPresetControl wrapper must be a div');
+const wrapperChildren = presetWrapper.children.filter(child => !ts.isJsxText(child) || child.text.trim() !== '');
+assert.equal(wrapperChildren.length, 1, 'preset wrapper must have one meaningful child');
+assert.equal(wrapperChildren[0], presetControl, 'TrainingPresetControl must be the wrapper’s direct child');
+
+const topBarChildren = topBar.children.filter(child => !ts.isJsxText(child) || child.text.trim() !== '');
+const wrapperIndex = topBarChildren.indexOf(presetWrapper as ts.JsxChild);
+assert.ok(wrapperIndex >= 0, 'preset wrapper must be a semantic TopBar child');
+
+function logicalCondition(child: ts.JsxChild): ts.Expression | undefined {
+  if (!ts.isJsxExpression(child) || !child.expression) return undefined;
+  const expression = unwrapParentheses(child.expression);
+  if (!ts.isBinaryExpression(expression) || expression.operatorToken.kind !== ts.SyntaxKind.AmpersandAmpersandToken) {
+    return undefined;
+  }
+  return unwrapParentheses(expression.left);
+}
+
+const advancedIndex = topBarChildren.findIndex(child => {
+  const condition = logicalCondition(child);
+  return condition !== undefined && ts.isIdentifier(condition) && condition.text === 'showAdvancedView';
+});
+const simpleIndex = topBarChildren.findIndex(child => {
+  const condition = logicalCondition(child);
+  return (
+    condition !== undefined &&
+    ts.isPrefixUnaryExpression(condition) &&
+    condition.operator === ts.SyntaxKind.ExclamationToken &&
+    ts.isIdentifier(condition.operand) &&
+    condition.operand.text === 'showAdvancedView'
+  );
+});
+assert.ok(advancedIndex >= 0, 'TopBar must retain the advanced-mode conditional');
+assert.ok(simpleIndex >= 0, 'TopBar must retain the simple-mode conditional');
+assert.ok(wrapperIndex > advancedIndex, 'preset wrapper must follow the advanced-mode conditional');
+assert.ok(wrapperIndex > simpleIndex, 'preset wrapper must follow the simple-mode conditional');
+
+function isViewToggleButton(node: ts.Node): boolean {
+  if (!isJsxTag(node, 'Button')) return false;
+  const onClick = getAttribute(node, 'onClick');
+  if (!onClick?.initializer || !ts.isJsxExpression(onClick.initializer) || !onClick.initializer.expression)
+    return false;
+  return (
+    visitDescendants(onClick.initializer.expression, candidate => {
+      return (
+        ts.isCallExpression(candidate) &&
+        ts.isIdentifier(candidate.expression) &&
+        candidate.expression.text === 'setShowAdvancedView'
+      );
+    }).length > 0
+  );
+}
+
+const toggleButtons = visitDescendants(topBar, isViewToggleButton);
+assert.equal(toggleButtons.length, 1, 'TopBar must have one view-toggle button');
+let toggleWrapper = toggleButtons[0];
+while (toggleWrapper.parent !== topBar) toggleWrapper = toggleWrapper.parent;
+const toggleIndex = topBarChildren.indexOf(toggleWrapper as ts.JsxChild);
+assert.ok(toggleIndex > wrapperIndex, 'preset wrapper must precede the view-toggle control');
+
+const jobConfigExpression = unwrapParentheses(getAttributeExpression(presetControl, 'jobConfig'));
+assert.ok(ts.isIdentifier(jobConfigExpression) && jobConfigExpression.text === 'jobConfig');
+const migrateExpression = unwrapParentheses(getAttributeExpression(presetControl, 'migrateJobConfig'));
+assert.ok(ts.isIdentifier(migrateExpression) && migrateExpression.text === 'migrateJobConfig');
+
+const changeExpression = unwrapParentheses(getAttributeExpression(presetControl, 'onJobConfigChange'));
+assert.ok(ts.isArrowFunction(changeExpression), 'onJobConfigChange must be an arrow function');
+assert.equal(changeExpression.parameters.length, 1, 'onJobConfigChange must accept exactly one parameter');
+const changeParameter = changeExpression.parameters[0].name;
+assert.ok(ts.isIdentifier(changeParameter), 'onJobConfigChange parameter must be an identifier');
+const setterCalls = visitDescendants(changeExpression.body, node => {
+  if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression) || node.expression.text !== 'setJobConfig') {
+    return false;
+  }
+  return (
+    node.arguments.length === 1 &&
+    ts.isIdentifier(unwrapParentheses(node.arguments[0])) &&
+    (unwrapParentheses(node.arguments[0]) as ts.Identifier).text === changeParameter.text
+  );
+});
+assert.equal(setterCalls.length, 1, 'onJobConfigChange must pass its parameter to setJobConfig');
+
+assert.equal(getAttribute(presetControl, 'gpuIDs'), undefined, 'TrainingPresetControl must not receive gpuIDs');
 assert.equal(
-  (pageSource.match(/<TrainingPresetControl\b/g) ?? []).length,
-  1,
-  'the training page must render exactly one TrainingPresetControl',
+  visitDescendants(presetControl, node => ts.isIdentifier(node) && node.text === 'gpuIDs').length,
+  0,
+  'TrainingPresetControl subtree must not reference gpuIDs',
 );
 
-const advancedControlIndex = normalizedSource.indexOf('Import Config');
-const simpleControlIndex = normalizedSource.indexOf('options={jobTypeOptions}');
-const presetControlIndex = normalizedSource.indexOf('<TrainingPresetControl');
-const viewToggleIndex = normalizedSource.indexOf("{showAdvancedView ? 'Show Simple' : 'Show Advanced'}");
-
-assert.ok(advancedControlIndex >= 0, 'advanced mode controls must remain present');
-assert.ok(simpleControlIndex >= 0, 'simple mode controls must remain present');
-assert.ok(presetControlIndex > advancedControlIndex, 'preset control must follow the advanced mode controls');
-assert.ok(presetControlIndex > simpleControlIndex, 'preset control must follow the simple mode controls');
-assert.ok(viewToggleIndex > presetControlIndex, 'preset control must precede the view toggle');
-
-const presetTagEnd = normalizedSource.indexOf('/>', presetControlIndex);
-assert.ok(presetTagEnd > presetControlIndex, 'TrainingPresetControl must be self-closing');
-const presetTag = normalizedSource.slice(presetControlIndex, presetTagEnd + 2);
-assert.match(presetTag, /\bjobConfig=\{jobConfig\}/);
-assert.match(presetTag, /\bonJobConfigChange=\{next\s*=>\s*setJobConfig\(next\)\}/);
-assert.match(presetTag, /\bmigrateJobConfig=\{migrateJobConfig\}/);
-assert.doesNotMatch(presetTag, /gpuIDs/);
-
-const wrapperStart = normalizedSource.lastIndexOf('<div', presetControlIndex);
-const wrapperOpeningTagEnd = normalizedSource.indexOf('>', wrapperStart);
-assert.ok(wrapperStart >= 0 && wrapperOpeningTagEnd < presetControlIndex, 'preset control must have a wrapper');
-const wrapperOpeningTag = normalizedSource.slice(wrapperStart, wrapperOpeningTagEnd + 1);
-assert.match(wrapperOpeningTag, /flex-shrink-0/);
-assert.match(wrapperOpeningTag, /\bpx-/);
-assert.doesNotMatch(wrapperOpeningTag, /\bhidden\b/, 'preset wrapper must remain visible on mobile');
+const classAttribute = getAttribute(presetWrapper, 'className');
+assert.ok(
+  classAttribute?.initializer && ts.isStringLiteral(classAttribute.initializer),
+  'preset wrapper needs static classes',
+);
+const classTokens = classAttribute.initializer.text.split(/\s+/).filter(Boolean);
+assert.ok(classTokens.includes('flex-shrink-0'), 'preset wrapper must not shrink');
+assert.ok(
+  classTokens.some(token => token.startsWith('px-')),
+  'preset wrapper must use compact horizontal padding',
+);
+assert.equal(classTokens.includes('hidden'), false, 'preset wrapper must not be hidden on mobile');
 
 console.log('Training preset page integration tests passed');
