@@ -165,7 +165,7 @@ expectThrows(
       ...sanitized,
       config: { process: [{ type: 'diffusion_trainer', model: {} }] },
     }),
-  /config\.process\[0\]\.model\.arch.*nonblank string/i,
+  /config\.process\[0\]\.model\.name_or_path.*nonblank string/i,
 );
 for (const malformedType of [undefined, '   ', 42]) {
   expectThrows(
@@ -194,15 +194,21 @@ for (const section of ['model', 'train', 'save', 'sample']) {
     );
   }
 }
-for (const field of ['arch', 'name_or_path']) {
-  for (const malformed of [undefined, '', '   ', 42]) {
-    const process = structuredClone(validProcess);
-    process.model[field] = malformed;
-    expectThrows(
-      () => validateTrainingPresetSnapshot({ ...sanitized, config: { process: [process] } }),
-      new RegExp(`config\\.process\\[0\\]\\.model\\.${field}.*nonblank string`, 'i'),
-    );
-  }
+for (const malformed of [undefined, null, '', '   ', 42]) {
+  const process = structuredClone(validProcess);
+  process.model.name_or_path = malformed;
+  expectThrows(
+    () => validateTrainingPresetSnapshot({ ...sanitized, config: { process: [process] } }),
+    /config\.process\[0\]\.model\.name_or_path.*nonblank string/i,
+  );
+}
+for (const malformed of [null, '', '   ', 42]) {
+  const process = structuredClone(validProcess);
+  process.model.arch = malformed;
+  expectThrows(
+    () => validateTrainingPresetSnapshot({ ...sanitized, config: { process: [process] } }),
+    /config\.process\[0\]\.model\.arch.*nonblank string/i,
+  );
 }
 
 for (const [type, arch, path] of [
@@ -218,6 +224,35 @@ for (const [type, arch, path] of [
     (validateTrainingPresetSnapshot({ ...sanitized, config: { process: [variant] } }).config.process[0] as any).type,
     type,
   );
+}
+
+// Representative Advanced-editor configs from config/examples/*.yaml use legacy flags without model.arch.
+for (const legacyModel of [
+  { label: 'Flux', name_or_path: 'black-forest-labs/FLUX.1-dev', is_flux: true },
+  { label: 'Flex', name_or_path: 'ostris/Flex.1-alpha', is_flux: true },
+  { label: 'Lumina 2', name_or_path: 'Alpha-VLLM/Lumina-Image-2.0', is_lumina2: true },
+  { label: 'SD 3.5', name_or_path: 'stabilityai/stable-diffusion-3.5-large', is_v3: true },
+]) {
+  const legacyJob = presetJobFixture();
+  const legacyProcess = legacyJob.config.process[0] as any;
+  legacyProcess.type = 'sd_trainer';
+  legacyProcess.model = { ...legacyModel };
+  delete legacyProcess.model.label;
+
+  const legacySnapshot = sanitizeTrainingPreset(legacyJob);
+  const snapshotProcess = legacySnapshot.config.process[0] as any;
+  assert.equal(snapshotProcess.type, 'sd_trainer', `${legacyModel.label} trainer type was retained`);
+  assert.equal(snapshotProcess.model.name_or_path, legacyModel.name_or_path);
+  assert.equal('arch' in snapshotProcess.model, false, `${legacyModel.label} gained an inferred architecture`);
+
+  const legacyApplied = applyTrainingPreset(jobFixture(), legacySnapshot, (job: JobConfig) => job);
+  const appliedLegacyProcess = legacyApplied.config.process[0] as any;
+  assert.equal(appliedLegacyProcess.type, 'sd_trainer');
+  assert.equal(appliedLegacyProcess.model.name_or_path, legacyModel.name_or_path);
+  assert.equal('arch' in appliedLegacyProcess.model, false, `${legacyModel.label} gained an inferred architecture`);
+  for (const flag of ['is_flux', 'is_lumina2', 'is_v3']) {
+    assert.equal(appliedLegacyProcess.model[flag], (legacyProcess.model as any)[flag]);
+  }
 }
 
 const structurallyInvalidJob = presetJobFixture();

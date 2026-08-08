@@ -84,7 +84,9 @@ function requireNonblankString(value: unknown, path: string): asserts value is s
 function validateTrainingProcess(process: PlainProcess, path: string): void {
   requireNonblankString(process.type, `${path}.type`);
   if (!isPlainObject(process.model)) throw new Error(`${path}.model must be a plain object`);
-  requireNonblankString(process.model.arch, `${path}.model.arch`);
+  if (process.model.arch !== undefined) {
+    requireNonblankString(process.model.arch, `${path}.model.arch`);
+  }
   requireNonblankString(process.model.name_or_path, `${path}.model.name_or_path`);
   for (const section of ['train', 'save', 'sample'] as const) {
     if (!isPlainObject(process[section])) throw new Error(`${path}.${section} must be a plain object`);
