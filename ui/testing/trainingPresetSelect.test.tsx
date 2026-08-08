@@ -4,13 +4,21 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { JobConfig } from '../src/types';
 import { sanitizeTrainingPreset, type TrainingPresetRecord } from '../src/helpers/trainingPresets';
 import {
+  CLOSED_TRAINING_PRESET_DIALOG,
+  TrainingPresetDialogContent,
+  trainingPresetDialogReducer,
+} from '../src/components/TrainingPresetDialog';
+import {
   PRESET_ACTION_DELETE,
   PRESET_ACTION_SAVE,
   PRESET_ACTION_UNDO,
   PRESET_ACTION_UPDATE,
   TrainingPresetSelect,
+  TRAINING_PRESET_REQUEST_TIMEOUT_MS,
   createTrainingPreset,
   createTrainingPresetActionLock,
+  createTrainingPresetAndRefresh,
+  commitTrainingPresetMutationResult,
   deleteTrainingPreset,
   deleteTrainingPresetAndRefresh,
   extractTrainingPresetApiError,
@@ -22,6 +30,7 @@ import {
   restorePresetUndo,
   sortTrainingPresetRecords,
   updateTrainingPreset,
+  updateTrainingPresetAndRefresh,
   validateTrainingPresetListResponse,
 } from '../src/components/TrainingPresetSelect';
 
@@ -123,6 +132,42 @@ const disabledMarkup = renderToStaticMarkup(
 );
 assert.match(disabledMarkup, /<select[^>]*disabled=""/);
 
+let dialogState = trainingPresetDialogReducer(CLOSED_TRAINING_PRESET_DIALOG, { type: 'open-save' });
+assert.equal(dialogState.kind, 'save');
+dialogState = trainingPresetDialogReducer(dialogState, { type: 'set-name', value: '   ' });
+dialogState = trainingPresetDialogReducer(dialogState, { type: 'validate-save' });
+assert.equal(dialogState.kind, 'save');
+assert.match(dialogState.error ?? '', /required/i);
+dialogState = trainingPresetDialogReducer(dialogState, {
+  type: 'open-update',
+  presetId: 'p:1',
+  presetName: 'Named preset',
+});
+assert.equal(dialogState.kind, 'update');
+dialogState = trainingPresetDialogReducer(dialogState, { type: 'close' });
+assert.deepEqual(dialogState, CLOSED_TRAINING_PRESET_DIALOG);
+dialogState = trainingPresetDialogReducer(CLOSED_TRAINING_PRESET_DIALOG, {
+  type: 'open-delete',
+  presetId: 'p:2',
+  presetName: 'Delete me',
+});
+assert.equal(dialogState.kind, 'delete');
+dialogState = trainingPresetDialogReducer(dialogState, { type: 'success' });
+assert.deepEqual(dialogState, CLOSED_TRAINING_PRESET_DIALOG);
+const saveDialogMarkup = renderToStaticMarkup(
+  <TrainingPresetDialogContent
+    state={trainingPresetDialogReducer(CLOSED_TRAINING_PRESET_DIALOG, { type: 'open-save' })}
+    pending={false}
+    onClose={() => undefined}
+    onNameChange={() => undefined}
+    onConfirm={() => undefined}
+  />,
+);
+assert.match(saveDialogMarkup, /Save training preset/);
+assert.match(saveDialogMarkup, /<h2 id="training-preset-dialog-title"/);
+assert.match(saveDialogMarkup, /aria-label="Preset name"/);
+assert.match(saveDialogMarkup, /value=""/);
+
 assert.deepEqual(
   sortTrainingPresetRecords(unsorted).map(item => item.id),
   ['b', 'a', 'z'],
@@ -219,13 +264,17 @@ async function testRequestContracts(): Promise<void> {
   const orchestrationCalls: string[] = [];
   const jobBeforeDelete = jobFixture(501);
   const undoBeforeDelete = jobFixture(502);
+  const deleteController = new AbortController();
   const refreshed = await deleteTrainingPresetAndRefresh(
     {
-      delete: async url => {
+      delete: async (url, options) => {
+        assert.equal(options.signal, deleteController.signal);
+        assert.equal(options.timeout, TRAINING_PRESET_REQUEST_TIMEOUT_MS);
         orchestrationCalls.push(`DELETE ${url}`);
         return { data: { ok: true } };
       },
-      get: async url => {
+      get: async (url, options) => {
+        assert.equal(options.signal, deleteController.signal);
         orchestrationCalls.push(`GET ${url}`);
         return { data: { presets: [concurrent] } };
       },
@@ -238,6 +287,7 @@ async function testRequestContracts(): Promise<void> {
       jobConfig: jobBeforeDelete,
       undoConfig: undoBeforeDelete,
     },
+    deleteController.signal,
   );
   assert.deepEqual(orchestrationCalls, ['DELETE /api/training-presets/deleted', 'GET /api/training-presets']);
   assert.equal(refreshed.status, 'refreshed');
@@ -329,6 +379,201 @@ async function testRequestContracts(): Promise<void> {
   assert.equal(concurrentDeleteCalls, 1);
   releaseDelete();
   assert.equal((await firstDelete).status, 'refreshed');
+
+  const staleDeleteResult = await deleteTrainingPresetAndRefresh(
+    {
+      delete: async () => ({ data: { ok: true } }),
+      get: async () => ({ data: { presets: [deleted, concurrent] } }),
+    },
+    createTrainingPresetActionLock(),
+    deleted.id,
+    {
+      presets: [deleted],
+      selectedPresetId: deleted.id,
+      jobConfig: jobBeforeDelete,
+      undoConfig: undoBeforeDelete,
+    },
+  );
+  assert.equal(staleDeleteResult.status, 'reconciliation-failed');
+  if (staleDeleteResult.status === 'reconciliation-failed') {
+    assert.deepEqual(
+      staleDeleteResult.state.presets.map(item => item.id),
+      ['concurrent'],
+    );
+    assert.equal(staleDeleteResult.state.selectedPresetId, null);
+    assert.equal(staleDeleteResult.retryable, true);
+    assert.match(staleDeleteResult.error, /deleted.*refreshed list/i);
+  }
+
+  const createController = new AbortController();
+  const createCalls: string[] = [];
+  const createResult = await createTrainingPresetAndRefresh(
+    {
+      post: async (url, _body, options) => {
+        assert.equal(options.signal, createController.signal);
+        assert.equal(options.timeout, TRAINING_PRESET_REQUEST_TIMEOUT_MS);
+        createCalls.push(`POST ${url}`);
+        return { data: returned };
+      },
+      get: async (url, options) => {
+        assert.equal(options.signal, createController.signal);
+        createCalls.push(`GET ${url}`);
+        return { data: { presets: [concurrent, returned] } };
+      },
+    },
+    createTrainingPresetActionLock(),
+    'Server Name',
+    {
+      presets: [stale],
+      selectedPresetId: stale.id,
+      jobConfig: jobBeforeDelete,
+      undoConfig: undoBeforeDelete,
+    },
+    createController.signal,
+  );
+  assert.deepEqual(createCalls, ['POST /api/training-presets', 'GET /api/training-presets']);
+  assert.equal(createResult.status, 'refreshed');
+  if (createResult.status === 'refreshed') {
+    assert.deepEqual(
+      createResult.state.presets.map(item => item.id),
+      ['concurrent', 'new'],
+    );
+    assert.equal(createResult.state.selectedPresetId, returned.id);
+    assert.equal(createResult.state.jobConfig, jobBeforeDelete);
+    assert.equal(createResult.state.undoConfig, undoBeforeDelete);
+  }
+
+  const updateCalls: string[] = [];
+  const updateResult = await updateTrainingPresetAndRefresh(
+    {
+      put: async url => {
+        updateCalls.push(`PUT ${url}`);
+        return { data: returned };
+      },
+      get: async url => {
+        updateCalls.push(`GET ${url}`);
+        return { data: { presets: [concurrent] } };
+      },
+    },
+    createTrainingPresetActionLock(),
+    stale.id,
+    {
+      presets: [stale],
+      selectedPresetId: stale.id,
+      jobConfig: jobBeforeDelete,
+      undoConfig: undoBeforeDelete,
+    },
+    new AbortController().signal,
+  );
+  assert.deepEqual(updateCalls, ['PUT /api/training-presets/stale', 'GET /api/training-presets']);
+  assert.equal(updateResult.status, 'reconciliation-failed');
+  if (updateResult.status === 'reconciliation-failed') {
+    assert.equal(updateResult.state.selectedPresetId, null);
+    assert.deepEqual(
+      updateResult.state.presets.map(item => item.id),
+      ['concurrent'],
+    );
+    assert.equal(updateResult.retryable, true);
+    assert.match(updateResult.error, /not present/i);
+  }
+
+  const fallbackResult = await updateTrainingPresetAndRefresh(
+    {
+      put: async () => ({ data: returned }),
+      get: async () => {
+        throw new Error('offline');
+      },
+    },
+    createTrainingPresetActionLock(),
+    stale.id,
+    {
+      presets: [stale, concurrent],
+      selectedPresetId: stale.id,
+      jobConfig: jobBeforeDelete,
+      undoConfig: undoBeforeDelete,
+    },
+    new AbortController().signal,
+  );
+  assert.equal(fallbackResult.status, 'refresh-failed');
+  if (fallbackResult.status === 'refresh-failed') {
+    assert.deepEqual(
+      fallbackResult.state.presets.map(item => item.id),
+      ['concurrent', 'new'],
+    );
+    assert.equal(fallbackResult.state.selectedPresetId, returned.id);
+    assert.equal(fallbackResult.state.jobConfig, jobBeforeDelete);
+    assert.equal(fallbackResult.state.undoConfig, undoBeforeDelete);
+  }
+
+  const cancelledController = new AbortController();
+  let cancelledGets = 0;
+  const cancelledLock = createTrainingPresetActionLock();
+  const cancelledRequest = createTrainingPresetAndRefresh(
+    {
+      post: async (_url, _body, options) =>
+        new Promise((_resolve, reject) => {
+          options.signal.addEventListener('abort', () => reject({ code: 'ERR_CANCELED' }), { once: true });
+        }),
+      get: async () => {
+        cancelledGets += 1;
+        return { data: { presets: [] } };
+      },
+    },
+    cancelledLock,
+    'Cancelled',
+    {
+      presets: [],
+      selectedPresetId: null,
+      jobConfig: jobBeforeDelete,
+      undoConfig: undoBeforeDelete,
+    },
+    cancelledController.signal,
+  );
+  cancelledController.abort();
+  assert.equal((await cancelledRequest).status, 'cancelled');
+  assert.equal(cancelledGets, 0);
+  assert.equal(cancelledLock.active, false);
+  let cancelledStateCallbacks = 0;
+  assert.equal(
+    commitTrainingPresetMutationResult(
+      { status: 'cancelled' },
+      {
+        onState: () => {
+          cancelledStateCallbacks += 1;
+        },
+        onSuccess: () => {
+          cancelledStateCallbacks += 1;
+        },
+        onListError: () => {
+          cancelledStateCallbacks += 1;
+        },
+      },
+    ),
+    false,
+  );
+  assert.equal(cancelledStateCallbacks, 0);
+
+  const timeoutLock = createTrainingPresetActionLock();
+  await assert.rejects(() =>
+    createTrainingPresetAndRefresh(
+      {
+        post: async () => {
+          throw { code: 'ECONNABORTED' };
+        },
+        get: async () => ({ data: { presets: [] } }),
+      },
+      timeoutLock,
+      'Timeout',
+      {
+        presets: [],
+        selectedPresetId: null,
+        jobConfig: jobBeforeDelete,
+        undoConfig: undoBeforeDelete,
+      },
+      new AbortController().signal,
+    ),
+  );
+  assert.equal(timeoutLock.active, false);
 }
 
 testRequestContracts()

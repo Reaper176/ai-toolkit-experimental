@@ -16,6 +16,7 @@
   "include": [
     "../src/components/TrainingPresetSelect.tsx",
     "../src/components/TrainingPresetControl.tsx",
+    "../src/components/TrainingPresetDialog.tsx",
     "../src/helpers/trainingPresets.ts",
     "../src/server/trainingPresetService.ts",
     "../src/server/trainingPresetRouteHandlers.ts",

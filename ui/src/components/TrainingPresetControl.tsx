@@ -1,22 +1,29 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { JobConfig } from '../types';
 import { normalizePresetName, type TrainingPresetRecord } from '../helpers/trainingPresets';
 import { apiClient } from '../utils/api';
-import { openConfirm } from './ConfirmModal';
 import {
+  CLOSED_TRAINING_PRESET_DIALOG,
+  TrainingPresetDialogView,
+  trainingPresetDialogReducer,
+} from './TrainingPresetDialog';
+import {
+  TRAINING_PRESET_REQUEST_TIMEOUT_MS,
   TrainingPresetSelect,
+  commitTrainingPresetMutationResult,
   createTrainingPresetActionLock,
-  createTrainingPreset,
+  createTrainingPresetAndRefresh,
   deleteTrainingPresetAndRefresh,
   extractTrainingPresetApiError,
+  isTrainingPresetCancellation,
   preparePresetApplication,
   reconcileSelectedPresetId,
   restorePresetUndo,
-  sortTrainingPresetRecords,
-  updateTrainingPreset,
+  updateTrainingPresetAndRefresh,
   validateTrainingPresetListResponse,
+  type TrainingPresetMutationResult,
   type TrainingPresetSelection,
 } from './TrainingPresetSelect';
 
@@ -35,15 +42,14 @@ export function TrainingPresetControl({ jobConfig, onJobConfigChange, migrateJob
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [undoConfig, setUndoConfig] = useState<JobConfig | null>(null);
   const [pending, setPending] = useState(false);
-  const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fetchFailed, setFetchFailed] = useState(false);
+  const [dialog, dispatchDialog] = useReducer(trainingPresetDialogReducer, CLOSED_TRAINING_PRESET_DIALOG);
   const mountedRef = useRef(false);
   const pendingRef = useRef(false);
-  const confirmationOpenRef = useRef(false);
-  const fetchControllerRef = useRef<AbortController | null>(null);
-  const deleteActionLockRef = useRef(createTrainingPresetActionLock());
+  const requestControllerRef = useRef<AbortController | null>(null);
+  const actionLockRef = useRef(createTrainingPresetActionLock());
   const jobConfigRef = useRef(jobConfig);
   const changeRef = useRef(onJobConfigChange);
   const migrateRef = useRef(migrateJobConfig);
@@ -51,74 +57,79 @@ export function TrainingPresetControl({ jobConfig, onJobConfigChange, migrateJob
   changeRef.current = onJobConfigChange;
   migrateRef.current = migrateJobConfig;
 
-  const fetchPresets = useCallback(async () => {
-    fetchControllerRef.current?.abort();
+  const startRequest = useCallback(() => {
+    requestControllerRef.current?.abort();
     const controller = new AbortController();
-    fetchControllerRef.current = controller;
+    requestControllerRef.current = controller;
+    return controller;
+  }, []);
+
+  const fetchPresets = useCallback(async () => {
+    const controller = startRequest();
     if (mountedRef.current) {
       setLoading(true);
       setFetchFailed(false);
       setError(null);
     }
     try {
-      const response = await apiClient.get('/api/training-presets', { signal: controller.signal });
+      const response = await apiClient.get('/api/training-presets', {
+        signal: controller.signal,
+        timeout: TRAINING_PRESET_REQUEST_TIMEOUT_MS,
+      });
       const nextPresets = validateTrainingPresetListResponse(response.data);
       if (!mountedRef.current || controller.signal.aborted) return;
       setPresets(nextPresets);
       setSelectedPresetId(current => reconcileSelectedPresetId(current, nextPresets));
     } catch (requestError) {
-      if (!mountedRef.current || controller.signal.aborted) return;
+      if (!mountedRef.current || isTrainingPresetCancellation(requestError, controller.signal)) return;
       setFetchFailed(true);
       setError(extractTrainingPresetApiError(requestError, 'Unable to load training presets.'));
     } finally {
-      if (mountedRef.current && fetchControllerRef.current === controller) setLoading(false);
+      if (mountedRef.current && requestControllerRef.current === controller) setLoading(false);
     }
-  }, []);
+  }, [startRequest]);
 
   useEffect(() => {
     mountedRef.current = true;
     void fetchPresets();
     return () => {
       mountedRef.current = false;
-      fetchControllerRef.current?.abort();
+      requestControllerRef.current?.abort();
     };
   }, [fetchPresets]);
 
   const beginPending = (): boolean => {
     if (!mountedRef.current || pendingRef.current) return false;
     pendingRef.current = true;
-    if (mountedRef.current) setPending(true);
+    setPending(true);
     return true;
   };
 
-  const endPending = () => {
+  const endPending = (controller: AbortController) => {
+    if (requestControllerRef.current !== controller) return;
     pendingRef.current = false;
     if (mountedRef.current) setPending(false);
   };
 
-  const beginConfirmation = (): boolean => {
-    if (!mountedRef.current || confirmationOpenRef.current) return false;
-    confirmationOpenRef.current = true;
-    setConfirming(true);
-    return true;
-  };
-
-  const endConfirmation = () => {
-    confirmationOpenRef.current = false;
-    if (mountedRef.current) setConfirming(false);
-  };
-
-  const mergePreset = (nextPreset: TrainingPresetRecord, replacedId?: string) => {
-    setPresets(current =>
-      sortTrainingPresetRecords([
-        ...current.filter(preset => preset.id !== nextPreset.id && preset.id !== replacedId),
-        nextPreset,
-      ]),
-    );
+  const applyMutationResult = (result: TrainingPresetMutationResult): boolean => {
+    return commitTrainingPresetMutationResult(result, {
+      onState: state => {
+        setPresets(state.presets);
+        setSelectedPresetId(state.selectedPresetId);
+      },
+      onSuccess: () => {
+        setFetchFailed(false);
+        setError(null);
+      },
+      onListError: listError => {
+        setFetchFailed(true);
+        setError(listError);
+      },
+    });
   };
 
   const handleSelection = (selection: TrainingPresetSelection) => {
-    if (pendingRef.current || confirmationOpenRef.current || loading) return;
+    if (pendingRef.current || dialog.kind !== 'closed' || loading) return;
 
     if (selection.type === 'preset') {
       const preset = presets.find(candidate => candidate.id === selection.id);
@@ -148,115 +159,74 @@ export function TrainingPresetControl({ jobConfig, onJobConfigChange, migrateJob
     }
 
     if (selection.type === 'save') {
-      if (!beginConfirmation()) return;
-      openConfirm({
-        title: 'Save training preset',
-        message: 'Save the current training settings as a reusable preset.',
-        confirmText: 'Save preset',
-        type: 'info',
-        inputTitle: 'Preset name',
-        onCancel: endConfirmation,
-        onConfirm: async value => {
-          endConfirmation();
-          if (value === undefined) return;
-          let name: string;
-          try {
-            name = normalizePresetName(value).name;
-          } catch (nameError) {
-            if (mountedRef.current) setError(localError('Could not save training preset', nameError));
-            return;
-          }
-          if (!beginPending()) return;
-          try {
-            const created = await createTrainingPreset(apiClient, name, jobConfigRef.current);
-            if (!mountedRef.current) return;
-            mergePreset(created);
-            setSelectedPresetId(created.id);
-            setError(null);
-          } catch (requestError) {
-            if (mountedRef.current) {
-              setError(extractTrainingPresetApiError(requestError, 'Unable to save training preset.'));
-            }
-          } finally {
-            endPending();
-          }
-        },
-      });
+      dispatchDialog({ type: 'open-save' });
       return;
     }
 
     const selected =
       selectedPresetId === null ? undefined : presets.find(candidate => candidate.id === selectedPresetId);
     if (!selected) return;
-
     if (selection.type === 'update') {
-      if (!beginConfirmation()) return;
-      openConfirm({
-        title: `Update “${selected.name}”`,
-        message: 'Replace this preset with the current training settings?',
-        confirmText: 'Update preset',
-        type: 'warning',
-        onCancel: endConfirmation,
-        onConfirm: async () => {
-          endConfirmation();
-          if (!beginPending()) return;
-          try {
-            const updated = await updateTrainingPreset(apiClient, selected.id, jobConfigRef.current);
-            if (!mountedRef.current) return;
-            mergePreset(updated, selected.id);
-            setSelectedPresetId(updated.id);
-            setError(null);
-          } catch (requestError) {
-            if (mountedRef.current) {
-              setError(extractTrainingPresetApiError(requestError, 'Unable to update training preset.'));
-            }
-          } finally {
-            endPending();
-          }
-        },
-      });
-      return;
+      dispatchDialog({ type: 'open-update', presetId: selected.id, presetName: selected.name });
+    } else if (selection.type === 'delete') {
+      dispatchDialog({ type: 'open-delete', presetId: selected.id, presetName: selected.name });
     }
+  };
 
-    if (selection.type === 'delete') {
-      if (!beginConfirmation()) return;
-      openConfirm({
-        title: `Delete “${selected.name}”`,
-        message: 'This training preset will be permanently deleted.',
-        confirmText: 'Delete preset',
-        type: 'danger',
-        onCancel: endConfirmation,
-        onConfirm: async () => {
-          endConfirmation();
-          if (!beginPending()) return;
-          try {
-            fetchControllerRef.current?.abort();
-            const result = await deleteTrainingPresetAndRefresh(apiClient, deleteActionLockRef.current, selected.id, {
-              presets,
-              selectedPresetId,
-              jobConfig: jobConfigRef.current,
-              undoConfig,
-            });
-            if (!mountedRef.current) return;
-            if (result.status === 'busy') return;
-            setPresets(result.state.presets);
-            setSelectedPresetId(result.state.selectedPresetId);
-            if (result.status === 'refresh-failed') {
-              setFetchFailed(true);
-              setError(result.error);
-            } else {
-              setFetchFailed(false);
-              setError(null);
-            }
-          } catch (requestError) {
-            if (mountedRef.current) {
-              setError(extractTrainingPresetApiError(requestError, 'Unable to delete training preset.'));
-            }
-          } finally {
-            endPending();
-          }
-        },
-      });
+  const confirmDialog = async () => {
+    if (dialog.kind === 'closed' || pendingRef.current) return;
+    let normalizedName: string | undefined;
+    if (dialog.kind === 'save') {
+      try {
+        normalizedName = normalizePresetName(dialog.name).name;
+      } catch {
+        dispatchDialog({ type: 'validate-save' });
+        return;
+      }
+    }
+    if (!beginPending()) return;
+    const controller = startRequest();
+    const state = { presets, selectedPresetId, jobConfig: jobConfigRef.current, undoConfig };
+    try {
+      const result =
+        dialog.kind === 'save'
+          ? await createTrainingPresetAndRefresh(
+              apiClient,
+              actionLockRef.current,
+              normalizedName!,
+              state,
+              controller.signal,
+            )
+          : dialog.kind === 'update'
+            ? await updateTrainingPresetAndRefresh(
+                apiClient,
+                actionLockRef.current,
+                dialog.presetId,
+                state,
+                controller.signal,
+              )
+            : await deleteTrainingPresetAndRefresh(
+                apiClient,
+                actionLockRef.current,
+                dialog.presetId,
+                state,
+                controller.signal,
+              );
+      if (!mountedRef.current || controller.signal.aborted || !applyMutationResult(result)) return;
+      dispatchDialog({ type: 'success' });
+    } catch (requestError) {
+      if (!mountedRef.current || isTrainingPresetCancellation(requestError, controller.signal)) return;
+      const fallback =
+        dialog.kind === 'save'
+          ? 'Unable to save training preset.'
+          : dialog.kind === 'update'
+            ? 'Unable to update training preset.'
+            : 'Unable to delete training preset.';
+      const message = extractTrainingPresetApiError(requestError, fallback);
+      setError(message);
+      dispatchDialog({ type: 'set-error', error: message });
+    } finally {
+      endPending(controller);
     }
   };
 
@@ -266,7 +236,7 @@ export function TrainingPresetControl({ jobConfig, onJobConfigChange, migrateJob
         presets={presets}
         selectedPresetId={selectedPresetId}
         canUndo={undoConfig !== null}
-        disabled={loading || pending || confirming}
+        disabled={loading || pending || dialog.kind !== 'closed'}
         onSelect={handleSelection}
       />
       {(loading || pending) && (
@@ -289,6 +259,13 @@ export function TrainingPresetControl({ jobConfig, onJobConfigChange, migrateJob
           )}
         </div>
       )}
+      <TrainingPresetDialogView
+        state={dialog}
+        pending={pending}
+        onClose={() => dispatchDialog({ type: 'close' })}
+        onNameChange={value => dispatchDialog({ type: 'set-name', value })}
+        onConfirm={() => void confirmDialog()}
+      />
     </div>
   );
 }

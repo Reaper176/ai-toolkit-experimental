@@ -143,18 +143,40 @@ export function extractTrainingPresetApiError(error: unknown, fallback: string):
 }
 
 export interface TrainingPresetApi {
-  post(url: string, body: unknown): Promise<{ data: unknown }>;
-  put(url: string, body: unknown): Promise<{ data: unknown }>;
-  delete(url: string): Promise<{ data: unknown }>;
+  get(url: string, options: TrainingPresetRequestOptions): Promise<{ data: unknown }>;
+  post(url: string, body: unknown, options: TrainingPresetRequestOptions): Promise<{ data: unknown }>;
+  put(url: string, body: unknown, options: TrainingPresetRequestOptions): Promise<{ data: unknown }>;
+  delete(url: string, options: TrainingPresetRequestOptions): Promise<{ data: unknown }>;
+}
+
+export const TRAINING_PRESET_REQUEST_TIMEOUT_MS = 30_000;
+
+export interface TrainingPresetRequestOptions {
+  signal: AbortSignal;
+  timeout: number;
+}
+
+function requestOptions(signal?: AbortSignal): TrainingPresetRequestOptions {
+  return {
+    signal: signal ?? new AbortController().signal,
+    timeout: TRAINING_PRESET_REQUEST_TIMEOUT_MS,
+  };
+}
+
+export function isTrainingPresetCancellation(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
+  if (!isPlainObject(error)) return false;
+  return error.code === 'ERR_CANCELED' || error.name === 'CanceledError' || error.name === 'AbortError';
 }
 
 export async function createTrainingPreset(
   api: Pick<TrainingPresetApi, 'post'>,
   nameInput: unknown,
   jobConfig: JobConfig,
+  signal?: AbortSignal,
 ): Promise<TrainingPresetRecord> {
   const { name } = normalizePresetName(nameInput);
-  const response = await api.post('/api/training-presets', { name, job_config: jobConfig });
+  const response = await api.post('/api/training-presets', { name, job_config: jobConfig }, requestOptions(signal));
   return validateTrainingPresetRecord(response.data);
 }
 
@@ -162,15 +184,22 @@ export async function updateTrainingPreset(
   api: Pick<TrainingPresetApi, 'put'>,
   presetId: string,
   jobConfig: JobConfig,
+  signal?: AbortSignal,
 ): Promise<TrainingPresetRecord> {
-  const response = await api.put(`/api/training-presets/${encodeURIComponent(presetId)}`, {
-    job_config: jobConfig,
-  });
+  const response = await api.put(
+    `/api/training-presets/${encodeURIComponent(presetId)}`,
+    { job_config: jobConfig },
+    requestOptions(signal),
+  );
   return validateTrainingPresetRecord(response.data);
 }
 
-export async function deleteTrainingPreset(api: Pick<TrainingPresetApi, 'delete'>, presetId: string): Promise<void> {
-  await api.delete(`/api/training-presets/${encodeURIComponent(presetId)}`);
+export async function deleteTrainingPreset(
+  api: Pick<TrainingPresetApi, 'delete'>,
+  presetId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await api.delete(`/api/training-presets/${encodeURIComponent(presetId)}`, requestOptions(signal));
 }
 
 export interface TrainingPresetActionLock {
@@ -181,75 +210,197 @@ export function createTrainingPresetActionLock(): TrainingPresetActionLock {
   return { active: false };
 }
 
-export interface DeleteTrainingPresetControllerState {
+export interface TrainingPresetControllerState {
   presets: readonly TrainingPresetRecord[];
   selectedPresetId: string | null;
   jobConfig: JobConfig;
   undoConfig: JobConfig | null;
 }
 
-type DeleteTrainingPresetNextState = Omit<DeleteTrainingPresetControllerState, 'presets'> & {
+export type TrainingPresetNextState = Omit<TrainingPresetControllerState, 'presets'> & {
   presets: TrainingPresetRecord[];
 };
 
-export type DeleteTrainingPresetResult =
+export type TrainingPresetMutationResult =
   | {
       status: 'refreshed';
-      state: DeleteTrainingPresetNextState;
+      state: TrainingPresetNextState;
     }
   | {
-      status: 'refresh-failed';
-      state: DeleteTrainingPresetNextState;
+      status: 'reconciliation-failed';
+      state: TrainingPresetNextState;
       error: string;
       retryable: true;
     }
-  | { status: 'busy' };
+  | {
+      status: 'refresh-failed';
+      state: TrainingPresetNextState;
+      error: string;
+      retryable: true;
+    }
+  | { status: 'busy' }
+  | { status: 'cancelled' };
 
-export async function deleteTrainingPresetAndRefresh(
-  api: Pick<TrainingPresetApi, 'delete'> & {
-    get(url: string): Promise<{ data: unknown }>;
-  },
+export interface TrainingPresetMutationCallbacks {
+  onState: (state: TrainingPresetNextState) => void;
+  onSuccess: () => void;
+  onListError: (error: string, retryable: true) => void;
+}
+
+export function commitTrainingPresetMutationResult(
+  result: TrainingPresetMutationResult,
+  callbacks: TrainingPresetMutationCallbacks,
+): boolean {
+  if (result.status === 'busy' || result.status === 'cancelled') return false;
+  callbacks.onState(result.state);
+  if (result.status === 'refreshed') callbacks.onSuccess();
+  else callbacks.onListError(result.error, result.retryable);
+  return true;
+}
+
+async function requestTrainingPresetCollection(
+  api: Pick<TrainingPresetApi, 'get'>,
+  signal: AbortSignal,
+): Promise<TrainingPresetRecord[]> {
+  const response = await api.get('/api/training-presets', requestOptions(signal));
+  return validateTrainingPresetListResponse(response.data);
+}
+
+async function runTrainingPresetMutation(
+  api: Pick<TrainingPresetApi, 'get'>,
   lock: TrainingPresetActionLock,
-  presetId: string,
-  currentState: DeleteTrainingPresetControllerState,
-): Promise<DeleteTrainingPresetResult> {
+  signal: AbortSignal,
+  currentState: TrainingPresetControllerState,
+  mutate: () => Promise<TrainingPresetRecord | null>,
+  fallback: (record: TrainingPresetRecord | null) => TrainingPresetRecord[],
+  selectAfterRefresh: (presets: TrainingPresetRecord[], record: TrainingPresetRecord | null) => string | null,
+  missingSelectionMessage?: string,
+): Promise<TrainingPresetMutationResult> {
   if (lock.active) return { status: 'busy' };
   lock.active = true;
   try {
-    await deleteTrainingPreset(api, presetId);
+    if (signal.aborted) return { status: 'cancelled' };
+    const record = await mutate();
+    if (signal.aborted) return { status: 'cancelled' };
     try {
-      const response = await api.get('/api/training-presets');
-      const presets = validateTrainingPresetListResponse(response.data);
-      return {
-        status: 'refreshed',
-        state: {
-          ...currentState,
-          presets,
-          selectedPresetId:
-            currentState.selectedPresetId === presetId
-              ? null
-              : reconcileSelectedPresetId(currentState.selectedPresetId, presets),
-        },
-      };
+      const presets = await requestTrainingPresetCollection(api, signal);
+      if (signal.aborted) return { status: 'cancelled' };
+      const selectedPresetId = selectAfterRefresh(presets, record);
+      const state = { ...currentState, presets, selectedPresetId };
+      if (record !== null && selectedPresetId === null && missingSelectionMessage) {
+        return { status: 'reconciliation-failed', state, error: missingSelectionMessage, retryable: true };
+      }
+      return { status: 'refreshed', state };
     } catch (refreshError) {
-      const presets = sortTrainingPresetRecords(currentState.presets.filter(preset => preset.id !== presetId));
+      if (isTrainingPresetCancellation(refreshError, signal)) return { status: 'cancelled' };
+      const presets = sortTrainingPresetRecords(fallback(record));
       return {
         status: 'refresh-failed',
-        state: {
-          ...currentState,
-          presets,
-          selectedPresetId:
-            currentState.selectedPresetId === presetId
-              ? null
-              : reconcileSelectedPresetId(currentState.selectedPresetId, presets),
-        },
-        error: extractTrainingPresetApiError(refreshError, 'Unable to refresh training presets after deletion.'),
+        state: { ...currentState, presets, selectedPresetId: record?.id ?? null },
+        error: extractTrainingPresetApiError(refreshError, 'Unable to refresh training presets.'),
         retryable: true,
       };
     }
+  } catch (mutationError) {
+    if (isTrainingPresetCancellation(mutationError, signal)) return { status: 'cancelled' };
+    throw mutationError;
   } finally {
     lock.active = false;
   }
+}
+
+export function createTrainingPresetAndRefresh(
+  api: Pick<TrainingPresetApi, 'post' | 'get'>,
+  lock: TrainingPresetActionLock,
+  name: string,
+  currentState: TrainingPresetControllerState,
+  signal: AbortSignal,
+): Promise<TrainingPresetMutationResult> {
+  return runTrainingPresetMutation(
+    api,
+    lock,
+    signal,
+    currentState,
+    () => createTrainingPreset(api, name, currentState.jobConfig, signal),
+    record => [...currentState.presets.filter(preset => preset.id !== record?.id), ...(record ? [record] : [])],
+    (presets, record) => (record && presets.some(preset => preset.id === record.id) ? record.id : null),
+    'Created training preset was not present in the refreshed list.',
+  );
+}
+
+export function updateTrainingPresetAndRefresh(
+  api: Pick<TrainingPresetApi, 'put' | 'get'>,
+  lock: TrainingPresetActionLock,
+  presetId: string,
+  currentState: TrainingPresetControllerState,
+  signal: AbortSignal,
+): Promise<TrainingPresetMutationResult> {
+  return runTrainingPresetMutation(
+    api,
+    lock,
+    signal,
+    currentState,
+    () => updateTrainingPreset(api, presetId, currentState.jobConfig, signal),
+    record => [
+      ...currentState.presets.filter(preset => preset.id !== presetId && preset.id !== record?.id),
+      ...(record ? [record] : []),
+    ],
+    (presets, record) => (record && presets.some(preset => preset.id === record.id) ? record.id : null),
+    'Updated training preset was not present in the refreshed list.',
+  );
+}
+
+export async function deleteTrainingPresetAndRefresh(
+  api: Pick<TrainingPresetApi, 'delete' | 'get'>,
+  lock: TrainingPresetActionLock,
+  presetId: string,
+  currentState: TrainingPresetControllerState,
+  signal: AbortSignal = new AbortController().signal,
+): Promise<TrainingPresetMutationResult> {
+  return runTrainingPresetMutation(
+    api,
+    lock,
+    signal,
+    currentState,
+    async () => {
+      await deleteTrainingPreset(api, presetId, signal);
+      return null;
+    },
+    () => currentState.presets.filter(preset => preset.id !== presetId),
+    presets =>
+      currentState.selectedPresetId === presetId
+        ? null
+        : reconcileSelectedPresetId(currentState.selectedPresetId, presets),
+  ).then(result => {
+    if (result.status === 'refreshed' && result.state.presets.some(preset => preset.id === presetId)) {
+      const presets = result.state.presets.filter(preset => preset.id !== presetId);
+      return {
+        status: 'reconciliation-failed' as const,
+        state: {
+          ...result.state,
+          presets,
+          selectedPresetId: null,
+        },
+        error: 'Deleted training preset remained in the refreshed list.',
+        retryable: true as const,
+      };
+    }
+    if (result.status !== 'refresh-failed') return result;
+    return {
+      ...result,
+      state: {
+        ...result.state,
+        selectedPresetId:
+          currentState.selectedPresetId === presetId
+            ? null
+            : reconcileSelectedPresetId(currentState.selectedPresetId, result.state.presets),
+      },
+      error:
+        result.error === 'Unable to refresh training presets.'
+          ? 'Unable to refresh training presets after deletion.'
+          : result.error,
+    };
+  });
 }
 
 export interface TrainingPresetSelectProps {
