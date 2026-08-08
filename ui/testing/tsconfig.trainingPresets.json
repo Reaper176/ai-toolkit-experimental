@@ -14,10 +14,13 @@
     "target": "es2020"
   },
   "include": [
+    "../src/components/TrainingPresetSelect.tsx",
+    "../src/components/TrainingPresetControl.tsx",
     "../src/helpers/trainingPresets.ts",
     "../src/server/trainingPresetService.ts",
     "../src/server/trainingPresetRouteHandlers.ts",
-    "trainingPreset*.test.ts"
+    "trainingPreset*.test.ts",
+    "trainingPreset*.test.tsx"
   ],
   "exclude": ["../.next", "../node_modules"]
 }
