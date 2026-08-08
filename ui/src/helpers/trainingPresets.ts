@@ -33,7 +33,38 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
+function assertJsonSafe(value: unknown, path: string, ancestors = new Set<object>()): void {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error(`${path} must be a finite number`);
+    return;
+  }
+  if (typeof value === 'undefined') throw new Error(`${path} must not be undefined`);
+  if (typeof value !== 'object') throw new Error(`${path} contains unsupported ${typeof value}`);
+  if (ancestors.has(value)) throw new Error(`${path} contains a circular reference`);
+  if (!Array.isArray(value) && !isPlainObject(value)) {
+    throw new Error(`${path} must be a plain object or array`);
+  }
+
+  ancestors.add(value);
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      assertJsonSafe(value[index], `${path}[${index}]`, ancestors);
+    }
+  } else {
+    if (Object.getOwnPropertySymbols(value).length > 0) {
+      throw new Error(`${path} contains an unsupported symbol key`);
+    }
+    for (const [key, child] of Object.entries(value)) {
+      // Optional object properties commonly use explicit undefined; JSON treats them as absent.
+      if (child !== undefined) assertJsonSafe(child, `${path}.${key}`, ancestors);
+    }
+  }
+  ancestors.delete(value);
+}
+
 function serializeJson(value: unknown, context: string): string {
+  assertJsonSafe(value, '$');
   try {
     const serialized = JSON.stringify(value);
     if (serialized === undefined) throw new Error('not JSON serializable');
@@ -41,6 +72,22 @@ function serializeJson(value: unknown, context: string): string {
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(`${context} must be JSON serializable: ${detail}`);
+  }
+}
+
+function requireNonblankString(value: unknown, path: string): asserts value is string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`${path} must be a nonblank string`);
+  }
+}
+
+function validateTrainingProcess(process: PlainProcess, path: string): void {
+  requireNonblankString(process.type, `${path}.type`);
+  if (!isPlainObject(process.model)) throw new Error(`${path}.model must be a plain object`);
+  requireNonblankString(process.model.arch, `${path}.model.arch`);
+  requireNonblankString(process.model.name_or_path, `${path}.model.name_or_path`);
+  for (const section of ['train', 'save', 'sample'] as const) {
+    if (!isPlainObject(process[section])) throw new Error(`${path}.${section} must be a plain object`);
   }
 }
 
@@ -96,6 +143,7 @@ export function normalizePresetName(input: unknown): { name: string; nameKey: st
 
 export function validateTrainingPresetSnapshot(untrusted: unknown): TrainingPresetSnapshotV1 {
   if (!isPlainObject(untrusted)) throw new Error('Training preset snapshot must be a plain object');
+  assertJsonSafe(untrusted, '$');
   if (untrusted.schema_version !== SNAPSHOT_SCHEMA_VERSION) {
     throw new Error(`Training preset snapshot schema_version must be ${SNAPSHOT_SCHEMA_VERSION}`);
   }
@@ -105,7 +153,8 @@ export function validateTrainingPresetSnapshot(untrusted: unknown): TrainingPres
   if (!isPlainObject(untrusted.config)) {
     throw new Error('Training preset snapshot config must be a plain object');
   }
-  requireSingleProcess(untrusted.config, 'Training preset snapshot');
+  const process = requireSingleProcess(untrusted.config, 'Training preset snapshot');
+  validateTrainingProcess(process, 'config.process[0]');
 
   const serialized = serializeJson(untrusted, 'Training preset snapshot');
   const byteLength = new TextEncoder().encode(serialized).byteLength;
@@ -116,6 +165,7 @@ export function validateTrainingPresetSnapshot(untrusted: unknown): TrainingPres
   const copied = JSON.parse(serialized) as Record<string, unknown>;
   const copiedConfig = copied.config as Record<string, unknown>;
   const copiedProcess = requireSingleProcess(copiedConfig, 'Training preset snapshot');
+  validateTrainingProcess(copiedProcess, 'config.process[0]');
   return {
     schema_version: SNAPSHOT_SCHEMA_VERSION,
     job: 'extension',
@@ -150,6 +200,7 @@ export function applyTrainingPreset(
   const currentCopy = deepCopy(currentJob, 'Current job config');
   const normalizedCurrent = deepCopy(migrate(currentCopy), 'Migrated current job config');
   const current = getJobParts(normalizedCurrent, 'Migrated current job config');
+  validateTrainingProcess(current.process, 'config.process[0]');
 
   const configName = captureProperty(current.config, 'name');
   const meta = captureProperty(current.root, 'meta');
@@ -186,6 +237,8 @@ export function applyTrainingPreset(
     migrate(deepCopy(candidate, 'Preset candidate') as unknown as JobConfig),
     'Migrated preset candidate',
   ) as unknown as Record<string, unknown>;
+  validateTrainingProcess(getJobParts(migratedCandidate, 'Migrated preset candidate').process, 'config.process[0]');
   restoreProtected(migratedCandidate);
+  validateTrainingProcess(getJobParts(migratedCandidate, 'Applied training preset').process, 'config.process[0]');
   return deepCopy(migratedCandidate, 'Applied training preset') as unknown as JobConfig;
 }

@@ -8,8 +8,8 @@ const TEMP_PREFIX = 'ai-toolkit-training-presets-';
 const testingDirectory = dirname(fileURLToPath(import.meta.url));
 const uiRoot = resolve(testingDirectory, '..');
 const tsc = join(uiRoot, 'node_modules', 'typescript', 'bin', 'tsc');
-const testFiles = [
-  'trainingPresets.test.js',
+const requiredTestFile = 'trainingPresets.test.js';
+const optionalTestFiles = [
   'trainingPresetService.test.js',
   'trainingPresetSelect.test.js',
   'trainingPresetPage.test.js',
@@ -43,7 +43,12 @@ try {
   outputDirectory = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
   assertSafe(outputDirectory);
   run(process.execPath, [tsc, '--project', 'testing/tsconfig.trainingPresets.json', '--outDir', outputDirectory]);
-  for (const testFile of testFiles) {
+  const requiredCompiledTest = join(outputDirectory, 'testing', requiredTestFile);
+  if (!existsSync(requiredCompiledTest)) {
+    throw new Error(`Required compiled test artifact is missing: ${requiredTestFile}`);
+  }
+  run(process.execPath, [requiredCompiledTest]);
+  for (const testFile of optionalTestFiles) {
     const compiledTest = join(outputDirectory, 'testing', testFile);
     if (existsSync(compiledTest)) run(process.execPath, [compiledTest]);
   }

@@ -157,11 +157,132 @@ expectThrows(
   () => validateTrainingPresetSnapshot({ ...sanitized, config: { process: [[]] } }),
   /process.*plain object/i,
 );
+
+const validProcess = sanitized.config.process[0] as Record<string, any>;
 expectThrows(
   () =>
     validateTrainingPresetSnapshot({
       ...sanitized,
-      config: { process: [{ payload: '\ud83d\ude00'.repeat(MAX_PRESET_SNAPSHOT_BYTES / 2) }] },
+      config: { process: [{ type: 'diffusion_trainer', model: {} }] },
+    }),
+  /config\.process\[0\]\.model\.arch.*nonblank string/i,
+);
+for (const malformedType of [undefined, '   ', 42]) {
+  expectThrows(
+    () =>
+      validateTrainingPresetSnapshot({
+        ...sanitized,
+        config: { process: [{ ...validProcess, type: malformedType }] },
+      }),
+    /config\.process\[0\]\.type.*nonblank string/i,
+  );
+}
+for (const section of ['model', 'train', 'save', 'sample']) {
+  const missing = structuredClone(validProcess);
+  delete missing[section];
+  expectThrows(
+    () => validateTrainingPresetSnapshot({ ...sanitized, config: { process: [missing] } }),
+    new RegExp(`config\\.process\\[0\\]\\.${section}.*plain object`, 'i'),
+  );
+
+  for (const malformed of [null, [], 'invalid']) {
+    const process = structuredClone(validProcess);
+    process[section] = malformed;
+    expectThrows(
+      () => validateTrainingPresetSnapshot({ ...sanitized, config: { process: [process] } }),
+      new RegExp(`config\\.process\\[0\\]\\.${section}.*plain object`, 'i'),
+    );
+  }
+}
+for (const field of ['arch', 'name_or_path']) {
+  for (const malformed of [undefined, '', '   ', 42]) {
+    const process = structuredClone(validProcess);
+    process.model[field] = malformed;
+    expectThrows(
+      () => validateTrainingPresetSnapshot({ ...sanitized, config: { process: [process] } }),
+      new RegExp(`config\\.process\\[0\\]\\.model\\.${field}.*nonblank string`, 'i'),
+    );
+  }
+}
+
+for (const [type, arch, path] of [
+  ['diffusion_trainer', 'flux', 'black-forest-labs/FLUX.1-dev'],
+  ['concept_slider', 'qwen_image', 'Qwen/Qwen-Image'],
+  ['future_trainer', 'future_arch', '/models/future.safetensors'],
+]) {
+  const variant = structuredClone(validProcess);
+  variant.type = type;
+  variant.model.arch = arch;
+  variant.model.name_or_path = path;
+  assert.equal(
+    (validateTrainingPresetSnapshot({ ...sanitized, config: { process: [variant] } }).config.process[0] as any).type,
+    type,
+  );
+}
+
+const structurallyInvalidJob = presetJobFixture();
+delete (structurallyInvalidJob.config.process[0] as any).train;
+expectThrows(() => sanitizeTrainingPreset(structurallyInvalidJob), /config\.process\[0\]\.train.*plain object/i);
+
+for (const [field, value] of [
+  ['lr', Number.NaN],
+  ['steps', Number.POSITIVE_INFINITY],
+  ['minimum', Number.NEGATIVE_INFINITY],
+] as const) {
+  const unsafeJob = presetJobFixture();
+  (unsafeJob.config.process[0] as any).train[field] = value;
+  expectThrows(
+    () => sanitizeTrainingPreset(unsafeJob),
+    new RegExp(`\\$\\.config\\.process\\[0\\]\\.train\\.${field}.*finite number`, 'i'),
+  );
+}
+
+for (const [field, value, description] of [
+  ['bigint_value', BigInt(1), 'bigint'],
+  ['function_value', () => true, 'function'],
+  ['symbol_value', Symbol('unsafe'), 'symbol'],
+] as const) {
+  const unsafe = structuredClone(sanitized) as any;
+  unsafe.config.process[0].train[field] = value;
+  expectThrows(
+    () => validateTrainingPresetSnapshot(unsafe),
+    new RegExp(`\\$\\.config\\.process\\[0\\]\\.train\\.${field}.*${description}`, 'i'),
+  );
+}
+
+const withUndefinedArrayElement = structuredClone(sanitized) as any;
+withUndefinedArrayElement.config.process[0].train.future_values = [1, undefined, 3];
+expectThrows(
+  () => validateTrainingPresetSnapshot(withUndefinedArrayElement),
+  /\$\.config\.process\[0\]\.train\.future_values\[1\].*undefined/i,
+);
+
+const withUnsupportedInstance = structuredClone(sanitized) as any;
+withUnsupportedInstance.config.process[0].train.started_at = new Date();
+expectThrows(
+  () => validateTrainingPresetSnapshot(withUnsupportedInstance),
+  /\$\.config\.process\[0\]\.train\.started_at.*plain object/i,
+);
+
+const circularSnapshot = structuredClone(sanitized) as any;
+circularSnapshot.config.process[0].train.circular = circularSnapshot.config.process[0].train;
+expectThrows(
+  () => validateTrainingPresetSnapshot(circularSnapshot),
+  /\$\.config\.process\[0\]\.train\.circular.*circular/i,
+);
+
+const withOptionalUndefined = structuredClone(sanitized) as any;
+withOptionalUndefined.config.process[0].model.optional_future_path = undefined;
+const withoutOptionalUndefined = validateTrainingPresetSnapshot(withOptionalUndefined);
+assert.equal('optional_future_path' in (withoutOptionalUndefined.config.process[0] as any).model, false);
+
+expectThrows(
+  () =>
+    validateTrainingPresetSnapshot({
+      ...sanitized,
+      config: {
+        process: [{ ...structuredClone(validProcess), payload: '\ud83d\ude00'.repeat(MAX_PRESET_SNAPSHOT_BYTES / 2) }],
+      },
     }),
   /512 KiB/i,
 );
@@ -252,6 +373,17 @@ assert.equal(migrationArguments.length, 2);
 assert.equal((migrationIsolated.config.process[0] as any).model.arch, 'sdxl');
 (migrationIsolated.config.process[0] as any).model.arch = 'mutated result';
 assert.equal((migrationArguments[1].config.process[0] as any).model.arch, 'mutated after migration');
+
+let malformedMigrationCall = 0;
+expectThrows(
+  () =>
+    applyTrainingPreset(jobFixture(), preset, (job: JobConfig) => {
+      malformedMigrationCall += 1;
+      if (malformedMigrationCall === 2) (job.config.process[0] as any).sample = null;
+      return job;
+    }),
+  /config\.process\[0\]\.sample.*plain object/i,
+);
 
 const snapshotWithLegacyPrompts = structuredClone(preset);
 (snapshotWithLegacyPrompts.config.process[0] as any).sample.prompts = ['untrusted preset prompt'];
