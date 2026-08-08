@@ -31,6 +31,7 @@ import {
 } from './TrainingPresetSelect';
 
 export interface TrainingPresetControlProps {
+  disabled?: boolean;
   jobConfig: JobConfig;
   onJobConfigChange: (jobConfig: JobConfig) => void;
   migrateJobConfig: (jobConfig: JobConfig) => JobConfig;
@@ -47,6 +48,7 @@ function localError(prefix: string, error: unknown): string {
 }
 
 export function TrainingPresetControl({
+  disabled = false,
   jobConfig,
   onJobConfigChange,
   migrateJobConfig,
@@ -70,9 +72,11 @@ export function TrainingPresetControl({
   const jobConfigRef = useRef(jobConfig);
   const changeRef = useRef(onJobConfigChange);
   const migrateRef = useRef(migrateJobConfig);
+  const disabledRef = useRef(disabled);
   jobConfigRef.current = jobConfig;
   changeRef.current = onJobConfigChange;
   migrateRef.current = migrateJobConfig;
+  disabledRef.current = disabled;
   dialogRef.current = dialog;
 
   const startRequest = useCallback(() => {
@@ -117,7 +121,7 @@ export function TrainingPresetControl({
   }, [fetchPresets]);
 
   const beginPending = (): boolean => {
-    if (!mountedRef.current || pendingRef.current) return false;
+    if (!mountedRef.current || pendingRef.current || disabledRef.current) return false;
     pendingRef.current = true;
     setPending(true);
     return true;
@@ -147,7 +151,7 @@ export function TrainingPresetControl({
   };
 
   const handleSelection = (selection: TrainingPresetSelection) => {
-    if (pendingRef.current || dialog.kind !== 'closed' || loading) return;
+    if (!mountedRef.current || disabledRef.current || pendingRef.current || dialog.kind !== 'closed' || loading) return;
 
     if (selection.type === 'preset') {
       const preset = presets.find(candidate => candidate.id === selection.id);
@@ -192,7 +196,14 @@ export function TrainingPresetControl({
   };
 
   const confirmDialog = async (expectedDialog: TrainingPresetDialogState) => {
-    if (dialogRef.current !== expectedDialog || expectedDialog.kind === 'closed' || pendingRef.current) return;
+    if (
+      !mountedRef.current ||
+      disabledRef.current ||
+      dialogRef.current !== expectedDialog ||
+      expectedDialog.kind === 'closed' ||
+      pendingRef.current
+    )
+      return;
     const activeDialog = expectedDialog;
     let normalizedName: string | undefined;
     if (activeDialog.kind === 'save') {
@@ -249,7 +260,7 @@ export function TrainingPresetControl({
         presets={presets}
         selectedPresetId={selectedPresetId}
         canUndo={undoConfig !== null}
-        disabled={loading || pending || dialog.kind !== 'closed'}
+        disabled={disabled || loading || pending || dialog.kind !== 'closed'}
         onSelect={handleSelection}
       />
       {(loading || pending) && (

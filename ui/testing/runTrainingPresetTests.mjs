@@ -17,6 +17,8 @@ const optionalTestFiles = [
   'trainingPresetControl.test.js',
   'trainingPresetPage.test.js',
   'trainingPresetPageIntegration.test.js',
+  'trainingPresetAdvancedSync.test.js',
+  'trainingPresetPageState.test.js',
 ];
 let outputDirectory;
 

@@ -5,6 +5,14 @@ import ts from 'typescript';
 
 const pageSource = readFileSync(resolve(process.cwd(), 'src/app/jobs/new/page.tsx'), 'utf8');
 const sourceFile = ts.createSourceFile('page.tsx', pageSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const advancedSource = readFileSync(resolve(process.cwd(), 'src/components/AdvancedConfigEditor.tsx'), 'utf8');
+const advancedSourceFile = ts.createSourceFile(
+  'AdvancedConfigEditor.tsx',
+  advancedSource,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
+);
 
 function visitDescendants(node: ts.Node, predicate: (candidate: ts.Node) => boolean): ts.Node[] {
   const matches: ts.Node[] = [];
@@ -151,10 +159,39 @@ while (toggleWrapper.parent !== topBar) toggleWrapper = toggleWrapper.parent;
 const toggleIndex = topBarChildren.indexOf(toggleWrapper as ts.JsxChild);
 assert.ok(toggleIndex > wrapperIndex, 'preset wrapper must precede the view-toggle control');
 
+const importButtons = visitDescendants(topBar, node => {
+  return (
+    isJsxTag(node, 'Button') &&
+    visitDescendants(node, child => ts.isJsxText(child) && child.text.trim() === 'Import Config').length === 1
+  );
+}) as Array<ts.JsxElement | ts.JsxSelfClosingElement>;
+assert.equal(importButtons.length, 1, 'TopBar must have one Import Config button');
+const importDisabled = unwrapParentheses(getAttributeExpression(importButtons[0], 'disabled'));
+assert.ok(
+  ts.isPrefixUnaryExpression(importDisabled) &&
+    importDisabled.operator === ts.SyntaxKind.ExclamationToken &&
+    ts.isIdentifier(importDisabled.operand) &&
+    importDisabled.operand.text === 'presetReady',
+  'Import Config must stay disabled until hydration is ready',
+);
+
 const jobConfigExpression = unwrapParentheses(getAttributeExpression(presetControl, 'jobConfig'));
 assert.ok(ts.isIdentifier(jobConfigExpression) && jobConfigExpression.text === 'jobConfig');
 const migrateExpression = unwrapParentheses(getAttributeExpression(presetControl, 'migrateJobConfig'));
 assert.ok(ts.isIdentifier(migrateExpression) && migrateExpression.text === 'migrateJobConfig');
+const keyExpression = unwrapParentheses(getAttributeExpression(presetControl, 'key'));
+assert.ok(
+  ts.isIdentifier(keyExpression) && keyExpression.text === 'presetSessionGeneration',
+  'preset control key must use the external-replacement generation',
+);
+const disabledExpression = unwrapParentheses(getAttributeExpression(presetControl, 'disabled'));
+assert.ok(
+  ts.isPrefixUnaryExpression(disabledExpression) &&
+    disabledExpression.operator === ts.SyntaxKind.ExclamationToken &&
+    ts.isIdentifier(disabledExpression.operand) &&
+    disabledExpression.operand.text === 'presetReady',
+  'preset control must be disabled until page hydration is ready',
+);
 
 const changeExpression = unwrapParentheses(getAttributeExpression(presetControl, 'onJobConfigChange'));
 assert.ok(ts.isArrowFunction(changeExpression), 'onJobConfigChange must be an arrow function');
@@ -192,5 +229,39 @@ assert.ok(
   'preset wrapper must use compact horizontal padding',
 );
 assert.equal(classTokens.includes('hidden'), false, 'preset wrapper must not be hidden on mobile');
+
+const abortControllers = visitDescendants(trainingForm, node => {
+  return ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'AbortController';
+});
+assert.ok(abortControllers.length >= 1, 'edit/clone hydration must use an AbortController');
+
+const syncHelpers = advancedSourceFile.statements.filter(
+  (statement): statement is ts.FunctionDeclaration =>
+    ts.isFunctionDeclaration(statement) && statement.name?.text === 'syncAdvancedEditorConfig',
+);
+assert.equal(syncHelpers.length, 1, 'advanced editor must expose one synchronization helper');
+const guardAssignments = visitDescendants(syncHelpers[0], node => {
+  return (
+    ts.isBinaryExpression(node) &&
+    node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+    ts.isPropertyAccessExpression(node.left) &&
+    node.left.name.text === 'current' &&
+    ts.isIdentifier(node.right) &&
+    node.right.text === 'currentUpdate'
+  );
+});
+const modelSetValueCalls = visitDescendants(syncHelpers[0], node => {
+  return (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    node.expression.name.text === 'setValue'
+  );
+});
+assert.equal(guardAssignments.length, 1, 'advanced sync must assign the serialized config guard');
+assert.equal(modelSetValueCalls.length, 1, 'advanced sync must update the Monaco model once');
+assert.ok(
+  guardAssignments[0].getStart(advancedSourceFile) < modelSetValueCalls[0].getStart(advancedSourceFile),
+  'advanced sync guard must be assigned before Monaco setValue',
+);
 
 console.log('Training preset page integration tests passed');

@@ -6,8 +6,10 @@ import { sanitizeTrainingPreset, type TrainingPresetRecord } from '../src/helper
 import { TrainingPresetControl } from '../src/components/TrainingPresetControl';
 import type { TrainingPresetDialogViewProps } from '../src/components/TrainingPresetDialog';
 import {
+  PRESET_ACTION_UNDO,
   PRESET_ACTION_SAVE,
   TRAINING_PRESET_REQUEST_TIMEOUT_MS,
+  presetValue,
   type TrainingPresetApi,
 } from '../src/components/TrainingPresetSelect';
 
@@ -134,6 +136,98 @@ async function run(): Promise<void> {
     });
     assert.equal(unmountAborted, true);
     assert.equal(unmountSignal?.aborted, true);
+
+    const disabledApi: TrainingPresetApi = {
+      get: async () => ({ data: { presets: [] } }),
+      post: async () => {
+        throw new Error('disabled control must not POST');
+      },
+      put: async () => {
+        throw new Error('disabled control must not PUT');
+      },
+      delete: async () => {
+        throw new Error('disabled control must not DELETE');
+      },
+    };
+    let disabledRenderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      disabledRenderer = TestRenderer.create(
+        <TrainingPresetControl
+          disabled
+          jobConfig={jobFixture()}
+          onJobConfigChange={() => undefined}
+          migrateJobConfig={value => value}
+          dependencies={{ api: disabledApi, Dialog: TestDialog }}
+        />,
+      );
+    });
+    assert.equal(select(disabledRenderer.root).props.disabled, true);
+    act(() => chooseSave(disabledRenderer.root));
+    assert.equal(disabledRenderer.root.findAllByProps({ 'data-dialog': 'save' }).length, 0);
+    await act(async () => {
+      disabledRenderer.update(
+        <TrainingPresetControl
+          disabled={false}
+          jobConfig={jobFixture()}
+          onJobConfigChange={() => undefined}
+          migrateJobConfig={value => value}
+          dependencies={{ api: disabledApi, Dialog: TestDialog }}
+        />,
+      );
+    });
+    act(() => chooseSave(disabledRenderer.root));
+    assert.equal(disabledRenderer.root.findAllByProps({ 'data-dialog': 'save' }).length, 1);
+    await act(async () => disabledRenderer.unmount());
+
+    const remountPreset = record('remount-preset', 'Remount preset');
+    const remountApi: TrainingPresetApi = {
+      get: async () => ({ data: { presets: [remountPreset] } }),
+      post: async () => {
+        throw new Error('unexpected POST');
+      },
+      put: async () => {
+        throw new Error('unexpected PUT');
+      },
+      delete: async () => {
+        throw new Error('unexpected DELETE');
+      },
+    };
+    const remountChanges: JobConfig[] = [];
+    let remountRenderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      remountRenderer = TestRenderer.create(
+        <TrainingPresetControl
+          key={0}
+          jobConfig={jobFixture(100)}
+          onJobConfigChange={value => remountChanges.push(value)}
+          migrateJobConfig={value => value}
+          dependencies={{ api: remountApi, Dialog: TestDialog }}
+        />,
+      );
+    });
+    const oldSelectionHandler = select(remountRenderer.root).props.onChange;
+    act(() => oldSelectionHandler({ currentTarget: { value: presetValue(remountPreset.id) } }));
+    assert.equal(remountChanges.length, 1, 'preset applies before external replacement');
+    const oldUndoHandler = select(remountRenderer.root).props.onChange;
+    await act(async () => {
+      remountRenderer.update(
+        <TrainingPresetControl
+          key={1}
+          jobConfig={jobFixture(900)}
+          onJobConfigChange={value => remountChanges.push(value)}
+          migrateJobConfig={value => value}
+          dependencies={{ api: remountApi, Dialog: TestDialog }}
+        />,
+      );
+    });
+    act(() => oldUndoHandler({ currentTarget: { value: PRESET_ACTION_UNDO } }));
+    assert.equal(remountChanges.length, 1, 'stale undo cannot overwrite externally hydrated config after remount');
+    assert.equal(
+      select(remountRenderer.root).props.value,
+      '',
+      'remounted control resets preset selection and undo state',
+    );
+    await act(async () => remountRenderer.unmount());
 
     const created = record('created', 'Created');
     const calls: string[] = [];
