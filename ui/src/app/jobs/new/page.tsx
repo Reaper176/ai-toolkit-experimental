@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { defaultJobConfig, defaultDatasetConfig, migrateJobConfig } from './jobConfig';
 import { jobTypeOptions } from './options';
@@ -19,8 +19,10 @@ import { FaChevronLeft } from 'react-icons/fa';
 import SimpleJob from './SimpleJob';
 import AdvancedConfigEditor from '@/components/AdvancedConfigEditor';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { TrainingPresetControl } from '@/components/TrainingPresetControl';
 import { apiClient } from '@/utils/api';
 import { isMac } from '@/helpers/basic';
+import { createTrainingPresetPageState, trainingPresetPageReducer } from './trainingPresetPageState';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -29,6 +31,14 @@ export default function TrainingForm() {
   const searchParams = useSearchParams();
   const runId = searchParams.get('id');
   const cloneId = searchParams.get('cloneId');
+  const presetSourceKey = cloneId ? `clone:${cloneId}` : runId ? `edit:${runId}` : 'new';
+  const [presetPageState, dispatchPresetPage] = useReducer(
+    trainingPresetPageReducer,
+    presetSourceKey,
+    createTrainingPresetPageState,
+  );
+  const presetReady = presetPageState.sourceKey === presetSourceKey && presetPageState.presetReady;
+  const presetSessionGeneration = presetPageState.generation;
   const [gpuIDs, setGpuIDs] = useState<string | null>(null);
   const { settings, isSettingsLoaded } = useSettings();
   const { gpuList, isGPUInfoLoaded } = useGPUInfo();
@@ -41,17 +51,30 @@ export default function TrainingForm() {
   const [jobConfig, setJobConfig] = useNestedState<JobConfig>(objectCopy(migrateJobConfig(defaultJobConfig)));
   const [status, setStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileReaderRef = useRef<FileReader | null>(null);
+  const hydrationControllerRef = useRef<AbortController | null>(null);
+  const replacementTokenRef = useRef(0);
 
   const handleImportConfig = () => {
+    if (!presetReady) return;
     fileInputRef.current?.click();
   };
 
   const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!presetReady) {
+      e.target.value = '';
+      return;
+    }
+    fileReaderRef.current?.abort();
+    const replacementToken = ++replacementTokenRef.current;
+    dispatchPresetPage({ type: 'import-started' });
 
     const reader = new FileReader();
+    fileReaderRef.current = reader;
     reader.onload = () => {
+      if (replacementToken !== replacementTokenRef.current) return;
       try {
         const text = reader.result as string;
         let parsed: any;
@@ -71,12 +94,24 @@ export default function TrainingForm() {
           console.warn('Could not set required fields on imported config:', err);
         }
 
-        migrateJobConfig(parsed);
-        setJobConfig(parsed);
+        const importedJobConfig = migrateJobConfig(parsed);
+        setJobConfig(importedJobConfig);
+        fileReaderRef.current = null;
+        dispatchPresetPage({ type: 'import-succeeded' });
       } catch (err) {
+        if (replacementToken !== replacementTokenRef.current) return;
+        fileReaderRef.current = null;
         console.error('Failed to parse config file:', err);
         alert('Failed to parse config file. Please check the file format.');
+        dispatchPresetPage({ type: 'import-failed' });
       }
+    };
+    reader.onerror = () => {
+      if (replacementToken !== replacementTokenRef.current) return;
+      fileReaderRef.current = null;
+      console.error('Failed to read config file:', reader.error);
+      alert('Failed to read config file. Please try again.');
+      dispatchPresetPage({ type: 'import-failed' });
     };
     reader.readAsText(file);
 
@@ -106,36 +141,55 @@ export default function TrainingForm() {
     }
   }, [datasets, settings, isSettingsLoaded, datasetFetchStatus]);
 
-  // clone existing job
   useEffect(() => {
-    if (cloneId) {
-      apiClient
-        .get(`/api/jobs?id=${cloneId}`)
-        .then(res => res.data)
-        .then(data => {
-          console.log('Clone Training:', data);
-          setGpuIDs(data.gpu_ids);
-          const newJobConfig = migrateJobConfig(JSON.parse(data.job_config));
-          newJobConfig.config.name = `${newJobConfig.config.name}_copy`;
-          setJobConfig(newJobConfig);
-        })
-        .catch(error => console.error('Error fetching training:', error));
-    }
-  }, [cloneId]);
+    fileReaderRef.current?.abort();
+    fileReaderRef.current = null;
+    hydrationControllerRef.current?.abort();
+    const replacementToken = ++replacementTokenRef.current;
+    dispatchPresetPage({ type: 'source-changed', sourceKey: presetSourceKey });
+    const externalJobId = cloneId ?? runId;
+    if (!externalJobId) return;
 
-  useEffect(() => {
-    if (runId) {
-      apiClient
-        .get(`/api/jobs?id=${runId}`)
-        .then(res => res.data)
-        .then(data => {
-          console.log('Training:', data);
-          setGpuIDs(data.gpu_ids);
-          setJobConfig(migrateJobConfig(JSON.parse(data.job_config)));
-        })
-        .catch(error => console.error('Error fetching training:', error));
-    }
-  }, [runId]);
+    const controller = new AbortController();
+    hydrationControllerRef.current = controller;
+    let active = true;
+    apiClient
+      .get(`/api/jobs?id=${externalJobId}`, { signal: controller.signal })
+      .then(res => res.data)
+      .then(data => {
+        if (!active || controller.signal.aborted || replacementToken !== replacementTokenRef.current) return;
+        console.log(cloneId ? 'Clone Training:' : 'Training:', data);
+        setGpuIDs(data.gpu_ids);
+        const loadedJobConfig = migrateJobConfig(JSON.parse(data.job_config));
+        if (cloneId) loadedJobConfig.config.name = `${loadedJobConfig.config.name}_copy`;
+        setJobConfig(loadedJobConfig);
+        dispatchPresetPage({ type: 'external-load-succeeded', sourceKey: presetSourceKey });
+      })
+      .catch(error => {
+        if (!active || controller.signal.aborted || replacementToken !== replacementTokenRef.current) return;
+        console.error('Error fetching training:', error);
+        dispatchPresetPage({
+          type: 'external-load-failed',
+          sourceKey: presetSourceKey,
+          error: cloneId ? 'Unable to load training job for cloning.' : 'Unable to load training job for editing.',
+        });
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+      if (hydrationControllerRef.current === controller) hydrationControllerRef.current = null;
+    };
+  }, [cloneId, presetSourceKey, runId]);
+
+  useEffect(
+    () => () => {
+      replacementTokenRef.current += 1;
+      fileReaderRef.current?.abort();
+      hydrationControllerRef.current?.abort();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (isGPUInfoLoaded) {
@@ -150,6 +204,12 @@ export default function TrainingForm() {
       setJobConfig(settings.TRAINING_FOLDER, 'config.process[0].training_folder');
     }
   }, [settings, isSettingsLoaded]);
+
+  useEffect(() => {
+    if (presetSourceKey === 'new' && isSettingsLoaded && datasetFetchStatus === 'success') {
+      dispatchPresetPage({ type: 'new-job-initialized', sourceKey: presetSourceKey });
+    }
+  }, [datasetFetchStatus, isSettingsLoaded, presetSourceKey]);
 
   const saveJob = async () => {
     if (status === 'saving') return;
@@ -222,7 +282,11 @@ export default function TrainingForm() {
             </div>
             <div className="hidden sm:block mx-4 bg-gray-200 dark:bg-gray-800 w-1 h-6"></div>
             <div className="hidden md:block">
-              <Button className="text-gray-200 bg-gray-800 px-3 py-1 rounded-md" onClick={handleImportConfig}>
+              <Button
+                className="text-gray-200 bg-gray-800 px-3 py-1 rounded-md disabled:opacity-50"
+                onClick={handleImportConfig}
+                disabled={!presetReady}
+              >
                 Import Config
               </Button>
             </div>
@@ -262,6 +326,17 @@ export default function TrainingForm() {
           </>
         )}
 
+        <div className="flex-shrink-0 px-1 sm:px-2">
+          <TrainingPresetControl
+            key={presetSessionGeneration}
+            disabled={!presetReady}
+            jobConfig={jobConfig}
+            onJobConfigChange={next => setJobConfig(next)}
+            migrateJobConfig={migrateJobConfig}
+          />
+        </div>
+        <div className="hidden sm:block mx-2 bg-gray-200 dark:bg-gray-800 w-1 h-6"></div>
+
         <div className="pr-1 sm:pr-2 flex-shrink-0">
           <Button
             className="text-gray-200 bg-gray-800 px-2 sm:px-3 py-1 rounded-md text-xs sm:text-base"
@@ -300,6 +375,12 @@ export default function TrainingForm() {
       {noGpuAvailable && (
         <div className="mx-4 mt-4 rounded border border-yellow-700 bg-yellow-900 px-4 py-3 text-yellow-200">
           No trainable GPU was detected. Verify ROCm or NVIDIA GPU monitoring before creating a job.
+        </div>
+      )}
+
+      {presetPageState.sourceKey === presetSourceKey && presetPageState.loadError && (
+        <div role="alert" className="mx-4 mt-4 rounded border border-red-700 bg-red-900 px-4 py-3 text-red-200">
+          {presetPageState.loadError} Preset actions will remain disabled until the job can be loaded.
         </div>
       )}
 

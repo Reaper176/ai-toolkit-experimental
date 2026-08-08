@@ -11,6 +11,7 @@
     "build_and_start": "npm run install_deps && npm run db_build_start",
     "test:anima-model-paths": "node testing/runAnimaModelPathTests.mjs",
     "test:dinov3-tagger-captioner": "node testing/runDinov3TaggerTests.mjs",
+    "test:training-presets": "node testing/runTrainingPresetTests.mjs",
     "lint": "next lint",
     "update_db": "npx prisma generate && npx prisma db push",
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,css,scss}\""
@@ -45,10 +46,12 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/react-test-renderer": "19.1.0",
     "concurrently": "^9.1.2",
     "postcss": "^8",
     "prettier": "^3.5.1",
     "prettier-basic": "^1.0.0",
+    "react-test-renderer": "19.2.4",
     "tailwindcss": "^3.4.1",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5"

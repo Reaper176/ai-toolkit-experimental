@@ -46,5 +46,16 @@ model Job {
   @@index([gpu_ids])
   @@index([job_type])
   @@index([job_ref])
+}
 
+model TrainingPreset {
+  id             String   @id @default(uuid())
+  name           String
+  name_key       String   @unique
+  preset_config  String
+  schema_version Int      @default(1)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  @@index([name])
 }

@@ -1,0 +1,31 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "allowJs": false,
+    "baseUrl": "..",
+    "incremental": false,
+    "isolatedModules": false,
+    "jsx": "react-jsx",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "paths": { "@/*": ["src/*"] },
+    "rootDir": "..",
+    "target": "es2020"
+  },
+  "include": [
+    "../src/components/TrainingPresetSelect.tsx",
+    "../src/components/TrainingPresetControl.tsx",
+    "../src/components/TrainingPresetDialog.tsx",
+    "../src/components/AdvancedConfigEditor.tsx",
+    "../src/app/jobs/new/jobConfig.ts",
+    "../src/app/jobs/new/trainingPresetPageState.ts",
+    "../src/helpers/trainingPresets.ts",
+    "../src/server/trainingPresetService.ts",
+    "../src/server/trainingPresetRouteHandlers.ts",
+    "trainingPresetPageIntegration.test.ts",
+    "trainingPreset*.test.ts",
+    "trainingPreset*.test.tsx"
+  ],
+  "exclude": ["../.next", "../node_modules"]
+}

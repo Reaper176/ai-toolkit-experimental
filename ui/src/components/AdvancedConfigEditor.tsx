@@ -11,6 +11,21 @@ type Props<T> = {
   transformOnParse?: (parsed: any) => any;
 };
 
+export interface SerializedConfigRef {
+  current: string;
+}
+
+export interface AdvancedEditorLike {
+  getValue(): string;
+  getModel(): { setValue(value: string): void } | null;
+  getPosition(): any;
+  getSelection(): any;
+  getScrollTop(): number;
+  setPosition(position: any): void;
+  setSelection(selection: any): void;
+  setScrollTop(scrollTop: number): void;
+}
+
 const yamlConfig: YAML.DocumentOptions &
   YAML.SchemaOptions &
   YAML.ParseOptions &
@@ -33,6 +48,42 @@ function toYaml(obj: any): string {
     },
   });
   return doc.toString(yamlConfig);
+}
+
+export function applyAdvancedEditorChange(
+  value: string,
+  lastConfigUpdate: SerializedConfigRef,
+  setConfig: (value: any) => void,
+  transformOnParse?: (parsed: any) => any,
+): boolean {
+  let parsed = YAML.parse(value);
+  if (JSON.stringify(parsed) === lastConfigUpdate.current) return false;
+  if (transformOnParse) parsed = transformOnParse(parsed);
+  lastConfigUpdate.current = JSON.stringify(parsed);
+  setConfig(parsed);
+  return true;
+}
+
+export function syncAdvancedEditorConfig(
+  config: unknown,
+  editor: AdvancedEditorLike,
+  lastConfigUpdate: SerializedConfigRef,
+): void {
+  const currentUpdate = JSON.stringify(config);
+  if (lastConfigUpdate.current === currentUpdate) return;
+
+  const position = editor.getPosition();
+  const selection = editor.getSelection();
+  const scrollTop = editor.getScrollTop();
+  const yamlContent = toYaml(config);
+
+  // Monaco invokes onChange synchronously from setValue, so arm the guard first.
+  lastConfigUpdate.current = currentUpdate;
+  if (yamlContent === editor.getValue()) return;
+  editor.getModel()?.setValue(yamlContent);
+  if (position) editor.setPosition(position);
+  if (selection) editor.setSelection(selection);
+  editor.setScrollTop(scrollTop);
 }
 
 export default function AdvancedConfigEditor<T>({ config, setConfig, transformOnParse }: Props<T>) {
@@ -63,11 +114,10 @@ export default function AdvancedConfigEditor<T>({ config, setConfig, transformOn
   };
 
   useEffect(() => {
-    const lastUpdate = lastConfigUpdateStringRef.current;
     const currentUpdate = JSON.stringify(config);
 
     // Skip if no changes or editor not yet mounted
-    if (lastUpdate === currentUpdate || !isEditorMounted.current) {
+    if (lastConfigUpdateStringRef.current === currentUpdate || !isEditorMounted.current) {
       return;
     }
 
@@ -75,26 +125,7 @@ export default function AdvancedConfigEditor<T>({ config, setConfig, transformOn
       // Preserve cursor position and selection
       const editor = editorRef.current;
       if (editor) {
-        // Save current editor state
-        const position = editor.getPosition();
-        const selection = editor.getSelection();
-        const scrollTop = editor.getScrollTop();
-
-        // Update content
-        const yamlContent = toYaml(config);
-
-        // Only update if the content is actually different
-        if (yamlContent !== editor.getValue()) {
-          // Set value directly on the editor model instead of using React state
-          editor.getModel()?.setValue(yamlContent);
-
-          // Restore cursor position and selection
-          if (position) editor.setPosition(position);
-          if (selection) editor.setSelection(selection);
-          editor.setScrollTop(scrollTop);
-        }
-
-        lastConfigUpdateStringRef.current = currentUpdate;
+        syncAdvancedEditorConfig(config, editor, lastConfigUpdateStringRef);
       }
     } catch (e) {
       console.warn(e);
@@ -120,19 +151,9 @@ export default function AdvancedConfigEditor<T>({ config, setConfig, transformOn
     if (value === undefined) return;
 
     try {
-      let parsed = YAML.parse(value);
       setHasError(false);
       setMarkers([]);
-
-      // Don't update config if the change came from the editor itself
-      // to avoid a circular update loop
-      if (JSON.stringify(parsed) !== lastConfigUpdateStringRef.current) {
-        if (transformOnParse) {
-          parsed = transformOnParse(parsed);
-        }
-        lastConfigUpdateStringRef.current = JSON.stringify(parsed);
-        setConfig(parsed);
-      }
+      applyAdvancedEditorChange(value, lastConfigUpdateStringRef, setConfig, transformOnParse);
     } catch (e: any) {
       setHasError(true);
       const line = e?.linePos?.[0]?.line ?? e?.linePos?.line ?? 1;
