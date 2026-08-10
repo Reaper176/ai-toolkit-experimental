@@ -8,6 +8,7 @@ import { DatasetSelectionToolbar } from '../src/components/DatasetSelectionToolb
 import {
   areSelectionsEqual,
   createDirtySelectionLeaveGuard,
+  getInterceptableInternalNavigationHref,
   normalizeRelativeMediaPath,
   reconcileSelection,
   type SelectionHistoryWindow,
@@ -51,7 +52,11 @@ class PositionAwareHistory {
   private readonly entries: Array<{ state: unknown; url: string }>;
   private position: number;
 
-  constructor(priorUrl = 'http://localhost/previous', pageUrl = 'http://localhost/datasets/example') {
+  constructor(
+    priorUrl = 'http://localhost/previous',
+    pageUrl = 'http://localhost/datasets/example',
+    private readonly asyncPopstate = false,
+  ) {
     this.entries = [
       { state: null, url: priorUrl },
       { state: null, url: pageUrl },
@@ -102,8 +107,33 @@ class PositionAwareHistory {
     const target = this.position + delta;
     if (target < 0 || target >= this.entries.length || target === this.position) return;
     this.position = target;
-    for (const listener of [...this.listeners]) listener();
+    const emit = () => {
+      for (const listener of [...this.listeners]) listener();
+    };
+    if (this.asyncPopstate) queueMicrotask(emit);
+    else emit();
   }
+}
+
+function navigationEvent(
+  href: string,
+  options: Partial<{ modified: boolean; external: boolean; download: boolean; target: string; button: number }> = {},
+) {
+  const destination = options.external ? 'https://example.test/outside' : href;
+  const anchor = {
+    href: destination,
+    target: options.target ?? '',
+    hasAttribute: (name: string) => name === 'download' && options.download === true,
+  };
+  return {
+    defaultPrevented: false,
+    button: options.button ?? 0,
+    metaKey: options.modified === true,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    target: { closest: () => anchor },
+  } as unknown as MouseEvent;
 }
 
 async function run(): Promise<void> {
@@ -180,6 +210,33 @@ async function run(): Promise<void> {
     assert.equal(disposeHistory.length, 3, 'dispose does not create or remove history entries');
     assert.equal(disposeHistory.index, 2, 'dispose never reverses an unmount navigation');
     assert.equal(disposeHistory.listenerCount, 0);
+
+    const internalNavigation = new PositionAwareHistory('http://localhost/previous', 'http://localhost/datasets/example', true);
+    const internalGuard = createDirtySelectionLeaveGuard(internalNavigation.value, () => undefined);
+    internalGuard.setDirty(true);
+    let navigatedTo: string | undefined;
+    internalGuard.consumeSentinelBeforeNavigation(() => {
+      navigatedTo = '/jobs';
+    });
+    assert.equal(navigatedTo, undefined, 'router navigation waits until the sentinel has been consumed');
+    await Promise.resolve();
+    assert.equal(internalNavigation.index, 1, 'internal navigation returns to the underlying same-page entry first');
+    assert.equal(navigatedTo, '/jobs');
+    assert.equal(internalNavigation.listenerCount, 0);
+
+    assert.equal(
+      getInterceptableInternalNavigationHref(navigationEvent('http://localhost/jobs'), 'http://localhost/datasets/example'),
+      '/jobs',
+    );
+    for (const event of [
+      navigationEvent('http://localhost/jobs', { modified: true }),
+      navigationEvent('http://localhost/jobs', { external: true }),
+      navigationEvent('http://localhost/jobs', { download: true }),
+      navigationEvent('http://localhost/jobs', { target: '_blank' }),
+      navigationEvent('http://localhost/jobs', { button: 1 }),
+    ]) {
+      assert.equal(getInterceptableInternalNavigationHref(event, 'http://localhost/datasets/example'), undefined);
+    }
 
     const actions: string[] = [];
     let cancelled = 0;
@@ -274,10 +331,13 @@ async function run(): Promise<void> {
       );
     });
     const checkbox = card.root.findByProps({ type: 'checkbox', 'aria-label': 'Select portrait.jpg' });
+    const selectionMedia = card.root.findByProps({ 'data-selection-media': true });
+    assert.equal(selectionMedia.type, 'div', 'the checkbox is the only keyboard selection control');
+    assert.equal(selectionMedia.props.tabIndex, undefined);
     assert.equal(checkbox.props.checked, false);
     act(() => checkbox.props.onChange({ currentTarget: { checked: true }, stopPropagation() {} }));
     assert.deepEqual(selectionChanges, [true]);
-    act(() => click(card.root.findByProps({ 'data-selection-media': true })));
+    act(() => click(selectionMedia));
     assert.deepEqual(selectionChanges, [true, true], 'media click uses authoritative selected prop');
     assert.equal(viewerCalls, 0, 'selection media never opens the viewer');
     const deleteButton = card.root.findByProps({ 'aria-label': 'Delete portrait.jpg' });

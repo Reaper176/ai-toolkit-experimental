@@ -24,7 +24,14 @@ assert.match(pageSource, /openConfirm\(/, 'dirty cancellation uses the accessibl
 assert.match(pageSource, /leaveGuardRef\.current\?\.requestLeave\(\)/, 'topbar Back uses the native guarded history path');
 assert.match(pageSource, /onCancel:\s*\(\)\s*=>\s*leaveGuardRef\.current\?\.cancelLeaveAttempt\(\)/);
 assert.match(pageSource, /DatasetSelectionToolbar/, 'selection mode renders the dedicated toolbar');
+assert.match(pageSource, /<MainContent[^>]*>[\s\S]*DatasetSelectionToolbar/, 'selection toolbar stays inside the scrollable page content');
+assert.match(pageSource, /sticky top-12 z-20/, 'selection toolbar sticks below the absolute top bar');
+assert.match(pageSource, /getInterceptableInternalNavigationHref/, 'dirty selection intercepts internal client navigation');
+assert.match(pageSource, /consumeSentinelBeforeNavigation/, 'approved internal navigation removes the sentinel first');
+assert.match(pageSource, /onCancel:\s*\(\)\s*=>\s*\{[\s\S]{0,120}internalNavigationPendingRef\.current = false/, 'cancelled internal navigation keeps the draft');
+assert.match(pageSource, /seenRelativePaths\.has\(relative_path\)/, 'normalized duplicate paths are ignored before keying selection');
 assert.doesNotMatch(cardSource, /useState\s*<\s*boolean\s*>\s*\(\s*selected/, 'selection state must not live in each card');
+assert.doesNotMatch(cardSource, /button[\s\S]{0,300}data-selection-media/, 'media selection target is not a second focusable button');
 
 const jsx = page.statements.find(ts.isFunctionDeclaration);
 assert.ok(jsx || pageSource.includes('selectionMode'), 'selection state stays in the page component');

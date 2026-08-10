@@ -242,12 +242,10 @@ const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
           {children && <div className="absolute inset-0 flex items-center justify-center">{children}</div>}
           {selectionMode && (
             <>
-              <button
-                type="button"
+              <div
                 data-selection-media
-                aria-label={`Toggle selection for ${filename}`}
-                aria-pressed={selected}
-                className="absolute inset-0 z-10 cursor-pointer rounded-t-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-blue-300"
+                aria-hidden="true"
+                className="absolute inset-0 z-10 cursor-pointer rounded-t-lg"
                 onClick={toggleSelection}
               />
               <label className="absolute top-2 left-2 z-20 flex cursor-pointer items-center rounded bg-gray-950/80 p-1.5 text-xs text-white focus-within:ring-2 focus-within:ring-blue-300">

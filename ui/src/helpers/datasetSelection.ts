@@ -51,6 +51,27 @@ export function reconcileSelection(selected: ReadonlySet<string>, available: Ite
   return new Set([...selected].filter(path => currentPaths.has(path)));
 }
 
+export function getInterceptableInternalNavigationHref(event: MouseEvent, currentHref: string): string | undefined {
+  if (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey ||
+    !event.target ||
+    typeof (event.target as Element).closest !== 'function'
+  ) {
+    return undefined;
+  }
+  const anchor = (event.target as Element).closest('a[href]') as HTMLAnchorElement | null;
+  if (!anchor || anchor.hasAttribute('download') || (anchor.target && anchor.target !== '_self')) return undefined;
+  const current = new URL(currentHref);
+  const destination = new URL(anchor.href, current);
+  if (destination.origin !== current.origin || destination.href === current.href) return undefined;
+  return `${destination.pathname}${destination.search}${destination.hash}`;
+}
+
 export interface SelectionHistoryWindow {
   location: Pick<Location, 'href'>;
   history: Pick<History, 'pushState' | 'back' | 'forward' | 'go'>;
@@ -62,6 +83,7 @@ export interface DirtySelectionLeaveGuard {
   setDirty(dirty: boolean): void;
   requestLeave(): void;
   cancelLeaveAttempt(): void;
+  consumeSentinelBeforeNavigation(onConsumed: () => void): void;
   allowLeave(): void;
   dispose(): void;
 }
@@ -127,6 +149,22 @@ export function createDirtySelectionLeaveGuard(
     },
     cancelLeaveAttempt() {
       leaveAttemptPending = false;
+    },
+    consumeSentinelBeforeNavigation(onConsumed) {
+      if (!dirty) {
+        onConsumed();
+        return;
+      }
+      dirty = false;
+      leaveAttemptPending = false;
+      suppressRestoredSentinelPopstate = false;
+      removeListener();
+      const onSentinelConsumed = () => {
+        windowLike.removeEventListener('popstate', onSentinelConsumed);
+        onConsumed();
+      };
+      windowLike.addEventListener('popstate', onSentinelConsumed);
+      windowLike.history.back();
     },
     allowLeave() {
       if (!dirty || !leaveAttemptPending) return;

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, use, useMemo, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { LuImageOff, LuLoader, LuBan } from 'react-icons/lu';
 import { FaChevronLeft } from 'react-icons/fa';
 import { VirtuosoGrid } from 'react-virtuoso';
@@ -21,6 +22,7 @@ import {
   applySelectionAction,
   areSelectionsEqual,
   createDirtySelectionLeaveGuard,
+  getInterceptableInternalNavigationHref,
   normalizeRelativeMediaPath,
   reconcileSelection,
   type DirtySelectionLeaveGuard,
@@ -37,6 +39,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   const [isAutoCaptioning, setIsAutoCaptioning] = useState(false);
   const usableParams = use(params as any) as { datasetName: string };
   const datasetName = usableParams.datasetName;
+  const router = useRouter();
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const { settings, isSettingsLoaded } = useSettings();
   const [selectedImgPath, setSelectedImgPath] = useState<string | null>(null);
@@ -52,6 +55,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   const baseSelectionRef = useRef(baseSelection);
   const leaveGuardRef = useRef<DirtySelectionLeaveGuard | null>(null);
   const discardSelectionRef = useRef<() => void>(() => undefined);
+  const internalNavigationPendingRef = useRef(false);
 
   baseSelectionRef.current = baseSelection;
   const selectionDirty = selectionMode && !areSelectionsEqual(selectedPaths, baseSelection);
@@ -79,9 +83,15 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
           throw new Error('Dataset image list response is malformed');
         }
         const nextImages: DatasetImageEntry[] = [];
+        const seenRelativePaths = new Set<string>();
         for (const subPath of data.images) {
           try {
             const relative_path = normalizeRelativeMediaPath(subPath);
+            if (seenRelativePaths.has(relative_path)) {
+              console.error('Skipping duplicate normalized dataset image path:', subPath);
+              continue;
+            }
+            seenRelativePaths.add(relative_path);
             nextImages.push({ img_path: root + subPath, relative_path });
           } catch (error) {
             console.error('Skipping invalid dataset image path:', subPath, error);
@@ -129,6 +139,34 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   useEffect(() => {
     leaveGuardRef.current?.setDirty(selectionDirty);
   }, [selectionDirty]);
+
+  useEffect(() => {
+    if (!selectionDirty) return;
+    const onDocumentClick = (event: MouseEvent) => {
+      const href = getInterceptableInternalNavigationHref(event, window.location.href);
+      if (!href) return;
+      event.preventDefault();
+      if (internalNavigationPendingRef.current) return;
+      const guard = leaveGuardRef.current;
+      if (!guard) return;
+      internalNavigationPendingRef.current = true;
+      openConfirm({
+        title: 'Discard selection changes?',
+        message: 'Your selection changes have not been saved.',
+        type: 'warning',
+        confirmText: 'Discard and leave',
+        onConfirm: () => {
+          discardSelectionRef.current();
+          guard.consumeSentinelBeforeNavigation(() => router.push(href));
+        },
+        onCancel: () => {
+          internalNavigationPendingRef.current = false;
+        },
+      });
+    };
+    document.addEventListener('click', onDocumentClick, true);
+    return () => document.removeEventListener('click', onDocumentClick, true);
+  }, [router, selectionDirty]);
 
   useEffect(() => {
     if (!selectionDirty) return;
@@ -280,17 +318,19 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
           </Button>
         </div>
       </TopBar>
-      {selectionMode && (
-        <DatasetSelectionToolbar
-          selectedCount={selectedPaths.size}
-          totalCount={imgList.length}
-          dirty={selectionDirty}
-          saving={selectionSaving}
-          onAction={handleSelectionAction}
-          onCancel={cancelSelectionMode}
-        />
-      )}
       <MainContent ref={scrollParentCallback}>
+        {selectionMode && (
+          <div className="sticky top-12 z-20 -mx-2 mb-4 sm:-mx-4">
+            <DatasetSelectionToolbar
+              selectedCount={selectedPaths.size}
+              totalCount={imgList.length}
+              dirty={selectionDirty}
+              saving={selectionSaving}
+              onAction={handleSelectionAction}
+              onCancel={cancelSelectionMode}
+            />
+          </div>
+        )}
         {PageInfoContent}
         {status === 'success' && imgList.length > 0 && scrollParent && (
           <VirtuosoGrid
