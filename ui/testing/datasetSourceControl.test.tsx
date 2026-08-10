@@ -6,6 +6,7 @@ import { SelectInput } from '../src/components/formInputs';
 import type { DatasetConfig } from '../src/types';
 import type { DatasetPresetLoaderConfig } from '../src/helpers/datasetPresetValidation';
 import {
+  canSaveTrainingJob,
   hasMissingDatasetSource,
   removeArchivedPresetSourcesFromClone,
 } from '../src/helpers/jobDatasetPresetClient';
@@ -413,6 +414,74 @@ async function runExternalReplacementSafetyBehavior(): Promise<void> {
   await act(async () => renderer.unmount());
 }
 
+async function runPresetIdentitySwitchBehavior(): Promise<void> {
+  const presetTwo = { ...activePreset, id: 'preset-2', name: 'Products', latest_version: 1, version_count: 1 };
+  const versionTwoPreset = {
+    ...versions[0],
+    id: 'preset-2-version-1',
+    preset_id: 'preset-2',
+    version: 1,
+    manifest_sha256: 'd'.repeat(64),
+    loader_config: loaderTwo,
+  };
+  let versionFetches = 0;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === '/api/dataset-presets') return response({ presets: [activePreset, presetTwo] });
+    if (url === '/api/dataset-presets/preset-1') return response({ ...activePreset, versions });
+    if (url === '/api/dataset-presets/preset-2') return response({ ...presetTwo, versions: [versionTwoPreset] });
+    if (url === '/api/dataset-preset-versions/preset-2-version-1') {
+      versionFetches += 1;
+      return response({ ...versionTwoPreset, manifest: {} });
+    }
+    throw new Error(`Unexpected URL ${url}`);
+  }) as typeof fetch;
+  const presetOneDataset: DatasetConfig = {
+    ...initialDataset,
+    folder_path: '',
+    dataset_preset: {
+      version_id: 'version-1', preset_id: 'preset-1', preset_name: 'Faces', version: 1,
+      manifest_sha256: 'a'.repeat(64),
+    },
+  };
+  let current: DatasetConfig = presetOneDataset;
+  function Harness() {
+    const [dataset, setDataset] = useState(presetOneDataset);
+    current = dataset;
+    return <DatasetSourceControl dataset={dataset} liveOptions={[]} onChange={setDataset} />;
+  }
+  let renderer!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    renderer = TestRenderer.create(<Harness />);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(current.dataset_preset?.preset_id, 'preset-1');
+  await act(async () => {
+    await select(renderer.root, 'Dataset preset').props.onChange('preset-2');
+  });
+  assert.equal(current.dataset_preset, undefined, 'choosing preset B immediately removes preset A provenance');
+  assert.equal(current.folder_path, '', 'preset B remains pending until an explicit version is selected');
+  assert.equal(
+    canSaveTrainingJob(true, { config: { process: [{ datasets: [current] }] } } as JobConfig),
+    false,
+    'the pending B source cannot be saved using stale A metadata',
+  );
+  await act(async () => {
+    await select(renderer.root, 'Preset version').props.onChange('preset-2-version-1');
+  });
+  assert.equal((current as DatasetConfig).dataset_preset?.preset_id, 'preset-2');
+  assert.equal(canSaveTrainingJob(true, { config: { process: [{ datasets: [current] }] } } as JobConfig), true);
+  const committed = current;
+  await act(async () => {
+    await select(renderer.root, 'Dataset preset').props.onChange('preset-2');
+    await select(renderer.root, 'Preset version').props.onChange('preset-2-version-1');
+  });
+  assert.equal(current, committed, 'reselecting the committed preset and version is idempotent');
+  assert.equal(versionFetches, 1, 'idempotent version reselect does not refetch or reapply');
+  await act(async () => renderer.unmount());
+}
+
 async function runSharedListBehavior(): Promise<void> {
   const listResponse = deferred<Response>();
   let fetchCount = 0;
@@ -485,6 +554,7 @@ async function main(): Promise<void> {
   await runArchivedBehavior();
   await runPendingVersionSafetyBehavior();
   await runExternalReplacementSafetyBehavior();
+  await runPresetIdentitySwitchBehavior();
   await runSharedListBehavior();
   await runCloneHydrationBehavior();
   console.error = originalError;

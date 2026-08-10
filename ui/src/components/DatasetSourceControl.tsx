@@ -136,10 +136,17 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange }:
     detail !== null && detail.archived_at !== null && detail.id === dataset.dataset_preset?.preset_id;
 
   const choosePreset = async (presetId: string) => {
+    if (selectedPresetId === presetId && detail?.id === presetId) return;
+    const presetChanged = selectedPresetId !== presetId;
     setSelectedPresetId(presetId);
     setDetail(null);
     setLocalError(null);
     versionRequests.current.cancelCurrent();
+    const latestDataset = latestDatasetRef.current;
+    if (presetChanged && (latestDataset.dataset_preset || latestDataset.folder_path !== '')) {
+      const { dataset_preset: _removed, ...pendingDataset } = latestDataset;
+      emitChange({ ...pendingDataset, folder_path: '' });
+    }
     const request = presetRequests.current.begin();
     setLoadingDetail(true);
     try {
@@ -156,6 +163,10 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange }:
 
   const chooseVersion = async (versionId: string) => {
     if (!detail || detail.archived_at !== null) return;
+    if (
+      latestDatasetRef.current.dataset_preset?.preset_id === detail.id &&
+      latestDatasetRef.current.dataset_preset.version_id === versionId
+    ) return;
     const request = versionRequests.current.begin();
     setLoadingVersion(true);
     setLocalError(null);
