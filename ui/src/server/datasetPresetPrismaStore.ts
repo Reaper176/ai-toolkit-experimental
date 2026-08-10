@@ -239,22 +239,9 @@ export function createDatasetPresetPrismaStore(prisma: DatasetPresetPrismaClient
       return prisma.jobDatasetPresetUsage.count({ where: { preset_version_id: id } });
     },
 
-    async countVersions(presetId: string): Promise<number> {
-      return prisma.datasetPresetVersion.count({ where: { preset_id: presetId } });
-    },
-
-    async deleteVersionIfNotLast(id: string, presetId: string): Promise<void> {
+    async deleteVersion(id: string): Promise<void> {
       try {
-        await prisma.$transaction(async transaction => {
-          await transaction.datasetPreset.update({
-            where: { id: presetId },
-            data: { next_version: { increment: 0 } },
-            select: { id: true },
-          });
-          const versionCount = await transaction.datasetPresetVersion.count({ where: { preset_id: presetId } });
-          if (versionCount <= 1) throw new DatasetPresetStoreError('last_version');
-          await transaction.datasetPresetVersion.delete({ where: { id }, select: { id: true } });
-        });
+        await prisma.datasetPresetVersion.delete({ where: { id }, select: { id: true } });
       } catch (error) {
         return mapped(error, 'version_conflict');
       }

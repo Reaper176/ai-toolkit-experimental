@@ -8,7 +8,11 @@ import {
   type DatasetPresetLoaderConfig,
   type DatasetPresetManifestV1,
 } from '../helpers/datasetPresets';
-import type { DatasetPresetSnapshotStore, StagedPublication } from './datasetPresetSnapshotService';
+import {
+  DatasetPresetSnapshotConflictError,
+  type DatasetPresetSnapshotStore,
+  type StagedPublication,
+} from './datasetPresetSnapshotService';
 
 export interface DatasetPresetSummary {
   id: string;
@@ -79,8 +83,7 @@ export type DatasetPresetStoreErrorCode =
   | 'version_conflict'
   | 'not_found'
   | 'referenced'
-  | 'archived'
-  | 'last_version';
+  | 'archived';
 
 export class DatasetPresetStoreError extends Error {
   constructor(
@@ -151,8 +154,7 @@ export interface DatasetPresetStore {
   setArchived(id: string, archivedAt: Date | null): Promise<DatasetPresetRow>;
   getVersion(id: string): Promise<DatasetPresetVersionRow | null>;
   countVersionUsages(id: string): Promise<number>;
-  countVersions(presetId: string): Promise<number>;
-  deleteVersionIfNotLast(id: string, presetId: string): Promise<void>;
+  deleteVersion(id: string): Promise<void>;
 }
 
 export interface DatasetPresetService {
@@ -186,8 +188,7 @@ function storeCode(error: unknown): DatasetPresetStoreErrorCode | undefined {
     code === 'version_conflict' ||
     code === 'not_found' ||
     code === 'referenced' ||
-    code === 'archived' ||
-    code === 'last_version'
+    code === 'archived'
     ? code
     : undefined;
 }
@@ -285,6 +286,13 @@ function storageError(message: string, cause: unknown): DatasetPresetStorageErro
 
 function combined(primary: unknown, cleanupErrors: unknown[]): unknown {
   return cleanupErrors.length === 0 ? primary : new AggregateError([primary, ...cleanupErrors], detail(primary));
+}
+
+function publicationConflict(error: unknown): boolean {
+  return (
+    (error instanceof DatasetPresetStoreError && error.code === 'version_conflict') ||
+    error instanceof DatasetPresetSnapshotConflictError
+  );
 }
 
 function assertManifestAgreement(row: DatasetPresetVersionRow, manifestInput: unknown): DatasetPresetManifestV1 {
@@ -388,13 +396,23 @@ export function createDatasetPresetService(dependencies: {
     if (storeCode(primary) === 'archived') {
       throw new DatasetPresetConflictError('Dataset preset was archived before publication committed', failure);
     }
-    if (storeCode(primary) === 'version_conflict') {
+    if (publicationConflict(primary)) {
       throw new DatasetPresetConflictError('A dataset preset version conflict could not be resolved', failure);
     }
     if (storeCode(primary) === 'not_found') {
       throw new DatasetPresetNotFoundError('Dataset preset was removed before publication committed', failure);
     }
     throw storageError('Dataset preset snapshot could not be published', failure);
+  }
+
+  async function rollbackPublication(publication: StagedPublication | undefined): Promise<unknown[]> {
+    if (!publication) return [];
+    try {
+      await publication.rollback();
+      return [];
+    } catch (error) {
+      return [error];
+    }
   }
 
   async function createVersionData(
@@ -541,27 +559,21 @@ export function createDatasetPresetService(dependencies: {
           throw new DatasetPresetValidationError('Base version must belong to the same dataset preset');
         await getVerifiedVersion(base, 'fast');
 
-        let reservedVersion: number;
-        try {
-          reservedVersion = await store.reserveNextVersion(presetId);
-        } catch (error) {
-          if (storeCode(error) === 'archived') {
-            throw new DatasetPresetConflictError('Archived dataset presets cannot publish new versions', error);
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          let publication: StagedPublication | undefined;
+          try {
+            const reservedVersion = await store.reserveNextVersion(presetId);
+            const staged = await createVersionData(preset, reservedVersion, valid, retainedPaths, base.manifest_path);
+            publication = staged.publication;
+            await publication.publish();
+            return versionDto(await store.insertReservedVersionIfActive(staged.data));
+          } catch (error) {
+            const cleanupErrors = await rollbackPublication(publication);
+            if (attempt === 0 && publicationConflict(error) && cleanupErrors.length === 0) continue;
+            return rollbackAndCleanup(combined(error, cleanupErrors), undefined);
           }
-          if (storeCode(error) === 'not_found') {
-            throw new DatasetPresetNotFoundError(`Dataset preset "${presetId}" was not found`, error);
-          }
-          throw storageError('Dataset preset storage is unavailable', error);
         }
-        let publication: StagedPublication | undefined;
-        try {
-          const staged = await createVersionData(preset, reservedVersion, valid, retainedPaths, base.manifest_path);
-          publication = staged.publication;
-          await publication.publish();
-          return versionDto(await store.insertReservedVersionIfActive(staged.data));
-        } catch (error) {
-          return rollbackAndCleanup(error, publication);
-        }
+        throw new DatasetPresetConflictError('A dataset preset version conflict could not be resolved');
       });
     },
 
@@ -624,17 +636,7 @@ export function createDatasetPresetService(dependencies: {
       }
       if (usageCount > 0)
         throw new DatasetPresetReferencedError('Dataset preset version is referenced by one or more jobs');
-      let versionCount: number;
-      try {
-        versionCount = await store.countVersions(row.preset_id);
-      } catch (error) {
-        throw storageError('Dataset preset storage is unavailable', error);
-      }
-      if (versionCount <= 1) {
-        throw new DatasetPresetConflictError('The last dataset preset version cannot be deleted');
-      }
-
-      await getVerifiedVersion(row, 'full');
+      await getVerifiedVersion(row, 'read');
 
       let quarantine;
       try {
@@ -643,7 +645,7 @@ export function createDatasetPresetService(dependencies: {
         throw storageError('Dataset preset snapshot could not be quarantined', error);
       }
       try {
-        await store.deleteVersionIfNotLast(versionId, row.preset_id);
+        await store.deleteVersion(versionId);
       } catch (primary) {
         const cleanupErrors: unknown[] = [];
         try {
@@ -659,11 +661,6 @@ export function createDatasetPresetService(dependencies: {
         if (storeCode(primary) === 'not_found')
           throw new DatasetPresetNotFoundError(
             `Dataset preset version "${versionId}" was not found`,
-            combined(primary, cleanupErrors),
-          );
-        if (storeCode(primary) === 'last_version')
-          throw new DatasetPresetConflictError(
-            'The last dataset preset version cannot be deleted',
             combined(primary, cleanupErrors),
           );
         throw storageError('Dataset preset version could not be deleted', combined(primary, cleanupErrors));

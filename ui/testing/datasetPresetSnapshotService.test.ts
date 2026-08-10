@@ -22,7 +22,10 @@ import {
   normalizeRelativeMediaPath,
   serializeManifest,
 } from '../src/helpers/datasetPresets';
-import { createDatasetPresetSnapshotStore } from '../src/server/datasetPresetSnapshotService';
+import {
+  DatasetPresetSnapshotConflictError,
+  createDatasetPresetSnapshotStore,
+} from '../src/server/datasetPresetSnapshotService';
 
 const loaderConfig = {
   caption_ext: 'txt',
@@ -490,7 +493,10 @@ async function main(): Promise<void> {
       selectedPaths: ['b.png'], captionExt: 'txt', loaderConfig, note: null,
     });
     await winner.publish();
-    await expectRejects(() => loser.publish(), /exist|replace|version/i);
+    await assert.rejects(
+      () => loser.publish(),
+      error => error instanceof DatasetPresetSnapshotConflictError && error.code === 'version_exists',
+    );
     await loser.rollback();
     assert.equal(existsSync(winner.versionRoot), true);
 

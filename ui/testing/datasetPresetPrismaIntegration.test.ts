@@ -261,36 +261,14 @@ async function main(): Promise<void> {
     assert.equal(highWaterV3.version, 3);
     assert.equal((await client.datasetPreset.findUnique({ where: { id: highWaterPreset.id } }))?.next_version, 4);
 
-    const deleteRacePreset = await store.createPreset({ name: 'Delete transaction', name_key: 'delete transaction' });
-    const deleteRaceVersionIds: string[] = [];
-    for (const adapter of [store, secondStore]) {
-      const version = await adapter.reserveNextVersion(deleteRacePreset.id);
-      const inserted = await adapter.insertReservedVersionIfActive({
-        preset_id: deleteRacePreset.id,
-        version,
-        source_dataset: 'photos',
-        manifest_path: `delete-transaction-${version}`,
-        manifest_sha256: String(version).repeat(64),
-        loader_config: JSON.stringify(loaderConfig),
-        note: null,
-        media_count: 1,
-        total_bytes: BigInt(version),
-      });
-      deleteRaceVersionIds.push(inserted.id);
-    }
-    const deleteRaceResults = await Promise.allSettled([
-      store.deleteVersionIfNotLast(deleteRaceVersionIds[0], deleteRacePreset.id),
-      secondStore.deleteVersionIfNotLast(deleteRaceVersionIds[1], deleteRacePreset.id),
-    ]);
-    assert.equal(deleteRaceResults.filter(result => result.status === 'fulfilled').length, 1);
-    assert.equal(deleteRaceResults.filter(result => result.status === 'rejected').length, 1);
-    const deleteRaceFailure = deleteRaceResults.find(result => result.status === 'rejected');
-    assert(
-      deleteRaceFailure?.status === 'rejected' &&
-        deleteRaceFailure.reason instanceof DatasetPresetStoreError &&
-        deleteRaceFailure.reason.code === 'last_version',
+    const emptyPreset = await service.createPreset({ ...input, name: 'Empty stable preset' });
+    await service.deleteVersion(emptyPreset.versions[0].id);
+    assert.equal((await service.getPreset(emptyPreset.id)).version_count, 0);
+    assert.notEqual(
+      await client.datasetPreset.findUnique({ where: { id: emptyPreset.id } }),
+      null,
+      'deleting a sole version must retain the stable preset row',
     );
-    assert.equal(await store.countVersions(deleteRacePreset.id), 1, 'transactional deletes must retain one version');
 
     await assert.rejects(
       store.insertReservedVersionIfActive({
@@ -340,7 +318,7 @@ async function main(): Promise<void> {
     });
     await client.datasetPresetVersion.delete({ where: { id: staleVersion.id } });
     await assert.rejects(
-      store.deleteVersionIfNotLast(staleVersion.id, v1Preset.id),
+      store.deleteVersion(staleVersion.id),
       error => error instanceof DatasetPresetStoreError && error.code === 'not_found',
     );
 
@@ -359,7 +337,7 @@ async function main(): Promise<void> {
       },
     });
     await assert.rejects(
-      store.deleteVersionIfNotLast(v2.id, v1Preset.id),
+      store.deleteVersion(v2.id),
       error => error instanceof DatasetPresetStoreError && error.code === 'referenced',
     );
     assert.notEqual(await store.getVersion(v2.id), null, 'a restricted direct delete must retain the version row');

@@ -60,6 +60,15 @@ export interface StagedPublication {
   rollback(): Promise<void>;
 }
 
+export class DatasetPresetSnapshotConflictError extends Error {
+  readonly code = 'version_exists';
+
+  constructor(message = 'Dataset preset snapshot version already exists') {
+    super(message);
+    this.name = 'DatasetPresetSnapshotConflictError';
+  }
+}
+
 export interface SnapshotQuarantine {
   restore(): Promise<void>;
   remove(): Promise<void>;
@@ -820,7 +829,9 @@ export function createDatasetPresetSnapshotStore(
           requirePinnedRootsSync();
           validateDirectoryPinSync(presetPin, 'Preset root', managedRoot);
           validateDirectoryPinSync(ownedPin, 'Owned staging directory', presetRoot);
-          if (await pathExists(versionRoot)) throw new Error(`Refusing to replace existing version: v${version}`);
+          if (await pathExists(versionRoot)) {
+            throw new DatasetPresetSnapshotConflictError(`Dataset preset snapshot version v${version} already exists`);
+          }
           await rename(stagingRoot, versionRoot);
           ownedPin = validateMovedDirectoryPin(ownedPin, versionRoot, 'Owned published directory');
           state = 'published';

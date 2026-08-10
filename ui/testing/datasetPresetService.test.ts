@@ -9,6 +9,7 @@ import {
   DatasetPresetNotFoundError,
   DatasetPresetReferencedError,
   DatasetPresetStorageError,
+  DatasetPresetStoreError,
   DatasetPresetValidationError,
   createDatasetPresetService,
   type DatasetPresetCreateData,
@@ -17,11 +18,12 @@ import {
   type DatasetPresetVersionCreateData,
   type DatasetPresetVersionRow,
 } from '../src/server/datasetPresetService';
-import type {
-  DatasetPresetSnapshotStore,
-  SnapshotQuarantine,
-  StageVersionInput,
-  StagedPublication,
+import {
+  DatasetPresetSnapshotConflictError,
+  type DatasetPresetSnapshotStore,
+  type SnapshotQuarantine,
+  type StageVersionInput,
+  type StagedPublication,
 } from '../src/server/datasetPresetSnapshotService';
 
 const loaderConfig: DatasetPresetLoaderConfig = {
@@ -61,7 +63,6 @@ class MemoryStore implements DatasetPresetStore {
   listActiveWithVersionsCalls = 0;
   listVersionsCalls = 0;
   beforeInsertReservedVersion?: () => void | Promise<void>;
-  beforeDeleteVersionIfNotLast?: () => void | Promise<void>;
 
   async listActive(): Promise<DatasetPresetRow[]> {
     return clone(this.presets.filter(row => row.archived_at === null));
@@ -169,15 +170,10 @@ class MemoryStore implements DatasetPresetStore {
   async countVersionUsages(id: string): Promise<number> {
     return this.usages.get(id) ?? 0;
   }
-  async countVersions(presetId: string): Promise<number> {
-    return this.versions.filter(row => row.preset_id === presetId).length;
-  }
-  async deleteVersionIfNotLast(id: string, presetId: string): Promise<void> {
-    await this.beforeDeleteVersionIfNotLast?.();
+  async deleteVersion(id: string): Promise<void> {
     if (this.deleteVersionError !== undefined) throw this.deleteVersionError;
     const index = this.versions.findIndex(row => row.id === id);
     if (index < 0) throw { code: 'not_found' };
-    if (this.versions.filter(row => row.preset_id === presetId).length <= 1) throw { code: 'last_version' };
     this.versions.splice(index, 1);
   }
 }
@@ -192,6 +188,7 @@ class FakeSnapshots implements DatasetPresetSnapshotStore {
   fastChecks = 0;
   fullChecks = 0;
   stageError: unknown;
+  publishFailures: unknown[] = [];
   removeError: unknown;
   rollbackError: unknown;
   restoreError: unknown;
@@ -226,6 +223,8 @@ class FakeSnapshots implements DatasetPresetSnapshotStore {
       manifest,
       manifestSha256: manifestSha256(manifest),
       publish: async () => {
+        const failure = this.publishFailures.shift();
+        if (failure !== undefined) throw failure;
         this.manifests.set(manifestPath, clone(manifest));
       },
       rollback: async () => {
@@ -631,28 +630,95 @@ async function main(): Promise<void> {
     datasetsRoot: '/datasets',
   });
   const retryPreset = await retryService.createPreset({ ...publishInput, name: 'Retry' });
-  retryStore.insertFailures.push({ code: 'version_conflict' });
-  await assert.rejects(
-    retryService.publishVersion(retryPreset.id, {
-      ...publishInput,
-      base_version_id: retryPreset.versions[0].id,
-      retained_paths: [],
-      selected_paths: ['retry.jpg'],
-    }),
-    DatasetPresetConflictError,
-  );
+  retryStore.insertFailures.push(new DatasetPresetStoreError('version_conflict'));
   const afterConflict = await retryService.publishVersion(retryPreset.id, {
     ...publishInput,
     base_version_id: retryPreset.versions[0].id,
     retained_paths: [],
-    selected_paths: ['after-conflict.jpg'],
+    selected_paths: ['retry.jpg'],
   });
-  assert.equal(afterConflict.version, 3, 'a failed reserved insert must leave a monotonic gap');
+  assert.equal(afterConflict.version, 3, 'one invocation must retry a typed insert conflict with the next reservation');
   assert.deepEqual(
     retrySnapshots.stageInputs.map(input => input.version),
     [1, 2, 3],
   );
   assert.equal(retrySnapshots.rollbacks, 1);
+
+  const untypedConflictStore = new MemoryStore();
+  const untypedConflictSnapshots = new FakeSnapshots();
+  const untypedConflictService = createDatasetPresetService({
+    store: untypedConflictStore,
+    snapshots: untypedConflictSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const untypedConflictPreset = await untypedConflictService.createPreset({
+    ...publishInput,
+    name: 'Untyped conflict',
+  });
+  untypedConflictStore.insertFailures.push(Object.assign(new Error('not a store error'), { code: 'version_conflict' }));
+  await assert.rejects(
+    untypedConflictService.publishVersion(untypedConflictPreset.id, {
+      ...publishInput,
+      base_version_id: untypedConflictPreset.versions[0].id,
+      retained_paths: [],
+      selected_paths: ['untyped-conflict.jpg'],
+    }),
+    DatasetPresetStorageError,
+  );
+  assert.deepEqual(
+    untypedConflictSnapshots.stageInputs.map(input => input.version),
+    [1, 2],
+    'an untyped coded error must not trigger a second publication attempt',
+  );
+
+  const pathRetryStore = new MemoryStore();
+  const pathRetrySnapshots = new FakeSnapshots();
+  const pathRetryService = createDatasetPresetService({
+    store: pathRetryStore,
+    snapshots: pathRetrySnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const pathRetryPreset = await pathRetryService.createPreset({ ...publishInput, name: 'Path retry' });
+  pathRetrySnapshots.publishFailures.push(new DatasetPresetSnapshotConflictError());
+  const afterPathConflict = await pathRetryService.publishVersion(pathRetryPreset.id, {
+    ...publishInput,
+    base_version_id: pathRetryPreset.versions[0].id,
+    retained_paths: [],
+    selected_paths: ['path-retry.jpg'],
+  });
+  assert.equal(afterPathConflict.version, 3);
+  assert.deepEqual(
+    pathRetrySnapshots.stageInputs.map(input => input.version),
+    [1, 2, 3],
+  );
+  assert.equal(pathRetrySnapshots.rollbacks, 1);
+
+  const exhaustedStore = new MemoryStore();
+  const exhaustedSnapshots = new FakeSnapshots();
+  const exhaustedService = createDatasetPresetService({
+    store: exhaustedStore,
+    snapshots: exhaustedSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const exhaustedPreset = await exhaustedService.createPreset({ ...publishInput, name: 'Exhausted retry' });
+  exhaustedSnapshots.publishFailures.push(
+    new DatasetPresetSnapshotConflictError(),
+    new DatasetPresetSnapshotConflictError(),
+  );
+  await assert.rejects(
+    exhaustedService.publishVersion(exhaustedPreset.id, {
+      ...publishInput,
+      base_version_id: exhaustedPreset.versions[0].id,
+      retained_paths: [],
+      selected_paths: ['exhausted.jpg'],
+    }),
+    error => error instanceof DatasetPresetConflictError && !error.message.includes('/private/'),
+  );
+  assert.deepEqual(
+    exhaustedSnapshots.stageInputs.map(input => input.version),
+    [1, 2, 3],
+  );
+  assert.equal(exhaustedSnapshots.rollbacks, 2, 'both collided publications must be cleaned');
 
   const concurrentStore = new MemoryStore();
   const concurrentSnapshots = new FakeSnapshots();
@@ -724,31 +790,29 @@ async function main(): Promise<void> {
     datasetsRoot: '/datasets',
   });
   const solePreset = await soleService.createPreset({ ...publishInput, name: 'Sole' });
-  await assert.rejects(soleService.deleteVersion(solePreset.versions[0].id), DatasetPresetConflictError);
-  assert.equal(soleSnapshots.quarantines, 0, 'last-version deletion must reject before quarantine');
-  assert.notEqual(await soleStore.getVersion(solePreset.versions[0].id), null);
-
-  const deleteRaceStore = new MemoryStore();
-  const deleteRaceSnapshots = new FakeSnapshots();
-  const deleteRaceService = createDatasetPresetService({
-    store: deleteRaceStore,
-    snapshots: deleteRaceSnapshots,
-    datasetsRoot: '/datasets',
-  });
-  const deleteRacePreset = await deleteRaceService.createPreset({ ...publishInput, name: 'Delete race' });
-  const deleteRaceV2 = await deleteRaceService.publishVersion(deleteRacePreset.id, {
-    ...publishInput,
-    base_version_id: deleteRacePreset.versions[0].id,
-    retained_paths: [],
-    selected_paths: ['delete-race.jpg'],
-  });
-  deleteRaceStore.beforeDeleteVersionIfNotLast = () => {
-    deleteRaceStore.versions = deleteRaceStore.versions.filter(row => row.id !== deleteRacePreset.versions[0].id);
+  soleSnapshots.verifyFull = async () => {
+    soleSnapshots.fullChecks += 1;
+    throw new Error('media file is unhealthy');
   };
-  await assert.rejects(deleteRaceService.deleteVersion(deleteRaceV2.id), DatasetPresetConflictError);
-  assert.equal(deleteRaceSnapshots.quarantines, 1, 'the destructive race is detected by the transactional recheck');
-  assert.equal(deleteRaceSnapshots.restores, 1, 'a last-version race must restore the quarantined snapshot');
-  assert.notEqual(await deleteRaceStore.getVersion(deleteRaceV2.id), null, 'the last row must remain stored');
+  await soleService.deleteVersion(solePreset.versions[0].id);
+  assert.equal(soleSnapshots.fullChecks, 0, 'delete must not require full media verification');
+  assert.equal(soleSnapshots.quarantines, 1);
+  assert.equal(soleSnapshots.removes, 1);
+  assert.equal(await soleStore.getVersion(solePreset.versions[0].id), null);
+  const emptySole = await soleService.getPreset(solePreset.id);
+  assert.deepEqual(emptySole.versions, []);
+  assert.equal(emptySole.latest_version, 0);
+  await soleService.setArchived(solePreset.id, true);
+  await soleService.setArchived(solePreset.id, false);
+  await assert.rejects(
+    soleService.publishVersion(solePreset.id, {
+      ...publishInput,
+      base_version_id: solePreset.versions[0].id,
+      retained_paths: [],
+      selected_paths: ['no-base.jpg'],
+    }),
+    DatasetPresetNotFoundError,
+  );
 
   for (const failurePoint of ['stage', 'insert'] as const) {
     const gapStore = new MemoryStore();
