@@ -102,6 +102,17 @@ async function main(): Promise<void> {
       /caption|extension|match/i,
     );
     assert.equal(existsSync(join(captionMismatchDataRoot, 'dataset_presets')), false);
+    for (const reservedPresetId of ['.tombstone-preset', '.TOMBSTONE-portable']) {
+      const reservedDataRoot = join(ownedRoot, `reserved-${reservedPresetId.slice(1)}`);
+      await expectRejects(
+        () => createDatasetPresetSnapshotStore(reservedDataRoot).stageVersion({
+          presetId: reservedPresetId, version: 1, presetName: 'Reserved', sourceDataset: 'my-images', sourceRoot,
+          selectedPaths: ['b.png'], captionExt: 'txt', loaderConfig, note: null,
+        }),
+        /preset|reserved|tombstone/i,
+      );
+      assert.equal(existsSync(join(reservedDataRoot, 'dataset_presets')), false);
+    }
 
     let nextId = 0;
     const store = createDatasetPresetSnapshotStore(dataRoot, { randomId: () => `id-${++nextId}` });
@@ -532,6 +543,16 @@ async function main(): Promise<void> {
     assert.equal(lstatSync(join(cleanupPresetRoot, '.staging-new')).isDirectory(), true);
     assert.equal(lstatSync(join(cleanupPresetRoot, '.quarantine-v1-ignore')).isDirectory(), true);
     assert.equal(lstatSync(join(cleanupPresetRoot, 'v9')).isDirectory(), true);
+    const safeDotPresetRoot = join(dataRoot, 'dataset_presets/.safe-dot-preset');
+    const rootTombstone = join(dataRoot, 'dataset_presets/.tombstone-owned');
+    mkdirSync(join(safeDotPresetRoot, '.staging-old'), { recursive: true });
+    mkdirSync(join(rootTombstone, '.staging-old'), { recursive: true });
+    const older = new Date('2026-01-01T00:00:00.000Z');
+    utimesSync(join(safeDotPresetRoot, '.staging-old'), older, older);
+    utimesSync(join(rootTombstone, '.staging-old'), older, older);
+    assert.deepEqual(await store.cleanupStaging(cutoff), ['.safe-dot-preset/.staging-old']);
+    assert.equal(existsSync(join(safeDotPresetRoot, '.staging-old')), false);
+    assert.equal(existsSync(join(rootTombstone, '.staging-old')), true);
     if (symlinksSupported) {
       const cleanupOutside = join(ownedRoot, 'cleanup-outside');
       mkdirSync(join(cleanupOutside, '.staging-old'), { recursive: true });

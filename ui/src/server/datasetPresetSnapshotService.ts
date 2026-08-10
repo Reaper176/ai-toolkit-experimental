@@ -129,9 +129,17 @@ function assertWithinRoot(root: string, candidate: string, label: string): void 
   if (!isDescendant(root, candidate)) throw new Error(`${label} escapes its trusted root`);
 }
 
-function validatePresetId(value: unknown): string {
+function validatePortableComponent(value: unknown, label: string): string {
   const normalized = normalizeRelativeMediaPath(value);
-  if (normalized.includes('/')) throw new Error('Preset ID must be one portable directory component');
+  if (normalized.includes('/')) throw new Error(`${label} must be one portable directory component`);
+  return normalized;
+}
+
+function validatePresetId(value: unknown): string {
+  const normalized = validatePortableComponent(value, 'Preset ID');
+  if (normalized.toLowerCase().startsWith('.tombstone-')) {
+    throw new Error('Preset ID uses the reserved snapshot tombstone namespace');
+  }
   return normalized;
 }
 
@@ -359,7 +367,7 @@ export function createDatasetPresetSnapshotStore(
   }
 
   function nextOwnedName(prefix: string): string {
-    const id = validatePresetId(resolvedDependencies.randomId());
+    const id = validatePortableComponent(resolvedDependencies.randomId(), 'Internal snapshot ID');
     return `${prefix}${id}`;
   }
 
@@ -826,7 +834,7 @@ export function createDatasetPresetSnapshotStore(
       for (const presetEntry of await readdir(managedRoot, { withFileTypes: true })) {
         requirePinnedRootsSync();
         if (presetEntry.isSymbolicLink()) throw new Error(`Preset parent must not be a symlink: ${presetEntry.name}`);
-        if (!presetEntry.isDirectory() || presetEntry.name.startsWith('.tombstone-')) continue;
+        if (!presetEntry.isDirectory() || presetEntry.name.toLowerCase().startsWith('.tombstone-')) continue;
         const presetRoot = join(managedRoot, presetEntry.name);
         const presetPin = pinDirectorySync(presetRoot, 'Preset root', managedRoot);
         for (const childEntry of await readdir(presetRoot, { withFileTypes: true })) {
