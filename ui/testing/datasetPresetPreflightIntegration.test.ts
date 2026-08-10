@@ -10,6 +10,7 @@ import {
   classifyQueuePreflightError,
   prepareClaimAndLaunchJob,
   prepareAndQueueJob,
+  QueueRevisionConflictError,
 } from '../src/server/jobStartOrchestration';
 import { manifestSha256, type DatasetPresetManifestV1 } from '../src/helpers/datasetPresets';
 import type { DatasetPresetSnapshotStore } from '../src/server/datasetPresetSnapshotService';
@@ -136,15 +137,25 @@ async function main(): Promise<void> {
   });
 
   const queueEvents: string[] = [];
-  await prepareAndQueueJob({ id: 'job', job_config: JSON.stringify(config([])) }, {
+  const queueAttemptA = {
+    id: 'job', job_config: JSON.stringify(config([])), updated_at: new Date('2026-08-10T00:00:00.123Z'),
+    name: 'queue-a', gpu_ids: '0', queue_position: 500, status: 'stopped', stop: false,
+    return_to_queue: false,
+  };
+  await prepareAndQueueJob(queueAttemptA, {
     async prepare(value) { queueEvents.push('preflight'); return structuredClone(value); },
-    async mutateQueue() { queueEvents.push('queue-transaction'); },
+    async mutateQueue(attempt) {
+      assert.equal(attempt.updated_at.getTime(), queueAttemptA.updated_at.getTime());
+      assert.equal(attempt.job_config, queueAttemptA.job_config);
+      assert.equal(attempt.gpu_ids, '0');
+      queueEvents.push('queue-transaction');
+    },
   });
   assert.deepEqual(queueEvents, ['preflight', 'queue-transaction']);
 
   const noMutationEvents: string[] = [];
   await assert.rejects(
-    prepareAndQueueJob({ id: 'job', job_config: JSON.stringify(config(refs)) }, {
+    prepareAndQueueJob({ ...queueAttemptA, job_config: JSON.stringify(config(refs)) }, {
       async prepare() { throw caught; },
       async mutateQueue() { noMutationEvents.push('queue-transaction'); },
     }),
@@ -160,7 +171,7 @@ async function main(): Promise<void> {
   });
   let queueMutationFailure: unknown;
   try {
-    await prepareAndQueueJob({ id: 'job', job_config: JSON.stringify(config([])) }, {
+    await prepareAndQueueJob(queueAttemptA, {
       async prepare(value) { return value; },
       async mutateQueue() { throw new Error('database unavailable after preflight'); },
     });
@@ -170,6 +181,56 @@ async function main(): Promise<void> {
   assert.deepEqual(classifyQueuePreflightError(queueMutationFailure), {
     status: 500, body: { error: 'Failed to queue job' },
   }, 'post-preflight database errors are not mislabeled as snapshot verification failures');
+
+  let releaseQueuePreflight!: (value: JobConfig) => void;
+  const deferredQueuePreflight = new Promise<JobConfig>(resolve => { releaseQueuePreflight = resolve; });
+  let liveQueueJob = { ...queueAttemptA, updated_at: new Date(queueAttemptA.updated_at) };
+  const createdQueues: string[] = [];
+  const mutateLiveQueue = async (attempt: typeof queueAttemptA) => {
+    const sameRevision = attempt.updated_at.getTime() === liveQueueJob.updated_at.getTime() &&
+      attempt.job_config === liveQueueJob.job_config && attempt.name === liveQueueJob.name &&
+      attempt.gpu_ids === liveQueueJob.gpu_ids && attempt.queue_position === liveQueueJob.queue_position &&
+      attempt.status === liveQueueJob.status && attempt.stop === liveQueueJob.stop &&
+      attempt.return_to_queue === liveQueueJob.return_to_queue;
+    if (!sameRevision) throw new QueueRevisionConflictError();
+    liveQueueJob = { ...liveQueueJob, status: 'queued', stop: false, return_to_queue: false };
+    createdQueues.push(attempt.gpu_ids);
+  };
+  let firstQueueError: unknown;
+  const firstQueueRequest = prepareAndQueueJob(queueAttemptA, {
+    async prepare() { return deferredQueuePreflight; },
+    mutateQueue: mutateLiveQueue,
+  }).catch(error => { firstQueueError = error; });
+  const queueConfigB = JSON.stringify(config(refs));
+  liveQueueJob = {
+    ...liveQueueJob,
+    updated_at: new Date('2026-08-10T00:00:00.124Z'),
+    job_config: queueConfigB,
+    name: 'queue-b',
+    gpu_ids: '1',
+    queue_position: 700,
+    status: 'stopped',
+    stop: false,
+    return_to_queue: false,
+  };
+  releaseQueuePreflight(config([]));
+  await firstQueueRequest;
+  assert.ok(firstQueueError instanceof QueueRevisionConflictError);
+  assert.deepEqual(classifyQueuePreflightError(firstQueueError), {
+    status: 409, body: { error: 'Job changed while being queued; retry the request' },
+  });
+  assert.deepEqual(createdQueues, [], 'stale attempt A creates no stale GPU queue');
+  assert.equal(liveQueueJob.status, 'stopped');
+  assert.equal(liveQueueJob.job_config, queueConfigB);
+
+  let preflightedB = false;
+  await prepareAndQueueJob(liveQueueJob, {
+    async prepare(value) { preflightedB = JSON.stringify(value) === queueConfigB; return value; },
+    mutateQueue: mutateLiveQueue,
+  });
+  assert.equal(preflightedB, true, 'retry preflights revision B rather than stale A');
+  assert.deepEqual(createdQueues, ['1'], 'retry queues only the current GPU revision');
+  assert.equal(liveQueueJob.status, 'queued');
 
   let releasePreparation!: (value: JobConfig) => void;
   const delayedPreparation = new Promise<JobConfig>(resolve => { releasePreparation = resolve; });
@@ -247,6 +308,16 @@ async function main(): Promise<void> {
   assert.match(route, /prepareAndQueueJob/, 'queue route delegates to executable tested orchestration');
   assert.match(route, /prisma\.\$transaction/,
     'post-preflight queue position, queue creation, and status writes are atomic');
+  const queueTransaction = route.slice(route.indexOf('async mutateQueue('), route.indexOf('});\n  } catch', route.indexOf('async mutateQueue(')));
+  assert.match(queueTransaction, /transaction\.job\.updateMany/);
+  for (const revisionField of [
+    'updated_at', 'job_config', 'name', 'gpu_ids', 'queue_position', 'status', 'stop', 'return_to_queue',
+  ]) {
+    assert.match(queueTransaction, new RegExp(`${revisionField}: attempt\\.${revisionField}`),
+      `queue transaction pins the preflighted ${revisionField}`);
+  }
+  assert.match(queueTransaction, /QueueRevisionConflictError/,
+    'a stale queue attempt aborts and rolls back its transaction');
 
   const worker = readFileSync(join(process.cwd(), 'cron/actions/startJob.ts'), 'utf8');
   const authoritativeRead = worker.indexOf('prisma.job.findUnique');

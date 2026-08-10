@@ -6,6 +6,16 @@ export interface StoredStartJob {
   job_config: string;
 }
 
+export interface QueueStartAttempt extends StoredStartJob {
+  updated_at: Date;
+  name: string;
+  gpu_ids: string;
+  queue_position: number;
+  status: string;
+  stop: boolean;
+  return_to_queue: boolean;
+}
+
 export interface WorkerStartAttempt extends StoredStartJob {
   updated_at: Date;
   name: string;
@@ -20,18 +30,37 @@ export class QueueMutationError extends Error {
   }
 }
 
+export class QueueRevisionConflictError extends Error {
+  constructor() {
+    super('Job revision changed during queue preflight');
+    this.name = 'QueueRevisionConflictError';
+  }
+}
+
 export async function prepareAndQueueJob(
-  job: StoredStartJob,
+  job: QueueStartAttempt,
   deps: {
     prepare(jobConfig: JobConfig): Promise<JobConfig>;
-    mutateQueue(): Promise<void>;
+    mutateQueue(attempt: QueueStartAttempt): Promise<void>;
   },
 ): Promise<void> {
-  const parsed = JSON.parse(job.job_config) as JobConfig;
+  const attempt = Object.freeze({
+    id: job.id,
+    job_config: job.job_config,
+    updated_at: new Date(job.updated_at.getTime()),
+    name: job.name,
+    gpu_ids: job.gpu_ids,
+    queue_position: job.queue_position,
+    status: job.status,
+    stop: job.stop,
+    return_to_queue: job.return_to_queue,
+  });
+  const parsed = JSON.parse(attempt.job_config) as JobConfig;
   await deps.prepare(parsed);
   try {
-    await deps.mutateQueue();
+    await deps.mutateQueue(attempt);
   } catch (error) {
+    if (error instanceof QueueRevisionConflictError) throw error;
     throw new QueueMutationError({ cause: error });
   }
 }
@@ -76,6 +105,9 @@ export function classifyQueuePreflightError(error: unknown): {
   }
   if (error instanceof QueueMutationError) {
     return { status: 500, body: { error: 'Failed to queue job' } };
+  }
+  if (error instanceof QueueRevisionConflictError) {
+    return { status: 409, body: { error: 'Job changed while being queued; retry the request' } };
   }
   if (error instanceof SyntaxError || error instanceof JobDatasetPresetError) {
     return { status: 400, body: { error: 'Job dataset preset configuration is invalid' } };

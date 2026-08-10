@@ -3,7 +3,11 @@ import prisma from '@/server/prisma';
 import { createDatasetPresetSnapshotStore } from '@/server/datasetPresetSnapshotService';
 import { prepareJobDatasetPresetsForTraining } from '@/server/jobDatasetPresetService';
 import { createJobDatasetVersionPrismaStore } from '@/server/jobDatasetPresetPrismaStore';
-import { classifyQueuePreflightError, prepareAndQueueJob } from '@/server/jobStartOrchestration';
+import {
+  classifyQueuePreflightError,
+  prepareAndQueueJob,
+  QueueRevisionConflictError,
+} from '@/server/jobStartOrchestration';
 import { getDataRoot } from '@/server/settings';
 
 const versions = createJobDatasetVersionPrismaStore(prisma);
@@ -27,16 +31,22 @@ export async function GET(request: NextRequest, { params }: { params: { jobID: s
           snapshots: createDatasetPresetSnapshotStore(await getDataRoot()),
         });
       },
-      async mutateQueue() {
+      async mutateQueue(attempt) {
         await prisma.$transaction(async transaction => {
           const highest = await transaction.job.aggregate({ _max: { queue_position: true } });
           const queuePosition = (highest._max.queue_position || 0) + 1000;
-          const queue = await transaction.queue.findFirst({ where: { gpu_ids: job.gpu_ids } });
-          if (!queue) {
-            await transaction.queue.create({ data: { gpu_ids: job.gpu_ids, is_running: false } });
-          }
-          await transaction.job.update({
-            where: { id: jobID },
+          const queued = await transaction.job.updateMany({
+            where: {
+              id: attempt.id,
+              updated_at: attempt.updated_at,
+              job_config: attempt.job_config,
+              name: attempt.name,
+              gpu_ids: attempt.gpu_ids,
+              queue_position: attempt.queue_position,
+              status: attempt.status,
+              stop: attempt.stop,
+              return_to_queue: attempt.return_to_queue,
+            },
             data: {
               queue_position: queuePosition,
               status: 'queued',
@@ -45,6 +55,11 @@ export async function GET(request: NextRequest, { params }: { params: { jobID: s
               info: 'Job queued',
             },
           });
+          if (queued.count !== 1) throw new QueueRevisionConflictError();
+          const queue = await transaction.queue.findFirst({ where: { gpu_ids: attempt.gpu_ids } });
+          if (!queue) {
+            await transaction.queue.create({ data: { gpu_ids: attempt.gpu_ids, is_running: false } });
+          }
         });
       },
     });
