@@ -68,6 +68,14 @@ assert.deepEqual(validateManifest(manifest), manifest);
 assert.notEqual(validateManifest(manifest), manifest);
 assert.equal(manifestSha256(manifest), manifestSha256(manifest));
 assert.match(manifestSha256(manifest), /^[a-f0-9]{64}$/);
+
+const { schema_version: _schemaVersion, media_count: _mediaCount, total_bytes: _totalBytes, ...manifestInput } = manifest;
+expectThrows(() => buildDatasetPresetManifest({ ...manifestInput, files: [] }), /files|media_count/i);
+expectThrows(
+  () => validateManifest({ ...manifest, files: [], media_count: 0, total_bytes: 0 }),
+  /files|media_count/i,
+);
+
 assert.deepEqual(normalizePresetName('  Faces  '), { name: 'Faces', nameKey: 'faces' });
 assert.equal(normalizeRelativeMediaPath('sub\\nested/a.jpg'), 'sub/nested/a.jpg');
 

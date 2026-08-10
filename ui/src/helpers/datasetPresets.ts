@@ -298,6 +298,7 @@ function validateManifestFields(untrusted: unknown): DatasetPresetManifestV1 {
   }
   const filesInput = value.files;
   if (!Array.isArray(filesInput)) throw new Error('Dataset preset manifest.files must be an array');
+  if (filesInput.length === 0) throw new Error('Dataset preset manifest.files must contain at least one entry');
   const files = sortFiles(filesInput.map((file, index) => validateFile(file, `Dataset preset manifest.files[${index}]`)));
   const sourcePaths = new Set<string>();
   const managedPaths = new Set<string>();
