@@ -51,7 +51,7 @@ assert not hasattr(config, "dataset_preset")
 
 # The Python loader treats dataset_path as the primary source and only falls
 # back to folder_path when it is None. Server-side preset resolution must
-# therefore reject any nonempty dataset_path instead of merely replacing
+# therefore reject any non-null dataset_path instead of merely replacing
 # folder_path with the managed snapshot.
 malicious = DatasetConfig(
     folder_path=resolved["folder_path"],
