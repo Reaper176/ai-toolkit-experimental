@@ -46,33 +46,64 @@ function click(instance: TestRenderer.ReactTestInstance): void {
   instance.props.onClick({ stopPropagation() {} });
 }
 
-function historyWindow(): {
-  value: SelectionHistoryWindow;
-  emitPopstate(): void;
-  pushed: unknown[];
-  backs: number;
-  listenerCount(): number;
-} {
-  const listeners = new Set<() => void>();
-  const pushed: unknown[] = [];
-  let backs = 0;
-  return {
-    value: {
-      location: { href: 'http://localhost/datasets/example' },
+class PositionAwareHistory {
+  private readonly listeners = new Set<() => void>();
+  private readonly entries: Array<{ state: unknown; url: string }>;
+  private position: number;
+
+  constructor(priorUrl = 'http://localhost/previous', pageUrl = 'http://localhost/datasets/example') {
+    this.entries = [
+      { state: null, url: priorUrl },
+      { state: null, url: pageUrl },
+    ];
+    this.position = 1;
+  }
+
+  get currentUrl(): string {
+    return this.entries[this.position].url;
+  }
+
+  get index(): number {
+    return this.position;
+  }
+
+  get length(): number {
+    return this.entries.length;
+  }
+
+  get listenerCount(): number {
+    return this.listeners.size;
+  }
+
+  get value(): SelectionHistoryWindow {
+    const positionHistory = this;
+    return {
+      location: {
+        get href() {
+          return positionHistory.currentUrl;
+        },
+      } as Pick<Location, 'href'>,
       history: {
-        pushState: state => pushed.push(state),
-        back: () => backs++,
-      },
-      addEventListener: (_type, listener) => listeners.add(listener),
-      removeEventListener: (_type, listener) => listeners.delete(listener),
-    },
-    emitPopstate: () => listeners.forEach(listener => listener()),
-    pushed,
-    get backs() {
-      return backs;
-    },
-    listenerCount: () => listeners.size,
-  };
+        pushState: (state, _title, url) => {
+          this.entries.splice(this.position + 1);
+          this.entries.push({ state, url: url === undefined || url === null ? this.currentUrl : String(url) });
+          this.position = this.entries.length - 1;
+        },
+        back: () => this.move(-1),
+        forward: () => this.move(1),
+        go: (delta: number) => this.move(delta),
+      } as SelectionHistoryWindow['history'],
+      addEventListener: (_type, listener) => this.listeners.add(listener),
+      removeEventListener: (_type, listener) => this.listeners.delete(listener),
+    };
+  }
+
+  private move(delta: number): void {
+    const target = this.position + delta;
+    if (target < 0 || target >= this.entries.length || target === this.position) return;
+    this.position = target;
+    for (const listener of [...this.listeners]) listener();
+  }
 }
 
 async function run(): Promise<void> {
@@ -88,22 +119,67 @@ async function run(): Promise<void> {
       /from\s+['"]node:/,
       'browser-safe selection helpers cannot import Node modules',
     );
-    const fakeWindow = historyWindow();
+    const nativeHistory = new PositionAwareHistory();
     let leaveAttempts = 0;
-    const guard = createDirtySelectionLeaveGuard(fakeWindow.value, () => leaveAttempts++);
+    const guard = createDirtySelectionLeaveGuard(nativeHistory.value, () => leaveAttempts++);
     guard.setDirty(true);
-    assert.equal(fakeWindow.pushed.length, 1, 'dirty state arms exactly one history sentinel');
-    assert.equal(fakeWindow.listenerCount(), 1);
-    fakeWindow.emitPopstate();
-    assert.equal(leaveAttempts, 1, 'browser back asks the page to confirm leaving');
-    assert.equal(fakeWindow.pushed.length, 2, 'cancel path restores the sentinel without navigating');
+    assert.equal(nativeHistory.length, 3, 'dirty state appends one same-URL sentinel');
+    assert.equal(nativeHistory.index, 2);
+    assert.equal(nativeHistory.currentUrl, 'http://localhost/datasets/example');
+    assert.equal(nativeHistory.listenerCount, 1);
+
+    nativeHistory.value.history.back();
+    assert.equal(leaveAttempts, 1, 'native back opens one leave attempt');
+    assert.equal(nativeHistory.length, 3, 'restoring a sentinel never appends another entry');
+    assert.equal(nativeHistory.index, 2, 'cancel confirmation returns to the existing sentinel');
+    guard.cancelLeaveAttempt();
+    assert.equal(nativeHistory.index, 2, 'cancel keeps the one sentinel armed');
+    assert.equal(nativeHistory.length, 3);
+    assert.equal(nativeHistory.listenerCount, 1);
+
+    nativeHistory.value.history.back();
+    assert.equal(leaveAttempts, 2);
     guard.allowLeave();
-    assert.equal(fakeWindow.backs, 1, 'confirmed leave proceeds one browser-history step');
-    assert.equal(fakeWindow.listenerCount(), 0, 'allowing leave removes the popstate listener first');
-    guard.setDirty(true);
-    guard.setDirty(false);
-    assert.equal(fakeWindow.listenerCount(), 0, 'clean state removes the popstate listener without navigation');
-    guard.dispose();
+    assert.equal(nativeHistory.index, 0, 'confirm leaves past the duplicate same-page entries');
+    assert.equal(nativeHistory.currentUrl, 'http://localhost/previous');
+    assert.equal(nativeHistory.listenerCount, 0);
+
+    const topbarHistory = new PositionAwareHistory();
+    let topbarAttempts = 0;
+    const topbarGuard = createDirtySelectionLeaveGuard(topbarHistory.value, () => topbarAttempts++);
+    topbarGuard.setDirty(true);
+    topbarGuard.requestLeave();
+    assert.equal(topbarAttempts, 1, 'page-owned Back follows the same native popstate path');
+    assert.equal(topbarHistory.index, 2);
+    topbarGuard.allowLeave();
+    assert.equal(topbarHistory.index, 0);
+    assert.equal(topbarHistory.currentUrl, 'http://localhost/previous');
+
+    const cleanHistory = new PositionAwareHistory();
+    const cleanGuard = createDirtySelectionLeaveGuard(cleanHistory.value, () => undefined);
+    cleanGuard.setDirty(true);
+    cleanGuard.setDirty(false);
+    assert.equal(cleanHistory.length, 3, 'consumed sentinels remain only in forward history');
+    assert.equal(cleanHistory.index, 1, 'clean transition consumes the sentinel without leaving this page');
+    cleanHistory.value.history.back();
+    assert.equal(cleanHistory.index, 0, 'the next Back reaches the actual prior page');
+
+    const repeatedHistory = new PositionAwareHistory();
+    let repeatedAttempts = 0;
+    const repeatedGuard = createDirtySelectionLeaveGuard(repeatedHistory.value, () => repeatedAttempts++);
+    repeatedGuard.setDirty(true);
+    repeatedHistory.value.history.back();
+    repeatedHistory.value.history.back();
+    assert.equal(repeatedAttempts, 1, 'repeat popstate while a modal is pending does not reopen it');
+    assert.equal(repeatedHistory.index, 2, 'repeat popstate also restores the existing sentinel');
+
+    const disposeHistory = new PositionAwareHistory();
+    const disposeGuard = createDirtySelectionLeaveGuard(disposeHistory.value, () => undefined);
+    disposeGuard.setDirty(true);
+    disposeGuard.dispose();
+    assert.equal(disposeHistory.length, 3, 'dispose does not create or remove history entries');
+    assert.equal(disposeHistory.index, 2, 'dispose never reverses an unmount navigation');
+    assert.equal(disposeHistory.listenerCount, 0);
 
     const actions: string[] = [];
     let cancelled = 0;

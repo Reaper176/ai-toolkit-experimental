@@ -116,6 +116,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
           discardSelectionRef.current();
           leaveGuardRef.current?.allowLeave();
         },
+        onCancel: () => leaveGuardRef.current?.cancelLeaveAttempt(),
       });
     });
     leaveGuardRef.current = guard;
@@ -169,16 +170,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
       history.back();
       return;
     }
-    openConfirm({
-      title: 'Discard selection changes?',
-      message: 'Your selection changes have not been saved.',
-      type: 'warning',
-      confirmText: 'Discard and leave',
-      onConfirm: () => {
-        discardSelectionRef.current();
-        leaveGuardRef.current?.allowLeave();
-      },
-    });
+    leaveGuardRef.current?.requestLeave();
   };
 
   useEffect(() => {

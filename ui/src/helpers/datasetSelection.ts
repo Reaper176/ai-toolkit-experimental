@@ -53,21 +53,25 @@ export function reconcileSelection(selected: ReadonlySet<string>, available: Ite
 
 export interface SelectionHistoryWindow {
   location: Pick<Location, 'href'>;
-  history: Pick<History, 'pushState' | 'back'>;
+  history: Pick<History, 'pushState' | 'back' | 'forward' | 'go'>;
   addEventListener(type: 'popstate', listener: () => void): void;
   removeEventListener(type: 'popstate', listener: () => void): void;
 }
 
 export interface DirtySelectionLeaveGuard {
   setDirty(dirty: boolean): void;
+  requestLeave(): void;
+  cancelLeaveAttempt(): void;
   allowLeave(): void;
   dispose(): void;
 }
 
 /**
  * Adds one disposable browser-history sentinel while a selection draft is dirty.
- * A back gesture is restored immediately, then the page chooses whether to call
- * allowLeave() after its accessible confirmation dialog resolves.
+ * A back gesture restores that same sentinel, then the page chooses whether to
+ * cancelLeaveAttempt() or allowLeave() after its accessible dialog resolves.
+ * dispose intentionally only removes the listener: unmount cleanup must never
+ * reverse an in-progress navigation.
  */
 export function createDirtySelectionLeaveGuard(
   windowLike: SelectionHistoryWindow,
@@ -75,6 +79,8 @@ export function createDirtySelectionLeaveGuard(
 ): DirtySelectionLeaveGuard {
   let dirty = false;
   let listening = false;
+  let leaveAttemptPending = false;
+  let suppressRestoredSentinelPopstate = false;
 
   const removeListener = () => {
     if (!listening) return;
@@ -84,7 +90,14 @@ export function createDirtySelectionLeaveGuard(
 
   const onPopstate = () => {
     if (!dirty) return;
-    windowLike.history.pushState({ datasetSelectionGuard: true }, '', windowLike.location.href);
+    if (suppressRestoredSentinelPopstate) {
+      suppressRestoredSentinelPopstate = false;
+      return;
+    }
+    suppressRestoredSentinelPopstate = true;
+    windowLike.history.forward();
+    if (leaveAttemptPending) return;
+    leaveAttemptPending = true;
     onLeaveAttempt();
   };
 
@@ -99,19 +112,34 @@ export function createDirtySelectionLeaveGuard(
       if (nextDirty === dirty) return;
       dirty = nextDirty;
       if (!dirty) {
+        leaveAttemptPending = false;
+        suppressRestoredSentinelPopstate = false;
         removeListener();
+        windowLike.history.back();
         return;
       }
       windowLike.history.pushState({ datasetSelectionGuard: true }, '', windowLike.location.href);
       addListener();
     },
-    allowLeave() {
-      dirty = false;
-      removeListener();
+    requestLeave() {
+      if (!dirty || leaveAttemptPending) return;
       windowLike.history.back();
+    },
+    cancelLeaveAttempt() {
+      leaveAttemptPending = false;
+    },
+    allowLeave() {
+      if (!dirty || !leaveAttemptPending) return;
+      dirty = false;
+      leaveAttemptPending = false;
+      suppressRestoredSentinelPopstate = false;
+      removeListener();
+      windowLike.history.go(-2);
     },
     dispose() {
       dirty = false;
+      leaveAttemptPending = false;
+      suppressRestoredSentinelPopstate = false;
       removeListener();
     },
   };

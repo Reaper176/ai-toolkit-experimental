@@ -21,6 +21,8 @@ assert.match(pageSource, /onSelectionChange=\{selected\s*=>/, 'cards update page
 assert.match(pageSource, /computeItemKey=\{index\s*=>\s*imgList\[index\]\?\.relative_path/, 'virtualized keys use stable relative paths');
 assert.match(pageSource, /beforeunload/, 'dirty selections warn before browser unload');
 assert.match(pageSource, /openConfirm\(/, 'dirty cancellation uses the accessible confirmation pattern');
+assert.match(pageSource, /leaveGuardRef\.current\?\.requestLeave\(\)/, 'topbar Back uses the native guarded history path');
+assert.match(pageSource, /onCancel:\s*\(\)\s*=>\s*leaveGuardRef\.current\?\.cancelLeaveAttempt\(\)/);
 assert.match(pageSource, /DatasetSelectionToolbar/, 'selection mode renders the dedicated toolbar');
 assert.doesNotMatch(cardSource, /useState\s*<\s*boolean\s*>\s*\(\s*selected/, 'selection state must not live in each card');
 
