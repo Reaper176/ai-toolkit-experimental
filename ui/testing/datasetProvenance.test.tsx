@@ -558,7 +558,7 @@ async function run(): Promise<void> {
   const jobB = jobResponse('job-b', {
     name: 'B',
     job_config: JSON.stringify({
-      config: { process: [{ train: { steps: 10 }, sample: { prompts: ['legacy prompt'] } }] },
+      config: { process: [{ train: { steps: 10 }, sample: { prompts: [] } }] },
     }),
     dataset_preset_usages: [usage({ preset_name: 'B preset' })],
   });
@@ -577,8 +577,8 @@ async function run(): Promise<void> {
   assert.equal(observedJob()?.id, 'job-b');
   assert.deepEqual(
     JSON.parse(observedJob()!.job_config).config.process[0].sample.prompts,
-    ['legacy prompt'],
-    'initial GET accepts supported legacy prompt jobs',
+    [],
+    'initial GET accepts supported zero-sample legacy prompt jobs',
   );
   await act(async () => {
     requestA.resolve({ data: jobA });
@@ -596,8 +596,8 @@ async function run(): Promise<void> {
   assert.equal(observedJob()?.dataset_preset_usages?.[0]?.preset_name, 'B preset', 'compact polls preserve provenance');
   assert.deepEqual(
     JSON.parse(observedJob()!.job_config).config.process[0].sample.prompts,
-    ['legacy prompt'],
-    'compact polls remain compatible with legacy prompt jobs',
+    [],
+    'compact polls remain compatible with zero-sample legacy prompt jobs',
   );
   apiClient.get = (async () => ({ data: null })) as typeof apiClient.get;
   await act(async () => {

@@ -64,7 +64,7 @@ function jobConfigField(value: unknown, jobType: string): string {
       if (Array.isArray(sample.prompts)) {
         for (const prompt of sample.prompts) textField(prompt, 100_000);
       }
-      if (!hasSamples && (!Array.isArray(sample.prompts) || sample.prompts.length === 0)) {
+      if (!hasSamples && !hasPrompts) {
         throw new Error('Job response was malformed');
       }
     }
