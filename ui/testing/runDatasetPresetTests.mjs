@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -53,6 +53,13 @@ try {
   const aliasScope = join(outputDirectory, 'node_modules', '@');
   mkdirSync(dirname(aliasScope), { recursive: true });
   symlinkSync(join(outputDirectory, 'src'), aliasScope, process.platform === 'win32' ? 'junction' : 'dir');
+  const lucideStub = join(outputDirectory, 'node_modules', 'lucide-react');
+  mkdirSync(lucideStub, { recursive: true });
+  writeFileSync(join(lucideStub, 'package.json'), JSON.stringify({ type: 'commonjs', main: 'index.js' }));
+  writeFileSync(
+    join(lucideStub, 'index.js'),
+    "const React = require('react'); module.exports = new Proxy({}, { get: (_, name) => props => React.createElement('svg', { ...props, 'data-icon': String(name) }) });",
+  );
   for (const testFile of testFiles) {
     const compiledTest = join(outputDirectory, 'testing', testFile);
     if (!existsSync(compiledTest)) {

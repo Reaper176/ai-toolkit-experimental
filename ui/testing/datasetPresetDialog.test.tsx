@@ -14,7 +14,6 @@ assert.ok(existsSync(hookPath), 'dataset preset browser hook must exist');
 const dialogSource = readFileSync(dialogPath, 'utf8');
 const hookSource = readFileSync(hookPath, 'utf8');
 
-
 assert.match(dialogSource, /fieldErrors/, 'local validation exposes field-level errors');
 assert.match(dialogSource, /selectedPaths\.length === 0/, 'Save is disabled for an empty selection');
 assert.match(dialogSource, /pending/, 'pending state prevents a second submission');
@@ -38,6 +37,17 @@ assert.match(hookSource, /requestSequence/, 'hook ignores stale list responses')
 assert.match(hookSource, /mountedRef/, 'hook ignores updates after unmount');
 assert.match(hookSource, /response\.ok/, 'hook rejects non-OK responses');
 assert.match(hookSource, /\/api\/dataset-presets/, 'hook uses dataset preset APIs');
+for (const sharedControl of ['TextInput', 'NumberInput', 'Checkbox', 'CreatableSelectInput']) {
+  assert.match(
+    dialogSource,
+    new RegExp(`import[\\s\\S]{0,300}\\b${sharedControl}\\b[\\s\\S]{0,100}from '@/components/formInputs'`),
+    `dialog imports shared ${sharedControl}`,
+  );
+  assert.match(dialogSource, new RegExp(`<${sharedControl}\\b`), `dialog renders shared ${sharedControl}`);
+}
+assert.match(dialogSource, /normalizePresetName\(/, 'dialog uses canonical preset-name validation');
+assert.match(dialogSource, /validateLoaderConfig\(/, 'dialog uses canonical loader validation');
+assert.doesNotMatch(dialogSource, /\^\\\.?\[A-Za-z0-9_-\]/, 'dialog does not duplicate caption-extension validation');
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const originalError = console.error;
@@ -65,7 +75,12 @@ function textOf(node: ReactTestInstance): string {
 function labelControl(root: ReactTestInstance, label: string): ReactTestInstance {
   const match = root.findAll(node => node.type === 'label' && textOf(node).includes(label))[0];
   assert.ok(match, `rendered label ${label}`);
-  return match.find(node => node.type === 'input' || node.type === 'textarea');
+  const nested = match.findAll(
+    node => node.type === 'input' || node.type === 'textarea' || node.props.role === 'switch',
+  );
+  if (nested[0]) return nested[0];
+  assert.equal(typeof match.props.htmlFor, 'string', `${label} identifies its shared control`);
+  return root.findAll(node => node.props.id === match.props.htmlFor)[0] ?? match;
 }
 
 const accessibleLabels = [

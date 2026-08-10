@@ -2,7 +2,13 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '@/components/Modal';
-import type { DatasetPresetLoaderConfig } from '@/helpers/datasetPresets';
+import { Checkbox, CreatableSelectInput, NumberInput, TextAreaInput, TextInput } from '@/components/formInputs';
+import {
+  DATASET_PRESET_NOTE_MAX,
+  normalizePresetName,
+  validateLoaderConfig,
+  type DatasetPresetLoaderConfig,
+} from '@/helpers/datasetPresets';
 import { normalizeRelativeMediaPath } from '@/helpers/datasetSelection';
 import {
   requestDatasetPresetJson,
@@ -65,18 +71,18 @@ type FormState = {
   note: string;
   captionExt: string;
   defaultCaption: string;
-  captionDropoutRate: string;
+  captionDropoutRate: number | null;
   shuffleTokens: boolean;
-  numRepeats: string;
+  numRepeats: number | null;
   resolution: string;
   isReg: boolean;
-  networkWeight: string;
+  networkWeight: number | null;
   cacheLatentsToDisk: boolean;
   flipX: boolean;
   flipY: boolean;
-  numFrames: string;
+  numFrames: number | null;
   shrinkVideoToFrames: boolean;
-  fps: string;
+  fps: number | null;
   autoFrameCount: boolean;
   doI2v: boolean;
   doAudio: boolean;
@@ -92,18 +98,18 @@ function initialForm(values: DatasetPresetDialogInitialValues): FormState {
     note: values.note,
     captionExt: values.captionExt,
     defaultCaption: loader.default_caption,
-    captionDropoutRate: String(loader.caption_dropout_rate),
+    captionDropoutRate: loader.caption_dropout_rate,
     shuffleTokens: loader.shuffle_tokens,
-    numRepeats: String(loader.num_repeats),
+    numRepeats: loader.num_repeats,
     resolution: loader.resolution.join(', '),
     isReg: loader.is_reg,
-    networkWeight: String(loader.network_weight),
+    networkWeight: loader.network_weight,
     cacheLatentsToDisk: loader.cache_latents_to_disk,
     flipX: loader.flip_x,
     flipY: loader.flip_y,
-    numFrames: String(loader.num_frames),
+    numFrames: loader.num_frames,
     shrinkVideoToFrames: loader.shrink_video_to_frames,
-    fps: String(loader.fps),
+    fps: loader.fps,
     autoFrameCount: loader.auto_frame_count,
     doI2v: loader.do_i2v,
     doAudio: loader.do_audio,
@@ -127,64 +133,82 @@ function normalizedUnique(paths: readonly string[]): string[] {
   return result;
 }
 
-function positiveInteger(value: string, label: string, errors: Record<string, string>, key: string): number {
-  const number = Number(value);
-  if (!Number.isSafeInteger(number) || number <= 0) errors[key] = `${label} must be a positive integer`;
-  return number;
-}
-
 function validateForm(
   form: FormState,
   requireName: boolean,
-): { errors: Record<string, string>; loader?: DatasetPresetLoaderConfig } {
+): { errors: Record<string, string>; name?: string; loader?: DatasetPresetLoaderConfig } {
   const errors: Record<string, string> = {};
-  if (requireName && !form.name.trim()) errors.name = 'Preset name is required';
-  if (form.name.trim().length > 80) errors.name = 'Preset name must be at most 80 characters';
-  if (form.note.length > 500) errors.note = 'Version note must be at most 500 characters';
-  if (!/^\.?[A-Za-z0-9_-]{1,32}$/.test(form.captionExt)) errors.captionExt = 'Caption extension is invalid';
-  const dropout = Number(form.captionDropoutRate);
-  if (!Number.isFinite(dropout) || dropout < 0 || dropout > 1)
-    errors.captionDropoutRate = 'Caption dropout rate must be between 0 and 1';
-  const networkWeight = Number(form.networkWeight);
-  if (!Number.isFinite(networkWeight)) errors.networkWeight = 'Network weight must be a number';
+  let name: string | undefined;
+  if (requireName) {
+    try {
+      name = normalizePresetName(form.name).name;
+    } catch (cause) {
+      errors.name = cause instanceof Error ? cause.message : 'Preset name is invalid';
+    }
+  }
+  if (form.note.length > DATASET_PRESET_NOTE_MAX) {
+    errors.note = `Version note must be at most ${DATASET_PRESET_NOTE_MAX} characters`;
+  }
   const resolution = form.resolution
     .split(',')
     .map(item => Number(item.trim()))
     .filter((_, index, values) => !(values.length === 1 && form.resolution.trim() === ''));
-  if (!resolution.length || resolution.some(value => !Number.isSafeInteger(value) || value <= 0))
-    errors.resolution = 'Resolution must contain positive integers';
-  const numRepeats = positiveInteger(form.numRepeats, 'Number of repeats', errors, 'numRepeats');
-  const numFrames = positiveInteger(form.numFrames, 'Number of frames', errors, 'numFrames');
-  const fps = positiveInteger(form.fps, 'Frames per second', errors, 'fps');
-  if (Object.keys(errors).length) return { errors };
-  return {
-    errors,
-    loader: {
-      caption_ext: form.captionExt,
-      default_caption: form.defaultCaption,
-      caption_dropout_rate: dropout,
-      shuffle_tokens: form.shuffleTokens,
-      num_repeats: numRepeats,
-      resolution,
-      is_reg: form.isReg,
-      network_weight: networkWeight,
-      cache_latents_to_disk: form.cacheLatentsToDisk,
-      flip_x: form.flipX,
-      flip_y: form.flipY,
-      num_frames: numFrames,
-      shrink_video_to_frames: form.shrinkVideoToFrames,
-      fps,
-      auto_frame_count: form.autoFrameCount,
-      do_i2v: form.doI2v,
-      do_audio: form.doAudio,
-      audio_normalize: form.audioNormalize,
-      audio_preserve_pitch: form.audioPreservePitch,
-      controls: form.controls
-        .split(',')
-        .map(item => item.trim())
-        .filter(Boolean),
-    },
+  const untrustedLoader = {
+    caption_ext: form.captionExt,
+    default_caption: form.defaultCaption,
+    caption_dropout_rate: form.captionDropoutRate,
+    shuffle_tokens: form.shuffleTokens,
+    num_repeats: form.numRepeats,
+    resolution,
+    is_reg: form.isReg,
+    network_weight: form.networkWeight,
+    cache_latents_to_disk: form.cacheLatentsToDisk,
+    flip_x: form.flipX,
+    flip_y: form.flipY,
+    num_frames: form.numFrames,
+    shrink_video_to_frames: form.shrinkVideoToFrames,
+    fps: form.fps,
+    auto_frame_count: form.autoFrameCount,
+    do_i2v: form.doI2v,
+    do_audio: form.doAudio,
+    audio_normalize: form.audioNormalize,
+    audio_preserve_pitch: form.audioPreservePitch,
+    controls: form.controls
+      .split(',')
+      .map(item => item.trim())
+      .filter(Boolean),
   };
+  let loader: DatasetPresetLoaderConfig | undefined;
+  try {
+    loader = validateLoaderConfig(untrustedLoader);
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : 'Loader configuration is invalid';
+    const fieldMap: Array<[string, keyof FormState]> = [
+      ['caption_ext', 'captionExt'],
+      ['default_caption', 'defaultCaption'],
+      ['caption_dropout_rate', 'captionDropoutRate'],
+      ['shuffle_tokens', 'shuffleTokens'],
+      ['num_repeats', 'numRepeats'],
+      ['resolution', 'resolution'],
+      ['is_reg', 'isReg'],
+      ['network_weight', 'networkWeight'],
+      ['cache_latents_to_disk', 'cacheLatentsToDisk'],
+      ['flip_x', 'flipX'],
+      ['flip_y', 'flipY'],
+      ['num_frames', 'numFrames'],
+      ['shrink_video_to_frames', 'shrinkVideoToFrames'],
+      ['fps', 'fps'],
+      ['auto_frame_count', 'autoFrameCount'],
+      ['do_i2v', 'doI2v'],
+      ['do_audio', 'doAudio'],
+      ['audio_normalize', 'audioNormalize'],
+      ['audio_preserve_pitch', 'audioPreservePitch'],
+      ['controls', 'controls'],
+    ];
+    const matched = fieldMap.find(([canonical]) => message.includes(canonical));
+    errors[matched?.[1] ?? 'loaderConfig'] = message;
+  }
+  return Object.keys(errors).length ? { errors } : { errors, name, loader };
 }
 
 export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
@@ -210,10 +234,8 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
     () => normalizedUnique(props.selectedPaths).filter(path => !retainedKeys.has(path.toLowerCase())),
     [props.selectedPaths, retainedKeys],
   );
-  const setText = (key: keyof FormState) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setForm(current => ({ ...current, [key]: event.target.value }));
-  const setBool = (key: keyof FormState) => (event: React.ChangeEvent<HTMLInputElement>) =>
-    setForm(current => ({ ...current, [key]: event.target.checked }));
+  const setField = <Key extends keyof FormState>(key: Key, value: FormState[Key]) =>
+    setForm(current => ({ ...current, [key]: value }));
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -238,7 +260,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
         const detail = await requestDatasetPresetJson<DatasetPresetDetail>('/api/dataset-presets', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ name: form.name.trim(), ...common }),
+          body: JSON.stringify({ name: validation.name, ...common }),
         });
         const version = detail.versions.reduce((latest, item) => (item.version > latest.version ? item : latest));
         saved = { presetId: detail.id, presetName: detail.name, version };
@@ -264,30 +286,17 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
     }
   };
 
-  const field = (label: string, key: keyof FormState, type: 'text' | 'number' = 'text') => (
-    <label className="block text-sm text-gray-200">
-      {label}
-      <input
-        aria-invalid={Boolean(fieldErrors[String(key)])}
-        type={type}
-        value={String(form[key])}
-        onChange={setText(key)}
-        disabled={pending}
-        className="mt-1 w-full rounded border border-gray-700 bg-gray-800 px-2 py-1"
-      />
-      {fieldErrors[String(key)] && (
-        <span role="alert" className="block text-xs text-red-400">
-          {fieldErrors[String(key)]}
-        </span>
-      )}
-    </label>
-  );
-  const check = (label: string, key: keyof FormState) => (
-    <label className="flex items-center gap-2 text-sm text-gray-200">
-      <input type="checkbox" checked={Boolean(form[key])} onChange={setBool(key)} disabled={pending} />
-      {label}
-    </label>
-  );
+  const errorProps = (key: keyof FormState) => ({
+    id: `dataset-preset-${String(key)}`,
+    ariaInvalid: Boolean(fieldErrors[String(key)]),
+    ariaDescribedBy: fieldErrors[String(key)] ? `dataset-preset-${String(key)}-error` : undefined,
+  });
+  const FieldError = ({ field }: { field: keyof FormState }) =>
+    fieldErrors[String(field)] ? (
+      <p id={`dataset-preset-${String(field)}-error`} role="alert" className="text-xs text-red-400">
+        {fieldErrors[String(field)]}
+      </p>
+    ) : null;
 
   return (
     <Modal
@@ -301,44 +310,192 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
         <p className="text-sm text-gray-400">
           {selectedPaths.length + retainedPaths.length} images will be frozen from {props.sourceDataset}.
         </p>
-        {props.mode === 'create' && field('Preset name', 'name')}
-        <label className="block text-sm text-gray-200">
-          Version note
-          <textarea
+        {props.mode === 'create' && (
+          <div>
+            <TextInput
+              label="Preset name"
+              value={form.name}
+              onChange={value => setField('name', value)}
+              disabled={pending}
+              {...errorProps('name')}
+            />
+            <FieldError field="name" />
+          </div>
+        )}
+        <div>
+          <TextAreaInput
+            label="Version note"
             value={form.note}
-            onChange={setText('note')}
+            onChange={value => setField('note', value)}
             disabled={pending}
-            className="mt-1 w-full rounded border border-gray-700 bg-gray-800 px-2 py-1"
+            {...errorProps('note')}
           />
-          {fieldErrors.note && (
-            <span role="alert" className="block text-xs text-red-400">
-              {fieldErrors.note}
-            </span>
-          )}
-        </label>
+          <FieldError field="note" />
+        </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {field('Caption extension', 'captionExt')}
-          {field('Default caption', 'defaultCaption')}
-          {field('Caption dropout rate', 'captionDropoutRate', 'number')}
-          {field('Number of repeats', 'numRepeats', 'number')}
-          {field('Resolution', 'resolution')}
-          {field('Network weight', 'networkWeight', 'number')}
-          {field('Number of frames', 'numFrames', 'number')}
-          {field('Frames per second', 'fps', 'number')}
-          {field('Controls', 'controls')}
+          <div>
+            <CreatableSelectInput
+              label="Caption extension"
+              value={form.captionExt}
+              onChange={value => setField('captionExt', value)}
+              disabled={pending}
+              options={[
+                { value: 'txt', label: 'txt' },
+                { value: 'json', label: 'json' },
+                { value: 'caption', label: 'caption' },
+              ]}
+              {...errorProps('captionExt')}
+            />
+            <FieldError field="captionExt" />
+          </div>
+          <div>
+            <TextInput
+              label="Default caption"
+              value={form.defaultCaption}
+              onChange={value => setField('defaultCaption', value)}
+              disabled={pending}
+              {...errorProps('defaultCaption')}
+            />
+            <FieldError field="defaultCaption" />
+          </div>
+          <div>
+            <NumberInput
+              label="Caption dropout rate"
+              value={form.captionDropoutRate}
+              onChange={value => setField('captionDropoutRate', value)}
+              disabled={pending}
+              {...errorProps('captionDropoutRate')}
+            />
+            <FieldError field="captionDropoutRate" />
+          </div>
+          <div>
+            <NumberInput
+              label="Number of repeats"
+              value={form.numRepeats}
+              onChange={value => setField('numRepeats', value)}
+              disabled={pending}
+              {...errorProps('numRepeats')}
+            />
+            <FieldError field="numRepeats" />
+          </div>
+          <div>
+            <TextInput
+              label="Resolution"
+              value={form.resolution}
+              onChange={value => setField('resolution', value)}
+              disabled={pending}
+              {...errorProps('resolution')}
+            />
+            <FieldError field="resolution" />
+          </div>
+          <div>
+            <NumberInput
+              label="Network weight"
+              value={form.networkWeight}
+              onChange={value => setField('networkWeight', value)}
+              disabled={pending}
+              {...errorProps('networkWeight')}
+            />
+            <FieldError field="networkWeight" />
+          </div>
+          <div>
+            <NumberInput
+              label="Number of frames"
+              value={form.numFrames}
+              onChange={value => setField('numFrames', value)}
+              disabled={pending}
+              {...errorProps('numFrames')}
+            />
+            <FieldError field="numFrames" />
+          </div>
+          <div>
+            <NumberInput
+              label="Frames per second"
+              value={form.fps}
+              onChange={value => setField('fps', value)}
+              disabled={pending}
+              {...errorProps('fps')}
+            />
+            <FieldError field="fps" />
+          </div>
+          <div>
+            <TextInput
+              label="Controls"
+              value={form.controls}
+              onChange={value => setField('controls', value)}
+              disabled={pending}
+              {...errorProps('controls')}
+            />
+            <FieldError field="controls" />
+          </div>
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {check('Shuffle tokens', 'shuffleTokens')}
-          {check('Regularization dataset', 'isReg')}
-          {check('Cache latents to disk', 'cacheLatentsToDisk')}
-          {check('Flip horizontally', 'flipX')}
-          {check('Flip vertically', 'flipY')}
-          {check('Shrink video to frames', 'shrinkVideoToFrames')}
-          {check('Automatic frame count', 'autoFrameCount')}
-          {check('Image to video', 'doI2v')}
-          {check('Process audio', 'doAudio')}
-          {check('Normalize audio', 'audioNormalize')}
-          {check('Preserve audio pitch', 'audioPreservePitch')}
+          <Checkbox
+            label="Shuffle tokens"
+            checked={form.shuffleTokens}
+            onChange={value => setField('shuffleTokens', value)}
+            disabled={pending}
+          />
+          <Checkbox
+            label="Regularization dataset"
+            checked={form.isReg}
+            onChange={value => setField('isReg', value)}
+            disabled={pending}
+          />
+          <Checkbox
+            label="Cache latents to disk"
+            checked={form.cacheLatentsToDisk}
+            onChange={value => setField('cacheLatentsToDisk', value)}
+            disabled={pending}
+          />
+          <Checkbox
+            label="Flip horizontally"
+            checked={form.flipX}
+            onChange={value => setField('flipX', value)}
+            disabled={pending}
+          />
+          <Checkbox
+            label="Flip vertically"
+            checked={form.flipY}
+            onChange={value => setField('flipY', value)}
+            disabled={pending}
+          />
+          <Checkbox
+            label="Shrink video to frames"
+            checked={form.shrinkVideoToFrames}
+            onChange={value => setField('shrinkVideoToFrames', value)}
+            disabled={pending}
+          />
+          <Checkbox
+            label="Automatic frame count"
+            checked={form.autoFrameCount}
+            onChange={value => setField('autoFrameCount', value)}
+            disabled={pending}
+          />
+          <Checkbox
+            label="Image to video"
+            checked={form.doI2v}
+            onChange={value => setField('doI2v', value)}
+            disabled={pending}
+          />
+          <Checkbox
+            label="Process audio"
+            checked={form.doAudio}
+            onChange={value => setField('doAudio', value)}
+            disabled={pending}
+          />
+          <Checkbox
+            label="Normalize audio"
+            checked={form.audioNormalize}
+            onChange={value => setField('audioNormalize', value)}
+            disabled={pending}
+          />
+          <Checkbox
+            label="Preserve audio pitch"
+            checked={form.audioPreservePitch}
+            onChange={value => setField('audioPreservePitch', value)}
+            disabled={pending}
+          />
         </div>
         {responseError && (
           <p role="alert" className="text-sm text-red-400">

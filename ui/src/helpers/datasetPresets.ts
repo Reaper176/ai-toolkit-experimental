@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { normalizeRelativeMediaPath } from './datasetSelection';
 
 export { applySelectionAction, normalizeRelativeMediaPath, type SelectionAction } from './datasetSelection';
@@ -384,5 +383,7 @@ export function serializeManifest(untrusted: unknown): string {
 }
 
 export function manifestSha256(untrusted: unknown): string {
-  return createHash('sha256').update(serializeManifest(untrusted)).digest('hex');
+  const crypto = process.getBuiltinModule('node:crypto');
+  if (!crypto) throw new Error('Node crypto module is unavailable');
+  return crypto.createHash('sha256').update(serializeManifest(untrusted)).digest('hex');
 }

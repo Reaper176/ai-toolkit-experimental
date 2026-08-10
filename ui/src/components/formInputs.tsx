@@ -15,6 +15,9 @@ const inputClasses =
   'w-full text-sm px-3 py-1 bg-gray-950 dark:bg-gray-800 border border-gray-700 rounded-sm text-gray-100 placeholder:text-gray-500 focus:ring-2 focus:ring-gray-600 focus:border-transparent';
 
 export interface InputProps {
+  id?: string;
+  ariaInvalid?: boolean;
+  ariaDescribedBy?: string;
   label?: string;
   docKey?: string | null;
   doc?: ConfigDoc | null;
@@ -43,6 +46,9 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>((props: Te
     className,
     docKey = null,
     suffix,
+    id,
+    ariaInvalid,
+    ariaDescribedBy,
   } = props;
   let { doc } = props;
   if (!doc && docKey) {
@@ -51,7 +57,7 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>((props: Te
   return (
     <div className={classNames(className)}>
       {label && (
-        <label className={labelClasses}>
+        <label className={labelClasses} htmlFor={id}>
           {label}{' '}
           {doc && (
             <div className="inline-block ml-1 text-xs text-gray-500 cursor-pointer" onClick={() => openDoc(doc)}>
@@ -69,6 +75,9 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>((props: Te
         >
           <input
             ref={ref}
+            id={id}
+            aria-invalid={ariaInvalid}
+            aria-describedby={ariaDescribedBy}
             type={type}
             value={value}
             onChange={e => {
@@ -86,6 +95,9 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>((props: Te
       ) : (
         <input
           ref={ref}
+          id={id}
+          aria-invalid={ariaInvalid}
+          aria-describedby={ariaDescribedBy}
           type={type}
           value={value}
           onChange={e => {
@@ -112,7 +124,20 @@ export interface TextAreaInputProps extends InputProps {
 }
 
 export const TextAreaInput = forwardRef<HTMLTextAreaElement, TextAreaInputProps>((props: TextAreaInputProps, ref) => {
-  const { label, value, onChange, placeholder, required, disabled, rows = 4, className, docKey = null } = props;
+  const {
+    label,
+    value,
+    onChange,
+    placeholder,
+    required,
+    disabled,
+    rows = 4,
+    className,
+    docKey = null,
+    id,
+    ariaInvalid,
+    ariaDescribedBy,
+  } = props;
   let { doc } = props;
   if (!doc && docKey) {
     doc = getDoc(docKey);
@@ -120,7 +145,7 @@ export const TextAreaInput = forwardRef<HTMLTextAreaElement, TextAreaInputProps>
   return (
     <div className={classNames(className)}>
       {label && (
-        <label className={labelClasses}>
+        <label className={labelClasses} htmlFor={id}>
           {label}{' '}
           {doc && (
             <div className="inline-block ml-1 text-xs text-gray-500 cursor-pointer" onClick={() => openDoc(doc)}>
@@ -131,6 +156,9 @@ export const TextAreaInput = forwardRef<HTMLTextAreaElement, TextAreaInputProps>
       )}
       <textarea
         ref={ref}
+        id={id}
+        aria-invalid={ariaInvalid}
+        aria-describedby={ariaDescribedBy}
         value={value}
         onChange={e => {
           if (!disabled) onChange(e.target.value);
@@ -152,10 +180,24 @@ export interface NumberInputProps extends InputProps {
   onChange: (value: number | null) => void;
   min?: number;
   max?: number;
+  disabled?: boolean;
 }
 
 export const NumberInput = (props: NumberInputProps) => {
-  const { label, value, onChange, placeholder, required, min, max, docKey = null } = props;
+  const {
+    label,
+    value,
+    onChange,
+    placeholder,
+    required,
+    min,
+    max,
+    docKey = null,
+    id,
+    ariaInvalid,
+    ariaDescribedBy,
+    disabled,
+  } = props;
   let { doc } = props;
   if (!doc && docKey) {
     doc = getDoc(docKey);
@@ -172,7 +214,7 @@ export const NumberInput = (props: NumberInputProps) => {
   return (
     <div className={classNames(props.className)}>
       {label && (
-        <label className={labelClasses}>
+        <label className={labelClasses} htmlFor={id}>
           {label}{' '}
           {doc && (
             <div className="inline-block ml-1 text-xs text-gray-500 cursor-pointer" onClick={() => openDoc(doc)}>
@@ -182,6 +224,9 @@ export const NumberInput = (props: NumberInputProps) => {
         </label>
       )}
       <input
+        id={id}
+        aria-invalid={ariaInvalid}
+        aria-describedby={ariaDescribedBy}
         type="number"
         value={inputValue}
         onChange={e => {
@@ -227,6 +272,7 @@ export const NumberInput = (props: NumberInputProps) => {
         min={min}
         max={max}
         step="any"
+        disabled={disabled}
       />
     </div>
   );
@@ -335,6 +381,10 @@ export const CreatableSelectInput = (props: CreatableSelectInputProps) => {
 
   const [isCustom, setIsCustom] = React.useState(!isInOptions && !!value);
   const customInputRef = React.useRef<HTMLInputElement>(null);
+  const generatedId = React.useId();
+  const inputId = props.id ?? generatedId;
+  const selectInputId = `${inputId}-choice`;
+  const customInputId = `${inputId}-custom`;
 
   // Build select options with "Custom" at the top
   const customOption: SelectOption = { value: CUSTOM_SELECT_VALUE, label: 'Custom' };
@@ -362,7 +412,7 @@ export const CreatableSelectInput = (props: CreatableSelectInputProps) => {
       })}
     >
       {label && (
-        <label className={labelClasses}>
+        <label className={labelClasses} htmlFor={isCustom ? customInputId : selectInputId}>
           {label}{' '}
           {doc && (
             <div className="inline-block ml-1 text-xs text-gray-500 cursor-pointer" onClick={() => openDoc(doc)}>
@@ -374,6 +424,9 @@ export const CreatableSelectInput = (props: CreatableSelectInputProps) => {
       <div className="flex gap-2">
         <div className={isCustom ? 'w-20 shrink-0' : 'w-full'}>
           <Select
+            inputId={selectInputId}
+            aria-invalid={props.ariaInvalid}
+            aria-describedby={props.ariaDescribedBy}
             value={selectedOption}
             options={selectOptions}
             isDisabled={props.disabled}
@@ -408,6 +461,9 @@ export const CreatableSelectInput = (props: CreatableSelectInputProps) => {
         {isCustom && (
           <input
             ref={customInputRef}
+            id={customInputId}
+            aria-invalid={props.ariaInvalid}
+            aria-describedby={props.ariaDescribedBy}
             type="text"
             value={value}
             onChange={e => onChange(e.target.value)}
