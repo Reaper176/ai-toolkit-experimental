@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { SelectInput } from '@/components/formInputs';
 import useDatasetPresets, {
   createLatestDatasetPresetRequestGate,
@@ -38,6 +38,13 @@ function applyPresetVersion(
   return next;
 }
 
+function datasetSourceSignature(dataset: DatasetConfig): string {
+  const preset = dataset.dataset_preset;
+  return preset
+    ? `preset:${preset.preset_id}:${preset.version_id}`
+    : `live:${typeof dataset.folder_path === 'string' ? dataset.folder_path : ''}`;
+}
+
 export default function DatasetSourceControl({ dataset, liveOptions, onChange }: DatasetSourceControlProps) {
   const { presets, status, error, refresh, loadPreset, loadVersion } = useDatasetPresets();
   const [mode, setMode] = useState<'live' | 'preset'>(() => (dataset.dataset_preset ? 'preset' : 'live'));
@@ -50,6 +57,14 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange }:
   const versionRequests = useRef(createLatestDatasetPresetRequestGate());
   const latestDatasetRef = useRef(dataset);
   latestDatasetRef.current = dataset;
+  const sourceSignature = datasetSourceSignature(dataset);
+  const previousSourceSignatureRef = useRef(sourceSignature);
+  const emittedSourceSignatureRef = useRef<string | null>(null);
+
+  const emitChange = (next: DatasetConfig) => {
+    emittedSourceSignatureRef.current = datasetSourceSignature(next);
+    onChange(next);
+  };
 
   useEffect(() => {
     void refresh().catch(() => undefined);
@@ -63,11 +78,28 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange }:
     [],
   );
 
-  useEffect(() => {
-    if (!dataset.dataset_preset) return;
-    setMode('preset');
-    setSelectedPresetId(dataset.dataset_preset.preset_id);
-  }, [dataset.dataset_preset?.preset_id, dataset.dataset_preset?.version_id]);
+  useLayoutEffect(() => {
+    if (sourceSignature === previousSourceSignatureRef.current) return;
+    previousSourceSignatureRef.current = sourceSignature;
+    if (emittedSourceSignatureRef.current === sourceSignature) {
+      emittedSourceSignatureRef.current = null;
+      return;
+    }
+    emittedSourceSignatureRef.current = null;
+    presetRequests.current.cancelCurrent();
+    versionRequests.current.cancelCurrent();
+    setLoadingDetail(false);
+    setLoadingVersion(false);
+    setDetail(null);
+    setLocalError(null);
+    if (dataset.dataset_preset) {
+      setMode('preset');
+      setSelectedPresetId(dataset.dataset_preset.preset_id);
+    } else {
+      setMode('live');
+      setSelectedPresetId('');
+    }
+  }, [dataset.dataset_preset, sourceSignature]);
 
   useEffect(() => {
     const metadata = dataset.dataset_preset;
@@ -131,7 +163,7 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange }:
       const version = await loadVersion(versionId);
       if (!request.isCurrent()) return;
       if (version.preset_id !== detail.id) throw new Error('Dataset preset version does not belong to this preset');
-      onChange(applyPresetVersion(latestDatasetRef.current, detail, version));
+      emitChange(applyPresetVersion(latestDatasetRef.current, detail, version));
     } catch (cause) {
       if (!request.isCurrent()) return;
       setLocalError(cause instanceof Error ? cause.message : 'Unable to load dataset preset version');
@@ -149,7 +181,19 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange }:
     setDetail(null);
     setLocalError(null);
     const { dataset_preset: _removed, ...liveDataset } = dataset;
-    onChange({ ...liveDataset, folder_path: '' });
+    emitChange({ ...liveDataset, folder_path: '' });
+  };
+
+  const switchToPreset = () => {
+    if (mode === 'preset') return;
+    presetRequests.current.cancelCurrent();
+    versionRequests.current.cancelCurrent();
+    setMode('preset');
+    setSelectedPresetId('');
+    setDetail(null);
+    setLocalError(null);
+    const { dataset_preset: _removed, ...pendingDataset } = latestDatasetRef.current;
+    emitChange({ ...pendingDataset, folder_path: '' });
   };
 
   return (
@@ -167,14 +211,14 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange }:
           type="button"
           aria-pressed={mode === 'preset'}
           className="rounded px-2 py-1 text-xs bg-gray-700 aria-pressed:bg-blue-600"
-          onClick={() => setMode('preset')}
+          onClick={switchToPreset}
         >
           Saved preset
         </button>
       </div>
 
       {mode === 'live' ? (
-        <SelectInput label="Target Dataset" value={dataset.folder_path} onChange={value => onChange({ ...dataset, folder_path: value })} options={liveOptions} />
+        <SelectInput label="Target Dataset" value={dataset.folder_path} onChange={value => emitChange({ ...dataset, folder_path: value })} options={liveOptions} />
       ) : (
         <>
           <SelectInput

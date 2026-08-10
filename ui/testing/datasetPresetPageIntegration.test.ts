@@ -30,7 +30,19 @@ assert.match(
   'source changes replace the same dataset object edited by all loader controls',
 );
 assert.match(jobPageSource, /removeArchivedPresetSourcesFromClone/, 'clone hydration checks stored preset availability');
-assert.match(jobPageSource, /hasMissingDatasetSource\(jobConfig\)/, 'job saving validates every dataset source');
+assert.match(jobPageSource, /canSaveTrainingJob\(presetReady,\s*jobConfig\)/, 'job saving validates readiness and every dataset source');
+assert.match(jobPageSource, /if\s*\(!presetReady\)\s*return/, 'all save entry points are blocked before hydration');
+assert.match(
+  jobPageSource,
+  /<Button[\s\S]{0,300}onClick=\{\(\)\s*=>\s*saveJob\(\)\}[\s\S]{0,300}disabled=\{!presetReady/,
+  'topbar save control is disabled before hydration',
+);
+assert.match(jobPageSource, /isLoading=\{[^}]*!presetReady[^}]*\}/, 'simple form is noninteractive before hydration');
+assert.ok(
+  jobPageSource.indexOf('loadedJobConfig = await removeArchivedPresetSourcesFromClone') <
+    jobPageSource.indexOf("dispatchPresetPage({ type: 'external-load-succeeded'"),
+  'clone availability completes before the page becomes ready',
+);
 assert.match(pageSource, /relative_path:\s*string/, 'entries retain a normalized relative path');
 assert.match(pageSource, /normalizeRelativeMediaPath\(subPath\)/, 'server response paths are normalized before use');
 assert.match(

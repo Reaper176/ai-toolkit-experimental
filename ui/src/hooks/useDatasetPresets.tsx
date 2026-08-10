@@ -95,6 +95,21 @@ export async function requestDatasetPresetJson<T>(url: string, init?: RequestIni
   return body as T;
 }
 
+let activePresetListRequest: Promise<DatasetPresetSummary[]> | null = null;
+
+function loadActivePresetList(): Promise<DatasetPresetSummary[]> {
+  if (activePresetListRequest) return activePresetListRequest;
+  activePresetListRequest = requestDatasetPresetJson<{ presets: DatasetPresetSummary[] }>('/api/dataset-presets')
+    .then(body => {
+      if (!body || !Array.isArray(body.presets)) throw new Error('Dataset preset list response is malformed');
+      return body.presets;
+    })
+    .finally(() => {
+      activePresetListRequest = null;
+    });
+  return activePresetListRequest;
+}
+
 export default function useDatasetPresets(): UseDatasetPresetsResult {
   const [presets, setPresets] = useState<DatasetPresetSummary[]>([]);
   const [status, setStatus] = useState<UseDatasetPresetsResult['status']>('idle');
@@ -117,10 +132,9 @@ export default function useDatasetPresets(): UseDatasetPresetsResult {
       setError(null);
     }
     try {
-      const body = await requestDatasetPresetJson<{ presets: DatasetPresetSummary[] }>('/api/dataset-presets');
-      if (!body || !Array.isArray(body.presets)) throw new Error('Dataset preset list response is malformed');
+      const nextPresets = await loadActivePresetList();
       if (mountedRef.current && sequence === requestSequence.current) {
-        setPresets(body.presets);
+        setPresets(nextPresets);
         setStatus('success');
       }
     } catch (cause) {

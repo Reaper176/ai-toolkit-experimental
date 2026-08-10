@@ -31,3 +31,7 @@ export function hasMissingDatasetSource(jobConfig: JobConfig): boolean {
     dataset => !dataset.dataset_preset && (typeof dataset.folder_path !== 'string' || dataset.folder_path.trim() === ''),
   );
 }
+
+export function canSaveTrainingJob(presetReady: boolean, jobConfig: JobConfig): boolean {
+  return presetReady && !hasMissingDatasetSource(jobConfig);
+}

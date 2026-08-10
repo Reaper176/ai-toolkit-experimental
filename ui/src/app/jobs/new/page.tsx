@@ -24,7 +24,7 @@ import { apiClient } from '@/utils/api';
 import { isMac } from '@/helpers/basic';
 import { createTrainingPresetPageState, trainingPresetPageReducer } from './trainingPresetPageState';
 import type { DatasetPresetDetail } from '@/hooks/useDatasetPresets';
-import { hasMissingDatasetSource, removeArchivedPresetSourcesFromClone } from '@/helpers/jobDatasetPresetClient';
+import { canSaveTrainingJob, removeArchivedPresetSourcesFromClone } from '@/helpers/jobDatasetPresetClient';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -225,11 +225,12 @@ export default function TrainingForm() {
 
   const saveJob = async () => {
     if (status === 'saving') return;
+    if (!presetReady) return;
     if (nonMacGpuSelectionMissing) {
       alert('No trainable GPU was detected. Verify ROCm or NVIDIA GPU monitoring before creating a job.');
       return;
     }
-    if (hasMissingDatasetSource(jobConfig)) {
+    if (!canSaveTrainingJob(presetReady, jobConfig)) {
       alert('Choose a live folder or an active dataset preset for every dataset.');
       return;
     }
@@ -288,6 +289,7 @@ export default function TrainingForm() {
           <>
             <div className="hidden sm:block">
               <SelectInput
+                disabled={!presetReady}
                 value={`${gpuIDs}`}
                 onChange={value => setGpuIDs(value)}
                 options={gpuList.map((gpu: any) => ({
@@ -313,6 +315,7 @@ export default function TrainingForm() {
           <>
             <div className="hidden sm:block">
               <SelectInput
+                disabled={!presetReady}
                 value={`${jobConfig?.config.process[0].type}`}
                 onChange={value => {
                   // undo current job type changes
@@ -357,6 +360,7 @@ export default function TrainingForm() {
           <Button
             className="text-gray-200 bg-gray-800 px-2 sm:px-3 py-1 rounded-md text-xs sm:text-base"
             onClick={() => setShowAdvancedView(!showAdvancedView)}
+            disabled={!presetReady}
           >
             <span className="sm:hidden">{showAdvancedView ? 'Simple' : 'Advanced'}</span>
             <span className="hidden sm:inline">{showAdvancedView ? 'Show Simple' : 'Show Advanced'}</span>
@@ -366,7 +370,7 @@ export default function TrainingForm() {
           <Button
             className="text-white bg-green-600 hover:bg-green-700 px-2 sm:px-3 py-1 rounded-md text-xs sm:text-base"
             onClick={() => saveJob()}
-            disabled={status === 'saving' || nonMacGpuSelectionMissing}
+            disabled={!presetReady || status === 'saving' || nonMacGpuSelectionMissing}
           >
             {status === 'saving' ? (
               'Saving...'
@@ -401,7 +405,7 @@ export default function TrainingForm() {
       )}
 
       {showAdvancedView ? (
-        <div className="pt-[48px] absolute top-0 left-0 w-full h-full overflow-auto">
+        <div className={`pt-[48px] absolute top-0 left-0 w-full h-full overflow-auto ${!presetReady ? 'pointer-events-none opacity-50' : ''}`}>
           <AdvancedConfigEditor
             config={jobConfig}
             setConfig={setJobConfig}
@@ -437,7 +441,7 @@ export default function TrainingForm() {
               setGpuIDs={setGpuIDs}
               gpuList={gpuList}
               datasetOptions={datasetOptions}
-              isLoading={!isSettingsLoaded || !isGPUInfoLoaded || datasetFetchStatus !== 'success'}
+              isLoading={!presetReady || !isSettingsLoaded || !isGPUInfoLoaded || datasetFetchStatus !== 'success'}
             />
           </ErrorBoundary>
 

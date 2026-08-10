@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import TestRenderer, { act, type ReactTestInstance } from 'react-test-renderer';
 import DatasetSourceControl from '../src/components/DatasetSourceControl';
 import { SelectInput } from '../src/components/formInputs';
@@ -10,6 +10,7 @@ import {
   removeArchivedPresetSourcesFromClone,
 } from '../src/helpers/jobDatasetPresetClient';
 import type { JobConfig } from '../src/types';
+import useDatasetPresets, { type UseDatasetPresetsResult } from '../src/hooks/useDatasetPresets';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const originalError = console.error;
@@ -164,6 +165,8 @@ async function runActivePresetBehavior(): Promise<void> {
     button(renderer.root, 'Saved preset').props.onClick();
     await Promise.resolve();
   });
+  assert.equal(current.folder_path, '', 'entering preset mode clears the live source until a version is selected');
+  assert.equal(hasMissingDatasetSource({ config: { process: [{ datasets: [current] }] } } as JobConfig), true);
   const presetSelect = select(renderer.root, 'Dataset preset');
   assert.deepEqual(
     presetSelect.props.options.map((option: { value: string; label: string }) => [option.value, option.label]),
@@ -192,7 +195,7 @@ async function runActivePresetBehavior(): Promise<void> {
   assert.equal(current.mask_path, initialDataset.mask_path, 'mask architecture field is untouched');
   assert.equal(current.mask_min_value, initialDataset.mask_min_value, 'mask threshold architecture field is untouched');
   assert.equal(current.control_path, initialDataset.control_path, 'control path architecture field is untouched');
-  assert.equal(current.folder_path, initialDataset.folder_path, 'selecting a preset does not forge a managed path in the browser');
+  assert.equal(current.folder_path, '', 'selecting a preset does not forge a managed path in the browser');
 
   await act(async () => {
     editDataset({ default_caption: 'user override', num_repeats: 21 });
@@ -337,6 +340,7 @@ async function runPendingVersionSafetyBehavior(): Promise<void> {
   await act(async () => {
     await select(renderer.root, 'Dataset preset').props.onChange('preset-1');
   });
+  const changesBeforePendingVersion = changes;
   await act(async () => {
     void select(renderer.root, 'Preset version').props.onChange('version-1');
     await Promise.resolve();
@@ -347,7 +351,103 @@ async function runPendingVersionSafetyBehavior(): Promise<void> {
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert.equal(changes, 0, 'a version response after unmount cannot call onChange');
+  assert.equal(changes, changesBeforePendingVersion, 'a version response after unmount cannot call onChange');
+}
+
+async function runExternalReplacementSafetyBehavior(): Promise<void> {
+  const pendingVersion = deferred<Response>();
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === '/api/dataset-presets') return response({ presets: [activePreset] });
+    if (url === '/api/dataset-presets/preset-1') return response({ ...activePreset, versions });
+    if (url === '/api/dataset-preset-versions/version-1') return pendingVersion.promise;
+    throw new Error(`Unexpected URL ${url}`);
+  }) as typeof fetch;
+  let current: DatasetConfig = initialDataset;
+  let replaceDataset!: (next: DatasetConfig) => void;
+  function Harness() {
+    const [dataset, setDataset] = useState(initialDataset);
+    current = dataset;
+    replaceDataset = setDataset;
+    return <DatasetSourceControl dataset={dataset} liveOptions={[{ value: '/external-live', label: 'External' }]} onChange={setDataset} />;
+  }
+  let renderer!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    renderer = TestRenderer.create(<Harness />);
+    await Promise.resolve();
+  });
+  await act(async () => button(renderer.root, 'Saved preset').props.onClick());
+  await act(async () => select(renderer.root, 'Dataset preset').props.onChange('preset-1'));
+  await act(async () => {
+    void select(renderer.root, 'Preset version').props.onChange('version-1');
+    await Promise.resolve();
+  });
+  await act(async () => {
+    replaceDataset({ ...initialDataset, folder_path: '/external-live', control_path: '/external-control' });
+  });
+  assert.equal(select(renderer.root, 'Target Dataset').props.value, '/external-live', 'external live replacement resynchronizes mode');
+  await act(async () => {
+    pendingVersion.resolve(response({ ...versions[0], manifest: {} }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(current.folder_path, '/external-live', 'stale version cannot apply to a reused component instance');
+  assert.equal(current.control_path, '/external-control');
+  assert.equal(current.dataset_preset, undefined);
+
+  const externalPresetDataset: DatasetConfig = {
+    ...initialDataset,
+    folder_path: '/managed/external',
+    dataset_preset: {
+      version_id: 'version-2', preset_id: 'preset-1', preset_name: 'Faces', version: 2,
+      manifest_sha256: 'b'.repeat(64),
+    },
+  };
+  await act(async () => {
+    replaceDataset(externalPresetDataset);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(button(renderer.root, 'Saved preset').props['aria-pressed'], true, 'external preset replacement hydrates preset mode');
+  assert.equal(select(renderer.root, 'Preset version').props.value, 'version-2');
+  await act(async () => renderer.unmount());
+}
+
+async function runSharedListBehavior(): Promise<void> {
+  const listResponse = deferred<Response>();
+  let fetchCount = 0;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    assert.equal(String(input), '/api/dataset-presets');
+    fetchCount += 1;
+    return fetchCount === 1 ? listResponse.promise : response({ presets: [activePreset] });
+  }) as typeof fetch;
+  const results: UseDatasetPresetsResult[] = [];
+  function Probe({ index }: { index: number }) {
+    const result = useDatasetPresets();
+    results[index] = result;
+    useEffect(() => {
+      void result.refresh().catch(() => undefined);
+    }, [result.refresh]);
+    return <span>{result.status}</span>;
+  }
+  let renderer!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    renderer = TestRenderer.create(<><Probe index={0} /><Probe index={1} /></>);
+    await Promise.resolve();
+  });
+  assert.equal(fetchCount, 1, 'concurrent hook refreshes share one active-preset request');
+  await act(async () => {
+    listResponse.resolve(response({ presets: [activePreset] }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(results[0].status, 'success');
+  assert.equal(results[1].status, 'success');
+  assert.equal(results[0].presets[0].name, 'Faces');
+  assert.equal(results[1].presets[0].name, 'Faces');
+  await act(async () => results[0].refresh());
+  assert.equal(fetchCount, 2, 'an explicit later refresh performs a new request');
+  await act(async () => renderer.unmount());
 }
 
 async function runCloneHydrationBehavior(): Promise<void> {
@@ -384,6 +484,8 @@ async function main(): Promise<void> {
   await runActivePresetBehavior();
   await runArchivedBehavior();
   await runPendingVersionSafetyBehavior();
+  await runExternalReplacementSafetyBehavior();
+  await runSharedListBehavior();
   await runCloneHydrationBehavior();
   console.error = originalError;
   console.log('dataset source control behavior tests passed');
