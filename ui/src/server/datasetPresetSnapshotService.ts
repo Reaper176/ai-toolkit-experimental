@@ -16,6 +16,7 @@ import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import {
   buildDatasetPresetManifest,
+  DATASET_PRESET_NOTE_MAX,
   DatasetPresetLoaderConfig,
   DatasetPresetManifestFile,
   DatasetPresetManifestV1,
@@ -264,14 +265,10 @@ function validateExistingPathSynchronously(path: ParsedManifestPath): void {
     [path.versionRoot, 'Version root', true],
     [path.manifestFile, 'Manifest', false],
   ] as const) {
-    try {
-      const info = lstatSync(candidate);
-      if (info.isSymbolicLink()) throw new Error(`${label} must not be a symlink`);
-      if (directory && !info.isDirectory()) throw new Error(`${label} must be a directory`);
-      if (!directory && !info.isFile()) throw new Error(`${label} must be a regular file`);
-    } catch (error) {
-      if (!isMissing(error)) throw error;
-    }
+    const info = lstatSync(candidate);
+    if (info.isSymbolicLink()) throw new Error(`${label} must not be a symlink`);
+    if (directory && !info.isDirectory()) throw new Error(`${label} must be a directory`);
+    if (!directory && !info.isFile()) throw new Error(`${label} must be a regular file`);
   }
 }
 
@@ -365,6 +362,10 @@ export function createDatasetPresetSnapshotStore(
     }
     const loaderConfig = validateLoaderConfig(input.loaderConfig);
     const captionExt = normalizeCaptionExt(input.captionExt, loaderConfig);
+    if (input.note !== null && typeof input.note !== 'string') throw new Error('Note must be a string or null');
+    if (typeof input.note === 'string' && input.note.length > DATASET_PRESET_NOTE_MAX) {
+      throw new Error(`Note must be at most ${DATASET_PRESET_NOTE_MAX} characters`);
+    }
     if (!Array.isArray(input.selectedPaths) || !Array.isArray(input.retainedPaths ?? [])) {
       throw new Error('Selected and retained paths must be arrays');
     }
@@ -384,49 +385,74 @@ export function createDatasetPresetSnapshotStore(
       if (retainedKeys.has(key)) throw new Error(`Duplicate retained path: ${path}`);
       retainedKeys.add(key);
     }
-    if (retainedPaths.length > 0 && !input.priorManifestPath) {
+    if (retainedPaths.length > 0 && input.priorManifestPath === undefined) {
       throw new Error('A prior manifest path is required for retained paths');
     }
+
+    const parsedPriorPath = input.priorManifestPath !== undefined
+      ? parseManifestPath(managedRoot, input.priorManifestPath)
+      : undefined;
+    if (parsedPriorPath && retainedPaths.length > 0 && parsedPriorPath.presetId !== presetId) {
+      throw new Error('Prior manifest must belong to the same preset ID');
+    }
+
+    if (typeof input.sourceRoot !== 'string' || input.sourceRoot.trim().length === 0) {
+      throw new Error('Source root must be a nonempty path');
+    }
+    const realSourceRoot = await realpath(input.sourceRoot);
+    const sourceRootInfo = await stat(realSourceRoot);
+    if (!sourceRootInfo.isDirectory()) throw new Error('Source root must be a directory');
+
+    let priorBySource = new Map<string, DatasetPresetManifestFile>();
+    let priorRoot: string | undefined;
+    if (retainedPaths.length > 0 && parsedPriorPath && input.priorManifestPath !== undefined) {
+      const priorManifest = await verifyFast(input.priorManifestPath);
+      priorBySource = new Map(priorManifest.files.map(file => [file.source_path.toLowerCase(), file]));
+      priorRoot = parsedPriorPath.versionRoot;
+    }
+
+    const outputKeys = new Set<string>();
+    const reserveOutputs = (mediaPath: string, ext: string): void => {
+      for (const path of [mediaPath, sidecarPath(mediaPath, ext)]) {
+        const key = path.toLowerCase();
+        if (outputKeys.has(key)) throw new Error(`Managed output path collision: ${path}`);
+        outputKeys.add(key);
+      }
+    };
+    for (const sourcePath of retainedPaths) {
+      const prior = priorBySource.get(sourcePath.toLowerCase());
+      if (!prior || !priorRoot) throw new Error(`Retained path is missing from prior manifest: ${sourcePath}`);
+      reserveOutputs(prior.managed_path, prior.caption_ext);
+    }
+
+    const liveSources = new Map<string, { media: string; captionPath: string; caption?: string }>();
+    for (const sourcePath of selectedPaths) {
+      const managedPath = `media/${sourcePath}`;
+      reserveOutputs(managedPath, captionExt);
+      const sourceMedia = await resolveLiveFile(realSourceRoot, sourcePath);
+      const sourceCaptionPath = sidecarPath(sourcePath, captionExt);
+      const sourceCaption = await resolveOptionalLiveFile(realSourceRoot, sourceCaptionPath);
+      liveSources.set(sourcePath, { media: sourceMedia, captionPath: sourceCaptionPath, caption: sourceCaption });
+    }
+
+    const stagingName = nextOwnedName('.staging-');
 
     await initializeManagedRoot();
     const presetRoot = join(managedRoot, presetId);
     await mkdir(presetRoot, { recursive: true });
     await ensureDirectoryNoSymlink(presetRoot, 'Preset root');
-    const stagingRoot = join(presetRoot, nextOwnedName('.staging-'));
+    const stagingRoot = join(presetRoot, stagingName);
     const versionRoot = join(presetRoot, `v${version}`);
     assertOwnedPath(managedRoot, stagingRoot, stagingRoot);
     assertOwnedPath(managedRoot, versionRoot, versionRoot);
     await mkdir(stagingRoot);
     let state: 'staged' | 'published' | 'rolled-back' = 'staged';
     try {
-      const realSourceRoot = await realpath(input.sourceRoot);
-      const sourceRootInfo = await stat(realSourceRoot);
-      if (!sourceRootInfo.isDirectory()) throw new Error('Source root must be a directory');
       const files: DatasetPresetManifestFile[] = [];
-      const outputKeys = new Set<string>();
-
-      const reserveOutputs = (mediaPath: string, ext: string): void => {
-        for (const path of [mediaPath, sidecarPath(mediaPath, ext)]) {
-          const key = path.toLowerCase();
-          if (outputKeys.has(key)) throw new Error(`Managed output path collision: ${path}`);
-          outputKeys.add(key);
-        }
-      };
-
-      let priorBySource = new Map<string, DatasetPresetManifestFile>();
-      let priorRoot: string | undefined;
-      if (retainedPaths.length > 0) {
-        const priorPath = parseManifestPath(managedRoot, input.priorManifestPath as string);
-        if (priorPath.presetId !== presetId) throw new Error('Prior manifest must belong to the same preset ID');
-        const priorManifest = await verifyFast(input.priorManifestPath as string);
-        priorBySource = new Map(priorManifest.files.map(file => [file.source_path.toLowerCase(), file]));
-        priorRoot = priorPath.versionRoot;
-      }
 
       for (const sourcePath of retainedPaths) {
         const prior = priorBySource.get(sourcePath.toLowerCase());
         if (!prior || !priorRoot) throw new Error(`Retained path is missing from prior manifest: ${sourcePath}`);
-        reserveOutputs(prior.managed_path, prior.caption_ext);
         const priorMedia = await requireRegularNoSymlinks(priorRoot, prior.managed_path);
         const destinationMedia = toSystemPath(stagingRoot, prior.managed_path);
         const media = await copyAndHash(priorMedia, destinationMedia, resolvedDependencies.beforeCopyComplete);
@@ -447,10 +473,9 @@ export function createDatasetPresetSnapshotStore(
 
       for (const sourcePath of selectedPaths) {
         const managedPath = `media/${sourcePath}`;
-        const sourceMedia = await resolveLiveFile(realSourceRoot, sourcePath);
-        const sourceCaptionPath = sidecarPath(sourcePath, captionExt);
-        const sourceCaption = await resolveOptionalLiveFile(realSourceRoot, sourceCaptionPath);
-        reserveOutputs(managedPath, captionExt);
+        const liveSource = liveSources.get(sourcePath);
+        if (!liveSource) throw new Error(`Validated live source is missing: ${sourcePath}`);
+        const { media: sourceMedia, captionPath: sourceCaptionPath, caption: sourceCaption } = liveSource;
         const media = await copyAndHash(
           sourceMedia,
           toSystemPath(stagingRoot, managedPath),
@@ -548,7 +573,11 @@ export function createDatasetPresetSnapshotStore(
     resolveMediaRoot(relativeManifestPath: string): string {
       const parsed = parseManifestPath(managedRoot, relativeManifestPath);
       validateExistingPathSynchronously(parsed);
-      return join(parsed.versionRoot, 'media');
+      const mediaRoot = join(parsed.versionRoot, 'media');
+      const mediaInfo = lstatSync(mediaRoot);
+      if (mediaInfo.isSymbolicLink()) throw new Error('Media root must not be a symlink');
+      if (!mediaInfo.isDirectory()) throw new Error('Media root must be a directory');
+      return mediaRoot;
     },
     async quarantineVersion(relativeManifestPath: string): Promise<SnapshotQuarantine> {
       const parsed = parseManifestPath(managedRoot, relativeManifestPath);

@@ -15,7 +15,11 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
-import { normalizeRelativeMediaPath, serializeManifest } from '../src/helpers/datasetPresets';
+import {
+  DATASET_PRESET_NOTE_MAX,
+  normalizeRelativeMediaPath,
+  serializeManifest,
+} from '../src/helpers/datasetPresets';
 import { createDatasetPresetSnapshotStore } from '../src/server/datasetPresetSnapshotService';
 
 const loaderConfig = {
@@ -62,6 +66,34 @@ async function main(): Promise<void> {
       assert.throws(() => normalizeRelativeMediaPath(invalid), /path|segment/i);
     }
 
+    for (const [label, overrides] of [
+      ['absolute-prior', { priorManifestPath: join(ownedRoot, 'outside/manifest.json') }],
+      ['escaping-prior', { priorManifestPath: '../outside/v1/manifest.json' }],
+      ['empty-prior', { priorManifestPath: '' }],
+      ['invalid-note', { note: 'x'.repeat(DATASET_PRESET_NOTE_MAX + 1) }],
+      ['invalid-source-root', { sourceRoot: join(ownedRoot, 'missing-source-root') }],
+    ] as const) {
+      const validationDataRoot = join(ownedRoot, `validation-${label}`);
+      const validationStore = createDatasetPresetSnapshotStore(validationDataRoot, { randomId: () => label });
+      await expectRejects(
+        () => validationStore.stageVersion({
+          presetId: 'validation',
+          version: 1,
+          presetName: 'Validation',
+          sourceDataset: 'my-images',
+          sourceRoot,
+          selectedPaths: ['b.png'],
+          retainedPaths: [],
+          captionExt: 'txt',
+          loaderConfig,
+          note: null,
+          ...overrides,
+        }),
+        /manifest|prior|relative|note|source|ENOENT/i,
+      );
+      assert.equal(existsSync(join(validationDataRoot, 'dataset_presets')), false);
+    }
+
     let nextId = 0;
     const store = createDatasetPresetSnapshotStore(dataRoot, { randomId: () => `id-${++nextId}` });
     const publication = await store.stageVersion({
@@ -90,6 +122,28 @@ async function main(): Promise<void> {
     assert.equal(verified.files.find(file => file.source_path === 'b.png')?.caption_bytes, 0);
     assert.equal((await store.verifyFull(publication.manifestPath)).media_count, 2);
     assert.equal(store.resolveMediaRoot(publication.manifestPath), join(publication.versionRoot, 'media'));
+    const publicationMediaRoot = join(publication.versionRoot, 'media');
+    const publicationMediaBackup = join(publication.versionRoot, 'media-backup');
+    renameSync(publicationMediaRoot, publicationMediaBackup);
+    assert.throws(() => store.resolveMediaRoot(publication.manifestPath), /media|exist|missing|ENOENT/i);
+    writeFileSync(publicationMediaRoot, 'not a directory');
+    assert.throws(() => store.resolveMediaRoot(publication.manifestPath), /media|directory/i);
+    unlinkSync(publicationMediaRoot);
+    const outsideMedia = join(ownedRoot, 'outside-media');
+    mkdirSync(outsideMedia);
+    let directorySymlinksSupported = true;
+    try {
+      symlinkSync(outsideMedia, publicationMediaRoot, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EPERM' || code === 'EACCES' || code === 'ENOTSUP') directorySymlinksSupported = false;
+      else throw error;
+    }
+    if (directorySymlinksSupported) {
+      assert.throws(() => store.resolveMediaRoot(publication.manifestPath), /media|symlink/i);
+      unlinkSync(publicationMediaRoot);
+    }
+    renameSync(publicationMediaBackup, publicationMediaRoot);
 
     await expectRejects(
       () => store.stageVersion({
