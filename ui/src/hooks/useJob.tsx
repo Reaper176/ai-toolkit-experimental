@@ -54,7 +54,17 @@ function jobConfigField(value: unknown, jobType: string): string {
       const train = plainObject(process.train);
       if (safeInteger(train.steps) === 0) throw new Error('Job response was malformed');
       const sample = plainObject(process.sample);
-      if (!Array.isArray(sample.samples) || (sample.prompts !== undefined && !Array.isArray(sample.prompts))) {
+      const hasSamples = Object.prototype.hasOwnProperty.call(sample, 'samples');
+      const hasPrompts = Object.prototype.hasOwnProperty.call(sample, 'prompts');
+      if (hasSamples && !Array.isArray(sample.samples)) throw new Error('Job response was malformed');
+      if (hasPrompts && !Array.isArray(sample.prompts)) throw new Error('Job response was malformed');
+      if (Array.isArray(sample.samples)) {
+        for (const item of sample.samples) textField(plainObject(item).prompt, 100_000);
+      }
+      if (Array.isArray(sample.prompts)) {
+        for (const prompt of sample.prompts) textField(prompt, 100_000);
+      }
+      if (!hasSamples && (!Array.isArray(sample.prompts) || sample.prompts.length === 0)) {
         throw new Error('Job response was malformed');
       }
     }

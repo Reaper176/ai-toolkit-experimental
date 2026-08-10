@@ -557,6 +557,9 @@ async function run(): Promise<void> {
   const jobA = jobResponse('job-a', { name: 'A', dataset_preset_usages: [usage()] });
   const jobB = jobResponse('job-b', {
     name: 'B',
+    job_config: JSON.stringify({
+      config: { process: [{ train: { steps: 10 }, sample: { prompts: ['legacy prompt'] } }] },
+    }),
     dataset_preset_usages: [usage({ preset_name: 'B preset' })],
   });
   await act(async () => {
@@ -572,6 +575,11 @@ async function run(): Promise<void> {
     await requestB.promise;
   });
   assert.equal(observedJob()?.id, 'job-b');
+  assert.deepEqual(
+    JSON.parse(observedJob()!.job_config).config.process[0].sample.prompts,
+    ['legacy prompt'],
+    'initial GET accepts supported legacy prompt jobs',
+  );
   await act(async () => {
     requestA.resolve({ data: jobA });
     await requestA.promise;
@@ -586,6 +594,11 @@ async function run(): Promise<void> {
     await refresh;
   });
   assert.equal(observedJob()?.dataset_preset_usages?.[0]?.preset_name, 'B preset', 'compact polls preserve provenance');
+  assert.deepEqual(
+    JSON.parse(observedJob()!.job_config).config.process[0].sample.prompts,
+    ['legacy prompt'],
+    'compact polls remain compatible with legacy prompt jobs',
+  );
   apiClient.get = (async () => ({ data: null })) as typeof apiClient.get;
   await act(async () => {
     await refreshCurrent();
@@ -606,6 +619,22 @@ async function run(): Promise<void> {
     { ...jobB, status: 4 },
     { ...jobB, job_config: '{}' },
     { ...jobB, job_config: JSON.stringify({ config: { process: [{}] } }) },
+    {
+      ...jobB,
+      job_config: JSON.stringify({
+        config: { process: [{ train: { steps: 10 }, sample: { prompts: [null] } }] },
+      }),
+    },
+    {
+      ...jobB,
+      job_config: JSON.stringify({
+        config: { process: [{ train: { steps: 10 }, sample: { samples: [{ prompt: 3 }] } }] },
+      }),
+    },
+    {
+      ...jobB,
+      job_config: JSON.stringify({ config: { process: [{ train: { steps: 10 }, sample: {} }] } }),
+    },
     { ...jobB, dataset_preset_usages: [null] },
     { ...jobB, dataset_preset_usages: [{ ...usage(), resolved_loader_config: undefined }] },
     { ...jobB, dataset_preset_usages: [{ ...usage(), resolved_loader_config: { ...loader, fps: NaN } }] },
