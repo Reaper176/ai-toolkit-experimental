@@ -457,6 +457,24 @@ async function run(): Promise<void> {
       );
     });
     assert.equal(card.root.findByProps({ type: 'checkbox', 'aria-label': 'Select portrait.jpg' }).props.checked, true);
+    await act(async () => {
+      card.update(
+        <DatasetImageCard
+          imageUrl="photos/portrait.jpg"
+          alt="portrait.jpg"
+          isAutoCaptioning={false}
+          selectionMode
+          selectionDisabled
+          selected
+          onSelectionChange={(selected: boolean) => selectionChanges.push(selected)}
+        />,
+      );
+    });
+    const lockedCheckbox = card.root.findByProps({ type: 'checkbox', 'aria-label': 'Select portrait.jpg' });
+    assert.equal(lockedCheckbox.props.disabled, true);
+    const lockedMedia = card.root.findByProps({ 'data-selection-media': true });
+    act(() => click(lockedMedia));
+    assert.deepEqual(selectionChanges, [true, true], 'pending lifecycle work locks media selection');
     await act(async () => card.unmount());
 
     const originalFetch = globalThis.fetch;

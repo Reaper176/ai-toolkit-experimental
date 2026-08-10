@@ -60,7 +60,13 @@ export class DatasetPresetSnapshotConflictError extends Error {
   }
 }
 
-export type DatasetPresetVerificationMismatchKind = 'missing' | 'size' | 'hash' | 'caption' | 'manifest';
+export type DatasetPresetVerificationMismatchKind =
+  | 'missing'
+  | 'size'
+  | 'hash'
+  | 'caption'
+  | 'manifest'
+  | 'unexpected';
 export type DatasetPresetVerificationAsset = 'media' | 'caption' | 'manifest';
 
 export interface DatasetPresetVerificationMismatch {
@@ -715,6 +721,98 @@ export function createDatasetPresetSnapshotStore(
           }
         }
       }
+    }
+    if (full) {
+      const expectedFiles = new Set<string>();
+      const knownFiles = new Set<string>();
+      const expectedDirectories = new Set<string>(['media']);
+      const captionExtensions = new Set<string>();
+      const addExpectedAncestors = (portablePath: string) => {
+        let directory = posix.dirname(portablePath);
+        while (directory !== '.') {
+          expectedDirectories.add(directory);
+          directory = posix.dirname(directory);
+        }
+      };
+      for (const file of manifest.files) {
+        const managedPath = normalizeRelativeMediaPath(file.managed_path);
+        const captionPath = sidecarPath(managedPath, file.caption_ext);
+        expectedFiles.add(managedPath);
+        knownFiles.add(managedPath);
+        knownFiles.add(captionPath);
+        if (!file.caption_missing) expectedFiles.add(captionPath);
+        captionExtensions.add(file.caption_ext.replace(/^\./, '').toLowerCase());
+        addExpectedAncestors(managedPath);
+        addExpectedAncestors(captionPath);
+      }
+      const mediaRoot = join(parsed.versionRoot, 'media');
+      let mediaPin: DirectoryPin | null = null;
+      try {
+        mediaPin = pinDirectorySync(mediaRoot, 'Managed media root', parsed.versionRoot);
+      } catch (error) {
+        if (!isMissing(error)) throw error;
+      }
+      const classifyAsset = (portablePath: string): DatasetPresetVerificationAsset => {
+        const extension = posix.extname(portablePath).slice(1).toLowerCase();
+        return captionExtensions.has(extension) ? 'caption' : 'media';
+      };
+      const walk = async (directoryPin: DirectoryPin, portableDirectory: string): Promise<void> => {
+        validateDirectoryPinSync(directoryPin, 'Managed media directory', parsed.versionRoot);
+        const entries = await readdir(directoryPin.path, { withFileTypes: true });
+        entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+        for (const entry of entries) {
+          const portablePath = posix.join(portableDirectory, entry.name);
+          const displayPath = portablePath.slice('media/'.length);
+          const absolutePath = join(directoryPin.path, entry.name);
+          const info = await lstat(absolutePath, { bigint: true });
+          if (info.isSymbolicLink()) {
+            recordMismatch({
+              kind: 'unexpected',
+              asset: classifyAsset(portablePath),
+              path: displayPath,
+              expected: 'absent',
+              actual: 'symlink',
+            });
+            continue;
+          }
+          if (info.isDirectory()) {
+            if (!expectedDirectories.has(portablePath)) {
+              recordMismatch({
+                kind: 'unexpected',
+                asset: 'media',
+                path: displayPath,
+                expected: 'absent',
+                actual: 'directory',
+              });
+              continue;
+            }
+            const childPin = pinDirectorySync(absolutePath, 'Managed media directory', parsed.versionRoot);
+            await walk(childPin, portablePath);
+            continue;
+          }
+          if (info.isFile()) {
+            if (!expectedFiles.has(portablePath) && !knownFiles.has(portablePath)) {
+              recordMismatch({
+                kind: 'unexpected',
+                asset: classifyAsset(portablePath),
+                path: displayPath,
+                expected: 'absent',
+                actual: 'file',
+              });
+            }
+            continue;
+          }
+          recordMismatch({
+            kind: 'unexpected',
+            asset: classifyAsset(portablePath),
+            path: displayPath,
+            expected: 'absent',
+            actual: 'special',
+          });
+        }
+        validateDirectoryPinSync(directoryPin, 'Managed media directory', parsed.versionRoot);
+      };
+      if (mediaPin !== null) await walk(mediaPin, 'media');
     }
     validateDirectoryPinSync(versionPin, 'Version root', parsed.presetRoot);
     validateDirectoryPinSync(presetPin, 'Preset root', managedRoot);

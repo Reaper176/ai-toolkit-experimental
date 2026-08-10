@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import {
   manifestSha256,
@@ -321,20 +322,70 @@ function publicationConflict(error: unknown): boolean {
   );
 }
 
+class ManifestAgreementError extends Error {
+  constructor(readonly mismatch: DatasetPresetVerificationMismatch) {
+    super(`Stored manifest disagrees on ${mismatch.path}`);
+    this.name = 'ManifestAgreementError';
+  }
+}
+
+function canonicalDigest(value: unknown): string {
+  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+}
+
+function boundedAgreementString(value: string): string {
+  return value.length <= 80 ? value : canonicalDigest(value);
+}
+
+function manifestAgreementMismatch(
+  row: DatasetPresetVersionRow,
+  manifest: DatasetPresetManifestV1,
+): DatasetPresetVerificationMismatch | null {
+  const mismatch = (
+    path: string,
+    expected: string | number | null,
+    actual: string | number | null,
+  ): DatasetPresetVerificationMismatch => ({ kind: 'manifest', asset: 'manifest', path, expected, actual });
+  const expectedIdentity = `${row.preset_id}:v${row.version}`;
+  const actualIdentity = `${manifest.preset_id}:v${manifest.version}`;
+  if (expectedIdentity !== actualIdentity) return mismatch('identity', expectedIdentity, actualIdentity);
+  const expectedPath = `${manifest.preset_id}/v${manifest.version}/manifest.json`;
+  if (row.manifest_path !== expectedPath) {
+    return mismatch('path', expectedPath, boundedAgreementString(row.manifest_path));
+  }
+  if (row.source_dataset !== manifest.source_dataset) {
+    return mismatch(
+      'source_dataset',
+      boundedAgreementString(row.source_dataset),
+      boundedAgreementString(manifest.source_dataset),
+    );
+  }
+  const loader = parseLoaderConfig(row);
+  if (JSON.stringify(loader) !== JSON.stringify(manifest.loader_config)) {
+    return mismatch('loader_config', canonicalDigest(loader), canonicalDigest(manifest.loader_config));
+  }
+  if (row.note !== manifest.note) {
+    return mismatch(
+      'note',
+      row.note === null ? null : boundedAgreementString(row.note),
+      manifest.note === null ? null : boundedAgreementString(manifest.note),
+    );
+  }
+  if (row.media_count !== manifest.media_count) return mismatch('media_count', row.media_count, manifest.media_count);
+  if (row.total_bytes !== BigInt(manifest.total_bytes)) {
+    return mismatch('total_bytes', row.total_bytes.toString(), manifest.total_bytes);
+  }
+  const actualChecksum = manifestSha256(manifest);
+  if (row.manifest_sha256 !== actualChecksum) return mismatch('checksum', row.manifest_sha256, actualChecksum);
+  return null;
+}
+
 function assertManifestAgreement(row: DatasetPresetVersionRow, manifestInput: unknown): DatasetPresetManifestV1 {
   let manifest: DatasetPresetManifestV1;
   try {
     manifest = validateManifest(manifestInput);
-    const loader = parseLoaderConfig(row);
-    if (manifest.preset_id !== row.preset_id || manifest.version !== row.version)
-      throw new Error('Manifest identity mismatch');
-    if (manifestSha256(manifest) !== row.manifest_sha256) throw new Error('Manifest checksum mismatch');
-    if (manifest.source_dataset !== row.source_dataset) throw new Error('Manifest source dataset mismatch');
-    if (JSON.stringify(manifest.loader_config) !== JSON.stringify(loader))
-      throw new Error('Manifest loader config mismatch');
-    if (manifest.note !== row.note) throw new Error('Manifest note mismatch');
-    if (manifest.media_count !== row.media_count) throw new Error('Manifest media count mismatch');
-    if (BigInt(manifest.total_bytes) !== row.total_bytes) throw new Error('Manifest total bytes mismatch');
+    const mismatch = manifestAgreementMismatch(row, manifest);
+    if (mismatch !== null) throw new ManifestAgreementError(mismatch);
     return validateManifest(manifest);
   } catch (error) {
     if (error instanceof DatasetPresetStorageError) throw error;
@@ -408,19 +459,25 @@ export function createDatasetPresetService(dependencies: {
       return { ...versionDto(row), manifest: assertManifestAgreement(row, manifest) };
     } catch (error) {
       if (verification === 'full') {
+        const disagreement =
+          error instanceof DatasetPresetStorageError && error.cause instanceof ManifestAgreementError
+            ? error.cause.mismatch
+            : null;
         throw new DatasetPresetVerificationError({
           preset_id: row.preset_id,
           version_id: row.id,
           version: row.version,
-          mismatches: [
-            {
-              kind: 'manifest',
-              asset: 'manifest',
-              path: 'manifest.json',
-              expected: row.manifest_sha256,
-              actual: manifestSha256(manifest),
-            },
-          ],
+          mismatches: disagreement === null
+            ? [
+                {
+                  kind: 'manifest',
+                  asset: 'manifest',
+                  path: 'manifest.json',
+                  expected: 'valid database agreement',
+                  actual: 'invalid',
+                },
+              ]
+            : [disagreement],
           cause: error,
         });
       }

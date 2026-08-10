@@ -20,6 +20,7 @@ interface DatasetImageCardProps {
   rootMargin?: string;
   captionExt?: string;
   selectionMode?: boolean;
+  selectionDisabled?: boolean;
   selected?: boolean;
   onSelectionChange?: (selected: boolean) => void;
 }
@@ -37,6 +38,7 @@ const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
   rootMargin = '200px 0px',
   captionExt = 'txt',
   selectionMode = false,
+  selectionDisabled = false,
   selected = false,
   onSelectionChange,
 }) => {
@@ -51,7 +53,9 @@ const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
   const isItAudio = isAudio(imageUrl);
   const isItImage = !isItAVideo && !isItAudio;
   const filename = imageUrl.replace(/^.*[\\/]/, '');
-  const toggleSelection = () => onSelectionChange?.(!selected);
+  const toggleSelection = () => {
+    if (!selectionDisabled) onSelectionChange?.(!selected);
+  };
 
   // Track actual viewport visibility — Virtuoso keeps a buffer of cards mounted
   // outside the visible region, so we can't rely on mount/unmount alone.
@@ -253,6 +257,7 @@ const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
                   type="checkbox"
                   aria-label={`Select ${filename}`}
                   checked={selected}
+                  disabled={selectionDisabled}
                   onClick={event => event.stopPropagation()}
                   onChange={event => {
                     event.stopPropagation();

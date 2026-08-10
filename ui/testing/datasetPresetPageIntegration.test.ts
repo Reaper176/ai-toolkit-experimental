@@ -12,6 +12,7 @@ const lifecycleSource = readFileSync(
   resolve(process.cwd(), 'src/components/DatasetPresetLifecycleControls.tsx'),
   'utf8',
 );
+assert.doesNotMatch(lifecycleSource, /role=["']menu(?:item)?["']/, 'management disclosure does not claim unsupported menu keyboard behavior');
 const page = ts.createSourceFile('page.tsx', pageSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 
 assert.match(runnerSource, /datasetPresetSelection\.test\.js/, 'selection test must be required by the runner');
@@ -193,6 +194,12 @@ assert.match(
   'normal preset and version selection is disabled while a lifecycle mutation is pending',
 );
 assert.match(pageSource, /onPendingChange=\{setLifecyclePending\}/, 'lifecycle controls coordinate page busy state');
+assert.match(pageSource, /selectionDirty=\{selectionDirty\}/, 'delete eligibility receives current draft state');
+assert.match(pageSource, /selectionDisabled=\{selectionInteractionLocked\}/, 'mounted cards lock selection during lifecycle work');
+assert.match(pageSource, /saving=\{selectionSaving\s*\|\|\s*lifecyclePending\}/, 'toolbar and source-missing controls lock during lifecycle work');
+assert.match(pageSource, /if \(selectionDirtyRef\.current\) return/, 'delete success never replaces a newly dirty draft');
+assert.match(pageSource, /readOnly=\{archivedReadOnly\}/, 'archived preset selection is read-only');
+assert.match(pageSource, /Archived presets are read-only/, 'archived publication restriction has a clear reason');
 
 const jsx = page.statements.find(ts.isFunctionDeclaration);
 assert.ok(jsx || pageSource.includes('selectionMode'), 'selection state stays in the page component');

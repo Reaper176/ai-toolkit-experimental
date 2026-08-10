@@ -8,12 +8,24 @@ import usePollLoop from '@/hooks/usePollLoop';
 
 export type JobWithDatasetPresetUsages = Job & { dataset_preset_usages?: JobDatasetPresetUsageView[] };
 
+function validatedJobResponse(value: unknown, requestedJobID: string): JobWithDatasetPresetUsages | null {
+  if (value === null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) throw new Error('Job response was malformed');
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.id !== 'string' || candidate.id !== requestedJobID) throw new Error('Job response was malformed');
+  if (candidate.dataset_preset_usages !== undefined && !Array.isArray(candidate.dataset_preset_usages)) {
+    throw new Error('Job response was malformed');
+  }
+  return value as JobWithDatasetPresetUsages;
+}
+
 export default function useJob(jobID: string, reloadInterval: null | number = null) {
   const [jobState, setJobState] = useState<{ jobID: string; job: JobWithDatasetPresetUsages | null }>({
     jobID,
     job: null,
   });
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [error, setError] = useState<string | null>(null);
   const requestSequence = useRef(0);
   const activeJobID = useRef(jobID);
   activeJobID.current = jobID;
@@ -23,11 +35,18 @@ export default function useJob(jobID: string, reloadInterval: null | number = nu
     const requestedJobID = jobID;
     const sequence = ++requestSequence.current;
     setStatus('loading');
+    setError(null);
     return apiClient
       .get(`/api/jobs?id=${requestedJobID}`)
       .then(res => res.data)
-      .then((data: JobWithDatasetPresetUsages) => {
+      .then((untrusted: unknown) => {
         if (activeJobID.current !== requestedJobID || sequence !== requestSequence.current) return;
+        const data = validatedJobResponse(untrusted, requestedJobID);
+        if (data === null) {
+          setJobState({ jobID: requestedJobID, job: null });
+          setStatus('success');
+          return;
+        }
         setJobState(previous => ({
           jobID: requestedJobID,
           job: {
@@ -39,9 +58,10 @@ export default function useJob(jobID: string, reloadInterval: null | number = nu
         }));
         setStatus('success');
       })
-      .catch(error => {
+      .catch(caught => {
         if (activeJobID.current !== requestedJobID || sequence !== requestSequence.current) return;
-        console.error('Error fetching datasets:', error);
+        const message = caught instanceof Error ? caught.message.slice(0, 240) : 'Unable to load job';
+        setError(message);
         setStatus('error');
       });
   }, [jobID]);
@@ -53,5 +73,5 @@ export default function useJob(jobID: string, reloadInterval: null | number = nu
     [],
   );
 
-  return { job, setJob, status, refreshJob };
+  return { job, setJob, status, error, refreshJob };
 }

@@ -555,27 +555,52 @@ async function main(): Promise<void> {
   await assert.rejects(mismatchService.getVersion(mismatch.versions[0].id), DatasetPresetStorageError);
   await assert.rejects(mismatchService.verifyVersion(mismatch.versions[0].id, false), DatasetPresetStorageError);
 
-  for (const [label, mutate] of [
+  for (const [label, mismatchPath, mutate] of [
     [
       'manifest checksum',
+      'checksum',
       (row: DatasetPresetVersionRow) => {
         row.manifest_sha256 = 'f'.repeat(64);
       },
     ],
     [
+      'identity',
+      'identity',
+      (row: DatasetPresetVersionRow) => {
+        row.version += 1;
+      },
+    ],
+    [
+      'source dataset',
+      'source_dataset',
+      (row: DatasetPresetVersionRow) => {
+        row.source_dataset = 'another-dataset';
+      },
+    ],
+    [
       'loader config',
+      'loader_config',
       (row: DatasetPresetVersionRow) => {
         row.loader_config = JSON.stringify({ ...loaderConfig, num_repeats: 2 });
       },
     ],
     [
+      'note',
+      'note',
+      (row: DatasetPresetVersionRow) => {
+        row.note = 'different note';
+      },
+    ],
+    [
       'media count',
+      'media_count',
       (row: DatasetPresetVersionRow) => {
         row.media_count += 1;
       },
     ],
     [
       'total bytes',
+      'total_bytes',
       (row: DatasetPresetVersionRow) => {
         row.total_bytes += BigInt(1);
       },
@@ -601,10 +626,34 @@ async function main(): Promise<void> {
         error instanceof DatasetPresetVerificationError &&
         error.mismatches.length === 1 &&
         error.mismatches[0]?.kind === 'manifest' &&
-        error.mismatches[0]?.path === 'manifest.json',
+        error.mismatches[0]?.path === mismatchPath &&
+        error.mismatches[0]?.expected !== error.mismatches[0]?.actual &&
+        !JSON.stringify(error.mismatches).includes('/datasets'),
       `${label} mismatch must reject verifyVersion`,
     );
   }
+
+  const pathAgreementStore = new MemoryStore();
+  const pathAgreementSnapshots = new FakeSnapshots();
+  const pathAgreementService = createDatasetPresetService({
+    store: pathAgreementStore,
+    snapshots: pathAgreementSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const pathAgreementPreset = await pathAgreementService.createPreset({ ...publishInput, name: 'Mismatch path' });
+  const pathAgreementRow = pathAgreementStore.versions[0];
+  const originalManifest = pathAgreementSnapshots.manifests.get(pathAgreementRow.manifest_path)!;
+  pathAgreementRow.manifest_path = 'different/v1/manifest.json';
+  pathAgreementSnapshots.manifests.set(pathAgreementRow.manifest_path, originalManifest);
+  await assert.rejects(
+    pathAgreementService.verifyVersion(pathAgreementPreset.versions[0].id, true),
+    error =>
+      error instanceof DatasetPresetVerificationError &&
+      error.mismatches[0]?.path === 'path' &&
+      error.mismatches[0]?.expected !== error.mismatches[0]?.actual &&
+      !JSON.stringify(error.mismatches).includes('/datasets'),
+    'manifest path disagreement reports the path field without roots',
+  );
 
   const defensiveStore = new MemoryStore();
   const defensiveSnapshots = new FakeSnapshots();

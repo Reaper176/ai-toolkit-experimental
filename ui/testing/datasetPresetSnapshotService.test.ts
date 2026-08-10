@@ -888,6 +888,109 @@ async function main(): Promise<void> {
         typeof error.mismatches[0]?.actual === 'string',
     );
 
+    const treeSource = join(ownedRoot, 'exact-tree-source');
+    mkdirSync(join(treeSource, 'nested'), { recursive: true });
+    writeFileSync(join(treeSource, 'nested/expected.jpg'), 'expected');
+    writeFileSync(join(treeSource, 'nested/expected.txt'), 'caption');
+    const treePublication = await store.stageVersion({
+      presetId: 'exact-tree',
+      version: 1,
+      presetName: 'Exact tree',
+      sourceDataset: 'my-images',
+      sourceRoot: treeSource,
+      selectedPaths: ['nested/expected.jpg'],
+      captionExt: 'txt',
+      loaderConfig,
+      note: null,
+    });
+    await treePublication.publish();
+    assert.equal((await store.verifyFull(treePublication.manifestPath)).media_count, 1, 'nested expected dirs verify');
+    const treeMediaRoot = join(treePublication.versionRoot, 'media');
+    for (const [relativePath, contents, asset] of [
+      ['nested/extra.jpg', 'image', 'media'],
+      ['nested/extra.txt', 'caption', 'caption'],
+      ['nested/arbitrary.bin', 'arbitrary', 'media'],
+    ] as const) {
+      const absolutePath = join(treeMediaRoot, relativePath);
+      writeFileSync(absolutePath, contents);
+      await assert.rejects(
+        () => store.verifyFull(treePublication.manifestPath),
+        error =>
+          error instanceof DatasetPresetSnapshotVerificationError &&
+          error.mismatches.some(
+            mismatch =>
+              mismatch.kind === 'unexpected' &&
+              mismatch.asset === asset &&
+              mismatch.path === relativePath &&
+              mismatch.expected === 'absent' &&
+              mismatch.actual === 'file',
+          ) &&
+          !JSON.stringify(error.mismatches).includes(dataRoot),
+        `${relativePath} is rejected without leaking the managed root`,
+      );
+      unlinkSync(absolutePath);
+    }
+    mkdirSync(join(treeMediaRoot, 'unexpected-directory'));
+    await assert.rejects(
+      () => store.verifyFull(treePublication.manifestPath),
+      error =>
+        error instanceof DatasetPresetSnapshotVerificationError &&
+        error.mismatches.some(
+          mismatch =>
+            mismatch.kind === 'unexpected' &&
+            mismatch.path === 'unexpected-directory' &&
+            mismatch.actual === 'directory',
+        ),
+      'extra directories are rejected',
+    );
+    rmSync(join(treeMediaRoot, 'unexpected-directory'), { recursive: true });
+    for (const name of ['z.bin', 'd.bin', 'c.bin', 'b.bin', 'a.bin', 'e.bin']) {
+      writeFileSync(join(treeMediaRoot, 'nested', name), name);
+    }
+    await assert.rejects(
+      () => store.verifyFull(treePublication.manifestPath),
+      error =>
+        error instanceof DatasetPresetSnapshotVerificationError &&
+        error.mismatches.length === 5 &&
+        JSON.stringify(error.mismatches.map(mismatch => mismatch.path)) ===
+          JSON.stringify(['nested/a.bin', 'nested/b.bin', 'nested/c.bin', 'nested/d.bin', 'nested/e.bin']),
+      'unexpected entries are deterministic and bounded to five',
+    );
+    for (const name of ['z.bin', 'd.bin', 'c.bin', 'b.bin', 'a.bin', 'e.bin']) {
+      unlinkSync(join(treeMediaRoot, 'nested', name));
+    }
+    if (symlinksSupported) {
+      symlinkSync(join(treeMediaRoot, 'nested/expected.jpg'), join(treeMediaRoot, 'nested/extra-link.jpg'));
+      await assert.rejects(
+        () => store.verifyFull(treePublication.manifestPath),
+        error =>
+          error instanceof DatasetPresetSnapshotVerificationError &&
+          error.mismatches.some(
+            mismatch =>
+              mismatch.kind === 'unexpected' &&
+              mismatch.path === 'nested/extra-link.jpg' &&
+              mismatch.actual === 'symlink',
+          ),
+        'symlinks are reported without being followed',
+      );
+      unlinkSync(join(treeMediaRoot, 'nested/extra-link.jpg'));
+      const outsideTree = join(ownedRoot, 'outside-managed-tree');
+      mkdirSync(outsideTree);
+      writeFileSync(join(outsideTree, 'payload.jpg'), 'outside');
+      renameSync(join(treeMediaRoot, 'nested'), join(treeMediaRoot, 'nested-real'));
+      symlinkSync(outsideTree, join(treeMediaRoot, 'nested'), process.platform === 'win32' ? 'junction' : 'dir');
+      await assert.rejects(
+        () => store.verifyFull(treePublication.manifestPath),
+        error =>
+          error instanceof DatasetPresetSnapshotVerificationError &&
+          error.mismatches.some(mismatch => mismatch.path === 'nested' && mismatch.actual === 'symlink') &&
+          !JSON.stringify(error.mismatches).includes(outsideTree),
+        'an expected directory replaced by a symlink is not followed',
+      );
+      unlinkSync(join(treeMediaRoot, 'nested'));
+      renameSync(join(treeMediaRoot, 'nested-real'), join(treeMediaRoot, 'nested'));
+    }
+
     const badUtf8Root = join(ownedRoot, 'bad-utf8');
     mkdirSync(badUtf8Root);
     writeFileSync(join(badUtf8Root, 'a.jpg'), 'image');

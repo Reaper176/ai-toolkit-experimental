@@ -74,6 +74,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   const scrollParentCallback = useCallback((el: HTMLDivElement | null) => setScrollParent(el), []);
   const isRefreshingRef = useRef(false);
   const baseSelectionRef = useRef(baseSelection);
+  const selectionDirtyRef = useRef(false);
   const leaveGuardRef = useRef<DirtySelectionLeaveGuard | null>(null);
   const discardSelectionRef = useRef<() => void>(() => undefined);
   const internalNavigationPendingRef = useRef(false);
@@ -82,6 +83,9 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
 
   baseSelectionRef.current = baseSelection;
   const selectionDirty = selectionMode && !areSelectionsEqual(selectedPaths, baseSelection);
+  selectionDirtyRef.current = selectionDirty;
+  const archivedReadOnly = activePreset !== null && activePreset.archived_at !== null;
+  const selectionInteractionLocked = selectionSaving || lifecyclePending || archivedReadOnly;
   activeManifestPathsRef.current = new Set(activeVersion?.manifest.files.map(file => file.source_path) ?? []);
 
   discardSelectionRef.current = () => {
@@ -270,6 +274,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
       if (change.deletedVersionId && activePresetDetail) {
         const detail = await loadPreset(activePresetDetail.id);
         if (!request.isCurrent()) return;
+        if (selectionDirtyRef.current) return;
         setActivePreset(detail);
         setActivePresetDetail(detail);
         const latest = [...detail.versions].sort((left, right) => right.version - left.version)[0];
@@ -389,6 +394,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   };
 
   const handleSelectionAction = (action: SelectionAction) => {
+    if (selectionInteractionLocked) return;
     setSelectedPaths(
       applySelectionAction(selectedPaths, [...imgList.map(img => img.relative_path), ...sourceMissingPaths], action),
     );
@@ -562,6 +568,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
                     <DatasetPresetLifecycleControls
                       preset={activePresetDetail}
                       version={activeVersion}
+                      selectionDirty={selectionDirty}
                       onPendingChange={setLifecyclePending}
                       onChanged={handleLifecycleChanged}
                     />
@@ -578,11 +585,17 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
               selectedCount={selectedPaths.size}
               totalCount={imgList.length + sourceMissingPaths.length}
               dirty={selectionDirty}
-              saving={selectionSaving}
+              saving={selectionSaving || lifecyclePending}
+              readOnly={archivedReadOnly}
               onAction={handleSelectionAction}
-              onSave={() => setPresetDialogOpen(true)}
+              onSave={archivedReadOnly ? undefined : () => setPresetDialogOpen(true)}
               onCancel={cancelSelectionMode}
             />
+            {archivedReadOnly && (
+              <p className="bg-gray-900 px-3 pb-2 text-xs text-amber-300">
+                Archived presets are read-only. Restore this preset to save a new version.
+              </p>
+            )}
           </div>
         )}
         {PageInfoContent}
@@ -603,8 +616,10 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
                   onDelete={() => refreshImageList(datasetName)}
                   onImageClick={selectionMode ? undefined : () => setSelectedImgPath(img.img_path)}
                   selectionMode={selectionMode}
+                  selectionDisabled={selectionInteractionLocked}
                   selected={selectedPaths.has(img.relative_path)}
                   onSelectionChange={selected => {
+                    if (selectionInteractionLocked) return;
                     setSelectedPaths(current => {
                       const next = new Set(current);
                       if (selected) next.add(img.relative_path);
@@ -625,9 +640,9 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
           paths={sourceMissingPaths}
           selectedPaths={selectedPaths}
           selectionMode={selectionMode}
-          saving={selectionSaving}
+          saving={selectionSaving || lifecyclePending || archivedReadOnly}
           onSelectionChange={(path, selected) =>
-            setSelectedPaths(current => {
+            !selectionInteractionLocked && setSelectedPaths(current => {
               const next = new Set(current);
               if (selected) next.add(path);
               else next.delete(path);

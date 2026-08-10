@@ -138,6 +138,7 @@ async function run(): Promise<void> {
       <DatasetPresetLifecycleControls
         preset={lifecyclePreset}
         version={{ ...lifecycleVersion, reference_count: 0 }}
+        selectionDirty
         confirm={(next: ConfirmState) => {
           confirmation = next;
         }}
@@ -155,6 +156,25 @@ async function run(): Promise<void> {
   assert.match(textOf(renderer.root), /9,007,199,254,740,993 bytes/, 'active version displays bigint-safe storage');
   await act(async () => {
     lifecycleButton('Manage preset').props.onClick();
+  });
+  assert.equal(
+    renderer.root.findAllByType('button').some(node => textOf(node).includes('Delete version permanently')),
+    false,
+    'dirty selection hides permanent delete',
+  );
+  await act(async () => {
+    renderer.update(
+      <DatasetPresetLifecycleControls
+        preset={lifecyclePreset}
+        version={{ ...lifecycleVersion, reference_count: 0 }}
+        confirm={(next: ConfirmState) => {
+          confirmation = next;
+        }}
+        onChanged={async () => {
+          changed += 1;
+        }}
+      />,
+    );
   });
   await act(async () => {
     lifecycleButton('Delete version permanently').props.onClick();
@@ -278,6 +298,33 @@ async function run(): Promise<void> {
   assert.match(mismatchText, /caption.*hash.*sub\/image\.txt/i);
   assert.match(mismatchText, new RegExp(`${'a'.repeat(64)}.*${'b'.repeat(64)}`, 'i'));
   assert.doesNotMatch(mismatchText, /\/private\/|dataset_presets\//);
+
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        error: 'Dataset preset verification failed',
+        preset_id: 'preset-1',
+        version_id: 'version-1',
+        version: 3,
+        mismatches: Array.from({ length: 5 }, (_, index) => ({
+          kind: 'hash',
+          asset: 'media',
+          path: `nested/image-${index}.jpg`,
+          expected: String(index).repeat(64),
+          actual: String(index + 1).repeat(64),
+        })),
+      }),
+      { status: 422 },
+    )) as typeof fetch;
+  await act(async () => {
+    lifecycleButton('Verify active version').props.onClick();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.ok(
+    textOf(renderer.root.findAll(node => node.props.role === 'alert')[0]).length <= 240,
+    'structured lifecycle failures remain bounded as a whole',
+  );
 
   await act(async () => {
     renderer.update(
@@ -433,11 +480,15 @@ async function run(): Promise<void> {
   await act(async () => renderer.unmount());
 
   let currentJob: JobWithDatasetPresetUsages | null = null;
+  let currentJobStatus = '';
+  let currentJobError: string | null | undefined;
   const observedJob = () => currentJob as JobWithDatasetPresetUsages | null;
   let refreshCurrent!: () => Promise<void>;
   function JobHarness({ id }: { id: string }) {
     const result = useJob(id);
     currentJob = result.job;
+    currentJobStatus = result.status;
+    currentJobError = result.error;
     refreshCurrent = result.refreshJob;
     return null;
   }
@@ -479,6 +530,19 @@ async function run(): Promise<void> {
     await refresh;
   });
   assert.equal(observedJob()?.dataset_preset_usages?.[0]?.preset_name, 'B preset', 'compact polls preserve provenance');
+  apiClient.get = (async () => ({ data: null })) as typeof apiClient.get;
+  await act(async () => {
+    await refreshCurrent();
+  });
+  assert.equal(observedJob(), null, 'a valid null job response clears job state');
+  assert.equal(currentJobStatus, 'success');
+  apiClient.get = (async () => ({ data: ['not', 'a', 'job'] })) as typeof apiClient.get;
+  await act(async () => {
+    await refreshCurrent();
+  });
+  assert.equal(observedJob(), null, 'malformed response cannot be object-spread into job state');
+  assert.equal(currentJobStatus, 'error');
+  assert.ok(currentJobError && currentJobError.length <= 240 && !currentJobError.includes('not,a,job'));
   apiClient.get = originalGet;
   await act(async () => renderer.unmount());
 

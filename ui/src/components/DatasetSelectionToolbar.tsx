@@ -5,6 +5,7 @@ export interface DatasetSelectionToolbarProps {
   totalCount: number;
   dirty: boolean;
   saving: boolean;
+  readOnly?: boolean;
   onAction(action: SelectionAction): void;
   onSave?: () => void;
   onCancel(): void;
@@ -15,12 +16,13 @@ export function DatasetSelectionToolbar({
   totalCount,
   dirty,
   saving,
+  readOnly = false,
   onAction,
   onSave,
   onCancel,
 }: DatasetSelectionToolbarProps) {
-  const mutationsDisabled = saving;
-  const saveDisabled = !onSave || selectedCount === 0 || saving;
+  const mutationsDisabled = saving || readOnly;
+  const saveDisabled = !onSave || selectedCount === 0 || saving || readOnly;
   const buttonClass = 'rounded-md bg-gray-700 px-2.5 py-1.5 text-sm text-gray-100 hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-50';
 
   return (
@@ -44,7 +46,7 @@ export function DatasetSelectionToolbar({
           <button type="button" className="rounded-md bg-blue-700 px-2.5 py-1.5 text-sm text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50" disabled={saveDisabled} onClick={onSave}>
             Save preset
           </button>
-          <button type="button" className={buttonClass} disabled={mutationsDisabled} onClick={onCancel}>
+          <button type="button" className={buttonClass} disabled={saving} onClick={onCancel}>
             Cancel
           </button>
         </div>

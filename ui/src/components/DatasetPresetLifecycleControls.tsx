@@ -22,24 +22,30 @@ interface DatasetPresetLifecycleControlsProps {
   preset: DatasetPresetDetail;
   version: DatasetPresetVersionDetail;
   confirm?: (state: ConfirmState) => void;
+  selectionDirty?: boolean;
   onPendingChange?(pending: boolean): void;
   onChanged(change: LifecycleChange, applyToActiveIdentity: boolean): Promise<void> | void;
 }
 
 const MAX_RESULT_LENGTH = 240;
 
-function boundedMessage(error: unknown): string {
-  if (error instanceof DatasetPresetRequestError) {
-    const detail = verificationFailureMessage(error.body);
-    if (detail) return detail;
-  }
-  const message = error instanceof Error ? error.message : 'Dataset preset operation failed';
+function boundedResult(message: string): string {
   return message.length <= MAX_RESULT_LENGTH ? message : `${message.slice(0, MAX_RESULT_LENGTH - 1)}…`;
 }
 
-function boundedValue(value: unknown): string | null {
+function boundedMessage(error: unknown): string {
+  if (error instanceof DatasetPresetRequestError) {
+    const detail = verificationFailureMessage(error.body);
+    if (detail) return boundedResult(detail);
+  }
+  const message = error instanceof Error ? error.message : 'Dataset preset operation failed';
+  return boundedResult(message);
+}
+
+function boundedValue(value: unknown): string | undefined {
+  if (value === null) return 'null';
   if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return String(value);
-  if (typeof value !== 'string' || value.length > 80) return null;
+  if (typeof value !== 'string' || value.length > 80) return undefined;
   return value;
 }
 
@@ -49,7 +55,7 @@ function verificationFailureMessage(body: unknown): string | null {
   for (const untrusted of body.mismatches.slice(0, 5)) {
     if (!untrusted || typeof untrusted !== 'object') continue;
     const mismatch = untrusted as Record<string, unknown>;
-    if (!['missing', 'size', 'hash', 'caption', 'manifest'].includes(String(mismatch.kind))) continue;
+    if (!['missing', 'size', 'hash', 'caption', 'manifest', 'unexpected'].includes(String(mismatch.kind))) continue;
     if (!['media', 'caption', 'manifest'].includes(String(mismatch.asset))) continue;
     let path: string;
     try {
@@ -63,7 +69,7 @@ function verificationFailureMessage(body: unknown): string | null {
     const expected = boundedValue(mismatch.expected);
     const actual = boundedValue(mismatch.actual);
     lines.push(
-      `${mismatch.asset} ${mismatch.kind}: ${path}${expected === null ? '' : `; expected ${expected}`}${actual === null ? '' : `; actual ${actual}`}`,
+      `${mismatch.asset} ${mismatch.kind}: ${path}${expected === undefined ? '' : `; expected ${expected}`}${actual === undefined ? '' : `; actual ${actual}`}`,
     );
   }
   return lines.length === 0 ? null : lines.join(' | ');
@@ -73,6 +79,7 @@ export default function DatasetPresetLifecycleControls({
   preset,
   version,
   confirm = openConfirm,
+  selectionDirty = false,
   onPendingChange = () => undefined,
   onChanged,
 }: DatasetPresetLifecycleControlsProps) {
@@ -165,7 +172,7 @@ export default function DatasetPresetLifecycleControls({
   };
 
   const deleteVersion = () => {
-    if (version.reference_count !== 0) return;
+    if (version.reference_count !== 0 || selectionDirty) return;
     confirm({
       title: 'Permanently delete dataset preset version?',
       message: `Permanently delete “${preset.name}” version ${version.version}, ${version.media_count} media, ${formatDatasetPresetBytes(version.total_bytes)}? This cannot be undone.`,
@@ -198,16 +205,15 @@ export default function DatasetPresetLifecycleControls({
         Manage preset
       </button>
       {menuOpen && (
-        <div id="dataset-preset-management-menu" role="menu" aria-label="Preset management" className="flex gap-2">
-          <button type="button" role="menuitem" onClick={() => setRenaming(true)}>
+        <div id="dataset-preset-management-menu" role="group" aria-label="Preset management actions" className="flex gap-2">
+          <button type="button" onClick={() => setRenaming(true)}>
             Rename preset
           </button>
-          <button type="button" role="menuitem" onClick={() => updateArchived(preset.archived_at === null)}>
+          <button type="button" onClick={() => updateArchived(preset.archived_at === null)}>
             {preset.archived_at === null ? 'Archive preset' : 'Restore preset'}
           </button>
           <button
             type="button"
-            role="menuitem"
             onClick={() =>
               void mutate(
                 'verify',
@@ -222,8 +228,8 @@ export default function DatasetPresetLifecycleControls({
           >
             Verify active version
           </button>
-          {version.reference_count === 0 && (
-            <button type="button" role="menuitem" onClick={deleteVersion}>
+          {version.reference_count === 0 && !selectionDirty && (
+            <button type="button" onClick={deleteVersion}>
               Delete version permanently
             </button>
           )}
