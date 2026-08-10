@@ -59,4 +59,10 @@ malicious = DatasetConfig(
 )
 effective_path = resolve_dataset_source_path(malicious)
 assert effective_path == "/attacker/override.json"
+for override in ["", "   "]:
+    malicious = DatasetConfig(
+        folder_path=resolved["folder_path"],
+        dataset_path=override,
+    )
+    assert resolve_dataset_source_path(malicious) == override
 print("dataset preset Python DatasetConfig compatibility passed")

@@ -193,8 +193,7 @@ function hasExternalAuxiliaryValue(value: unknown): boolean {
 
 function hasExternalPathValue(key: string, value: unknown): boolean {
   if (key !== 'dataset_path') return hasExternalAuxiliaryValue(value);
-  if (value === null || value === undefined) return false;
-  return typeof value !== 'string' || value.trim().length > 0;
+  return value !== null && value !== undefined;
 }
 
 function rejectPresetExternalPaths(dataset: DatasetConfig): void {

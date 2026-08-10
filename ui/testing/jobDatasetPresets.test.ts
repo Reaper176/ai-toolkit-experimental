@@ -145,13 +145,14 @@ async function runExternalAuxiliaryPathTests(): Promise<void> {
       new RegExp(key),
       `${key} is rejected on a preset-backed dataset`,
     );
-    for (const empty of [null, '']) {
+    const allowedEmptyValues = key === 'dataset_path' ? [null] : [null, ''];
+    for (const empty of allowedEmptyValues) {
       const allowed = dataset('v1') as DatasetConfig & Record<string, unknown>;
       allowed[key] = empty;
       await resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([allowed]), versions: f.versions, snapshots: f.snapshots });
     }
   }
-  for (const invalidDatasetPath of [[], 0, false, {}]) {
+  for (const invalidDatasetPath of ['', '   ', [], 0, false, {}]) {
     const blocked = dataset('v1') as DatasetConfig & Record<string, unknown>;
     (blocked as Record<string, unknown>).dataset_path = invalidDatasetPath;
     await assert.rejects(
@@ -159,7 +160,7 @@ async function runExternalAuxiliaryPathTests(): Promise<void> {
         jobId: null, clone: false, jobConfig: job([blocked]), versions: f.versions, snapshots: f.snapshots,
       }),
       /dataset_path/,
-      'only null or an empty string may coexist with preset provenance',
+      'only an absent or null dataset_path may coexist with preset provenance',
     );
   }
   const live = dataset() as DatasetConfig & Record<string, unknown>;
@@ -287,28 +288,30 @@ async function runSaveTests(): Promise<void> {
     { label: 'edit', id: 'edit', clone: false },
     { label: 'clone', id: null, clone: true },
   ] as const) {
-    const malicious = dataset('v1') as DatasetConfig & Record<string, unknown>;
-    malicious.dataset_path = '/attacker/override.json';
-    const target = transactionalStore();
-    const before = target.state();
-    let verified = 0;
-    const snapshots = {
-      ...f.snapshots,
-      async verifyFast(path: string) {
-        verified += 1;
-        return f.snapshots.verifyFast(path);
-      },
-    } as DatasetPresetSnapshotStore;
-    await assert.rejects(
-      saveJobWithDatasetUsages({
-        id: mode.id, clone: mode.clone, name: mode.label, gpu_ids: '0',
-        job_config: job([malicious]), jobs: target.store, versions: f.versions, snapshots,
-      }),
-      /dataset_path/,
-      `${mode.label} rejects Python's primary dataset path override`,
-    );
-    assert.equal(verified, 0, `${mode.label} rejects dataset_path before snapshot verification`);
-    assert.deepEqual(target.state(), before, `${mode.label} rejects before transaction writes provenance`);
+    for (const override of ['/attacker/override.json', '', '   ']) {
+      const malicious = dataset('v1') as DatasetConfig & Record<string, unknown>;
+      malicious.dataset_path = override;
+      const target = transactionalStore();
+      const before = target.state();
+      let verified = 0;
+      const snapshots = {
+        ...f.snapshots,
+        async verifyFast(path: string) {
+          verified += 1;
+          return f.snapshots.verifyFast(path);
+        },
+      } as DatasetPresetSnapshotStore;
+      await assert.rejects(
+        saveJobWithDatasetUsages({
+          id: mode.id, clone: mode.clone, name: mode.label, gpu_ids: '0',
+          job_config: job([malicious]), jobs: target.store, versions: f.versions, snapshots,
+        }),
+        /dataset_path/,
+        `${mode.label} rejects Python's primary dataset path override ${JSON.stringify(override)}`,
+      );
+      assert.equal(verified, 0, `${mode.label} rejects dataset_path before snapshot verification`);
+      assert.deepEqual(target.state(), before, `${mode.label} rejects before transaction writes provenance`);
+    }
   }
 }
 
