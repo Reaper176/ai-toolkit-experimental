@@ -3,6 +3,7 @@ import { isAbsolute } from 'node:path';
 import {
   LOADER_CONFIG_KEYS,
   manifestSha256,
+  normalizeRelativeMediaPath,
   validateLoaderConfig,
   validateManifest,
   type DatasetPresetLoaderConfig,
@@ -72,6 +73,50 @@ export class JobDatasetPresetError extends Error {
     super(message, options);
     this.name = 'JobDatasetPresetError';
   }
+}
+
+export class JobDatasetPresetPreflightError extends JobDatasetPresetError {
+  readonly preset: string;
+  readonly version: number;
+  readonly missing: string[];
+
+  constructor(input: { preset: string; version: number; missing?: string[]; cause?: unknown }) {
+    super(`Dataset preset "${input.preset}" version ${input.version} snapshot is unavailable or inconsistent`, {
+      cause: input.cause,
+    });
+    this.name = 'JobDatasetPresetPreflightError';
+    this.preset = input.preset;
+    this.version = input.version;
+    this.missing = (input.missing ?? []).slice(0, 5);
+  }
+}
+
+function safePresetName(value: unknown): string {
+  if (typeof value !== 'string') return 'Unknown preset';
+  const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  return cleaned.length === 0 ? 'Unknown preset' : cleaned.slice(0, 80);
+}
+
+function safeVersion(value: unknown): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : 1;
+}
+
+function safeMissingPaths(error: unknown): string[] {
+  if (error === null || typeof error !== 'object' || !('missingPaths' in error)) return [];
+  const input = (error as { missingPaths?: unknown }).missingPaths;
+  if (!Array.isArray(input)) return [];
+  const result: string[] = [];
+  for (const candidate of input) {
+    if (typeof candidate !== 'string') continue;
+    try {
+      const path = normalizeRelativeMediaPath(candidate);
+      if (!result.includes(path)) result.push(path);
+    } catch {
+      // An invalid path is untrusted error metadata and is never exposed.
+    }
+    if (result.length === 5) break;
+  }
+  return result;
 }
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -187,7 +232,7 @@ async function resolveJobDatasetPresetsInternal(input: {
   const usages: ResolvedJobDatasets['usages'] = [];
   const verified = new Map<string, Promise<NonNullable<Awaited<ReturnType<JobDatasetVersionStore['getVersionForResolution']>>>>>();
 
-  async function getVerified(versionId: string) {
+  async function getVerified(versionId: string, reference: Record<string, unknown>) {
     let pending = verified.get(versionId);
     if (!pending) {
       pending = (async () => {
@@ -195,16 +240,46 @@ async function resolveJobDatasetPresetsInternal(input: {
         try {
           authoritative = await input.versions.getVersionForResolution(versionId);
         } catch (error) {
+          if (eligibility === 'integrity-only') {
+            throw new Error('Unable to read dataset preset version', { cause: error });
+          }
           throw new JobDatasetPresetError('Dataset preset version is unavailable', { cause: error });
         }
-        if (!authoritative) throw new JobDatasetPresetError('Dataset preset version is unavailable');
+        if (!authoritative) {
+          if (eligibility === 'integrity-only') {
+            throw new JobDatasetPresetPreflightError({
+              preset: safePresetName(reference.preset_name),
+              version: safeVersion(reference.version),
+            });
+          }
+          throw new JobDatasetPresetError('Dataset preset version is unavailable');
+        }
         let manifest;
         try {
           manifest = await input.snapshots.verifyFast(authoritative.version.manifest_path);
         } catch (error) {
+          if (eligibility === 'integrity-only') {
+            throw new JobDatasetPresetPreflightError({
+              preset: safePresetName(authoritative.preset.name),
+              version: safeVersion(authoritative.version.version),
+              missing: safeMissingPaths(error),
+              cause: error,
+            });
+          }
           throw new JobDatasetPresetError('Dataset preset snapshot is unavailable', { cause: error });
         }
-        canonicalVersionAgreement(authoritative, manifest);
+        try {
+          canonicalVersionAgreement(authoritative, manifest);
+        } catch (error) {
+          if (eligibility === 'integrity-only') {
+            throw new JobDatasetPresetPreflightError({
+              preset: safePresetName(authoritative.preset.name),
+              version: safeVersion(authoritative.version.version),
+              cause: error,
+            });
+          }
+          throw error;
+        }
         return authoritative;
       })();
       verified.set(versionId, pending);
@@ -219,7 +294,7 @@ async function resolveJobDatasetPresetsInternal(input: {
       throw new JobDatasetPresetError('Dataset preset reference is invalid');
     }
     const versionId = dataset.dataset_preset.version_id.trim();
-    const authoritative = await getVerified(versionId);
+    const authoritative = await getVerified(versionId, dataset.dataset_preset);
     if (eligibility === 'save' && authoritative.preset.archived_at !== null) {
       let sameHistoricalUsage = false;
       if (!input.clone && input.jobId !== null) {
@@ -237,9 +312,22 @@ async function resolveJobDatasetPresetsInternal(input: {
     try {
       mediaRoot = input.snapshots.resolveMediaRoot(authoritative.version.manifest_path);
     } catch (error) {
+      if (eligibility === 'integrity-only') {
+        throw new JobDatasetPresetPreflightError({
+          preset: safePresetName(authoritative.preset.name),
+          version: safeVersion(authoritative.version.version),
+          cause: error,
+        });
+      }
       throw new JobDatasetPresetError('Dataset preset snapshot is unavailable', { cause: error });
     }
     if (!nonblank(mediaRoot) || !isAbsolute(mediaRoot)) {
+      if (eligibility === 'integrity-only') {
+        throw new JobDatasetPresetPreflightError({
+          preset: safePresetName(authoritative.preset.name),
+          version: safeVersion(authoritative.version.version),
+        });
+      }
       throw new JobDatasetPresetError('Dataset preset snapshot is unavailable');
     }
     dataset.folder_path = mediaRoot;

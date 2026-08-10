@@ -54,3 +54,8 @@ export const getModelsPath = async () => {
   }
   return modelsPath;
 };
+
+export const getDataRoot = async () => {
+  const row = await prisma.settings.findFirst({ where: { key: 'DATA_ROOT' } });
+  return row?.value && row.value !== '' ? row.value : defaultDataRoot;
+};

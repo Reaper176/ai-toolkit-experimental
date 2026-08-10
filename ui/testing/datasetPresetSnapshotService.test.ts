@@ -547,7 +547,12 @@ async function main(): Promise<void> {
     await expectRejects(() => store.verifyFast(verifyPublication.manifestPath), /size/i);
     writeFileSync(join(verifyPublication.versionRoot, 'media/b.txt'), '');
     renameSync(verifyMedia, `${verifyMedia}.saved`);
-    await expectRejects(() => store.verifyFast(verifyPublication.manifestPath), /missing|ENOENT/i);
+    await assert.rejects(
+      () => store.verifyFast(verifyPublication.manifestPath),
+      error => error instanceof Error && /missing|ENOENT/i.test(error.message) &&
+        JSON.stringify((error as Error & { missingPaths?: string[] }).missingPaths) === JSON.stringify(['b.png']),
+      'missing managed files report only their source-relative paths',
+    );
     mkdirSync(verifyMedia);
     await expectRejects(() => store.verifyFast(verifyPublication.manifestPath), /regular|file/i);
     rmSync(verifyMedia, { recursive: true });

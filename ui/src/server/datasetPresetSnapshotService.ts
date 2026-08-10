@@ -72,6 +72,16 @@ export class DatasetPresetSnapshotConflictError extends Error {
   }
 }
 
+export class DatasetPresetSnapshotVerificationError extends Error {
+  readonly missingPaths: string[];
+
+  constructor(message: string, missingPaths: string[] = [], options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'DatasetPresetSnapshotVerificationError';
+    this.missingPaths = missingPaths.slice(0, 5);
+  }
+}
+
 export interface SnapshotQuarantine {
   restore(): Promise<void>;
   remove(): Promise<void>;
@@ -547,7 +557,15 @@ export function createDatasetPresetSnapshotStore(
       const managedPath = normalizeRelativeMediaPath(file.managed_path);
       if (!managedPath.startsWith('media/')) throw new Error(`Managed media path must be within media/: ${managedPath}`);
       const mediaPath = toSystemPath(parsed.versionRoot, managedPath);
-      const pinnedMedia = await openPinnedRegularFile(mediaPath, parsed.versionRoot);
+      let pinnedMedia: PinnedRegularFile;
+      try {
+        pinnedMedia = await openPinnedRegularFile(mediaPath, parsed.versionRoot);
+      } catch (error) {
+        if (isMissing(error)) {
+          throw new DatasetPresetSnapshotVerificationError('Managed snapshot media is missing', [file.source_path]);
+        }
+        throw error;
+      }
       try {
         const mediaInfo = await pinnedMedia.handle.stat({ bigint: true });
         if (mediaInfo.size !== BigInt(file.media_bytes)) throw new Error(`Managed media size mismatch: ${managedPath}`);
@@ -564,7 +582,15 @@ export function createDatasetPresetSnapshotStore(
           throw new Error(`Unexpected managed caption exists: ${captionPath}`);
         }
       } else {
-        const pinnedCaption = await openPinnedRegularFile(absoluteCaptionPath, parsed.versionRoot);
+        let pinnedCaption: PinnedRegularFile;
+        try {
+          pinnedCaption = await openPinnedRegularFile(absoluteCaptionPath, parsed.versionRoot);
+        } catch (error) {
+          if (isMissing(error)) {
+            throw new DatasetPresetSnapshotVerificationError('Managed snapshot caption is missing', [file.source_path]);
+          }
+          throw error;
+        }
         try {
           const captionInfo = await pinnedCaption.handle.stat({ bigint: true });
           if (captionInfo.size !== BigInt(file.caption_bytes as number)) {

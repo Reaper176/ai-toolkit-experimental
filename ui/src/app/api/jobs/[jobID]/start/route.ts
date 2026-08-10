@@ -1,5 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/server/prisma';
+import { createDatasetPresetSnapshotStore } from '@/server/datasetPresetSnapshotService';
+import {
+  JobDatasetPresetError,
+  JobDatasetPresetPreflightError,
+  preflightJobDatasetPresets,
+} from '@/server/jobDatasetPresetService';
+import { createJobDatasetVersionPrismaStore } from '@/server/jobDatasetPresetPrismaStore';
+import { getDataRoot } from '@/server/settings';
+import type { JobConfig } from '@/types';
+
+const versions = createJobDatasetVersionPrismaStore(prisma);
 
 export async function GET(request: NextRequest, { params }: { params: { jobID: string } }) {
   const { jobID } = await params;
@@ -10,6 +21,33 @@ export async function GET(request: NextRequest, { params }: { params: { jobID: s
 
   if (!job) {
     return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+  }
+
+  let jobConfig: JobConfig;
+  try {
+    jobConfig = JSON.parse(job.job_config) as JobConfig;
+  } catch {
+    return NextResponse.json({ error: 'Job configuration is invalid' }, { status: 400 });
+  }
+  try {
+    await preflightJobDatasetPresets(jobConfig, {
+      versions,
+      snapshots: createDatasetPresetSnapshotStore(await getDataRoot()),
+    });
+  } catch (error) {
+    if (error instanceof JobDatasetPresetPreflightError) {
+      return NextResponse.json({
+        error: error.message,
+        preset: error.preset,
+        version: error.version,
+        missing: error.missing,
+      }, { status: 409 });
+    }
+    if (error instanceof JobDatasetPresetError) {
+      return NextResponse.json({ error: 'Job dataset preset configuration is invalid' }, { status: 400 });
+    }
+    console.error('Unable to preflight job dataset presets:', error);
+    return NextResponse.json({ error: 'Unable to verify job dataset presets' }, { status: 500 });
   }
 
   // get highest queue position

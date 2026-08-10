@@ -3,8 +3,16 @@ import { Job } from '@prisma/client';
 import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import { TOOLKIT_ROOT, getTrainingFolder, getHFToken, getModelsPath } from '../paths';
+import { TOOLKIT_ROOT, getTrainingFolder, getHFToken, getModelsPath, getDataRoot } from '../paths';
 import { resolveDetachedPythonPath } from '../pythonPath';
+import { createDatasetPresetSnapshotStore } from '../../src/server/datasetPresetSnapshotService';
+import {
+  JobDatasetPresetError,
+  JobDatasetPresetPreflightError,
+  preflightJobDatasetPresets,
+} from '../../src/server/jobDatasetPresetService';
+import { createJobDatasetVersionPrismaStore } from '../../src/server/jobDatasetPresetPrismaStore';
+import type { JobConfig } from '../../src/types';
 const isWindows = process.platform === 'win32';
 
 const appendJobLog = (logPath: string, message: string) => {
@@ -175,7 +183,7 @@ const watchDetachedJob = (pid: number, jobID: string, logPath: string) => {
   if (timer.unref) timer.unref();
 };
 
-const startAndWatchJob = (job: Job) => {
+const launchAndWatchJob = (job: Job, jobConfig: JobConfig) => {
   // starts and watches the job asynchronously
   return new Promise<void>(async (resolve, reject) => {
     const jobID = job.id;
@@ -215,7 +223,6 @@ const startAndWatchJob = (job: Job) => {
     }
 
     // update the config dataset path
-    const jobConfig = JSON.parse(job.job_config);
     jobConfig.config.process[0].sqlite_db_path = path.join(TOOLKIT_ROOT, 'aitk_db.db');
 
     // write the config file
@@ -394,12 +401,61 @@ const startAndWatchJob = (job: Job) => {
   });
 };
 
-export default async function startJob(jobID: string) {
+function safePreflightMessage(error: unknown): string {
+  if (error instanceof JobDatasetPresetPreflightError) {
+    const missing = error.missing.length > 0 ? ` Missing: ${error.missing.join(', ')}` : '';
+    return `${error.message}.${missing}`.slice(0, 1000);
+  }
+  if (error instanceof SyntaxError || error instanceof JobDatasetPresetError) {
+    return 'Job dataset preset configuration is invalid.';
+  }
+  return 'Unable to verify job dataset presets.';
+}
+
+async function appendPreflightFailureToExistingLog(job: Job, message: string): Promise<void> {
+  let fd: number | null = null;
+  try {
+    const trainingRoot = await getTrainingFolder();
+    const logPath = path.join(trainingRoot, job.name, 'log.txt');
+    fd = fs.openSync(logPath, 'r+');
+    const end = fs.fstatSync(fd).size;
+    fs.writeSync(fd, `\n${message}\n`, end, 'utf8');
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code !== 'ENOENT') console.error('Unable to append dataset preset preflight failure to existing log:', error);
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch { /* preserve the primary preflight result */ }
+    }
+  }
+}
+
+export async function startAndWatchJob(jobID: string) {
   const job: Job | null = await prisma.job.findUnique({
     where: { id: jobID },
   });
   if (!job) {
     console.error(`Job with ID ${jobID} not found`);
+    return;
+  }
+  let jobConfig: JobConfig;
+  try {
+    jobConfig = JSON.parse(job.job_config) as JobConfig;
+    await preflightJobDatasetPresets(jobConfig, {
+      versions: createJobDatasetVersionPrismaStore(prisma),
+      snapshots: createDatasetPresetSnapshotStore(await getDataRoot()),
+    });
+  } catch (error) {
+    const message = safePreflightMessage(error);
+    try {
+      await prisma.job.update({
+        where: { id: jobID },
+        data: { status: 'error', info: message, pid: null },
+      });
+    } catch (updateError) {
+      console.error('Unable to update job after dataset preset preflight failure:', updateError);
+    }
+    await appendPreflightFailureToExistingLog(job, message);
     return;
   }
   // update job status to 'running', this will run sync so we don't start multiple jobs.
@@ -413,5 +469,9 @@ export default async function startJob(jobID: string) {
     },
   });
   // start and watch the job asynchronously so the cron can continue
-  startAndWatchJob(job);
+  void launchAndWatchJob(job, jobConfig);
+}
+
+export default async function startJob(jobID: string) {
+  await startAndWatchJob(jobID);
 }
