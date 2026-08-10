@@ -627,9 +627,9 @@ async function main(): Promise<void> {
     utimesSync(join(rootTombstone, '.staging-old'), older, older);
     utimesSync(rootTombstone, older, older);
     utimesSync(newerRootTombstone, cutoff, cutoff);
-    assert.deepEqual(await store.cleanupStaging(cutoff), ['.safe-dot-preset/.staging-old', '.tombstone-owned']);
+    assert.deepEqual(await store.cleanupStaging(cutoff), ['.safe-dot-preset/.staging-old']);
     assert.equal(existsSync(join(safeDotPresetRoot, '.staging-old')), false);
-    assert.equal(existsSync(rootTombstone), false);
+    assert.equal(existsSync(rootTombstone), true);
     assert.equal(existsSync(newerRootTombstone), true);
     if (symlinksSupported) {
       const cleanupOutside = join(ownedRoot, 'cleanup-outside');

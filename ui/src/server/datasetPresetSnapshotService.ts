@@ -836,6 +836,8 @@ export function createDatasetPresetSnapshotStore(
       try {
         await removePinnedDirectory(ownedPin, presetPin, 'Owned staging directory');
       } catch (error) {
+        // A failed rm may leave the staging pin as a root tombstone. Public
+        // cleanupStaging deliberately ignores those; startup recovery belongs to Task 11.
         cleanupError = error;
       } finally {
         state = 'rolled-back';
@@ -905,17 +907,8 @@ export function createDatasetPresetSnapshotStore(
       const removed: string[] = [];
       for (const presetEntry of await readdir(managedRoot, { withFileTypes: true })) {
         requirePinnedRootsSync();
+        if (presetEntry.name.toLowerCase().startsWith('.tombstone-')) continue;
         if (presetEntry.isSymbolicLink()) throw new Error(`Preset parent must not be a symlink: ${presetEntry.name}`);
-        if (presetEntry.name.toLowerCase().startsWith('.tombstone-')) {
-          if (!presetEntry.isDirectory()) continue;
-          const tombstonePath = join(managedRoot, presetEntry.name);
-          const tombstoneInfo = await lstat(tombstonePath, { bigint: true });
-          if (tombstoneInfo.mtimeMs >= BigInt(olderThan.getTime())) continue;
-          const tombstonePin = pinDirectorySync(tombstonePath, 'Abandoned tombstone', managedRoot);
-          await deletePinnedTombstone(tombstonePin, 'Abandoned tombstone');
-          removed.push(presetEntry.name);
-          continue;
-        }
         if (!presetEntry.isDirectory()) continue;
         const presetRoot = join(managedRoot, presetEntry.name);
         const presetPin = pinDirectorySync(presetRoot, 'Preset root', managedRoot);
