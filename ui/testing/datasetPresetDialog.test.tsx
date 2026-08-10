@@ -67,9 +67,16 @@ const originalError = console.error;
 console.error = (...args: unknown[]) => {
   if (!String(args[0]).includes('react-test-renderer is deprecated')) originalError(...args);
 };
+const documentListeners = new Map<string, Set<(event: { key?: string }) => void>>();
 const documentStub = {
-  addEventListener() {},
-  removeEventListener() {},
+  addEventListener(type: string, listener: (event: { key?: string }) => void) {
+    const listeners = documentListeners.get(type) ?? new Set();
+    listeners.add(listener);
+    documentListeners.set(type, listeners);
+  },
+  removeEventListener(type: string, listener: (event: { key?: string }) => void) {
+    documentListeners.get(type)?.delete(listener);
+  },
   body: { style: { overflow: 'auto' } },
 };
 Object.defineProperty(globalThis, 'document', { value: documentStub, configurable: true });
@@ -407,6 +414,24 @@ async function testDialogBehavior(): Promise<void> {
       .some(node => textOf(node).includes('Refresh temporarily unavailable')),
     'post-publication recovery error is visible',
   );
+  const recoveryCancel = recoveryRenderer!.root
+    .findAllByType('button')
+    .find(button => textOf(button).includes('Cancel'));
+  assert.ok(recoveryCancel?.props.disabled, 'Cancel is disabled after immutable publication');
+  assert.equal(
+    recoveryRenderer!.root.findAll(node => node.props['aria-label'] === 'Close modal').length,
+    0,
+    'close button is unavailable during post-publication recovery',
+  );
+  await act(async () => {
+    recoveryCancel?.props.onClick?.();
+    for (const listener of documentListeners.get('keydown') ?? []) listener({ key: 'Escape' });
+    const overlay = recoveryRenderer!.root.findByProps({ role: 'dialog' });
+    const overlayTarget = {};
+    overlay.props.onClick({ target: overlayTarget, currentTarget: overlayTarget });
+  });
+  assert.equal(recoveryCloses, 0, 'Cancel, Escape, close, and overlay cannot dismiss published recovery');
+  assert.equal(recoveryPosts, 1, 'dismissal attempts cannot permit another publication POST');
   const retryButton = recoveryRenderer!.root
     .findAllByType('button')
     .find(button => textOf(button).includes('Retry refresh'));
@@ -417,6 +442,20 @@ async function testDialogBehavior(): Promise<void> {
   assert.equal(recoveryPosts, 1, 'retrying finalization never repeats publication POST');
   assert.equal(recoveryFinalizations, 2);
   assert.equal(recoveryCloses, 1, 'successful finalization retry closes the dialog');
+
+  let ordinaryCancelCloses = 0;
+  let ordinaryCancelRenderer: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    ordinaryCancelRenderer = TestRenderer.create(
+      <DatasetPresetDialog {...createProps} onClose={() => ordinaryCancelCloses++} />,
+    );
+  });
+  const ordinaryCancel = ordinaryCancelRenderer!.root
+    .findAllByType('button')
+    .find(button => textOf(button).includes('Cancel'))!;
+  assert.equal(ordinaryCancel.props.disabled, false, 'Cancel remains available before publication');
+  await act(async () => ordinaryCancel.props.onClick());
+  assert.equal(ordinaryCancelCloses, 1, 'pre-publication Cancel behavior is preserved');
 
   let invalidRenderer: TestRenderer.ReactTestRenderer;
   await act(async () => {
@@ -497,6 +536,7 @@ async function testDialogBehavior(): Promise<void> {
     versionRenderer!.unmount();
     serverErrorRenderer!.unmount();
     recoveryRenderer!.unmount();
+    ordinaryCancelRenderer!.unmount();
     invalidRenderer!.unmount();
     syncedDialogRenderer!.unmount();
     partialRenderer!.unmount();

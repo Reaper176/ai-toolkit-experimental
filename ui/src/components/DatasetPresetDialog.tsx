@@ -324,6 +324,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
     }
   };
   const formDisabled = pending || published !== null;
+  const recoveryLocked = published !== null;
 
   const errorProps = (key: keyof FormState) => ({
     id: `dataset-preset-${String(key)}`,
@@ -340,10 +341,11 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
   return (
     <Modal
       isOpen={props.isOpen}
-      onClose={pending ? () => undefined : props.onClose}
+      onClose={pending || recoveryLocked ? () => undefined : props.onClose}
       title={props.mode === 'create' ? 'Save dataset preset' : `Save new version of ${props.presetName}`}
       size="xl"
-      closeOnOverlayClick={!pending}
+      showCloseButton={!recoveryLocked}
+      closeOnOverlayClick={!pending && !recoveryLocked}
     >
       <form onSubmit={submit} className="space-y-4">
         <p className="text-sm text-gray-400">
@@ -547,7 +549,12 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
           </p>
         )}
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={props.onClose} disabled={pending} className="rounded bg-gray-700 px-3 py-2">
+          <button
+            type="button"
+            onClick={recoveryLocked ? undefined : props.onClose}
+            disabled={pending || recoveryLocked}
+            className="rounded bg-gray-700 px-3 py-2"
+          >
             Cancel
           </button>
           <button
