@@ -41,6 +41,7 @@ export default function TrainingForm() {
   );
   const presetReady = presetPageState.sourceKey === presetSourceKey && presetPageState.presetReady;
   const presetSessionGeneration = presetPageState.generation;
+  const [datasetSourceGeneration, bumpDatasetSourceGeneration] = useReducer((generation: number) => generation + 1, 0);
   const [gpuIDs, setGpuIDs] = useState<string | null>(null);
   const { settings, isSettingsLoaded } = useSettings();
   const { gpuList, isGPUInfoLoaded } = useGPUInfo();
@@ -350,7 +351,10 @@ export default function TrainingForm() {
             key={presetSessionGeneration}
             disabled={!presetReady}
             jobConfig={jobConfig}
-            onJobConfigChange={next => setJobConfig(next)}
+            onJobConfigChange={next => {
+              setJobConfig(next);
+              bumpDatasetSourceGeneration();
+            }}
             migrateJobConfig={migrateJobConfig}
           />
         </div>
@@ -445,7 +449,7 @@ export default function TrainingForm() {
               setGpuIDs={setGpuIDs}
               gpuList={gpuList}
               datasetOptions={datasetOptions}
-              datasetInstanceToken={`${presetSourceKey}:${presetSessionGeneration}`}
+              datasetInstanceToken={`${presetSourceKey}:${presetSessionGeneration}:${datasetSourceGeneration}`}
               isLoading={!presetReady || !isSettingsLoaded || !isGPUInfoLoaded || datasetFetchStatus !== 'success'}
             />
           </ErrorBoundary>

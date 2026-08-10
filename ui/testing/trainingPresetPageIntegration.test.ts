@@ -222,6 +222,15 @@ const setterCalls = visitDescendants(changeExpression.body, node => {
   );
 });
 assert.equal(setterCalls.length, 1, 'onJobConfigChange must pass its parameter to setJobConfig');
+const datasetGenerationCalls = visitDescendants(changeExpression.body, node => {
+  return ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'bumpDatasetSourceGeneration';
+});
+assert.equal(datasetGenerationCalls.length, 1, 'training preset apply and undo invalidate dataset-source instances');
+assert.match(
+  pageSource,
+  /datasetInstanceToken=\{`\$\{presetSourceKey\}:\$\{presetSessionGeneration\}:\$\{datasetSourceGeneration\}`\}/,
+  'SimpleJob source token includes whole-config replacement generation',
+);
 
 assert.equal(getAttribute(presetControl, 'gpuIDs'), undefined, 'TrainingPresetControl must not receive gpuIDs');
 assert.equal(

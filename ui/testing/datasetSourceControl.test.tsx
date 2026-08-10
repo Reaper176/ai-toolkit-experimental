@@ -12,6 +12,13 @@ import {
 } from '../src/helpers/jobDatasetPresetClient';
 import type { JobConfig } from '../src/types';
 import useDatasetPresets, { type UseDatasetPresetsResult } from '../src/hooks/useDatasetPresets';
+import { TrainingPresetControl } from '../src/components/TrainingPresetControl';
+import { sanitizeTrainingPreset, type TrainingPresetRecord } from '../src/helpers/trainingPresets';
+import {
+  PRESET_ACTION_UNDO,
+  presetValue,
+  type TrainingPresetApi,
+} from '../src/components/TrainingPresetSelect';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const originalError = console.error;
@@ -584,6 +591,142 @@ async function runInstanceIdentitySafetyBehavior(): Promise<void> {
   await act(async () => renderer.unmount());
 }
 
+async function runTrainingPresetReplacementBehavior(): Promise<void> {
+  const firstPendingVersion = deferred<Response>();
+  const undoPendingVersion = deferred<Response>();
+  let versionRequest = 0;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === '/api/dataset-presets') return response({ presets: [activePreset] });
+    if (url === '/api/dataset-presets/preset-1') return response({ ...activePreset, versions });
+    if (url === '/api/dataset-preset-versions/version-2') {
+      versionRequest += 1;
+      return versionRequest === 1 ? firstPendingVersion.promise : undoPendingVersion.promise;
+    }
+    throw new Error(`Unexpected URL ${url}`);
+  }) as typeof fetch;
+  const dataset: DatasetConfig = {
+    ...initialDataset,
+    folder_path: '',
+    mask_min_value: 0.42,
+    dataset_preset: {
+      version_id: 'version-1', preset_id: 'preset-1', preset_name: 'Faces', version: 1,
+      manifest_sha256: 'a'.repeat(64),
+    },
+  };
+  const job = (steps: number): JobConfig => ({
+    job: 'extension',
+    config: {
+      name: 'job',
+      process: [{
+        type: 'diffusion_trainer', training_folder: '/output', device: 'cuda', trigger_word: null,
+        datasets: [dataset], train: { steps }, save: {}, model: { name_or_path: 'model' }, sample: { samples: [] },
+      }],
+    },
+    meta: { name: '[name]', version: '1' },
+  } as unknown as JobConfig);
+  const trainingPreset: TrainingPresetRecord = {
+    id: 'training-preset', name: 'Training defaults', schema_version: 1,
+    snapshot: sanitizeTrainingPreset(job(200)),
+    created_at: '2026-08-01T00:00:00.000Z', updated_at: '2026-08-01T00:00:00.000Z',
+  };
+  const trainingApi: TrainingPresetApi = {
+    get: async () => ({ data: { presets: [trainingPreset] } }),
+    post: async () => { throw new Error('unexpected POST'); },
+    put: async () => { throw new Error('unexpected PUT'); },
+    delete: async () => { throw new Error('unexpected DELETE'); },
+  };
+  let currentJob = job(100);
+  let datasetGeneration = 0;
+  let editOrdinaryField!: () => void;
+  function Harness() {
+    const [jobConfig, setJobConfig] = useState(job(100));
+    const [generation, setGeneration] = useState(0);
+    currentJob = jobConfig;
+    datasetGeneration = generation;
+    editOrdinaryField = () => setJobConfig(previous => ({
+      ...previous,
+      config: {
+        ...previous.config,
+        process: [{
+          ...previous.config.process[0],
+          datasets: [{ ...previous.config.process[0].datasets[0], mask_min_value: 0.43 }],
+        }],
+      },
+    }));
+    const replaceWholeConfig = (next: JobConfig) => {
+      setJobConfig(next);
+      setGeneration(value => value + 1);
+    };
+    return <>
+      <TrainingPresetControl
+        jobConfig={jobConfig}
+        onJobConfigChange={replaceWholeConfig}
+        migrateJobConfig={value => value}
+        dependencies={{ api: trainingApi, Dialog: () => null }}
+      />
+      <DatasetSourceControl
+        dataset={jobConfig.config.process[0].datasets[0]}
+        liveOptions={[]}
+        instanceToken={`training-replacement-${generation}`}
+        onChange={next => setJobConfig(previous => ({
+          ...previous,
+          config: {
+            ...previous.config,
+            process: [{ ...previous.config.process[0], datasets: [next] }],
+          },
+        }))}
+      />
+    </>;
+  }
+  let renderer!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    renderer = TestRenderer.create(<Harness />);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => editOrdinaryField());
+  assert.equal(datasetGeneration, 0, 'ordinary field edits do not advance dataset-source generation');
+  await act(async () => {
+    void select(renderer.root, 'Preset version').props.onChange('version-2');
+    await Promise.resolve();
+  });
+  await act(async () => {
+    renderer.root.findByProps({ 'aria-label': 'Training preset' }).props.onChange({
+      currentTarget: { value: presetValue(trainingPreset.id) },
+    });
+  });
+  assert.equal(datasetGeneration, 1, 'training preset apply advances only dataset-source generation');
+  assert.equal(currentJob.config.process[0].train.steps, 200);
+  await act(async () => {
+    firstPendingVersion.resolve(response({ ...versions[1], manifest: {} }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(currentJob.config.process[0].datasets[0].dataset_preset?.version_id, 'version-1');
+  assert.equal(currentJob.config.process[0].datasets[0].mask_min_value, 0.43, 'stale apply request cannot overwrite protected overrides');
+
+  await act(async () => {
+    void select(renderer.root, 'Preset version').props.onChange('version-2');
+    await Promise.resolve();
+  });
+  await act(async () => {
+    renderer.root.findByProps({ 'aria-label': 'Training preset' }).props.onChange({
+      currentTarget: { value: PRESET_ACTION_UNDO },
+    });
+  });
+  assert.equal(datasetGeneration, 2, 'training preset undo advances dataset-source generation');
+  assert.equal(currentJob.config.process[0].train.steps, 100, 'controller retains undo state across source invalidation');
+  await act(async () => {
+    undoPendingVersion.resolve(response({ ...versions[1], manifest: {} }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(currentJob.config.process[0].datasets[0].dataset_preset?.version_id, 'version-1');
+  assert.equal(currentJob.config.process[0].datasets[0].mask_min_value, 0.43);
+  await act(async () => renderer.unmount());
+}
+
 async function runSharedListBehavior(): Promise<void> {
   const listResponse = deferred<Response>();
   let fetchCount = 0;
@@ -658,6 +801,7 @@ async function main(): Promise<void> {
   await runExternalReplacementSafetyBehavior();
   await runPresetIdentitySwitchBehavior();
   await runInstanceIdentitySafetyBehavior();
+  await runTrainingPresetReplacementBehavior();
   await runSharedListBehavior();
   await runCloneHydrationBehavior();
   console.error = originalError;
