@@ -550,6 +550,10 @@ export function createDatasetPresetSnapshotStore(
     const manifest = await readManifest(relativeManifestPath);
     const presetPin = pinDirectorySync(parsed.presetRoot, 'Preset root', managedRoot);
     const versionPin = pinDirectorySync(parsed.versionRoot, 'Version root', parsed.presetRoot);
+    const missingPaths: string[] = [];
+    const recordMissing = (sourcePath: string) => {
+      if (missingPaths.length < 5 && !missingPaths.includes(sourcePath)) missingPaths.push(sourcePath);
+    };
     for (const file of manifest.files) {
       requirePinnedRootsSync();
       validateDirectoryPinSync(presetPin, 'Preset root', managedRoot);
@@ -557,23 +561,26 @@ export function createDatasetPresetSnapshotStore(
       const managedPath = normalizeRelativeMediaPath(file.managed_path);
       if (!managedPath.startsWith('media/')) throw new Error(`Managed media path must be within media/: ${managedPath}`);
       const mediaPath = toSystemPath(parsed.versionRoot, managedPath);
-      let pinnedMedia: PinnedRegularFile;
+      let pinnedMedia: PinnedRegularFile | null = null;
       try {
         pinnedMedia = await openPinnedRegularFile(mediaPath, parsed.versionRoot);
       } catch (error) {
         if (isMissing(error)) {
-          throw new DatasetPresetSnapshotVerificationError('Managed snapshot media is missing', [file.source_path]);
+          recordMissing(file.source_path);
+        } else {
+          throw error;
         }
-        throw error;
       }
-      try {
-        const mediaInfo = await pinnedMedia.handle.stat({ bigint: true });
-        if (mediaInfo.size !== BigInt(file.media_bytes)) throw new Error(`Managed media size mismatch: ${managedPath}`);
-        if (full && (await hashPinnedFile(pinnedMedia)) !== file.media_sha256) {
-          throw new Error(`Managed media checksum mismatch: ${managedPath}`);
+      if (pinnedMedia !== null) {
+        try {
+          const mediaInfo = await pinnedMedia.handle.stat({ bigint: true });
+          if (mediaInfo.size !== BigInt(file.media_bytes)) throw new Error(`Managed media size mismatch: ${managedPath}`);
+          if (full && (await hashPinnedFile(pinnedMedia)) !== file.media_sha256) {
+            throw new Error(`Managed media checksum mismatch: ${managedPath}`);
+          }
+        } finally {
+          await pinnedMedia.handle.close().catch(() => undefined);
         }
-      } finally {
-        await pinnedMedia.handle.close().catch(() => undefined);
       }
       const captionPath = sidecarPath(managedPath, file.caption_ext);
       const absoluteCaptionPath = toSystemPath(parsed.versionRoot, captionPath);
@@ -582,31 +589,37 @@ export function createDatasetPresetSnapshotStore(
           throw new Error(`Unexpected managed caption exists: ${captionPath}`);
         }
       } else {
-        let pinnedCaption: PinnedRegularFile;
+        let pinnedCaption: PinnedRegularFile | null = null;
         try {
           pinnedCaption = await openPinnedRegularFile(absoluteCaptionPath, parsed.versionRoot);
         } catch (error) {
           if (isMissing(error)) {
-            throw new DatasetPresetSnapshotVerificationError('Managed snapshot caption is missing', [file.source_path]);
+            recordMissing(sidecarPath(file.source_path, file.caption_ext));
+          } else {
+            throw error;
           }
-          throw error;
         }
-        try {
-          const captionInfo = await pinnedCaption.handle.stat({ bigint: true });
-          if (captionInfo.size !== BigInt(file.caption_bytes as number)) {
-            throw new Error(`Managed caption size mismatch: ${captionPath}`);
+        if (pinnedCaption !== null) {
+          try {
+            const captionInfo = await pinnedCaption.handle.stat({ bigint: true });
+            if (captionInfo.size !== BigInt(file.caption_bytes as number)) {
+              throw new Error(`Managed caption size mismatch: ${captionPath}`);
+            }
+            if (full && (await hashPinnedFile(pinnedCaption)) !== file.caption_sha256) {
+              throw new Error(`Managed caption checksum mismatch: ${captionPath}`);
+            }
+          } finally {
+            await pinnedCaption.handle.close().catch(() => undefined);
           }
-          if (full && (await hashPinnedFile(pinnedCaption)) !== file.caption_sha256) {
-            throw new Error(`Managed caption checksum mismatch: ${captionPath}`);
-          }
-        } finally {
-          await pinnedCaption.handle.close().catch(() => undefined);
         }
       }
     }
     validateDirectoryPinSync(versionPin, 'Version root', parsed.presetRoot);
     validateDirectoryPinSync(presetPin, 'Preset root', managedRoot);
     requirePinnedRootsSync();
+    if (missingPaths.length > 0) {
+      throw new DatasetPresetSnapshotVerificationError('Managed snapshot files are missing', missingPaths);
+    }
     return manifest;
   }
 

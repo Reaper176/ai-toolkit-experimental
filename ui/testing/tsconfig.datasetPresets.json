@@ -21,6 +21,7 @@
     "../src/server/datasetPresetService.ts",
     "../src/server/datasetPresetRouteHandlers.ts",
     "../src/server/jobDatasetPresetService.ts",
+    "../src/server/jobStartOrchestration.ts",
     "../src/server/jobDatasetPresetPrismaStore.ts",
     "../src/components/DatasetSelectionToolbar.tsx",
     "../src/components/DatasetPresetDialog.tsx",

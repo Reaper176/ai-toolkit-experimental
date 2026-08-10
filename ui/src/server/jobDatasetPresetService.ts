@@ -394,7 +394,14 @@ export async function saveJobWithDatasetUsages(input: SaveJobInput): Promise<Job
 }
 
 export async function preflightJobDatasetPresets(jobConfig: JobConfig, deps: PreflightDeps): Promise<void> {
-  await resolveJobDatasetPresetsInternal({
+  await prepareJobDatasetPresetsForTraining(jobConfig, deps);
+}
+
+export async function prepareJobDatasetPresetsForTraining(
+  jobConfig: JobConfig,
+  deps: PreflightDeps,
+): Promise<JobConfig> {
+  const resolved = await resolveJobDatasetPresetsInternal({
     jobId: null,
     clone: false,
     jobConfig,
@@ -404,4 +411,5 @@ export async function preflightJobDatasetPresets(jobConfig: JobConfig, deps: Pre
     },
     snapshots: deps.snapshots,
   }, 'integrity-only');
+  return resolved.jobConfig;
 }

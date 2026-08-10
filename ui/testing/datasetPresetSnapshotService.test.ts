@@ -66,6 +66,11 @@ async function main(): Promise<void> {
     writeFileSync(join(sourceRoot, 'b.txt'), '');
     writeFileSync(join(sourceRoot, 'new.webp'), Buffer.from([8, 9]));
     writeFileSync(join(sourceRoot, 'new.txt'), 'new');
+    const aggregatePaths = Array.from({ length: 6 }, (_, index) => `missing${index}.png`);
+    for (const mediaPath of aggregatePaths) {
+      writeFileSync(join(sourceRoot, mediaPath), Buffer.from([1]));
+      writeFileSync(join(sourceRoot, mediaPath.replace(/\.png$/, '.txt')), 'caption');
+    }
 
     for (const invalid of ['../a.jpg', 'a/../../b.png', '/absolute.jpg', 'C:\\absolute.jpg']) {
       assert.throws(() => normalizeRelativeMediaPath(invalid), /path|segment/i);
@@ -178,6 +183,26 @@ async function main(): Promise<void> {
     escapedManifest.files[0].source_path = 'mutated.png';
     assert.equal(publication.manifest.files[0].source_path, 'b.png');
     await publication.publish();
+
+    const aggregatePublication = await store.stageVersion({
+      presetId: 'aggregate-missing', version: 1, presetName: 'Aggregate Missing',
+      sourceDataset: 'my-images', sourceRoot, selectedPaths: aggregatePaths,
+      captionExt: 'txt', loaderConfig, note: null,
+    });
+    await aggregatePublication.publish();
+    for (const index of [0, 1, 2]) {
+      unlinkSync(join(aggregatePublication.versionRoot, `media/missing${index}.png`));
+    }
+    for (const index of [3, 4, 5]) {
+      unlinkSync(join(aggregatePublication.versionRoot, `media/missing${index}.txt`));
+    }
+    await assert.rejects(
+      () => store.verifyFast(aggregatePublication.manifestPath),
+      error => error instanceof Error &&
+        JSON.stringify((error as Error & { missingPaths?: string[] }).missingPaths) ===
+          JSON.stringify(['missing0.png', 'missing1.png', 'missing2.png', 'missing3.txt', 'missing4.txt']),
+      'verification deterministically reports at most five missing media and source caption sidecars',
+    );
     const managedIdentity = statSync(join(dataRoot, 'dataset_presets'), { bigint: true });
     assert.equal(typeof managedIdentity.dev, 'bigint');
     assert.equal(typeof managedIdentity.ino, 'bigint');

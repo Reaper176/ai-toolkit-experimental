@@ -9,9 +9,10 @@ import { createDatasetPresetSnapshotStore } from '../../src/server/datasetPreset
 import {
   JobDatasetPresetError,
   JobDatasetPresetPreflightError,
-  preflightJobDatasetPresets,
+  prepareJobDatasetPresetsForTraining,
 } from '../../src/server/jobDatasetPresetService';
 import { createJobDatasetVersionPrismaStore } from '../../src/server/jobDatasetPresetPrismaStore';
+import { prepareClaimAndLaunchJob } from '../../src/server/jobStartOrchestration';
 import type { JobConfig } from '../../src/types';
 const isWindows = process.platform === 'win32';
 
@@ -438,38 +439,39 @@ export async function startAndWatchJob(jobID: string) {
     console.error(`Job with ID ${jobID} not found`);
     return;
   }
-  let jobConfig: JobConfig;
-  try {
-    jobConfig = JSON.parse(job.job_config) as JobConfig;
-    await preflightJobDatasetPresets(jobConfig, {
-      versions: createJobDatasetVersionPrismaStore(prisma),
-      snapshots: createDatasetPresetSnapshotStore(await getDataRoot()),
-    });
-  } catch (error) {
-    const message = safePreflightMessage(error);
-    try {
-      await prisma.job.update({
-        where: { id: jobID },
-        data: { status: 'error', info: message, pid: null },
+  await prepareClaimAndLaunchJob(job, {
+    async prepare(jobConfig) {
+      return prepareJobDatasetPresetsForTraining(jobConfig, {
+        versions: createJobDatasetVersionPrismaStore(prisma),
+        snapshots: createDatasetPresetSnapshotStore(await getDataRoot()),
       });
-    } catch (updateError) {
-      console.error('Unable to update job after dataset preset preflight failure:', updateError);
-    }
-    await appendPreflightFailureToExistingLog(job, message);
-    return;
-  }
-  // update job status to 'running', this will run sync so we don't start multiple jobs.
-  await prisma.job.update({
-    where: { id: jobID },
-    data: {
-      status: 'running',
-      stop: false,
-      return_to_queue: false,
-      info: 'Starting job...',
+    },
+    async claim() {
+      const claimed = await prisma.job.updateMany({
+        where: { id: jobID, status: 'queued', stop: false },
+        data: { status: 'running', return_to_queue: false, info: 'Starting job...' },
+      });
+      return claimed.count === 1;
+    },
+    async fail(error) {
+      const message = safePreflightMessage(error);
+      try {
+        const failed = await prisma.job.updateMany({
+          where: { id: jobID, status: 'queued', stop: false },
+          data: { status: 'error', info: message, pid: null },
+        });
+        if (failed.count !== 1) return false;
+      } catch (updateError) {
+        console.error('Unable to update job after dataset preset preflight failure:', updateError);
+        return false;
+      }
+      await appendPreflightFailureToExistingLog(job, message);
+      return true;
+    },
+    launch(jobConfig) {
+      void launchAndWatchJob(job, jobConfig);
     },
   });
-  // start and watch the job asynchronously so the cron can continue
-  void launchAndWatchJob(job, jobConfig);
 }
 
 export default async function startJob(jobID: string) {
