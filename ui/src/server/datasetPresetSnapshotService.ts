@@ -1,3 +1,11 @@
+/**
+ * SECURITY BOUNDARY: <canonicalDataRoot>/dataset_presets is exclusively managed
+ * by this application account. Portable Node does not expose handle-relative
+ * openat2/renameat2/rm operations, so concurrent pathname mutation by another
+ * process or account with write access is outside the supported threat model.
+ * Identity and ancestry checks below are best-effort defenses within that
+ * ownership boundary and repeat immediately before pathname mutations.
+ */
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, createWriteStream, lstatSync, realpathSync, statSync } from 'node:fs';
 import {
@@ -10,9 +18,9 @@ import {
   rm,
   stat,
 } from 'node:fs/promises';
-import type { Stats } from 'node:fs';
+import type { BigIntStats } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
-import { isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
+import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import {
@@ -80,6 +88,11 @@ interface ParsedManifestPath {
   manifestFile: string;
 }
 
+interface ParsedManifestGrammar {
+  presetId: string;
+  version: number;
+}
+
 interface CopyResult {
   bytes: number;
   sha256: string;
@@ -89,8 +102,8 @@ interface CopyResult {
 interface DirectoryPin {
   path: string;
   realPath: string;
-  dev: number | bigint;
-  ino: number | bigint;
+  dev: bigint;
+  ino: bigint;
 }
 
 interface RootPin {
@@ -103,7 +116,7 @@ interface PinnedRegularFile {
   realPath: string;
   trustedRoot: string;
   handle: FileHandle;
-  baseline: Stats;
+  baseline: BigIntStats;
 }
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -117,11 +130,14 @@ function isDescendant(root: string, candidate: string): boolean {
   return child !== '' && child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child);
 }
 
-function sameIdentity(left: Pick<Stats, 'dev' | 'ino'>, right: Pick<Stats, 'dev' | 'ino'>): boolean {
+function sameIdentity(
+  left: Pick<BigIntStats, 'dev' | 'ino'>,
+  right: Pick<BigIntStats, 'dev' | 'ino'>,
+): boolean {
   return left.dev === right.dev && left.ino === right.ino;
 }
 
-function pinFromStats(path: string, realPath: string, info: Stats): DirectoryPin {
+function pinFromStats(path: string, realPath: string, info: BigIntStats): DirectoryPin {
   return { path, realPath, dev: info.dev, ino: info.ino };
 }
 
@@ -169,7 +185,7 @@ function cloneManifest(manifest: DatasetPresetManifestV1): DatasetPresetManifest
 
 async function pathExists(path: string): Promise<boolean> {
   try {
-    await lstat(path);
+    await lstat(path, { bigint: true });
     return true;
   } catch (error) {
     if (isMissing(error)) return false;
@@ -183,15 +199,15 @@ async function assertNoSymlinkComponents(trustedRoot: string, candidate: string)
   let current = trustedRoot;
   for (const segment of child.split(sep)) {
     current = join(current, segment);
-    const info = await lstat(current);
+    const info = await lstat(current, { bigint: true });
     if (info.isSymbolicLink()) throw new Error(`Path component must not be a symlink: ${current}`);
   }
 }
 
-async function validatePinnedFile(file: PinnedRegularFile): Promise<Stats> {
-  const opened = await file.handle.stat();
+async function validatePinnedFile(file: PinnedRegularFile): Promise<BigIntStats> {
+  const opened = await file.handle.stat({ bigint: true });
   if (!opened.isFile()) throw new Error(`Opened file is no longer regular: ${file.path}`);
-  const pathInfo = await lstat(file.path);
+  const pathInfo = await lstat(file.path, { bigint: true });
   if (pathInfo.isSymbolicLink() || !pathInfo.isFile()) throw new Error(`File path identity changed: ${file.path}`);
   await assertNoSymlinkComponents(file.trustedRoot, file.path);
   const currentRealPath = await realpath(file.path);
@@ -201,7 +217,7 @@ async function validatePinnedFile(file: PinnedRegularFile): Promise<Stats> {
   }
   if (
     opened.size !== file.baseline.size
-    || opened.mtimeMs !== file.baseline.mtimeMs
+    || opened.mtimeNs !== file.baseline.mtimeNs
     || !sameIdentity(opened, file.baseline)
   ) {
     throw new Error(`Source changed while it was being copied: ${file.path}`);
@@ -211,7 +227,7 @@ async function validatePinnedFile(file: PinnedRegularFile): Promise<Stats> {
 
 async function openPinnedRegularFile(path: string, trustedRoot: string): Promise<PinnedRegularFile> {
   await assertNoSymlinkComponents(trustedRoot, path);
-  const before = await lstat(path);
+  const before = await lstat(path, { bigint: true });
   if (before.isSymbolicLink() || !before.isFile()) throw new Error(`Path must be a non-symlink regular file: ${path}`);
   const beforeRealPath = await realpath(path);
   assertWithinRoot(trustedRoot, beforeRealPath, 'File path');
@@ -246,6 +262,10 @@ async function copyAndHashPinned(
   const chunks: Buffer[] = [];
   const hashingStream = new Transform({
     transform(chunk: Buffer, _encoding, callback) {
+      if (bytes > Number.MAX_SAFE_INTEGER - chunk.length) {
+        callback(new Error(`File size exceeds the safe manifest byte range: ${sourcePath}`));
+        return;
+      }
       bytes += chunk.length;
       hash.update(chunk);
       if (captureContent) chunks.push(Buffer.from(chunk));
@@ -253,7 +273,7 @@ async function copyAndHashPinned(
     },
   });
   try {
-    await mkdir(resolve(destinationPath, '..'), { recursive: true });
+    await mkdir(resolve(destinationPath, '..'), { recursive: true, mode: 0o700 });
     await pipeline(
       pinned.handle.createReadStream({ autoClose: false, start: 0 }),
       hashingStream,
@@ -293,7 +313,7 @@ async function hashPinnedFile(file: PinnedRegularFile): Promise<string> {
   return hash.digest('hex');
 }
 
-function parseManifestPath(managedRoot: string, relativeManifestPath: string): ParsedManifestPath {
+function parseManifestGrammar(relativeManifestPath: string): ParsedManifestGrammar {
   if (typeof relativeManifestPath !== 'string' || isAbsolute(relativeManifestPath) || relativeManifestPath.includes('\\')) {
     throw new Error('Manifest path must be a relative portable path');
   }
@@ -306,6 +326,11 @@ function parseManifestPath(managedRoot: string, relativeManifestPath: string): P
   if (!versionMatch) throw new Error('Manifest path must contain a positive version');
   const version = Number(versionMatch[1]);
   validatePositiveVersion(version);
+  return { presetId, version };
+}
+
+function resolveManifestPath(managedRoot: string, parsed: ParsedManifestGrammar): ParsedManifestPath {
+  const { presetId, version } = parsed;
   const presetRoot = join(managedRoot, presetId);
   const versionRoot = join(presetRoot, `v${version}`);
   return { presetId, version, presetRoot, versionRoot, manifestFile: join(versionRoot, 'manifest.json') };
@@ -317,7 +342,7 @@ function validateExistingPathSynchronously(path: ParsedManifestPath): void {
     [path.versionRoot, 'Version root', true],
     [path.manifestFile, 'Manifest', false],
   ] as const) {
-    const info = lstatSync(candidate);
+    const info = lstatSync(candidate, { bigint: true });
     if (info.isSymbolicLink()) throw new Error(`${label} must not be a symlink`);
     if (directory && !info.isDirectory()) throw new Error(`${label} must be a directory`);
     if (!directory && !info.isFile()) throw new Error(`${label} must be a regular file`);
@@ -328,22 +353,36 @@ export function createDatasetPresetSnapshotStore(
   dataRoot: string,
   dependencies?: Partial<DatasetPresetSnapshotDependencies>,
 ): DatasetPresetSnapshotStore {
-  const absoluteDataRoot = resolve(dataRoot);
-  const managedRoot = join(absoluteDataRoot, 'dataset_presets');
+  const configuredDataRoot = resolve(dataRoot);
+  let canonicalDataRoot = configuredDataRoot;
+  let managedRoot = join(canonicalDataRoot, 'dataset_presets');
   const resolvedDependencies: DatasetPresetSnapshotDependencies = {
     randomId: dependencies?.randomId ?? randomUUID,
     beforeCopyComplete: dependencies?.beforeCopyComplete,
   };
   let rootPin: RootPin | undefined;
 
+  function validateAccountBoundary(info: BigIntStats, label: string): void {
+    if (process.platform === 'win32') return;
+    if ((info.mode & 0o022n) !== 0n) throw new Error(`${label} must not be group/world writable`);
+    const getuid = process.getuid;
+    if (typeof getuid === 'function' && info.uid !== BigInt(getuid())) {
+      throw new Error(`${label} must be owned by the application account`);
+    }
+  }
+
   function pinDirectorySync(path: string, label: string, trustedRoot?: string): DirectoryPin {
-    const info = lstatSync(path);
+    const info = lstatSync(path, { bigint: true });
     if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(`${label} must be a non-symlink directory`);
     const realPath = realpathSync(path);
     if (realPath !== path) throw new Error(`${label} must have a canonical non-symlink parent chain`);
-    if (trustedRoot !== undefined) assertWithinRoot(trustedRoot, realPath, label);
-    const followed = statSync(path);
+    if (trustedRoot !== undefined) {
+      assertWithinRoot(trustedRoot, realPath, label);
+      validateAccountBoundary(info, label);
+    }
+    const followed = statSync(path, { bigint: true });
     if (!sameIdentity(info, followed)) throw new Error(`${label} identity changed while pinning`);
+    if (trustedRoot !== undefined) validateAccountBoundary(followed, label);
     return pinFromStats(path, realPath, followed);
   }
 
@@ -356,13 +395,15 @@ export function createDatasetPresetSnapshotStore(
 
   function requirePinnedRootsSync(): RootPin {
     if (rootPin === undefined) {
+      canonicalDataRoot = realpathSync(configuredDataRoot);
+      managedRoot = join(canonicalDataRoot, 'dataset_presets');
       rootPin = {
-        data: pinDirectorySync(absoluteDataRoot, 'Data root'),
-        managed: pinDirectorySync(managedRoot, 'Dataset preset root', absoluteDataRoot),
+        data: pinDirectorySync(canonicalDataRoot, 'Data root'),
+        managed: pinDirectorySync(managedRoot, 'Dataset preset root', canonicalDataRoot),
       };
     }
     validateDirectoryPinSync(rootPin.data, 'Data root');
-    validateDirectoryPinSync(rootPin.managed, 'Dataset preset root', absoluteDataRoot);
+    validateDirectoryPinSync(rootPin.managed, 'Dataset preset root', canonicalDataRoot);
     return rootPin;
   }
 
@@ -376,16 +417,18 @@ export function createDatasetPresetSnapshotStore(
       requirePinnedRootsSync();
       return;
     }
-    await mkdir(absoluteDataRoot, { recursive: true });
-    pinDirectorySync(absoluteDataRoot, 'Data root');
+    await mkdir(configuredDataRoot, { recursive: true });
+    canonicalDataRoot = await realpath(configuredDataRoot);
+    managedRoot = join(canonicalDataRoot, 'dataset_presets');
+    pinDirectorySync(canonicalDataRoot, 'Data root');
     try {
-      await mkdir(managedRoot);
+      await mkdir(managedRoot, { mode: 0o700 });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
     }
     rootPin = {
-      data: pinDirectorySync(absoluteDataRoot, 'Data root'),
-      managed: pinDirectorySync(managedRoot, 'Dataset preset root', absoluteDataRoot),
+      data: pinDirectorySync(canonicalDataRoot, 'Data root'),
+      managed: pinDirectorySync(managedRoot, 'Dataset preset root', canonicalDataRoot),
     };
     requirePinnedRootsSync();
   }
@@ -398,25 +441,51 @@ export function createDatasetPresetSnapshotStore(
     return moved;
   }
 
-  async function removePinnedDirectory(pin: DirectoryPin, parentPin: DirectoryPin, label: string): Promise<void> {
+  async function movePinnedDirectoryToTombstone(
+    pin: DirectoryPin,
+    parentPin: DirectoryPin,
+    label: string,
+  ): Promise<void> {
     requirePinnedRootsSync();
+    if (basename(pin.path).toLowerCase().startsWith('.tombstone-') && relative(managedRoot, pin.path) === basename(pin.path)) {
+      validateDirectoryPinSync(pin, `${label} tombstone`, managedRoot);
+      return;
+    }
     validateDirectoryPinSync(parentPin, `${label} parent`, managedRoot);
     validateDirectoryPinSync(pin, label, parentPin.path);
     const tombstonePath = join(managedRoot, nextOwnedName('.tombstone-'));
     if (await pathExists(tombstonePath)) throw new Error('Owned tombstone destination already exists');
 
     // Node has no portable openat2/renameat2 binding. Rename into the pinned root,
-    // then re-check dev/ino before rm so a swapped pathname is never recursively removed.
+    // then re-check dev/ino. Mutating the active pin immediately makes deletion retryable.
+    const originalPin = { ...pin };
     await rename(pin.path, tombstonePath);
-    const tombstonePin = validateMovedDirectoryPin(pin, tombstonePath, `${label} tombstone`);
+    pin.path = tombstonePath;
+    pin.realPath = tombstonePath;
+    const tombstonePin = validateMovedDirectoryPin(originalPin, tombstonePath, `${label} tombstone`);
+    Object.assign(pin, tombstonePin);
+  }
+
+  async function deletePinnedTombstone(pin: DirectoryPin, label: string): Promise<void> {
     requirePinnedRootsSync();
-    validateDirectoryPinSync(tombstonePin, `${label} tombstone`, managedRoot);
-    await rm(tombstonePath, { recursive: true });
+    validateDirectoryPinSync(pin, `${label} tombstone`, managedRoot);
+    // Best-effort portable check immediately before pathname-based recursive rm.
+    try {
+      await rm(pin.path, { recursive: true });
+    } catch (error) {
+      if (!(await pathExists(pin.path))) return;
+      throw error;
+    }
+  }
+
+  async function removePinnedDirectory(pin: DirectoryPin, parentPin: DirectoryPin, label: string): Promise<void> {
+    await movePinnedDirectoryToTombstone(pin, parentPin, label);
+    await deletePinnedTombstone(pin, label);
   }
 
   async function readManifest(relativeManifestPath: string): Promise<DatasetPresetManifestV1> {
     requirePinnedRootsSync();
-    const parsed = parseManifestPath(managedRoot, relativeManifestPath);
+    const parsed = resolveManifestPath(managedRoot, parseManifestGrammar(relativeManifestPath));
     const presetPin = pinDirectorySync(parsed.presetRoot, 'Preset root', managedRoot);
     const versionPin = pinDirectorySync(parsed.versionRoot, 'Version root', parsed.presetRoot);
     const pinnedManifest = await openPinnedRegularFile(parsed.manifestFile, parsed.versionRoot);
@@ -453,7 +522,7 @@ export function createDatasetPresetSnapshotStore(
 
   async function verifyFiles(relativeManifestPath: string, full: boolean): Promise<DatasetPresetManifestV1> {
     requirePinnedRootsSync();
-    const parsed = parseManifestPath(managedRoot, relativeManifestPath);
+    const parsed = resolveManifestPath(managedRoot, parseManifestGrammar(relativeManifestPath));
     const manifest = await readManifest(relativeManifestPath);
     const presetPin = pinDirectorySync(parsed.presetRoot, 'Preset root', managedRoot);
     const versionPin = pinDirectorySync(parsed.versionRoot, 'Version root', parsed.presetRoot);
@@ -466,8 +535,8 @@ export function createDatasetPresetSnapshotStore(
       const mediaPath = toSystemPath(parsed.versionRoot, managedPath);
       const pinnedMedia = await openPinnedRegularFile(mediaPath, parsed.versionRoot);
       try {
-        const mediaInfo = await pinnedMedia.handle.stat();
-        if (mediaInfo.size !== file.media_bytes) throw new Error(`Managed media size mismatch: ${managedPath}`);
+        const mediaInfo = await pinnedMedia.handle.stat({ bigint: true });
+        if (mediaInfo.size !== BigInt(file.media_bytes)) throw new Error(`Managed media size mismatch: ${managedPath}`);
         if (full && (await hashPinnedFile(pinnedMedia)) !== file.media_sha256) {
           throw new Error(`Managed media checksum mismatch: ${managedPath}`);
         }
@@ -483,8 +552,10 @@ export function createDatasetPresetSnapshotStore(
       } else {
         const pinnedCaption = await openPinnedRegularFile(absoluteCaptionPath, parsed.versionRoot);
         try {
-          const captionInfo = await pinnedCaption.handle.stat();
-          if (captionInfo.size !== file.caption_bytes) throw new Error(`Managed caption size mismatch: ${captionPath}`);
+          const captionInfo = await pinnedCaption.handle.stat({ bigint: true });
+          if (captionInfo.size !== BigInt(file.caption_bytes as number)) {
+            throw new Error(`Managed caption size mismatch: ${captionPath}`);
+          }
           if (full && (await hashPinnedFile(pinnedCaption)) !== file.caption_sha256) {
             throw new Error(`Managed caption checksum mismatch: ${captionPath}`);
           }
@@ -546,10 +617,10 @@ export function createDatasetPresetSnapshotStore(
       throw new Error('A prior manifest path is required for retained paths');
     }
 
-    const parsedPriorPath = input.priorManifestPath !== undefined
-      ? parseManifestPath(managedRoot, input.priorManifestPath)
+    const parsedPriorGrammar = input.priorManifestPath !== undefined
+      ? parseManifestGrammar(input.priorManifestPath)
       : undefined;
-    if (parsedPriorPath && retainedPaths.length > 0 && parsedPriorPath.presetId !== presetId) {
+    if (parsedPriorGrammar && retainedPaths.length > 0 && parsedPriorGrammar.presetId !== presetId) {
       throw new Error('Prior manifest must belong to the same preset ID');
     }
 
@@ -557,7 +628,7 @@ export function createDatasetPresetSnapshotStore(
       throw new Error('Source root must be a nonempty path');
     }
     const realSourceRoot = await realpath(input.sourceRoot);
-    const sourceRootInfo = await stat(realSourceRoot);
+    const sourceRootInfo = await stat(realSourceRoot, { bigint: true });
     if (!sourceRootInfo.isDirectory()) throw new Error('Source root must be a directory');
     const sourceRootPin = pinDirectorySync(realSourceRoot, 'Source root');
 
@@ -565,8 +636,9 @@ export function createDatasetPresetSnapshotStore(
     let priorRoot: string | undefined;
     let priorPresetPin: DirectoryPin | undefined;
     let priorVersionPin: DirectoryPin | undefined;
-    if (retainedPaths.length > 0 && parsedPriorPath && input.priorManifestPath !== undefined) {
+    if (retainedPaths.length > 0 && parsedPriorGrammar && input.priorManifestPath !== undefined) {
       const priorManifest = await verifyFast(input.priorManifestPath);
+      const parsedPriorPath = resolveManifestPath(managedRoot, parsedPriorGrammar);
       priorBySource = new Map(priorManifest.files.map(file => [file.source_path.toLowerCase(), file]));
       priorRoot = parsedPriorPath.versionRoot;
       priorPresetPin = pinDirectorySync(parsedPriorPath.presetRoot, 'Prior preset root', managedRoot);
@@ -597,13 +669,13 @@ export function createDatasetPresetSnapshotStore(
     await initializeManagedRoot();
     requirePinnedRootsSync();
     const presetRoot = join(managedRoot, presetId);
-    await mkdir(presetRoot, { recursive: true });
+    await mkdir(presetRoot, { recursive: true, mode: 0o700 });
     const presetPin = pinDirectorySync(presetRoot, 'Preset root', managedRoot);
     const stagingRoot = join(presetRoot, stagingName);
     const versionRoot = join(presetRoot, `v${version}`);
     requirePinnedRootsSync();
     validateDirectoryPinSync(presetPin, 'Preset root', managedRoot);
-    await mkdir(stagingRoot);
+    await mkdir(stagingRoot, { mode: 0o700 });
     let ownedPin = pinDirectorySync(stagingRoot, 'Owned staging directory', presetRoot);
     let state: 'staged' | 'published' | 'rolled-back' = 'staged';
     try {
@@ -671,7 +743,7 @@ export function createDatasetPresetSnapshotStore(
         let captionSha256: string | null = null;
         let captionMissing = false;
         try {
-          await lstat(sourceCaption);
+          await lstat(sourceCaption, { bigint: true });
         } catch (error) {
           if (isMissing(error)) captionMissing = true;
           else throw error;
@@ -783,7 +855,7 @@ export function createDatasetPresetSnapshotStore(
     verifyFull,
     resolveMediaRoot(relativeManifestPath: string): string {
       requirePinnedRootsSync();
-      const parsed = parseManifestPath(managedRoot, relativeManifestPath);
+      const parsed = resolveManifestPath(managedRoot, parseManifestGrammar(relativeManifestPath));
       validateExistingPathSynchronously(parsed);
       const mediaRoot = join(parsed.versionRoot, 'media');
       pinDirectorySync(parsed.presetRoot, 'Preset root', managedRoot);
@@ -794,7 +866,7 @@ export function createDatasetPresetSnapshotStore(
     },
     async quarantineVersion(relativeManifestPath: string): Promise<SnapshotQuarantine> {
       requirePinnedRootsSync();
-      const parsed = parseManifestPath(managedRoot, relativeManifestPath);
+      const parsed = resolveManifestPath(managedRoot, parseManifestGrammar(relativeManifestPath));
       await readManifest(relativeManifestPath);
       const presetPin = pinDirectorySync(parsed.presetRoot, 'Preset root', managedRoot);
       let quarantinePin = pinDirectorySync(parsed.versionRoot, 'Version root', parsed.presetRoot);
@@ -834,7 +906,17 @@ export function createDatasetPresetSnapshotStore(
       for (const presetEntry of await readdir(managedRoot, { withFileTypes: true })) {
         requirePinnedRootsSync();
         if (presetEntry.isSymbolicLink()) throw new Error(`Preset parent must not be a symlink: ${presetEntry.name}`);
-        if (!presetEntry.isDirectory() || presetEntry.name.toLowerCase().startsWith('.tombstone-')) continue;
+        if (presetEntry.name.toLowerCase().startsWith('.tombstone-')) {
+          if (!presetEntry.isDirectory()) continue;
+          const tombstonePath = join(managedRoot, presetEntry.name);
+          const tombstoneInfo = await lstat(tombstonePath, { bigint: true });
+          if (tombstoneInfo.mtimeMs >= BigInt(olderThan.getTime())) continue;
+          const tombstonePin = pinDirectorySync(tombstonePath, 'Abandoned tombstone', managedRoot);
+          await deletePinnedTombstone(tombstonePin, 'Abandoned tombstone');
+          removed.push(presetEntry.name);
+          continue;
+        }
+        if (!presetEntry.isDirectory()) continue;
         const presetRoot = join(managedRoot, presetEntry.name);
         const presetPin = pinDirectorySync(presetRoot, 'Preset root', managedRoot);
         for (const childEntry of await readdir(presetRoot, { withFileTypes: true })) {
@@ -842,8 +924,8 @@ export function createDatasetPresetSnapshotStore(
           if (childEntry.isSymbolicLink()) throw new Error(`Staging directory must not be a symlink: ${childEntry.name}`);
           if (!childEntry.isDirectory()) continue;
           const childPath = join(presetRoot, childEntry.name);
-          const info = await lstat(childPath);
-          if (info.isSymbolicLink() || !info.isDirectory() || info.mtimeMs >= olderThan.getTime()) continue;
+          const info = await lstat(childPath, { bigint: true });
+          if (info.isSymbolicLink() || !info.isDirectory() || info.mtimeMs >= BigInt(olderThan.getTime())) continue;
           const stagingPin = pinDirectorySync(childPath, 'Staging directory', presetRoot);
           await removePinnedDirectory(stagingPin, presetPin, 'Staging directory');
           removed.push(`${presetEntry.name}/${childEntry.name}`);

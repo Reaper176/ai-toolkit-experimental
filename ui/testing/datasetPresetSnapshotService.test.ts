@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -9,6 +10,7 @@ import {
   renameSync,
   rmSync,
   symlinkSync,
+  statSync,
   unlinkSync,
   utimesSync,
   writeFileSync,
@@ -114,6 +116,45 @@ async function main(): Promise<void> {
       assert.equal(existsSync(join(reservedDataRoot, 'dataset_presets')), false);
     }
 
+    if (process.platform !== 'win32') {
+      const writableDataRoot = join(ownedRoot, 'writable-managed-root');
+      const writableManagedRoot = join(writableDataRoot, 'dataset_presets');
+      mkdirSync(writableManagedRoot, { recursive: true });
+      chmodSync(writableManagedRoot, 0o777);
+      await expectRejects(
+        () => createDatasetPresetSnapshotStore(writableDataRoot).stageVersion({
+          presetId: 'unsafe-mode', version: 1, presetName: 'Unsafe', sourceDataset: 'my-images', sourceRoot,
+          selectedPaths: ['b.png'], captionExt: 'txt', loaderConfig, note: null,
+        }),
+        /owner|writable|mode|permission/i,
+      );
+      assert.equal(statSync(writableManagedRoot).mode & 0o777, 0o777);
+    }
+
+    const canonicalDataTarget = join(ownedRoot, 'canonical-data-target');
+    const canonicalDataAlias = join(ownedRoot, 'canonical-data-alias');
+    mkdirSync(canonicalDataTarget);
+    let dataRootSymlinksSupported = true;
+    try {
+      symlinkSync(canonicalDataTarget, canonicalDataAlias, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EPERM' || code === 'EACCES' || code === 'ENOTSUP') dataRootSymlinksSupported = false;
+      else throw error;
+    }
+    if (dataRootSymlinksSupported) {
+      const canonicalStore = createDatasetPresetSnapshotStore(canonicalDataAlias, { randomId: () => 'canonical' });
+      const canonicalPublication = await canonicalStore.stageVersion({
+        presetId: 'canonical', version: 1, presetName: 'Canonical', sourceDataset: 'my-images', sourceRoot,
+        selectedPaths: ['b.png'], captionExt: 'txt', loaderConfig, note: null,
+      });
+      await canonicalPublication.publish();
+      assert.equal(canonicalPublication.versionRoot, join(canonicalDataTarget, 'dataset_presets/canonical/v1'));
+      assert.equal((await canonicalStore.readManifest(canonicalPublication.manifestPath)).preset_id, 'canonical');
+      assert.equal((await canonicalStore.verifyFull(canonicalPublication.manifestPath)).media_count, 1);
+      assert.equal(canonicalStore.resolveMediaRoot(canonicalPublication.manifestPath), join(canonicalPublication.versionRoot, 'media'));
+    }
+
     let nextId = 0;
     const store = createDatasetPresetSnapshotStore(dataRoot, { randomId: () => `id-${++nextId}` });
     const publication = await store.stageVersion({
@@ -134,6 +175,14 @@ async function main(): Promise<void> {
     escapedManifest.files[0].source_path = 'mutated.png';
     assert.equal(publication.manifest.files[0].source_path, 'b.png');
     await publication.publish();
+    const managedIdentity = statSync(join(dataRoot, 'dataset_presets'), { bigint: true });
+    assert.equal(typeof managedIdentity.dev, 'bigint');
+    assert.equal(typeof managedIdentity.ino, 'bigint');
+    if (process.platform !== 'win32') {
+      assert.equal(managedIdentity.mode & 0o777n, 0o700n);
+      assert.equal(statSync(dirname(publication.versionRoot), { bigint: true }).mode & 0o777n, 0o700n);
+      assert.equal(statSync(publication.versionRoot, { bigint: true }).mode & 0o777n, 0o700n);
+    }
     await publication.publish();
     const verified = await store.verifyFast(publication.manifestPath);
     assert.equal(verified.media_count, 2);
@@ -408,6 +457,30 @@ async function main(): Promise<void> {
       await secureRollback.rollback();
     }
 
+    if (process.platform !== 'win32' && process.getuid?.() !== 0) {
+      const retryStore = createDatasetPresetSnapshotStore(join(ownedRoot, 'retry-delete-data'), {
+        randomId: () => 'retry-delete',
+      });
+      const retryPublication = await retryStore.stageVersion({
+        presetId: 'retry-delete', version: 1, presetName: 'Retry delete', sourceDataset: 'my-images', sourceRoot,
+        selectedPaths: ['new.webp'], captionExt: 'txt', loaderConfig, note: null,
+      });
+      await retryPublication.publish();
+      const retryTombstone = join(ownedRoot, 'retry-delete-data/dataset_presets/.tombstone-retry-delete');
+      const lockedMedia = join(retryPublication.versionRoot, 'media');
+      chmodSync(lockedMedia, 0o000);
+      try {
+        await expectRejects(() => retryPublication.rollback(), /EACCES|permission|operation|denied/i);
+        assert.equal(existsSync(retryTombstone), true);
+        chmodSync(join(retryTombstone, 'media'), 0o700);
+        await retryPublication.rollback();
+        assert.equal(existsSync(retryTombstone), false);
+      } finally {
+        if (existsSync(lockedMedia)) chmodSync(lockedMedia, 0o700);
+        if (existsSync(join(retryTombstone, 'media'))) chmodSync(join(retryTombstone, 'media'), 0o700);
+      }
+    }
+
     const winner = await store.stageVersion({
       presetId: 'collision', version: 1, presetName: 'Collision', sourceDataset: 'my-images', sourceRoot,
       selectedPaths: ['new.webp'], captionExt: 'txt', loaderConfig, note: null,
@@ -545,14 +618,19 @@ async function main(): Promise<void> {
     assert.equal(lstatSync(join(cleanupPresetRoot, 'v9')).isDirectory(), true);
     const safeDotPresetRoot = join(dataRoot, 'dataset_presets/.safe-dot-preset');
     const rootTombstone = join(dataRoot, 'dataset_presets/.tombstone-owned');
+    const newerRootTombstone = join(dataRoot, 'dataset_presets/.tombstone-newer');
     mkdirSync(join(safeDotPresetRoot, '.staging-old'), { recursive: true });
     mkdirSync(join(rootTombstone, '.staging-old'), { recursive: true });
+    mkdirSync(join(newerRootTombstone, 'content'), { recursive: true });
     const older = new Date('2026-01-01T00:00:00.000Z');
     utimesSync(join(safeDotPresetRoot, '.staging-old'), older, older);
     utimesSync(join(rootTombstone, '.staging-old'), older, older);
-    assert.deepEqual(await store.cleanupStaging(cutoff), ['.safe-dot-preset/.staging-old']);
+    utimesSync(rootTombstone, older, older);
+    utimesSync(newerRootTombstone, cutoff, cutoff);
+    assert.deepEqual(await store.cleanupStaging(cutoff), ['.safe-dot-preset/.staging-old', '.tombstone-owned']);
     assert.equal(existsSync(join(safeDotPresetRoot, '.staging-old')), false);
-    assert.equal(existsSync(join(rootTombstone, '.staging-old')), true);
+    assert.equal(existsSync(rootTombstone), false);
+    assert.equal(existsSync(newerRootTombstone), true);
     if (symlinksSupported) {
       const cleanupOutside = join(ownedRoot, 'cleanup-outside');
       mkdirSync(join(cleanupOutside, '.staging-old'), { recursive: true });
