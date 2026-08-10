@@ -60,6 +60,33 @@ function usage(overrides: Partial<JobDatasetPresetUsageView> = {}): JobDatasetPr
   };
 }
 
+function jobResponse(id: string, overrides: Record<string, unknown> = {}): JobWithDatasetPresetUsages {
+  return {
+    id,
+    name: `Job ${id}`,
+    gpu_ids: '0',
+    job_config: JSON.stringify({
+      config: { process: [{ train: { steps: 10 }, sample: { samples: [], prompts: [] } }] },
+    }),
+    created_at: '2026-08-01T00:00:00.000Z',
+    updated_at: '2026-08-01T00:00:00.000Z',
+    status: 'stopped',
+    stop: false,
+    return_to_queue: false,
+    step: 0,
+    total_steps: 10,
+    info: '',
+    speed_string: '',
+    queue_position: 0,
+    pid: null,
+    job_type: 'train',
+    job_ref: null,
+    save_now: false,
+    sample_now: false,
+    ...overrides,
+  } as unknown as JobWithDatasetPresetUsages;
+}
+
 function responseBody(item: JobDatasetPresetUsageView) {
   return {
     id: item.preset_version_id,
@@ -326,6 +353,36 @@ async function run(): Promise<void> {
     'structured lifecycle failures remain bounded as a whole',
   );
 
+  for (const [unsafePath, expectedLabel] of [
+    ['bad:name.jpg', /bad\\u\{3a\}name\.jpg/],
+    ['trailing.jpg ', /trailing\.jpg\\u\{20\}/],
+    ['control\u0001.jpg', /control\\u\{1\}\.jpg/],
+    ['/private/dataset_presets/root.jpg', /unsafe relative path omitted/],
+  ] as const) {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          error: 'Dataset preset verification failed',
+          preset_id: 'preset-1',
+          version_id: 'version-1',
+          version: 3,
+          mismatches: [
+            { kind: 'unexpected', asset: 'media', path: unsafePath, expected: 'absent', actual: 'file' },
+          ],
+        }),
+        { status: 422 },
+      )) as typeof fetch;
+    await act(async () => {
+      lifecycleButton('Verify active version').props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const unsafeMismatchText = textOf(renderer.root.findAll(node => node.props.role === 'alert')[0]);
+    assert.match(unsafeMismatchText, /media unexpected/);
+    assert.match(unsafeMismatchText, expectedLabel);
+    assert.doesNotMatch(unsafeMismatchText, /\/private\/|dataset_presets/);
+  }
+
   await act(async () => {
     renderer.update(
       <DatasetPresetLifecycleControls
@@ -497,12 +554,11 @@ async function run(): Promise<void> {
   const queued = [requestA, requestB];
   const originalGet = apiClient.get;
   apiClient.get = (() => queued.shift()!.promise) as typeof apiClient.get;
-  const jobA = { id: 'job-a', name: 'A', dataset_preset_usages: [usage()] } as unknown as JobWithDatasetPresetUsages;
-  const jobB = {
-    id: 'job-b',
+  const jobA = jobResponse('job-a', { name: 'A', dataset_preset_usages: [usage()] });
+  const jobB = jobResponse('job-b', {
     name: 'B',
     dataset_preset_usages: [usage({ preset_name: 'B preset' })],
-  } as unknown as JobWithDatasetPresetUsages;
+  });
   await act(async () => {
     renderer = TestRenderer.create(<JobHarness id="job-a" />);
     await Promise.resolve();
@@ -543,6 +599,41 @@ async function run(): Promise<void> {
   assert.equal(observedJob(), null, 'malformed response cannot be object-spread into job state');
   assert.equal(currentJobStatus, 'error');
   assert.ok(currentJobError && currentJobError.length <= 240 && !currentJobError.includes('not,a,job'));
+  const malformedResponses: unknown[] = [
+    { id: 'job-b' },
+    { ...jobB, gpu_ids: null },
+    { ...jobB, gpu_ids: 'gpu-zero' },
+    { ...jobB, status: 4 },
+    { ...jobB, job_config: '{}' },
+    { ...jobB, job_config: JSON.stringify({ config: { process: [{}] } }) },
+    { ...jobB, dataset_preset_usages: [null] },
+    { ...jobB, dataset_preset_usages: [{ ...usage(), resolved_loader_config: undefined }] },
+    { ...jobB, dataset_preset_usages: [{ ...usage(), resolved_loader_config: { ...loader, fps: NaN } }] },
+    { ...jobB, dataset_preset_usages: [usage({ total_bytes: '01' })] },
+    { ...jobB, dataset_preset_usages: [usage({ version_created_at: 'not-a-date' })] },
+    { ...jobB, dataset_preset_usages: [usage({ manifest_sha256: 'not-a-hash' })] },
+    { ...jobB, dataset_preset_usages: [usage({ dataset_index: Number.NaN })] },
+    { ...jobB, dataset_preset_usages: [usage({ preset_version: 0 })] },
+    { ...jobB, dataset_preset_usages: [usage({ media_count: 1.5 })] },
+    { ...jobB, dataset_preset_usages: [usage({ preset_name: 'x'.repeat(81) })] },
+    { ...jobB, dataset_preset_usages: [usage({ note: 'x'.repeat(501) })] },
+  ];
+  for (const malformed of malformedResponses) {
+    apiClient.get = (async () => ({ data: malformed })) as typeof apiClient.get;
+    await act(async () => {
+      await refreshCurrent();
+    });
+    assert.equal(observedJob(), null, 'partial or malformed matching-ID responses remain non-renderable');
+    assert.equal(currentJobStatus, 'error');
+    assert.ok(currentJobError && currentJobError.length <= 240);
+  }
+  const defensiveResponse = jobResponse('job-b', { dataset_preset_usages: [usage()] });
+  apiClient.get = (async () => ({ data: defensiveResponse })) as typeof apiClient.get;
+  await act(async () => {
+    await refreshCurrent();
+  });
+  (defensiveResponse.dataset_preset_usages![0].resolved_loader_config.resolution as number[])[0] = 1;
+  assert.equal(observedJob()?.dataset_preset_usages?.[0]?.resolved_loader_config.resolution[0], 768);
   apiClient.get = originalGet;
   await act(async () => renderer.unmount());
 

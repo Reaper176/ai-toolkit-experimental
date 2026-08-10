@@ -49,6 +49,22 @@ function boundedValue(value: unknown): string | undefined {
   return value;
 }
 
+function unexpectedPathLabel(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 240) return null;
+  if (
+    value.startsWith('/') ||
+    value.startsWith('\\') ||
+    /^[A-Za-z]:[\\/]/.test(value) ||
+    value.includes('\\') ||
+    value.split('/').some(segment => segment === '' || segment === '.' || segment === '..')
+  ) {
+    return '[unsafe relative path omitted]';
+  }
+  return Array.from(value, character =>
+    /^[A-Za-z0-9._/-]$/.test(character) ? character : `\\u{${character.codePointAt(0)!.toString(16)}}`,
+  ).join('');
+}
+
 function verificationFailureMessage(body: unknown): string | null {
   if (!body || typeof body !== 'object' || !('mismatches' in body) || !Array.isArray(body.mismatches)) return null;
   const lines: string[] = [];
@@ -60,7 +76,9 @@ function verificationFailureMessage(body: unknown): string | null {
     let path: string;
     try {
       path =
-        mismatch.asset === 'manifest' && mismatch.path === 'manifest.json'
+        mismatch.kind === 'unexpected'
+          ? unexpectedPathLabel(mismatch.path) ?? '[unsafe relative path omitted]'
+          : mismatch.asset === 'manifest' && mismatch.path === 'manifest.json'
           ? 'manifest.json'
           : normalizeRelativeMediaPath(mismatch.path);
     } catch {
