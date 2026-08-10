@@ -212,6 +212,9 @@ async function main(): Promise<void> {
   assert.deepEqual(service.calls.at(-1), { method: 'setArchived', args: ['preset-1', true] });
   await assertStatus(handlers.removeVersion('version-1'), 200, { success: true });
   assert.deepEqual(service.calls.at(-1), { method: 'deleteVersion', args: ['version-1'] });
+  const versionCallStart = service.calls.length;
+  await assertStatus(handlers.version('version-1'), 200, versionDetail);
+  assert.deepEqual(service.calls.slice(versionCallStart), [{ method: 'getVersion', args: ['version-1'] }]);
   await assertStatus(handlers.verify('version-1'), 200, { valid: true, version: versionDetail, manifest });
   assert.deepEqual(service.calls.slice(-2), [
     { method: 'getVersion', args: ['version-1'] },
