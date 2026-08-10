@@ -5,6 +5,25 @@ export interface ClonePresetAvailability {
   archived_at: string | null;
 }
 
+export interface TrainingJobSaveRequestInput {
+  runId: string | null;
+  cloneId: string | null;
+  name: string;
+  gpuIds: string | null;
+  jobConfig: JobConfig;
+}
+
+export function buildTrainingJobSaveRequest(input: TrainingJobSaveRequestInput) {
+  const clone = Boolean(input.cloneId);
+  return {
+    id: clone ? null : input.runId,
+    clone,
+    name: input.name,
+    gpu_ids: input.gpuIds,
+    job_config: input.jobConfig,
+  };
+}
+
 export async function removeArchivedPresetSourcesFromClone(
   jobConfig: JobConfig,
   loadPreset: (presetId: string) => Promise<ClonePresetAvailability>,

@@ -206,6 +206,29 @@ async function runPreflightTests(): Promise<void> {
   const before = structuredClone(input);
   await preflightJobDatasetPresets(input, { versions: f.versions, snapshots: f.snapshots });
   assert.deepEqual(input, before, 'preflight does not mutate its input');
+
+  const archived = fixtures([{ id: 'historical', archived: true }]);
+  await preflightJobDatasetPresets(job([dataset('historical')]), {
+    versions: archived.versions,
+    snapshots: archived.snapshots,
+  });
+  archived.manifests.delete('p-historical/v1/manifest.json');
+  await assert.rejects(
+    preflightJobDatasetPresets(job([dataset('historical')]), {
+      versions: archived.versions,
+      snapshots: archived.snapshots,
+    }),
+    /unavailable/i,
+    'archived preflight still verifies snapshot integrity',
+  );
+  await assert.rejects(
+    preflightJobDatasetPresets(job([dataset('missing')]), {
+      versions: archived.versions,
+      snapshots: archived.snapshots,
+    }),
+    /unavailable/i,
+    'preflight still rejects a missing authoritative version',
+  );
 }
 
 async function main(): Promise<void> {

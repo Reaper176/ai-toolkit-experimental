@@ -28,7 +28,7 @@
     "datasetPreset*.test.ts",
     "datasetPreset*.test.tsx",
     "datasetSourceControl.test.tsx",
-    "jobDatasetPresets.test.ts"
+    "jobDataset*.test.ts"
   ],
   "exclude": ["../.next", "../node_modules"]
 }

@@ -33,6 +33,11 @@ assert.match(
   'source changes replace the same dataset object edited by all loader controls',
 );
 assert.match(jobPageSource, /removeArchivedPresetSourcesFromClone/, 'clone hydration checks stored preset availability');
+assert.match(
+  jobPageSource,
+  /buildTrainingJobSaveRequest\(\{[\s\S]{0,200}runId,[\s\S]{0,100}cloneId,/,
+  'job saves derive the explicit clone flag from the actual clone query mode',
+);
 assert.match(jobPageSource, /canSaveTrainingJob\(presetReady,\s*jobConfig\)/, 'job saving validates readiness and every dataset source');
 assert.match(jobPageSource, /if\s*\(!presetReady\)\s*return/, 'all save entry points are blocked before hydration');
 assert.match(

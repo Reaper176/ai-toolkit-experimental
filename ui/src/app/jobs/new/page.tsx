@@ -24,7 +24,11 @@ import { apiClient } from '@/utils/api';
 import { isMac } from '@/helpers/basic';
 import { createTrainingPresetPageState, trainingPresetPageReducer } from './trainingPresetPageState';
 import type { DatasetPresetDetail } from '@/hooks/useDatasetPresets';
-import { canSaveTrainingJob, removeArchivedPresetSourcesFromClone } from '@/helpers/jobDatasetPresetClient';
+import {
+  buildTrainingJobSaveRequest,
+  canSaveTrainingJob,
+  removeArchivedPresetSourcesFromClone,
+} from '@/helpers/jobDatasetPresetClient';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -238,12 +242,13 @@ export default function TrainingForm() {
     setStatus('saving');
 
     apiClient
-      .post('/api/jobs', {
-        id: runId,
+      .post('/api/jobs', buildTrainingJobSaveRequest({
+        runId,
+        cloneId,
         name: jobConfig.config.name,
-        gpu_ids: gpuIDs,
-        job_config: jobConfig,
-      })
+        gpuIds: gpuIDs,
+        jobConfig,
+      }))
       .then(res => {
         setStatus('success');
         if (runId) {

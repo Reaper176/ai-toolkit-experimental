@@ -168,13 +168,13 @@ function canonicalVersionAgreement(
   }
 }
 
-export async function resolveJobDatasetPresets(input: {
+async function resolveJobDatasetPresetsInternal(input: {
   jobId: string | null;
   clone: boolean;
   jobConfig: JobConfig;
   versions: JobDatasetVersionStore;
   snapshots: DatasetPresetSnapshotStore;
-}): Promise<ResolvedJobDatasets> {
+}, eligibility: 'save' | 'integrity-only'): Promise<ResolvedJobDatasets> {
   const { jobConfig, datasets } = cloneAndLocateDatasets(input.jobConfig);
   if (input.jobId !== null && !nonblank(input.jobId)) throw new JobDatasetPresetError('Job identity is invalid');
   if (typeof input.clone !== 'boolean') throw new JobDatasetPresetError('Clone flag is invalid');
@@ -214,7 +214,7 @@ export async function resolveJobDatasetPresets(input: {
     }
     const versionId = dataset.dataset_preset.version_id.trim();
     const authoritative = await getVerified(versionId);
-    if (authoritative.preset.archived_at !== null) {
+    if (eligibility === 'save' && authoritative.preset.archived_at !== null) {
       let sameHistoricalUsage = false;
       if (!input.clone && input.jobId !== null) {
         try {
@@ -256,6 +256,16 @@ export async function resolveJobDatasetPresets(input: {
   return { jobConfig, usages };
 }
 
+export async function resolveJobDatasetPresets(input: {
+  jobId: string | null;
+  clone: boolean;
+  jobConfig: JobConfig;
+  versions: JobDatasetVersionStore;
+  snapshots: DatasetPresetSnapshotStore;
+}): Promise<ResolvedJobDatasets> {
+  return resolveJobDatasetPresetsInternal(input, 'save');
+}
+
 export async function saveJobWithDatasetUsages(input: SaveJobInput): Promise<Job> {
   const resolved = await resolveJobDatasetPresets({
     jobId: input.id,
@@ -284,7 +294,7 @@ export async function saveJobWithDatasetUsages(input: SaveJobInput): Promise<Job
 }
 
 export async function preflightJobDatasetPresets(jobConfig: JobConfig, deps: PreflightDeps): Promise<void> {
-  await resolveJobDatasetPresets({
+  await resolveJobDatasetPresetsInternal({
     jobId: null,
     clone: false,
     jobConfig,
@@ -293,5 +303,5 @@ export async function preflightJobDatasetPresets(jobConfig: JobConfig, deps: Pre
       async existingUsage() { return null; },
     },
     snapshots: deps.snapshots,
-  });
+  }, 'integrity-only');
 }

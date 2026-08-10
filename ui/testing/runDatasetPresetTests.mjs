@@ -19,6 +19,7 @@ const testFiles = [
   'datasetSourceControl.test.js',
   'datasetPresetPageIntegration.test.js',
   'jobDatasetPresets.test.js',
+  'jobDatasetSaveRequest.test.js',
 ];
 let outputDirectory;
 
