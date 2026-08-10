@@ -262,9 +262,41 @@ async function main(): Promise<void> {
         resolved_loader_config: JSON.stringify(loaderConfig),
       },
     });
+    await assert.rejects(
+      store.deleteVersion(v2.id),
+      error => error instanceof DatasetPresetStoreError && error.code === 'referenced',
+    );
+    assert.notEqual(await store.getVersion(v2.id), null, 'a restricted direct delete must retain the version row');
+    await assert.rejects(
+      client.jobDatasetPresetUsage.create({
+        data: {
+          job_id: job.id,
+          preset_version_id: v1Preset.versions[0].id,
+          dataset_index: 0,
+          preset_name: 'Portrait',
+          preset_version: 1,
+          manifest_sha256: v1Preset.versions[0].manifest_sha256,
+          resolved_loader_config: JSON.stringify(loaderConfig),
+        },
+      }),
+      error => typeof error === 'object' && error !== null && (error as { code?: string }).code === 'P2002',
+    );
+    await client.jobDatasetPresetUsage.create({
+      data: {
+        job_id: job.id,
+        preset_version_id: v1Preset.versions[0].id,
+        dataset_index: 1,
+        preset_name: 'Portrait',
+        preset_version: 1,
+        manifest_sha256: v1Preset.versions[0].manifest_sha256,
+        resolved_loader_config: JSON.stringify(loaderConfig),
+      },
+    });
+    assert.equal(await store.countVersionUsages(v1Preset.versions[0].id), 1);
     await assert.rejects(service.deleteVersion(v2.id), DatasetPresetReferencedError);
     await client.job.delete({ where: { id: job.id } });
     assert.equal(await store.countVersionUsages(v2.id), 0);
+    assert.equal(await store.countVersionUsages(v1Preset.versions[0].id), 0);
     await service.deleteVersion(v2.id);
     assert.equal(await store.getVersion(v2.id), null);
 

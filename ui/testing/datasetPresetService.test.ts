@@ -302,6 +302,42 @@ async function main(): Promise<void> {
   await service.deleteVersion(v2.id);
   assert.equal(snapshots.removes, 1);
 
+  const removeFailureStore = new MemoryStore();
+  const removeFailureSnapshots = new FakeSnapshots();
+  const removeFailureService = createDatasetPresetService({
+    store: removeFailureStore,
+    snapshots: removeFailureSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const removeFailurePreset = await removeFailureService.createPreset({ ...publishInput, name: 'Remove failure' });
+  removeFailureSnapshots.removeError = new Error('/private/quarantine cleanup failed');
+  await assert.rejects(removeFailureService.deleteVersion(removeFailurePreset.versions[0].id), error => {
+    assert(error instanceof DatasetPresetStorageError);
+    assert.match(error.message, /maintenance/i);
+    assert(!error.message.includes('/private/'));
+    return true;
+  });
+  assert.equal(await removeFailureStore.getVersion(removeFailurePreset.versions[0].id), null);
+  assert.equal(removeFailureSnapshots.restores, 0, 'final cleanup failure must not recreate committed metadata');
+  assert.equal(removeFailureSnapshots.removes, 1);
+
+  const lateReferenceStore = new MemoryStore();
+  const lateReferenceSnapshots = new FakeSnapshots();
+  const lateReferenceService = createDatasetPresetService({
+    store: lateReferenceStore,
+    snapshots: lateReferenceSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const lateReferencePreset = await lateReferenceService.createPreset({ ...publishInput, name: 'Late reference' });
+  lateReferenceStore.deleteVersionError = { code: 'referenced' };
+  await assert.rejects(
+    lateReferenceService.deleteVersion(lateReferencePreset.versions[0].id),
+    DatasetPresetReferencedError,
+  );
+  assert.equal(lateReferenceSnapshots.quarantines, 1);
+  assert.equal(lateReferenceSnapshots.restores, 1);
+  assert.notEqual(await lateReferenceStore.getVersion(lateReferencePreset.versions[0].id), null);
+
   await assert.rejects(service.getPreset('missing'), DatasetPresetNotFoundError);
   await assert.rejects(
     service.createPreset({ ...publishInput, source_dataset: 'nested/photos' }),
@@ -415,6 +451,117 @@ async function main(): Promise<void> {
   const mismatch = await mismatchService.createPreset({ ...publishInput, name: 'Mismatch' });
   mismatchSnapshots.manifests.get(mismatch.versions[0].manifest_path)!.version = 99;
   await assert.rejects(mismatchService.getVersion(mismatch.versions[0].id), DatasetPresetStorageError);
+  await assert.rejects(mismatchService.verifyVersion(mismatch.versions[0].id, false), DatasetPresetStorageError);
+
+  for (const [label, mutate] of [
+    [
+      'manifest checksum',
+      (row: DatasetPresetVersionRow) => {
+        row.manifest_sha256 = 'f'.repeat(64);
+      },
+    ],
+    [
+      'loader config',
+      (row: DatasetPresetVersionRow) => {
+        row.loader_config = JSON.stringify({ ...loaderConfig, num_repeats: 2 });
+      },
+    ],
+    [
+      'media count',
+      (row: DatasetPresetVersionRow) => {
+        row.media_count += 1;
+      },
+    ],
+    [
+      'total bytes',
+      (row: DatasetPresetVersionRow) => {
+        row.total_bytes += 1n;
+      },
+    ],
+  ] as const) {
+    const agreementStore = new MemoryStore();
+    const agreementSnapshots = new FakeSnapshots();
+    const agreementService = createDatasetPresetService({
+      store: agreementStore,
+      snapshots: agreementSnapshots,
+      datasetsRoot: '/datasets',
+    });
+    const agreementPreset = await agreementService.createPreset({ ...publishInput, name: `Mismatch ${label}` });
+    mutate(agreementStore.versions[0]);
+    await assert.rejects(
+      agreementService.getVersion(agreementPreset.versions[0].id),
+      DatasetPresetStorageError,
+      `${label} mismatch must reject getVersion`,
+    );
+    await assert.rejects(
+      agreementService.verifyVersion(agreementPreset.versions[0].id, true),
+      DatasetPresetStorageError,
+      `${label} mismatch must reject verifyVersion`,
+    );
+  }
+
+  const defensiveStore = new MemoryStore();
+  const defensiveSnapshots = new FakeSnapshots();
+  const defensiveService = createDatasetPresetService({
+    store: defensiveStore,
+    snapshots: defensiveSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const defensivePreset = await defensiveService.createPreset({ ...publishInput, name: 'Defensive' });
+  const firstDetail = await defensiveService.getVersion(defensivePreset.versions[0].id);
+  firstDetail.loader_config.num_repeats = 999;
+  firstDetail.manifest.loader_config.num_repeats = 999;
+  firstDetail.manifest.files[0].source_path = 'mutated.jpg';
+  const secondDetail = await defensiveService.getVersion(defensivePreset.versions[0].id);
+  assert.equal(secondDetail.loader_config.num_repeats, 1);
+  assert.equal(secondDetail.manifest.loader_config.num_repeats, 1);
+  assert.equal(secondDetail.manifest.files[0].source_path, 'a.jpg');
+
+  const sortingStore = new MemoryStore();
+  sortingStore.presets = [
+    {
+      id: 'z-tie',
+      name: 'ábaco',
+      name_key: 'ábaco',
+      archived_at: null,
+      created_at: new Date('2026-01-01T00:00:00.000Z'),
+      updated_at: new Date('2026-01-01T00:00:00.000Z'),
+    },
+    {
+      id: 'z-zoo',
+      name: 'Zoo',
+      name_key: 'zoo',
+      archived_at: null,
+      created_at: new Date('2026-01-01T00:00:00.000Z'),
+      updated_at: new Date('2026-01-01T00:00:00.000Z'),
+    },
+    {
+      id: 'a-tie',
+      name: 'abaco',
+      name_key: 'abaco',
+      archived_at: null,
+      created_at: new Date('2026-01-01T00:00:00.000Z'),
+      updated_at: new Date('2026-01-01T00:00:00.000Z'),
+    },
+    {
+      id: 'apple',
+      name: 'apple',
+      name_key: 'apple',
+      archived_at: null,
+      created_at: new Date('2026-01-01T00:00:00.000Z'),
+      updated_at: new Date('2026-01-01T00:00:00.000Z'),
+    },
+  ];
+  assert.deepEqual(
+    (
+      await createDatasetPresetService({
+        store: sortingStore,
+        snapshots: new FakeSnapshots(),
+        datasetsRoot: '/datasets',
+      }).listActive()
+    ).map(summary => summary.id),
+    ['a-tie', 'z-tie', 'apple', 'z-zoo'],
+  );
 
   const retryStore = new MemoryStore();
   const retrySnapshots = new FakeSnapshots();
