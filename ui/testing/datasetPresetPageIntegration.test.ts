@@ -78,7 +78,7 @@ assert.doesNotMatch(
 );
 assert.match(pageSource, /useDatasetPresets\(/, 'page loads active dataset presets');
 assert.match(pageSource, /loadVersion\(/, 'page can load an immutable preset version');
-assert.match(pageSource, /source-missing/, 'missing source entries are visibly labeled');
+assert.match(pageSource, /DatasetSourceMissingList/, 'missing source entries use the selection-gated list');
 assert.match(
   pageSource,
   /manifest\.files\.map\(file\s*=>\s*file\.source_path\)/,
@@ -94,7 +94,19 @@ assert.match(pageSource, /setBaseSelection\(/, 'publication establishes a clean 
 assert.match(pageSource, /DatasetPresetDialog/, 'page opens the save/version dialog');
 assert.match(pageSource, /onSave=/, 'selection toolbar can save a nonempty selection');
 assert.match(pageSource, /activeVersion/, 'toolbar displays the active immutable version');
-assert.match(pageSource, /confirmSelectionReplacement/, 'loading another preset cannot silently discard a dirty selection');
+assert.match(
+  pageSource,
+  /confirmSelectionReplacement/,
+  'loading another preset cannot silently discard a dirty selection',
+);
+assert.match(
+  pageSource,
+  /createLatestDatasetPresetRequestGate/,
+  'preset and version loads use latest-request identity',
+);
+assert.match(pageSource, /if \(!request\.isCurrent\(\)\) return/, 'stale preset results and errors are ignored');
+assert.match(pageSource, /if \(!latest\) return/, 'empty presets remain cleared instead of retaining an old version');
+assert.match(pageSource, /presetLoadError/, 'current preset load failures are recoverable in the toolbar');
 
 const jsx = page.statements.find(ts.isFunctionDeclaration);
 assert.ok(jsx || pageSource.includes('selectionMode'), 'selection state stays in the page component');

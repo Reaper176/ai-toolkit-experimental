@@ -8,12 +8,16 @@ import { CreatableSelectInput } from '../src/components/formInputs';
 
 const dialogPath = resolve(process.cwd(), 'src/components/DatasetPresetDialog.tsx');
 const hookPath = resolve(process.cwd(), 'src/hooks/useDatasetPresets.tsx');
+const validationPath = resolve(process.cwd(), 'src/helpers/datasetPresetValidation.ts');
 
 assert.ok(existsSync(dialogPath), 'dataset preset dialog must exist');
 assert.ok(existsSync(hookPath), 'dataset preset browser hook must exist');
+assert.ok(existsSync(validationPath), 'browser-safe dataset preset validation module must exist');
 
 const dialogSource = readFileSync(dialogPath, 'utf8');
 const hookSource = readFileSync(hookPath, 'utf8');
+const validationSource = readFileSync(validationPath, 'utf8');
+const presetContractSource = readFileSync(resolve(process.cwd(), 'src/helpers/datasetPresets.ts'), 'utf8');
 
 assert.match(dialogSource, /fieldErrors/, 'local validation exposes field-level errors');
 assert.match(dialogSource, /selectedPaths\.length === 0/, 'Save is disabled for an empty selection');
@@ -49,6 +53,14 @@ for (const sharedControl of ['TextInput', 'NumberInput', 'Checkbox', 'CreatableS
 assert.match(dialogSource, /normalizePresetName\(/, 'dialog uses canonical preset-name validation');
 assert.match(dialogSource, /validateLoaderConfig\(/, 'dialog uses canonical loader validation');
 assert.doesNotMatch(dialogSource, /\^\\\.?\[A-Za-z0-9_-\]/, 'dialog does not duplicate caption-extension validation');
+assert.match(dialogSource, /from '@\/helpers\/datasetPresetValidation'/, 'dialog imports the browser-safe validators');
+assert.doesNotMatch(
+  validationSource,
+  /node:crypto|getBuiltinModule/,
+  'browser-safe validation has no Node crypto dependency',
+);
+assert.match(presetContractSource, /from 'node:crypto'/, 'server manifest hashing retains static Node crypto');
+assert.doesNotMatch(presetContractSource, /getBuiltinModule/, 'manifest hashing supports the full declared Node range');
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const originalError = console.error;
@@ -309,8 +321,9 @@ async function testDialogBehavior(): Promise<void> {
       headers: { 'content-type': 'application/json' },
     });
   }) as typeof fetch;
+  let versionRenderer: TestRenderer.ReactTestRenderer;
   await act(async () => {
-    renderer!.update(
+    versionRenderer = TestRenderer.create(
       <DatasetPresetDialog
         mode="version"
         presetId="preset-1"
@@ -327,7 +340,7 @@ async function testDialogBehavior(): Promise<void> {
     );
   });
   await act(async () => {
-    await renderer!.root.findByType('form').props.onSubmit({ preventDefault() {} });
+    await versionRenderer!.root.findByType('form').props.onSubmit({ preventDefault() {} });
   });
   const versionPayload = JSON.parse(String(fetchCalls[0].init?.body));
   assert.equal(fetchCalls[0].url, '/api/dataset-presets/preset-1/versions');
@@ -353,6 +366,57 @@ async function testDialogBehavior(): Promise<void> {
       .some(node => textOf(node).includes('Preset name already exists')),
     'server error remains visible',
   );
+
+  let recoveryPosts = 0;
+  let recoveryFinalizations = 0;
+  let recoveryCloses = 0;
+  globalThis.fetch = (async () => {
+    recoveryPosts += 1;
+    return new Response(
+      JSON.stringify({
+        id: 'published-preset',
+        name: 'My images',
+        versions: [{ id: 'published-version', preset_id: 'published-preset', version: 1 }],
+      }),
+      { status: 201, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch;
+  let recoveryRenderer: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    recoveryRenderer = TestRenderer.create(
+      <DatasetPresetDialog
+        {...createProps}
+        onClose={() => {
+          recoveryCloses += 1;
+        }}
+        onSaved={() => {
+          recoveryFinalizations += 1;
+          if (recoveryFinalizations === 1) throw new Error('Refresh temporarily unavailable');
+        }}
+      />,
+    );
+  });
+  await act(async () => {
+    await recoveryRenderer!.root.findByType('form').props.onSubmit({ preventDefault() {} });
+  });
+  assert.equal(recoveryPosts, 1, 'publication POST succeeds once before refresh failure');
+  assert.equal(recoveryCloses, 0, 'dialog remains open when post-publication refresh fails');
+  assert.ok(
+    recoveryRenderer!.root
+      .findAll(node => node.props.role === 'alert')
+      .some(node => textOf(node).includes('Refresh temporarily unavailable')),
+    'post-publication recovery error is visible',
+  );
+  const retryButton = recoveryRenderer!.root
+    .findAllByType('button')
+    .find(button => textOf(button).includes('Retry refresh'));
+  assert.ok(retryButton, 'published dialog offers explicit finalization retry');
+  await act(async () => {
+    await recoveryRenderer!.root.findByType('form').props.onSubmit({ preventDefault() {} });
+  });
+  assert.equal(recoveryPosts, 1, 'retrying finalization never repeats publication POST');
+  assert.equal(recoveryFinalizations, 2);
+  assert.equal(recoveryCloses, 1, 'successful finalization retry closes the dialog');
 
   let invalidRenderer: TestRenderer.ReactTestRenderer;
   await act(async () => {
@@ -430,7 +494,9 @@ async function testDialogBehavior(): Promise<void> {
   await act(async () => {
     creatableRenderer!.unmount();
     renderer!.unmount();
+    versionRenderer!.unmount();
     serverErrorRenderer!.unmount();
+    recoveryRenderer!.unmount();
     invalidRenderer!.unmount();
     syncedDialogRenderer!.unmount();
     partialRenderer!.unmount();

@@ -7,6 +7,7 @@ import { FaChevronLeft } from 'react-icons/fa';
 import { VirtuosoGrid } from 'react-virtuoso';
 import DatasetImageCard from '@/components/DatasetImageCard';
 import DatasetSelectionToolbar from '@/components/DatasetSelectionToolbar';
+import DatasetSourceMissingList from '@/components/DatasetSourceMissingList';
 import DatasetPresetDialog, {
   DEFAULT_DATASET_PRESET_LOADER_CONFIG,
   type DatasetPresetDialogInitialValues,
@@ -34,6 +35,7 @@ import {
   type SelectionAction,
 } from '@/helpers/datasetSelection';
 import useDatasetPresets, {
+  createLatestDatasetPresetRequestGate,
   type DatasetPresetDetail,
   type DatasetPresetSummary,
   type DatasetPresetVersionDetail,
@@ -65,6 +67,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   const [activeVersion, setActiveVersion] = useState<DatasetPresetVersionDetail | null>(null);
   const [presetDialogOpen, setPresetDialogOpen] = useState(false);
   const [selectionSaving, setSelectionSaving] = useState(false);
+  const [presetLoadError, setPresetLoadError] = useState<string | null>(null);
   const { presets, error: presetError, refresh: refreshPresets, loadPreset, loadVersion } = useDatasetPresets();
   const scrollParentCallback = useCallback((el: HTMLDivElement | null) => setScrollParent(el), []);
   const isRefreshingRef = useRef(false);
@@ -73,6 +76,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   const discardSelectionRef = useRef<() => void>(() => undefined);
   const internalNavigationPendingRef = useRef(false);
   const activeManifestPathsRef = useRef<Set<string>>(new Set());
+  const presetRequestGateRef = useRef(createLatestDatasetPresetRequestGate());
 
   baseSelectionRef.current = baseSelection;
   const selectionDirty = selectionMode && !areSelectionsEqual(selectedPaths, baseSelection);
@@ -155,6 +159,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
 
   useEffect(() => {
     void refreshPresets().catch(() => undefined);
+    return () => presetRequestGateRef.current.cancelCurrent();
   }, [refreshPresets]);
 
   const applyLoadedVersion = useCallback((version: DatasetPresetVersionDetail) => {
@@ -181,23 +186,34 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   };
 
   const loadPresetSelection = async (presetId: string) => {
+    const request = presetRequestGateRef.current.begin();
+    setPresetLoadError(null);
+    setActivePreset(null);
+    setActivePresetDetail(null);
+    setActiveVersion(null);
+    setBaseSelection(new Set());
+    setSelectedPaths(new Set());
     if (!presetId) {
-      setActivePreset(null);
-      setActivePresetDetail(null);
-      setActiveVersion(null);
-      setBaseSelection(new Set());
-      setSelectedPaths(new Set());
       return;
     }
     try {
       const preset = presets.find(item => item.id === presetId) ?? null;
       const detail = await loadPreset(presetId);
+      if (!request.isCurrent()) return;
       setActivePreset(preset ?? detail);
       setActivePresetDetail(detail);
       const latest = [...detail.versions].sort((left, right) => right.version - left.version)[0];
-      if (latest) applyLoadedVersion(await loadVersion(latest.id));
+      if (!latest) return;
+      const version = await loadVersion(latest.id);
+      if (request.isCurrent()) applyLoadedVersion(version);
     } catch (error) {
-      console.error('Unable to load dataset preset:', error);
+      if (!request.isCurrent()) return;
+      setPresetLoadError(error instanceof Error ? error.message : 'Unable to load dataset preset');
+      setActivePreset(null);
+      setActivePresetDetail(null);
+      setActiveVersion(null);
+      setBaseSelection(new Set());
+      setSelectedPaths(new Set());
     }
   };
 
@@ -206,11 +222,19 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   };
 
   const loadVersionSelection = async (versionId: string) => {
+    const request = presetRequestGateRef.current.begin();
+    setPresetLoadError(null);
+    setActiveVersion(null);
+    setBaseSelection(new Set());
+    setSelectedPaths(new Set());
     if (!versionId) return;
     try {
-      applyLoadedVersion(await loadVersion(versionId));
+      const version = await loadVersion(versionId);
+      if (request.isCurrent()) applyLoadedVersion(version);
     } catch (error) {
-      console.error('Unable to load dataset preset version:', error);
+      if (request.isCurrent()) {
+        setPresetLoadError(error instanceof Error ? error.message : 'Unable to load dataset preset version');
+      }
     }
   };
 
@@ -491,9 +515,9 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
                   {activePreset.name} / version {activeVersion.version}
                 </p>
               )}
-              {presetError && (
+              {(presetError || presetLoadError) && (
                 <p role="alert" className="text-sm text-red-400">
-                  {presetError}
+                  {presetLoadError ?? presetError}
                 </p>
               )}
             </section>
@@ -544,37 +568,20 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
             computeItemKey={index => imgList[index]?.relative_path ?? index}
           />
         )}
-        {sourceMissingPaths.length > 0 && (
-          <section
-            aria-label="Source-missing preset images"
-            className="mt-4 rounded border border-amber-700 bg-amber-950/30 p-3"
-          >
-            <h2 className="text-sm font-semibold text-amber-200">Source-missing retained images</h2>
-            <ul className="mt-2 space-y-1">
-              {sourceMissingPaths.map(path => (
-                <li key={path} className="flex items-center gap-2 text-sm text-amber-100">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={selectedPaths.has(path)}
-                      onChange={event =>
-                        setSelectedPaths(current => {
-                          const next = new Set(current);
-                          if (event.target.checked) next.add(path);
-                          else next.delete(path);
-                          return next;
-                        })
-                      }
-                      disabled={selectionSaving}
-                    />
-                    <span className="rounded bg-amber-900 px-1.5 py-0.5 text-xs">source-missing</span>
-                    {path}
-                  </label>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
+        <DatasetSourceMissingList
+          paths={sourceMissingPaths}
+          selectedPaths={selectedPaths}
+          selectionMode={selectionMode}
+          saving={selectionSaving}
+          onSelectionChange={(path, selected) =>
+            setSelectedPaths(current => {
+              const next = new Set(current);
+              if (selected) next.add(path);
+              else next.delete(path);
+              return next;
+            })
+          }
+        />
         {/* Spacer so the last cards stay accessible above the floating caption bar.
             Always keeps a baseline gap, plus the bar height when it is showing. */}
         <div style={{ height: `${captionBarHeight + 24}px` }} className="transition-[height] duration-300" />

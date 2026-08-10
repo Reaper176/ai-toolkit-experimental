@@ -1,55 +1,24 @@
+import { createHash } from 'node:crypto';
 import { normalizeRelativeMediaPath } from './datasetSelection';
+import {
+  DATASET_PRESET_NOTE_MAX,
+  normalizePresetName,
+  validateCaptionExtension,
+  validateLoaderConfig,
+  type DatasetPresetLoaderConfig,
+} from './datasetPresetValidation';
 
 export { applySelectionAction, normalizeRelativeMediaPath, type SelectionAction } from './datasetSelection';
+export {
+  DATASET_PRESET_NAME_MAX,
+  DATASET_PRESET_NOTE_MAX,
+  LOADER_CONFIG_KEYS,
+  normalizePresetName,
+  validateLoaderConfig,
+  type DatasetPresetLoaderConfig,
+} from './datasetPresetValidation';
 
 export const DATASET_PRESET_SCHEMA_VERSION = 1 as const;
-export const DATASET_PRESET_NAME_MAX = 80;
-export const DATASET_PRESET_NOTE_MAX = 500;
-export const LOADER_CONFIG_KEYS = [
-  'caption_ext',
-  'default_caption',
-  'caption_dropout_rate',
-  'shuffle_tokens',
-  'num_repeats',
-  'resolution',
-  'is_reg',
-  'network_weight',
-  'cache_latents_to_disk',
-  'flip_x',
-  'flip_y',
-  'num_frames',
-  'shrink_video_to_frames',
-  'fps',
-  'auto_frame_count',
-  'do_i2v',
-  'do_audio',
-  'audio_normalize',
-  'audio_preserve_pitch',
-  'controls',
-] as const;
-
-export interface DatasetPresetLoaderConfig {
-  caption_ext: string;
-  default_caption: string;
-  caption_dropout_rate: number;
-  shuffle_tokens: boolean;
-  num_repeats: number;
-  resolution: number[];
-  is_reg: boolean;
-  network_weight: number;
-  cache_latents_to_disk: boolean;
-  flip_x: boolean;
-  flip_y: boolean;
-  num_frames: number;
-  shrink_video_to_frames: boolean;
-  fps: number;
-  auto_frame_count: boolean;
-  do_i2v: boolean;
-  do_audio: boolean;
-  audio_normalize: boolean;
-  audio_preserve_pitch: boolean;
-  controls: string[];
-}
 
 export interface DatasetPresetManifestFile {
   source_path: string;
@@ -98,7 +67,6 @@ const EXTERNAL_PATH_KEYS = new Set([
   'clip_image_path',
 ]);
 const SHA256 = /^[a-f0-9]{64}$/;
-const CAPTION_EXTENSION = /^\.?[A-Za-z0-9_-]{1,32}$/;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -157,13 +125,6 @@ function requireSha256(value: unknown, path: string): string {
   return value;
 }
 
-function validateCaptionExtension(value: unknown, path: string): string {
-  if (typeof value !== 'string' || !CAPTION_EXTENSION.test(value)) {
-    throw new Error(`${path} must be a safe caption extension`);
-  }
-  return value;
-}
-
 function portablePathKey(path: string): string {
   return path.toLowerCase();
 }
@@ -183,60 +144,6 @@ function sortFiles(files: DatasetPresetManifestFile[]): DatasetPresetManifestFil
     const rightKey = `${right.source_path}\0${right.managed_path}`;
     return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
   });
-}
-
-export function normalizePresetName(input: unknown): { name: string; nameKey: string } {
-  if (typeof input !== 'string') throw new Error('Preset name must be a string');
-  const name = input.trim();
-  if (name.length === 0) throw new Error('Preset name is required');
-  if (name.length > DATASET_PRESET_NAME_MAX) {
-    throw new Error(`Preset name must be at most ${DATASET_PRESET_NAME_MAX} characters`);
-  }
-  return { name, nameKey: name.toLowerCase() };
-}
-
-export function validateLoaderConfig(untrusted: unknown): DatasetPresetLoaderConfig {
-  const value = requirePlainObject(untrusted, 'Loader config');
-  requireExactKeys(value, LOADER_CONFIG_KEYS, 'Loader config');
-  const captionExt = validateCaptionExtension(value.caption_ext, 'Loader config.caption_ext');
-  const defaultCaption = requireText(value.default_caption, 'Loader config.default_caption', true);
-  const captionDropoutRate = requireFiniteNumber(value.caption_dropout_rate, 'Loader config.caption_dropout_rate');
-  if (captionDropoutRate < 0 || captionDropoutRate > 1) {
-    throw new Error('Loader config.caption_dropout_rate must be between 0 and 1');
-  }
-  const resolutionInput = value.resolution;
-  if (!Array.isArray(resolutionInput) || resolutionInput.length === 0) {
-    throw new Error('Loader config.resolution must be a nonempty array');
-  }
-  const resolution = resolutionInput.map((item, index) =>
-    requirePositiveInteger(item, `Loader config.resolution[${index}]`),
-  );
-  const controlsInput = value.controls;
-  if (!Array.isArray(controlsInput)) throw new Error('Loader config.controls must be an array');
-  const controls = controlsInput.map((item, index) => requireText(item, `Loader config.controls[${index}]`));
-
-  return {
-    caption_ext: captionExt,
-    default_caption: defaultCaption,
-    caption_dropout_rate: captionDropoutRate,
-    shuffle_tokens: requireBoolean(value.shuffle_tokens, 'Loader config.shuffle_tokens'),
-    num_repeats: requirePositiveInteger(value.num_repeats, 'Loader config.num_repeats'),
-    resolution,
-    is_reg: requireBoolean(value.is_reg, 'Loader config.is_reg'),
-    network_weight: requireFiniteNumber(value.network_weight, 'Loader config.network_weight'),
-    cache_latents_to_disk: requireBoolean(value.cache_latents_to_disk, 'Loader config.cache_latents_to_disk'),
-    flip_x: requireBoolean(value.flip_x, 'Loader config.flip_x'),
-    flip_y: requireBoolean(value.flip_y, 'Loader config.flip_y'),
-    num_frames: requirePositiveInteger(value.num_frames, 'Loader config.num_frames'),
-    shrink_video_to_frames: requireBoolean(value.shrink_video_to_frames, 'Loader config.shrink_video_to_frames'),
-    fps: requirePositiveInteger(value.fps, 'Loader config.fps'),
-    auto_frame_count: requireBoolean(value.auto_frame_count, 'Loader config.auto_frame_count'),
-    do_i2v: requireBoolean(value.do_i2v, 'Loader config.do_i2v'),
-    do_audio: requireBoolean(value.do_audio, 'Loader config.do_audio'),
-    audio_normalize: requireBoolean(value.audio_normalize, 'Loader config.audio_normalize'),
-    audio_preserve_pitch: requireBoolean(value.audio_preserve_pitch, 'Loader config.audio_preserve_pitch'),
-    controls,
-  };
 }
 
 function validateFile(untrusted: unknown, path: string): DatasetPresetManifestFile {
@@ -383,7 +290,5 @@ export function serializeManifest(untrusted: unknown): string {
 }
 
 export function manifestSha256(untrusted: unknown): string {
-  const crypto = process.getBuiltinModule('node:crypto');
-  if (!crypto) throw new Error('Node crypto module is unavailable');
-  return crypto.createHash('sha256').update(serializeManifest(untrusted)).digest('hex');
+  return createHash('sha256').update(serializeManifest(untrusted)).digest('hex');
 }

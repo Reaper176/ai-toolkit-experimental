@@ -46,6 +46,35 @@ export interface UseDatasetPresetsResult {
   loadVersion(id: string): Promise<DatasetPresetVersionDetail>;
 }
 
+export interface DatasetPresetRequestIdentity {
+  readonly signal: AbortSignal;
+  isCurrent(): boolean;
+  cancel(): void;
+}
+
+export function createLatestDatasetPresetRequestGate() {
+  let current: AbortController | null = null;
+  return {
+    begin(): DatasetPresetRequestIdentity {
+      current?.abort();
+      const controller = new AbortController();
+      current = controller;
+      return {
+        signal: controller.signal,
+        isCurrent: () => current === controller && !controller.signal.aborted,
+        cancel: () => {
+          controller.abort();
+          if (current === controller) current = null;
+        },
+      };
+    },
+    cancelCurrent(): void {
+      current?.abort();
+      current = null;
+    },
+  };
+}
+
 async function readJson(response: Response): Promise<unknown> {
   try {
     return await response.json();

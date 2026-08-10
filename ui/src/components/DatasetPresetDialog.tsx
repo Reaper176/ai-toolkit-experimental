@@ -8,7 +8,7 @@ import {
   normalizePresetName,
   validateLoaderConfig,
   type DatasetPresetLoaderConfig,
-} from '@/helpers/datasetPresets';
+} from '@/helpers/datasetPresetValidation';
 import { normalizeRelativeMediaPath } from '@/helpers/datasetSelection';
 import {
   requestDatasetPresetJson,
@@ -219,6 +219,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [responseError, setResponseError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [published, setPublished] = useState<SavedDatasetPresetVersion | null>(null);
   const [emptyNumericFields, setEmptyNumericFields] = useState<Set<NumericField>>(() => new Set());
   const pendingRef = useRef(false);
 
@@ -228,6 +229,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
       setFieldErrors({});
       setResponseError(null);
       setPending(false);
+      setPublished(null);
       setEmptyNumericFields(new Set());
       pendingRef.current = false;
     }
@@ -251,14 +253,38 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (pendingRef.current || selectedPaths.length + retainedPaths.length === 0) return;
-    const validation = validateForm(form, props.mode === 'create', emptyNumericFields);
-    setFieldErrors(validation.errors);
-    if (!validation.loader) return;
+    if (pendingRef.current || (!published && selectedPaths.length + retainedPaths.length === 0)) return;
     pendingRef.current = true;
     setPending(true);
     props.onPendingChange?.(true);
     setResponseError(null);
+    const finalize = async (saved: SavedDatasetPresetVersion) => {
+      try {
+        await props.onSaved(saved);
+        props.onClose();
+      } catch (cause) {
+        const detail = cause instanceof Error ? cause.message : 'Unable to refresh the published preset';
+        setResponseError(`Preset was published successfully, but finalization failed: ${detail}`);
+      }
+    };
+    if (published) {
+      try {
+        await finalize(published);
+      } finally {
+        pendingRef.current = false;
+        setPending(false);
+        props.onPendingChange?.(false);
+      }
+      return;
+    }
+    const validation = validateForm(form, props.mode === 'create', emptyNumericFields);
+    setFieldErrors(validation.errors);
+    if (!validation.loader) {
+      pendingRef.current = false;
+      setPending(false);
+      props.onPendingChange?.(false);
+      return;
+    }
     try {
       const common = {
         source_dataset: props.sourceDataset,
@@ -287,8 +313,8 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
         );
         saved = { presetId: props.presetId, presetName: props.presetName, version };
       }
-      await props.onSaved(saved);
-      props.onClose();
+      setPublished(saved);
+      await finalize(saved);
     } catch (cause) {
       setResponseError(cause instanceof Error ? cause.message : 'Unable to save dataset preset');
     } finally {
@@ -297,6 +323,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
       props.onPendingChange?.(false);
     }
   };
+  const formDisabled = pending || published !== null;
 
   const errorProps = (key: keyof FormState) => ({
     id: `dataset-preset-${String(key)}`,
@@ -328,7 +355,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
               label="Preset name"
               value={form.name}
               onChange={value => setField('name', value)}
-              disabled={pending}
+              disabled={formDisabled}
               {...errorProps('name')}
             />
             <FieldError field="name" />
@@ -339,7 +366,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
             label="Version note"
             value={form.note}
             onChange={value => setField('note', value)}
-            disabled={pending}
+            disabled={formDisabled}
             {...errorProps('note')}
           />
           <FieldError field="note" />
@@ -350,7 +377,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
               label="Caption extension"
               value={form.captionExt}
               onChange={value => setField('captionExt', value)}
-              disabled={pending}
+              disabled={formDisabled}
               options={[
                 { value: 'txt', label: 'txt' },
                 { value: 'json', label: 'json' },
@@ -365,7 +392,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
               label="Default caption"
               value={form.defaultCaption}
               onChange={value => setField('defaultCaption', value)}
-              disabled={pending}
+              disabled={formDisabled}
               {...errorProps('defaultCaption')}
             />
             <FieldError field="defaultCaption" />
@@ -376,7 +403,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
               value={form.captionDropoutRate}
               onChange={value => setField('captionDropoutRate', value)}
               onValuePresenceChange={hasValue => setNumericPresence('captionDropoutRate', hasValue)}
-              disabled={pending}
+              disabled={formDisabled}
               {...errorProps('captionDropoutRate')}
             />
             <FieldError field="captionDropoutRate" />
@@ -387,7 +414,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
               value={form.numRepeats}
               onChange={value => setField('numRepeats', value)}
               onValuePresenceChange={hasValue => setNumericPresence('numRepeats', hasValue)}
-              disabled={pending}
+              disabled={formDisabled}
               {...errorProps('numRepeats')}
             />
             <FieldError field="numRepeats" />
@@ -397,7 +424,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
               label="Resolution"
               value={form.resolution}
               onChange={value => setField('resolution', value)}
-              disabled={pending}
+              disabled={formDisabled}
               {...errorProps('resolution')}
             />
             <FieldError field="resolution" />
@@ -408,7 +435,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
               value={form.networkWeight}
               onChange={value => setField('networkWeight', value)}
               onValuePresenceChange={hasValue => setNumericPresence('networkWeight', hasValue)}
-              disabled={pending}
+              disabled={formDisabled}
               {...errorProps('networkWeight')}
             />
             <FieldError field="networkWeight" />
@@ -419,7 +446,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
               value={form.numFrames}
               onChange={value => setField('numFrames', value)}
               onValuePresenceChange={hasValue => setNumericPresence('numFrames', hasValue)}
-              disabled={pending}
+              disabled={formDisabled}
               {...errorProps('numFrames')}
             />
             <FieldError field="numFrames" />
@@ -430,7 +457,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
               value={form.fps}
               onChange={value => setField('fps', value)}
               onValuePresenceChange={hasValue => setNumericPresence('fps', hasValue)}
-              disabled={pending}
+              disabled={formDisabled}
               {...errorProps('fps')}
             />
             <FieldError field="fps" />
@@ -440,7 +467,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
               label="Controls"
               value={form.controls}
               onChange={value => setField('controls', value)}
-              disabled={pending}
+              disabled={formDisabled}
               {...errorProps('controls')}
             />
             <FieldError field="controls" />
@@ -451,67 +478,67 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
             label="Shuffle tokens"
             checked={form.shuffleTokens}
             onChange={value => setField('shuffleTokens', value)}
-            disabled={pending}
+            disabled={formDisabled}
           />
           <Checkbox
             label="Regularization dataset"
             checked={form.isReg}
             onChange={value => setField('isReg', value)}
-            disabled={pending}
+            disabled={formDisabled}
           />
           <Checkbox
             label="Cache latents to disk"
             checked={form.cacheLatentsToDisk}
             onChange={value => setField('cacheLatentsToDisk', value)}
-            disabled={pending}
+            disabled={formDisabled}
           />
           <Checkbox
             label="Flip horizontally"
             checked={form.flipX}
             onChange={value => setField('flipX', value)}
-            disabled={pending}
+            disabled={formDisabled}
           />
           <Checkbox
             label="Flip vertically"
             checked={form.flipY}
             onChange={value => setField('flipY', value)}
-            disabled={pending}
+            disabled={formDisabled}
           />
           <Checkbox
             label="Shrink video to frames"
             checked={form.shrinkVideoToFrames}
             onChange={value => setField('shrinkVideoToFrames', value)}
-            disabled={pending}
+            disabled={formDisabled}
           />
           <Checkbox
             label="Automatic frame count"
             checked={form.autoFrameCount}
             onChange={value => setField('autoFrameCount', value)}
-            disabled={pending}
+            disabled={formDisabled}
           />
           <Checkbox
             label="Image to video"
             checked={form.doI2v}
             onChange={value => setField('doI2v', value)}
-            disabled={pending}
+            disabled={formDisabled}
           />
           <Checkbox
             label="Process audio"
             checked={form.doAudio}
             onChange={value => setField('doAudio', value)}
-            disabled={pending}
+            disabled={formDisabled}
           />
           <Checkbox
             label="Normalize audio"
             checked={form.audioNormalize}
             onChange={value => setField('audioNormalize', value)}
-            disabled={pending}
+            disabled={formDisabled}
           />
           <Checkbox
             label="Preserve audio pitch"
             checked={form.audioPreservePitch}
             onChange={value => setField('audioPreservePitch', value)}
-            disabled={pending}
+            disabled={formDisabled}
           />
         </div>
         {responseError && (
@@ -525,10 +552,18 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
           </button>
           <button
             type="submit"
-            disabled={(selectedPaths.length === 0 && retainedPaths.length === 0) || pending}
+            disabled={(!published && selectedPaths.length === 0 && retainedPaths.length === 0) || pending}
             className="rounded bg-blue-700 px-3 py-2 text-white disabled:opacity-50"
           >
-            {pending ? 'Saving…' : props.mode === 'create' ? 'Save preset' : 'Save version'}
+            {pending
+              ? published
+                ? 'Retrying…'
+                : 'Saving…'
+              : published
+                ? 'Retry refresh'
+                : props.mode === 'create'
+                  ? 'Save preset'
+                  : 'Save version'}
           </button>
         </div>
       </form>

@@ -5,6 +5,8 @@ import { resolve } from 'node:path';
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { DatasetSelectionToolbar } from '../src/components/DatasetSelectionToolbar';
+import DatasetSourceMissingList from '../src/components/DatasetSourceMissingList';
+import { createLatestDatasetPresetRequestGate } from '../src/hooks/useDatasetPresets';
 import {
   areSelectionsEqual,
   createDirtySelectionLeaveGuard,
@@ -20,7 +22,10 @@ actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
 class TestIntersectionObserver {
   constructor(private readonly callback: IntersectionObserverCallback) {}
   observe(target: Element) {
-    this.callback([{ target, isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+    this.callback(
+      [{ target, isIntersecting: true } as IntersectionObserverEntry],
+      this as unknown as IntersectionObserver,
+    );
   }
   disconnect() {}
 }
@@ -144,6 +149,51 @@ async function run(): Promise<void> {
     assert.equal(areSelectionsEqual(new Set(['a']), new Set(['b'])), false);
     assert.deepEqual(reconcileSelection(new Set(['a', 'missing']), ['a', 'b']), new Set(['a']));
     assert.equal(normalizeRelativeMediaPath('nested\\portrait.jpg'), 'nested/portrait.jpg');
+    const requestGate = createLatestDatasetPresetRequestGate();
+    const firstRequest = requestGate.begin();
+    const secondRequest = requestGate.begin();
+    assert.equal(firstRequest.isCurrent(), false, 'starting B makes pending A stale');
+    assert.equal(secondRequest.isCurrent(), true);
+    secondRequest.cancel();
+    assert.equal(secondRequest.isCurrent(), false, 'cancelled current request cannot apply a result or error');
+    const deferred = <T,>() => {
+      let resolve!: (value: T) => void;
+      let reject!: (error: Error) => void;
+      const promise = new Promise<T>((onResolve, onReject) => {
+        resolve = onResolve;
+        reject = onReject;
+      });
+      return { promise, resolve, reject };
+    };
+    let appliedRequest: string | undefined;
+    let currentRequestError: string | undefined;
+    const applyWhenCurrent = async (request: ReturnType<typeof requestGate.begin>, result: Promise<string>) => {
+      try {
+        const value = await result;
+        if (request.isCurrent()) appliedRequest = value;
+      } catch (error) {
+        if (request.isCurrent()) currentRequestError = error instanceof Error ? error.message : String(error);
+      }
+    };
+    const slowA = deferred<string>();
+    const fastB = deferred<string>();
+    const pendingA = applyWhenCurrent(requestGate.begin(), slowA.promise);
+    const pendingB = applyWhenCurrent(requestGate.begin(), fastB.promise);
+    fastB.resolve('B');
+    await pendingB;
+    slowA.resolve('A');
+    await pendingA;
+    assert.equal(appliedRequest, 'B', 'out-of-order A cannot overwrite newer B');
+    const staleSuccess = deferred<string>();
+    const currentFailure = deferred<string>();
+    const stalePending = applyWhenCurrent(requestGate.begin(), staleSuccess.promise);
+    const failurePending = applyWhenCurrent(requestGate.begin(), currentFailure.promise);
+    currentFailure.reject(new Error('B failed'));
+    await failurePending;
+    staleSuccess.resolve('A stale');
+    await stalePending;
+    assert.equal(appliedRequest, 'B', 'stale success cannot overwrite a failed current request');
+    assert.equal(currentRequestError, 'B failed', 'only the current failure is surfaced');
     assert.doesNotMatch(
       readFileSync(resolve(process.cwd(), 'src/helpers/datasetSelection.ts'), 'utf8'),
       /from\s+['"]node:/,
@@ -211,7 +261,11 @@ async function run(): Promise<void> {
     assert.equal(disposeHistory.index, 2, 'dispose never reverses an unmount navigation');
     assert.equal(disposeHistory.listenerCount, 0);
 
-    const internalNavigation = new PositionAwareHistory('http://localhost/previous', 'http://localhost/datasets/example', true);
+    const internalNavigation = new PositionAwareHistory(
+      'http://localhost/previous',
+      'http://localhost/datasets/example',
+      true,
+    );
     const internalGuard = createDirtySelectionLeaveGuard(internalNavigation.value, () => undefined);
     internalGuard.setDirty(true);
     let navigatedTo: string | undefined;
@@ -225,7 +279,10 @@ async function run(): Promise<void> {
     assert.equal(internalNavigation.listenerCount, 0);
 
     assert.equal(
-      getInterceptableInternalNavigationHref(navigationEvent('http://localhost/jobs'), 'http://localhost/datasets/example'),
+      getInterceptableInternalNavigationHref(
+        navigationEvent('http://localhost/jobs'),
+        'http://localhost/datasets/example',
+      ),
       '/jobs',
     );
     for (const event of [
@@ -237,6 +294,40 @@ async function run(): Promise<void> {
     ]) {
       assert.equal(getInterceptableInternalNavigationHref(event, 'http://localhost/datasets/example'), undefined);
     }
+
+    let missingChanges = 0;
+    let missingList!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      missingList = TestRenderer.create(
+        <DatasetSourceMissingList
+          paths={['gone.png']}
+          selectedPaths={new Set(['gone.png'])}
+          selectionMode={false}
+          saving={false}
+          onSelectionChange={() => missingChanges++}
+        />,
+      );
+    });
+    assert.equal(
+      missingList.root.findAllByType('input').length,
+      0,
+      'missing entries are read-only outside selection mode',
+    );
+    await act(async () => {
+      missingList.update(
+        <DatasetSourceMissingList
+          paths={['gone.png']}
+          selectedPaths={new Set(['gone.png'])}
+          selectionMode
+          saving={false}
+          onSelectionChange={() => missingChanges++}
+        />,
+      );
+    });
+    const missingCheckbox = missingList.root.findByType('input');
+    await act(async () => missingCheckbox.props.onChange({ target: { checked: false } }));
+    assert.equal(missingChanges, 1, 'missing entries are editable only in selection mode');
+    await act(async () => missingList.unmount());
 
     const actions: string[] = [];
     let cancelled = 0;
@@ -295,7 +386,11 @@ async function run(): Promise<void> {
         />,
       );
     });
-    assert.equal(toolbar.root.findByProps({ children: 'Save preset' }).props.disabled, true, 'zero selections cannot save');
+    assert.equal(
+      toolbar.root.findByProps({ children: 'Save preset' }).props.disabled,
+      true,
+      'zero selections cannot save',
+    );
     await act(async () => {
       toolbar.update(
         <DatasetSelectionToolbar
@@ -310,7 +405,11 @@ async function run(): Promise<void> {
       );
     });
     for (const label of ['Select all', 'Select none', 'Invert selection', 'Save preset', 'Cancel']) {
-      assert.equal(toolbar.root.findByProps({ children: label }).props.disabled, true, `${label} disables while saving`);
+      assert.equal(
+        toolbar.root.findByProps({ children: label }).props.disabled,
+        true,
+        `${label} disables while saving`,
+      );
     }
     await act(async () => toolbar.unmount());
 
