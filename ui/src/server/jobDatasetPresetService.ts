@@ -48,6 +48,12 @@ type TransactionSaveInput = Omit<SaveJobInput, 'jobs' | 'versions' | 'snapshots'
 
 export interface JobWriteTransaction {
   createOrUpdateJob(input: TransactionSaveInput): Promise<Job>;
+  assertDatasetPresetEligibility(input: {
+    job_id: string;
+    prior_job_id: string | null;
+    clone: boolean;
+    usages: ResolvedJobDatasets['usages'];
+  }): Promise<void>;
   deleteUsages(jobId: string): Promise<void>;
   createUsages(jobId: string, usages: ResolvedJobDatasets['usages']): Promise<void>;
 }
@@ -112,20 +118,20 @@ function cloneAndLocateDatasets(jobConfig: JobConfig): { jobConfig: JobConfig; d
   for (const process of copy.config.process) {
     if (!isPlainObject(process)) throw new JobDatasetPresetError('Job configuration is invalid');
   }
-  const first = copy.config.process[0];
-  if (!Object.prototype.hasOwnProperty.call(first, 'datasets')) {
-    return { jobConfig: copy as unknown as JobConfig, datasets: [] };
-  }
-  if (!Array.isArray(first.datasets)) throw new JobDatasetPresetError('Job configuration datasets are invalid');
-  for (const dataset of first.datasets) {
-    if (!isPlainObject(dataset)) throw new JobDatasetPresetError('Job configuration dataset entry is invalid');
-  }
-  for (const process of copy.config.process.slice(1)) {
-    if (isPlainObject(process) && Array.isArray(process.datasets) && process.datasets.some(dataset => isPlainObject(dataset) && 'dataset_preset' in dataset)) {
-      throw new JobDatasetPresetError('Dataset presets are only supported in the primary process');
+  let datasets: DatasetConfig[] = [];
+  for (let processIndex = 0; processIndex < copy.config.process.length; processIndex += 1) {
+    const process = copy.config.process[processIndex];
+    if (!Object.prototype.hasOwnProperty.call(process, 'datasets')) continue;
+    if (!Array.isArray(process.datasets)) throw new JobDatasetPresetError('Job configuration datasets are invalid');
+    for (const dataset of process.datasets) {
+      if (!isPlainObject(dataset)) throw new JobDatasetPresetError('Job configuration dataset entry is invalid');
+      if (processIndex > 0 && Object.prototype.hasOwnProperty.call(dataset, 'dataset_preset')) {
+        throw new JobDatasetPresetError('Dataset presets are only supported in the primary process');
+      }
     }
+    if (processIndex === 0) datasets = process.datasets as unknown as DatasetConfig[];
   }
-  return { jobConfig: copy as unknown as JobConfig, datasets: first.datasets as unknown as DatasetConfig[] };
+  return { jobConfig: copy as unknown as JobConfig, datasets };
 }
 
 function nonblank(value: unknown): value is string {
@@ -287,6 +293,12 @@ export async function saveJobWithDatasetUsages(input: SaveJobInput): Promise<Job
     if (!nonblank(job.id) || (!input.clone && input.id !== null && job.id !== input.id)) {
       throw new JobDatasetPresetError('Saved job identity is inconsistent');
     }
+    await transaction.assertDatasetPresetEligibility({
+      job_id: job.id,
+      prior_job_id: input.id,
+      clone: input.clone,
+      usages: resolved.usages,
+    });
     await transaction.deleteUsages(job.id);
     await transaction.createUsages(job.id, resolved.usages);
     return job;

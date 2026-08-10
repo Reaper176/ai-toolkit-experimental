@@ -164,6 +164,7 @@ function transactionalStore(options: { failJob?: boolean; failUsage?: boolean } 
         draft.jobs.push({ id, job_config: structuredClone(input.job_config) });
         return { id } as never;
       },
+      async assertDatasetPresetEligibility() {},
       async deleteUsages(jobId) { draft.usages = draft.usages.filter(item => item.jobId !== jobId); },
       async createUsages(jobId, usages) {
         if (options.failUsage) throw new Error('usage write failed');
@@ -194,10 +195,46 @@ async function runSaveTests(): Promise<void> {
     assert.deepEqual(target.state(), before, 'transaction rolls back every write');
   }
   const wrongId: JobWriteStore = { async transaction(operation) { return operation({
-    async createOrUpdateJob() { return { id: 'wrong' } as never; }, async deleteUsages() {}, async createUsages() {},
+    async createOrUpdateJob() { return { id: 'wrong' } as never; },
+    async assertDatasetPresetEligibility() {}, async deleteUsages() {}, async createUsages() {},
   }); } };
   await assert.rejects(saveJobWithDatasetUsages({ id: 'edit', clone: false, name: 'name', gpu_ids: '0',
     job_config: job([]), jobs: wrongId, versions: f.versions, snapshots: f.snapshots }), /identity/i);
+
+  const race = transactionalStore();
+  const raceBefore = race.state();
+  const raceStore: JobWriteStore = {
+    async transaction(operation) {
+      return race.store.transaction(tx => operation({
+        ...tx,
+        async assertDatasetPresetEligibility() {
+          f.records.get('v1')!.preset.archived_at = new Date();
+          throw new Error('transactional archived eligibility rejected');
+        },
+      }));
+    },
+  };
+  await assert.rejects(saveJobWithDatasetUsages({ id: 'edit', clone: false, name: 'name', gpu_ids: '0',
+    job_config: job([dataset('v1')]), jobs: raceStore, versions: f.versions, snapshots: f.snapshots }),
+  /transactional archived eligibility/);
+  assert.deepEqual(race.state(), raceBefore, 'archive race rejects and rolls back the job write');
+
+  const historical = fixtures([{ id: 'historical', archived: true }]);
+  historical.existing.set('edit:0', 'historical');
+  const historicalStore = transactionalStore();
+  await saveJobWithDatasetUsages({ id: 'edit', clone: false, name: 'name', gpu_ids: '0',
+    job_config: job([dataset('historical')]), jobs: historicalStore.store,
+    versions: historical.versions, snapshots: historical.snapshots });
+}
+
+async function runLaterProcessValidationTests(): Promise<void> {
+  const f = fixtures([{ id: 'v1' }]);
+  for (const datasets of [null, {}, [null]]) {
+    const input = job([]) as unknown as { config: { process: Array<Record<string, unknown>> } };
+    input.config.process.push({ datasets });
+    await assert.rejects(resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: input as unknown as JobConfig,
+      versions: f.versions, snapshots: f.snapshots }), /dataset|configuration/i);
+  }
 }
 
 async function runPreflightTests(): Promise<void> {
@@ -235,6 +272,7 @@ async function main(): Promise<void> {
   await runResolutionTests();
   await runArchiveAndFailureTests();
   await runSaveTests();
+  await runLaterProcessValidationTests();
   await runPreflightTests();
   console.log('job dataset preset provenance tests passed');
 }

@@ -4,162 +4,19 @@ import prisma from '@/server/prisma';
 import { isMac } from '@/helpers/basic';
 import { cached } from '@/server/apiCache';
 import { resolveGpuIds } from '@/server/jobGpu';
-import { validateLoaderConfig } from '@/helpers/datasetPresets';
 import { createDatasetPresetSnapshotStore } from '@/server/datasetPresetSnapshotService';
+import { JobDatasetPresetError, saveJobWithDatasetUsages } from '@/server/jobDatasetPresetService';
 import {
-  JobDatasetPresetError,
-  saveJobWithDatasetUsages,
-  type JobDatasetVersionStore,
-  type JobWriteStore,
-} from '@/server/jobDatasetPresetService';
-import type { DatasetPresetVersionRecord } from '@/server/datasetPresetService';
+  createJobDatasetVersionPrismaStore,
+  createJobWritePrismaStore,
+  jobWithDatasetPresetUsagesInclude,
+  jobWithDatasetPresetUsagesResponse,
+} from '@/server/jobDatasetPresetPrismaStore';
 import { getDataRoot } from '@/server/settings';
 import type { JobConfig } from '@/types';
 
-const versionForResolutionSelect = {
-  id: true,
-  preset_id: true,
-  version: true,
-  source_dataset: true,
-  manifest_path: true,
-  manifest_sha256: true,
-  loader_config: true,
-  note: true,
-  media_count: true,
-  total_bytes: true,
-  created_at: true,
-  preset: { select: { id: true, name: true, archived_at: true } },
-} as const satisfies Prisma.DatasetPresetVersionSelect;
-
-const usageForGetSelect = {
-  dataset_index: true,
-  preset_version_id: true,
-  preset_name: true,
-  preset_version: true,
-  manifest_sha256: true,
-  resolved_loader_config: true,
-  preset_version_record: {
-    select: {
-      source_dataset: true,
-      media_count: true,
-      total_bytes: true,
-      created_at: true,
-      note: true,
-    },
-  },
-} as const satisfies Prisma.JobDatasetPresetUsageSelect;
-
-const singleJobInclude = {
-  dataset_preset_usages: { orderBy: { dataset_index: 'asc' as const }, select: usageForGetSelect },
-} as const satisfies Prisma.JobInclude;
-
-function versionRecord(value: Prisma.DatasetPresetVersionGetPayload<{ select: typeof versionForResolutionSelect }>): DatasetPresetVersionRecord {
-  return {
-    id: value.id,
-    preset_id: value.preset_id,
-    version: value.version,
-    source_dataset: value.source_dataset,
-    manifest_path: value.manifest_path,
-    manifest_sha256: value.manifest_sha256,
-    loader_config: validateLoaderConfig(JSON.parse(value.loader_config)),
-    note: value.note,
-    media_count: value.media_count,
-    total_bytes: value.total_bytes.toString(),
-    created_at: value.created_at.toISOString(),
-  };
-}
-
-const versions: JobDatasetVersionStore = {
-  async getVersionForResolution(versionId) {
-    const value = await prisma.datasetPresetVersion.findUnique({
-      where: { id: versionId },
-      select: versionForResolutionSelect,
-    });
-    return value === null
-      ? null
-      : {
-          preset: value.preset,
-          version: versionRecord(value),
-        };
-  },
-  async existingUsage(jobId, datasetIndex) {
-    return prisma.jobDatasetPresetUsage.findUnique({
-      where: { job_id_dataset_index: { job_id: jobId, dataset_index: datasetIndex } },
-      select: { preset_version_id: true },
-    });
-  },
-};
-
-const jobs: JobWriteStore = {
-  transaction(operation) {
-    return prisma.$transaction(async transaction => operation({
-      async createOrUpdateJob(input) {
-        const optional = {
-          ...(input.job_ref === undefined ? {} : { job_ref: input.job_ref }),
-          ...(input.job_type === undefined ? {} : { job_type: input.job_type }),
-        };
-        if (input.id !== null && !input.clone) {
-          return transaction.job.update({
-            where: { id: input.id },
-            data: {
-              name: input.name,
-              gpu_ids: input.gpu_ids,
-              job_config: JSON.stringify(input.job_config),
-              ...optional,
-            },
-          });
-        }
-        const highest = await transaction.job.aggregate({ _max: { queue_position: true } });
-        return transaction.job.create({
-          data: {
-            name: input.name,
-            gpu_ids: input.gpu_ids,
-            job_config: JSON.stringify(input.job_config),
-            queue_position: (highest._max.queue_position ?? 0) + 1000,
-            ...optional,
-          },
-        });
-      },
-      async deleteUsages(jobId) {
-        await transaction.jobDatasetPresetUsage.deleteMany({ where: { job_id: jobId } });
-      },
-      async createUsages(jobId, usages) {
-        if (usages.length === 0) return;
-        await transaction.jobDatasetPresetUsage.createMany({
-          data: usages.map(usage => ({
-            job_id: jobId,
-            preset_version_id: usage.preset_version_id,
-            dataset_index: usage.dataset_index,
-            preset_name: usage.preset_name,
-            preset_version: usage.preset_version,
-            manifest_sha256: usage.manifest_sha256,
-            resolved_loader_config: JSON.stringify(usage.resolved_loader_config),
-          })),
-        });
-      },
-    }));
-  },
-};
-
-function singleJobResponse(job: Prisma.JobGetPayload<{ include: typeof singleJobInclude }> | null) {
-  if (job === null) return null;
-  return {
-    ...job,
-    dataset_preset_usages: job.dataset_preset_usages.map(usage => ({
-      dataset_index: usage.dataset_index,
-      preset_version_id: usage.preset_version_id,
-      preset_name: usage.preset_name,
-      preset_version: usage.preset_version,
-      manifest_sha256: usage.manifest_sha256,
-      resolved_loader_config: validateLoaderConfig(JSON.parse(usage.resolved_loader_config)),
-      source_dataset: usage.preset_version_record.source_dataset,
-      media_count: usage.preset_version_record.media_count,
-      total_bytes: usage.preset_version_record.total_bytes.toString(),
-      version_created_at: usage.preset_version_record.created_at.toISOString(),
-      note: usage.preset_version_record.note,
-    })),
-  };
-}
+const versions = createJobDatasetVersionPrismaStore(prisma);
+const jobs = createJobWritePrismaStore(prisma);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -181,16 +38,16 @@ export async function GET(request: Request) {
 
   try {
     if (id) {
-      const job = await prisma.job.findUnique({ where: { id }, include: singleJobInclude });
-      return NextResponse.json(singleJobResponse(job));
+      const job = await prisma.job.findUnique({ where: { id }, include: jobWithDatasetPresetUsagesInclude });
+      return NextResponse.json(jobWithDatasetPresetUsagesResponse(job));
     }
     if (job_ref) {
       const job = await prisma.job.findFirst({
         where: { job_ref },
         orderBy: { updated_at: 'desc' },
-        include: singleJobInclude,
+        include: jobWithDatasetPresetUsagesInclude,
       });
-      return NextResponse.json(singleJobResponse(job));
+      return NextResponse.json(jobWithDatasetPresetUsagesResponse(job));
     }
 
     const where: Prisma.JobWhereInput = {};

@@ -21,6 +21,7 @@
     "../src/server/datasetPresetService.ts",
     "../src/server/datasetPresetRouteHandlers.ts",
     "../src/server/jobDatasetPresetService.ts",
+    "../src/server/jobDatasetPresetPrismaStore.ts",
     "../src/components/DatasetSelectionToolbar.tsx",
     "../src/components/DatasetPresetDialog.tsx",
     "../src/components/DatasetSourceControl.tsx",
@@ -28,7 +29,8 @@
     "datasetPreset*.test.ts",
     "datasetPreset*.test.tsx",
     "datasetSourceControl.test.tsx",
-    "jobDataset*.test.ts"
+    "jobDataset*.test.ts",
+    "jobsRoute.test.ts"
   ],
   "exclude": ["../.next", "../node_modules"]
 }

@@ -20,6 +20,8 @@ const testFiles = [
   'datasetPresetPageIntegration.test.js',
   'jobDatasetPresets.test.js',
   'jobDatasetSaveRequest.test.js',
+  'jobDatasetPresetPrismaIntegration.test.js',
+  'jobsRoute.test.js',
 ];
 let outputDirectory;
 
