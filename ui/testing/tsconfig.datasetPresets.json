@@ -1,0 +1,31 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "allowJs": false,
+    "baseUrl": "..",
+    "incremental": false,
+    "isolatedModules": false,
+    "jsx": "react-jsx",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "paths": { "@/*": ["src/*"] },
+    "rootDir": "..",
+    "target": "es2020"
+  },
+  "include": [
+    "../src/helpers/datasetPresets.ts",
+    "../src/server/datasetPresetSnapshotService.ts",
+    "../src/server/datasetPresetService.ts",
+    "../src/server/datasetPresetRouteHandlers.ts",
+    "../src/server/jobDatasetPresetService.ts",
+    "../src/components/DatasetSelectionToolbar.tsx",
+    "../src/components/DatasetPresetDialog.tsx",
+    "../src/components/DatasetSourceControl.tsx",
+    "../src/components/DatasetProvenance.tsx",
+    "datasetPreset*.test.ts",
+    "datasetPreset*.test.tsx",
+    "jobDatasetPresets.test.ts"
+  ],
+  "exclude": ["../.next", "../node_modules"]
+}

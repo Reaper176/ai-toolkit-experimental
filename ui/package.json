@@ -12,6 +12,7 @@
     "test:anima-model-paths": "node testing/runAnimaModelPathTests.mjs",
     "test:dinov3-tagger-captioner": "node testing/runDinov3TaggerTests.mjs",
     "test:training-presets": "node testing/runTrainingPresetTests.mjs",
+    "test:dataset-presets": "node testing/runDatasetPresetTests.mjs",
     "lint": "next lint",
     "update_db": "npx prisma generate && npx prisma db push",
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,css,scss}\""
