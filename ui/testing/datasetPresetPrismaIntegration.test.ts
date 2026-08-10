@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -16,12 +16,25 @@ import {
   createDatasetPresetService,
 } from '../src/server/datasetPresetService';
 import { createDatasetPresetPrismaStore, type DatasetPresetPrismaClient } from '../src/server/datasetPresetPrismaStore';
+import { createDatasetPresetSnapshotStore } from '../src/server/datasetPresetSnapshotService';
+import {
+  createJobDatasetVersionPrismaStore,
+  createJobWritePrismaStore,
+  jobWithDatasetPresetUsagesInclude,
+  jobWithDatasetPresetUsagesResponse,
+} from '../src/server/jobDatasetPresetPrismaStore';
+import {
+  preflightJobDatasetPresets,
+  saveJobWithDatasetUsages,
+} from '../src/server/jobDatasetPresetService';
+import { prepareClaimAndLaunchJob } from '../src/server/jobStartOrchestration';
 import type {
   DatasetPresetSnapshotStore,
   SnapshotQuarantine,
   StageVersionInput,
   StagedPublication,
 } from '../src/server/datasetPresetSnapshotService';
+import type { JobConfig } from '../src/types';
 
 const TEMP_PREFIX = 'ai-toolkit-dataset-preset-db-';
 const uiRoot = resolve(process.cwd());
@@ -143,6 +156,9 @@ class FakeSnapshots implements DatasetPresetSnapshotStore {
   async cleanupStaging(): Promise<string[]> {
     return [];
   }
+  async findPublishedOrphans(): Promise<string[]> {
+    return [];
+  }
 }
 
 async function main(): Promise<void> {
@@ -197,6 +213,10 @@ async function main(): Promise<void> {
       selected_paths: ['b.jpg'],
     });
     assert.equal(v2.version, 2);
+    assert.deepEqual(await store.listManifestPaths(), [
+      v1Preset.versions[0].manifest_path,
+      v2.manifest_path,
+    ]);
     assert.deepEqual(
       (await service.getPreset(v1Preset.id)).versions.map(version => version.version),
       [1, 2],
@@ -373,6 +393,93 @@ async function main(): Promise<void> {
     assert.equal(await store.countVersionUsages(v1Preset.versions[0].id), 0);
     await service.deleteVersion(v2.id);
     assert.equal(await store.getVersion(v2.id), null);
+
+    // Reproducible service-level smoke: real snapshots plus the temporary Prisma DB.
+    const smokeDatasetsRoot = join(directory, 'smoke-datasets');
+    const smokeSourceRoot = join(smokeDatasetsRoot, 'my-images');
+    const smokeDataRoot = join(directory, 'smoke-data');
+    mkdirSync(smokeSourceRoot, { recursive: true });
+    mkdirSync(smokeDataRoot);
+    const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
+    for (const [name, caption] of [['a.png', 'alpha'], ['b.png', 'beta'], ['c.png', 'gamma']] as const) {
+      writeFileSync(join(smokeSourceRoot, name), png);
+      writeFileSync(join(smokeSourceRoot, name.replace('.png', '.txt')), caption);
+    }
+    const smokeSnapshots = createDatasetPresetSnapshotStore(smokeDataRoot);
+    const smokeService = createDatasetPresetService({ store, snapshots: smokeSnapshots, datasetsRoot: smokeDatasetsRoot });
+    const smokePreset = await smokeService.createPreset({
+      name: 'smoke-preset', source_dataset: 'my-images', selected_paths: ['a.png', 'b.png'],
+      caption_ext: 'txt', loader_config: loaderConfig, note: 'smoke v1',
+    });
+    const smokeV1 = smokePreset.versions[0];
+    writeFileSync(join(smokeSourceRoot, 'a.png'), Buffer.from([9, 9, 9]));
+    rmSync(join(smokeSourceRoot, 'b.png'));
+    assert.equal((await smokeService.verifyVersion(smokeV1.id, true)).media_count, 2);
+    const smokeV2 = await smokeService.publishVersion(smokePreset.id, {
+      source_dataset: 'my-images', selected_paths: ['c.png'], retained_paths: ['b.png'],
+      base_version_id: smokeV1.id, caption_ext: 'txt', loader_config: loaderConfig, note: 'smoke v2',
+    });
+    assert.equal(smokeV2.version, 2);
+
+    const versions = createJobDatasetVersionPrismaStore(client as never);
+    const jobs = createJobWritePrismaStore(client as never);
+    const smokeDataset = (version: typeof smokeV1, repeats: number) => ({
+      ...loaderConfig,
+      num_repeats: repeats,
+      folder_path: '/browser/live/path',
+      dataset_preset: {
+        version_id: version.id, preset_id: version.preset_id, preset_name: 'smoke-preset',
+        version: version.version, manifest_sha256: version.manifest_sha256,
+      },
+    });
+    const smokeJobConfig = {
+      config: { process: [{ datasets: [smokeDataset(smokeV1, 2), smokeDataset(smokeV2, 5)] }] },
+    } as unknown as JobConfig;
+    const smokeJob = await saveJobWithDatasetUsages({
+      id: null, clone: false, name: 'smoke-job', gpu_ids: '0', job_config: smokeJobConfig,
+      jobs, versions, snapshots: smokeSnapshots,
+    });
+    const smokeResponse = jobWithDatasetPresetUsagesResponse(await client.job.findUnique({
+      where: { id: smokeJob.id }, include: jobWithDatasetPresetUsagesInclude,
+    }))!;
+    assert.deepEqual(smokeResponse.dataset_preset_usages.map(usage => [
+      usage.preset_version, usage.resolved_loader_config.num_repeats,
+    ]), [[1, 2], [2, 5]]);
+
+    let launched = false;
+    assert.equal(await prepareClaimAndLaunchJob({
+      id: smokeJob.id, name: smokeJob.name, gpu_ids: smokeJob.gpu_ids,
+      queue_position: 1, updated_at: smokeJob.updated_at, job_config: smokeJob.job_config,
+    }, {
+      prepare: config => preflightJobDatasetPresets(config, { versions, snapshots: smokeSnapshots }).then(() => config),
+      claim: async () => false,
+      fail: async () => false,
+      launch: () => { launched = true; },
+    }), 'cancelled');
+    assert.equal(launched, false, 'smoke orchestration cancels before a launcher/model load');
+
+    const smokeV1Manifest = await smokeSnapshots.readManifest(smokeV1.manifest_path);
+    const corruptPath = join(smokeSnapshots.resolveMediaRoot(smokeV1.manifest_path), 'a.png');
+    const originalSnapshotBytes = readFileSync(corruptPath);
+    writeFileSync(corruptPath, Buffer.from([0]));
+    await assert.rejects(smokeService.verifyVersion(smokeV1.id, true));
+    await assert.rejects(preflightJobDatasetPresets(smokeJobConfig, { versions, snapshots: smokeSnapshots }));
+    writeFileSync(corruptPath, originalSnapshotBytes);
+    assert.equal((await smokeService.verifyVersion(smokeV1.id, true)).media_count, smokeV1Manifest.media_count);
+    await preflightJobDatasetPresets(smokeJobConfig, { versions, snapshots: smokeSnapshots });
+
+    await smokeService.setArchived(smokePreset.id, true);
+    await saveJobWithDatasetUsages({
+      id: smokeJob.id, clone: false, name: smokeJob.name, gpu_ids: smokeJob.gpu_ids,
+      job_config: smokeJobConfig, jobs, versions, snapshots: smokeSnapshots,
+    });
+    await preflightJobDatasetPresets(smokeJobConfig, { versions, snapshots: smokeSnapshots });
+    await assert.rejects(saveJobWithDatasetUsages({
+      id: null, clone: false, name: 'new-after-archive', gpu_ids: '0', job_config: smokeJobConfig,
+      jobs, versions, snapshots: smokeSnapshots,
+    }), /active/i);
+    await assert.rejects(smokeService.deleteVersion(smokeV1.id), DatasetPresetReferencedError);
+    await assert.rejects(smokeService.deleteVersion(smokeV2.id), DatasetPresetReferencedError);
 
     await assert.rejects(
       client.datasetPreset.delete({ where: { id: v1Preset.id } }),

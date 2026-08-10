@@ -51,6 +51,17 @@ async function expectRejects(action: () => Promise<unknown>, pattern: RegExp): P
   await assert.rejects(action, pattern);
 }
 
+function publishedManifestPaths(dataRoot: string): string[] {
+  const managedRoot = join(dataRoot, 'dataset_presets');
+  return readdirSync(managedRoot, { withFileTypes: true }).flatMap(preset => {
+    if (!preset.isDirectory() || preset.isSymbolicLink() || preset.name.startsWith('.')) return [];
+    return readdirSync(join(managedRoot, preset.name), { withFileTypes: true })
+      .filter(version => version.isDirectory() && !version.isSymbolicLink() && /^v[1-9]\d*$/.test(version.name))
+      .filter(version => existsSync(join(managedRoot, preset.name, version.name, 'manifest.json')))
+      .map(version => `${preset.name}/${version.name}/manifest.json`);
+  });
+}
+
 async function main(): Promise<void> {
   const ownedRoot = mkdtempSync(join(tmpdir(), 'aitk-dataset-snapshot-test-'));
   try {
@@ -1095,6 +1106,62 @@ async function main(): Promise<void> {
     assert.equal(existsSync(join(safeDotPresetRoot, '.staging-old')), false);
     assert.equal(existsSync(rootTombstone), true);
     assert.equal(existsSync(newerRootTombstone), true);
+
+    const priorPublished = publishedManifestPaths(dataRoot);
+    const referencedVersion = join(dataRoot, 'dataset_presets/recovery/v1');
+    const orphanVersion = join(dataRoot, 'dataset_presets/recovery/v2');
+    mkdirSync(referencedVersion, { recursive: true });
+    mkdirSync(orphanVersion, { recursive: true });
+    writeFileSync(join(referencedVersion, 'manifest.json'), '{}');
+    writeFileSync(join(orphanVersion, 'manifest.json'), '{}');
+    assert.deepEqual(
+      await store.findPublishedOrphans([
+        ...priorPublished,
+        'recovery/v1/manifest.json',
+        'recovery/v1/manifest.json',
+        '../malformed/manifest.json',
+        join(ownedRoot, 'absolute/manifest.json'),
+      ]),
+      ['recovery/v2'],
+    );
+    assert.equal(existsSync(orphanVersion), true, 'orphan discovery must never delete a published version');
+    assert.equal(existsSync(referencedVersion), true, 'orphan discovery must never touch a referenced version');
+
+    mkdirSync(join(dataRoot, 'dataset_presets/recovery/.quarantine-v3-ignore'));
+    mkdirSync(join(dataRoot, 'dataset_presets/recovery/.staging-ignore'));
+    writeFileSync(join(dataRoot, 'dataset_presets/recovery/unrelated.txt'), 'keep');
+    assert.deepEqual(await store.findPublishedOrphans([...priorPublished, 'recovery/v1/manifest.json']), ['recovery/v2']);
+
+    if (process.platform !== 'win32') {
+      const unsafeVersion = join(dataRoot, 'dataset_presets/recovery/v3');
+      mkdirSync(unsafeVersion, { mode: 0o777 });
+      writeFileSync(join(unsafeVersion, 'manifest.json'), '{}');
+      chmodSync(unsafeVersion, 0o777);
+      assert.deepEqual(await store.findPublishedOrphans([...priorPublished, 'recovery/v1/manifest.json']), ['recovery/v2']);
+      chmodSync(unsafeVersion, 0o700);
+
+      const unsafeManifestVersion = join(dataRoot, 'dataset_presets/recovery/v5');
+      mkdirSync(unsafeManifestVersion);
+      const unsafeManifest = join(unsafeManifestVersion, 'manifest.json');
+      writeFileSync(unsafeManifest, '{}');
+      chmodSync(unsafeManifest, 0o666);
+      assert.deepEqual(await store.findPublishedOrphans([
+        ...priorPublished, 'recovery/v1/manifest.json', 'recovery/v3/manifest.json',
+      ]), ['recovery/v2']);
+      chmodSync(unsafeManifest, 0o600);
+    }
+
+    const boundedRoot = join(dataRoot, 'dataset_presets/bounded');
+    for (let index = 1; index <= 105; index += 1) {
+      const versionRoot = join(boundedRoot, `v${index}`);
+      mkdirSync(versionRoot, { recursive: true });
+      writeFileSync(join(versionRoot, 'manifest.json'), '{}');
+    }
+    const boundedOrphans = await store.findPublishedOrphans([...priorPublished, 'recovery/v1/manifest.json']);
+    assert.equal(boundedOrphans.length, 100, 'orphan reporting must be bounded');
+    assert.deepEqual(boundedOrphans, [...boundedOrphans].sort());
+    assert.ok(boundedOrphans.every(path => !isAbsolute(path) && !path.includes('..')));
+
     if (symlinksSupported) {
       const cleanupOutside = join(ownedRoot, 'cleanup-outside');
       mkdirSync(join(cleanupOutside, '.staging-old'), { recursive: true });
@@ -1107,6 +1174,13 @@ async function main(): Promise<void> {
       await expectRejects(() => store.cleanupStaging(new Date()), /symlink|preset|parent|root/i);
       assert.equal(readFileSync(join(cleanupOutside, '.staging-old/sentinel'), 'utf8'), 'keep');
       unlinkSync(join(dataRoot, 'dataset_presets/cleanup-link'));
+
+      const orphanOutside = join(ownedRoot, 'orphan-outside');
+      mkdirSync(orphanOutside);
+      writeFileSync(join(orphanOutside, 'manifest.json'), '{}');
+      symlinkSync(orphanOutside, join(dataRoot, 'dataset_presets/recovery/v4'), 'dir');
+      const found = await store.findPublishedOrphans([...priorPublished, 'recovery/v1/manifest.json']);
+      assert.equal(found.includes('recovery/v4'), false, 'orphan discovery must not follow version symlinks');
     }
   } finally {
     if (existsSync(ownedRoot)) rmSync(ownedRoot, { recursive: true });

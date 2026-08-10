@@ -106,7 +106,11 @@ export interface DatasetPresetSnapshotStore {
   resolveMediaRoot(relativeManifestPath: string): string;
   quarantineVersion(relativeManifestPath: string): Promise<SnapshotQuarantine>;
   cleanupStaging(olderThan: Date): Promise<string[]>;
+  findPublishedOrphans(authoritativeManifestPaths: readonly string[]): Promise<string[]>;
 }
+
+export const DATASET_PRESET_MAINTENANCE_MAX_SCAN = 10_000;
+export const DATASET_PRESET_MAINTENANCE_MAX_REPORT = 100;
 
 export interface DatasetPresetSnapshotDependencies {
   randomId(): string;
@@ -1107,7 +1111,7 @@ export function createDatasetPresetSnapshotStore(
         await removePinnedDirectory(ownedPin, presetPin, 'Owned staging directory');
       } catch (error) {
         // A failed rm may leave the staging pin as a root tombstone. Public
-        // cleanupStaging deliberately ignores those; startup recovery belongs to Task 11.
+        // cleanupStaging deliberately ignores those for manual investigation.
         cleanupError = error;
       } finally {
         state = 'rolled-back';
@@ -1176,14 +1180,23 @@ export function createDatasetPresetSnapshotStore(
       await initializeManagedRoot();
       requirePinnedRootsSync();
       const removed: string[] = [];
-      for (const presetEntry of await readdir(managedRoot, { withFileTypes: true })) {
+      let scanned = 0;
+      const presetEntries = (await readdir(managedRoot, { withFileTypes: true })).sort((a, b) =>
+        a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+      );
+      for (const presetEntry of presetEntries) {
+        if (++scanned > DATASET_PRESET_MAINTENANCE_MAX_SCAN) break;
         requirePinnedRootsSync();
         if (presetEntry.name.toLowerCase().startsWith('.tombstone-')) continue;
         if (presetEntry.isSymbolicLink()) throw new Error(`Preset parent must not be a symlink: ${presetEntry.name}`);
         if (!presetEntry.isDirectory()) continue;
         const presetRoot = join(managedRoot, presetEntry.name);
         const presetPin = pinDirectorySync(presetRoot, 'Preset root', managedRoot);
-        for (const childEntry of await readdir(presetRoot, { withFileTypes: true })) {
+        const childEntries = (await readdir(presetRoot, { withFileTypes: true })).sort((a, b) =>
+          a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+        );
+        for (const childEntry of childEntries) {
+          if (++scanned > DATASET_PRESET_MAINTENANCE_MAX_SCAN) break;
           if (!/^\.staging-.+/.test(childEntry.name)) continue;
           if (childEntry.isSymbolicLink())
             throw new Error(`Staging directory must not be a symlink: ${childEntry.name}`);
@@ -1193,10 +1206,83 @@ export function createDatasetPresetSnapshotStore(
           if (info.isSymbolicLink() || !info.isDirectory() || info.mtimeMs >= BigInt(olderThan.getTime())) continue;
           const stagingPin = pinDirectorySync(childPath, 'Staging directory', presetRoot);
           await removePinnedDirectory(stagingPin, presetPin, 'Staging directory');
-          removed.push(`${presetEntry.name}/${childEntry.name}`);
+          if (removed.length < DATASET_PRESET_MAINTENANCE_MAX_REPORT) {
+            removed.push(`${presetEntry.name}/${childEntry.name}`);
+          }
         }
+        if (scanned > DATASET_PRESET_MAINTENANCE_MAX_SCAN) break;
       }
       return removed.sort();
+    },
+    async findPublishedOrphans(authoritativeManifestPaths: readonly string[]): Promise<string[]> {
+      if (!Array.isArray(authoritativeManifestPaths)) throw new Error('Manifest paths must be an array');
+      if (authoritativeManifestPaths.length > DATASET_PRESET_MAINTENANCE_MAX_SCAN) {
+        throw new Error('Authoritative manifest path scan limit exceeded');
+      }
+      await initializeManagedRoot();
+      requirePinnedRootsSync();
+
+      const authoritative = new Set<string>();
+      for (const value of authoritativeManifestPaths) {
+        try {
+          const grammar = parseManifestGrammar(value);
+          authoritative.add(`${grammar.presetId}/v${grammar.version}/manifest.json`);
+        } catch {
+          // A malformed database value cannot make any published directory
+          // authoritative. The regular verification path reports that record.
+        }
+      }
+
+      const orphans: string[] = [];
+      let scanned = 0;
+      const presetEntries = (await readdir(managedRoot, { withFileTypes: true })).sort((a, b) =>
+        a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+      );
+      for (const presetEntry of presetEntries) {
+        if (++scanned > DATASET_PRESET_MAINTENANCE_MAX_SCAN || orphans.length >= DATASET_PRESET_MAINTENANCE_MAX_REPORT)
+          break;
+        if (presetEntry.name.startsWith('.') || presetEntry.isSymbolicLink() || !presetEntry.isDirectory()) continue;
+        let presetId: string;
+        let presetRoot: string;
+        try {
+          presetId = validatePresetId(presetEntry.name);
+          presetRoot = join(managedRoot, presetId);
+          pinDirectorySync(presetRoot, 'Preset root', managedRoot);
+        } catch {
+          continue;
+        }
+
+        let children;
+        try {
+          children = (await readdir(presetRoot, { withFileTypes: true })).sort((a, b) =>
+            a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+          );
+        } catch (error) {
+          if (isMissing(error)) continue;
+          throw error;
+        }
+        for (const child of children) {
+          if (++scanned > DATASET_PRESET_MAINTENANCE_MAX_SCAN || orphans.length >= DATASET_PRESET_MAINTENANCE_MAX_REPORT)
+            break;
+          const match = /^v([1-9]\d*)$/.exec(child.name);
+          if (!match || child.isSymbolicLink() || !child.isDirectory()) continue;
+          const version = Number(match[1]);
+          if (!Number.isSafeInteger(version)) continue;
+          const versionRoot = join(presetRoot, child.name);
+          try {
+            pinDirectorySync(versionRoot, 'Version root', presetRoot);
+            const manifestInfo = await lstat(join(versionRoot, 'manifest.json'), { bigint: true });
+            if (manifestInfo.isSymbolicLink() || !manifestInfo.isFile()) continue;
+            validateAccountBoundary(manifestInfo, 'Manifest');
+          } catch (error) {
+            if (isMissing(error)) continue;
+            continue;
+          }
+          const manifestPath = `${presetId}/v${version}/manifest.json`;
+          if (!authoritative.has(manifestPath)) orphans.push(`${presetId}/v${version}`);
+        }
+      }
+      return orphans.sort();
     },
   };
 }

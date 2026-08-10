@@ -1,5 +1,12 @@
 import processQueue from './actions/processQueue';
 import prisma from './prisma';
+import { getDataRoot } from './paths';
+import { createDatasetPresetPrismaStore } from '../src/server/datasetPresetPrismaStore';
+import { createDatasetPresetSnapshotStore } from '../src/server/datasetPresetSnapshotService';
+import {
+  runDatasetPresetStartupMaintenance,
+  startWorkerAfterMaintenance,
+} from '../src/server/datasetPresetMaintenance';
 
 // Journal mode for the main sqlite db. WAL keeps readers from blocking while
 // the trainer/worker write, which is what we want on a local disk. Users on
@@ -67,13 +74,36 @@ class CronWorker {
   }
 }
 
-// make sure the db journal mode is set before the loop starts hitting the db
-ensureJournalMode()
-  .catch(error => {
-    console.warn('Could not check/convert database journal mode:', error);
-  })
-  .finally(() => {
-    // it automatically starts the loop
-    const cronWorker = new CronWorker();
-    console.log('Cron worker started with interval:', cronWorker.interval, 'ms');
+async function maintainDatasetPresets(): Promise<void> {
+  try {
+    const dataRoot = await getDataRoot();
+    const snapshots = createDatasetPresetSnapshotStore(dataRoot);
+    const store = createDatasetPresetPrismaStore(prisma);
+    await runDatasetPresetStartupMaintenance({
+      now: () => new Date(),
+      cleanupStaging: cutoff => snapshots.cleanupStaging(cutoff),
+      listManifestPaths: () => store.listManifestPaths(),
+      findPublishedOrphans: paths => snapshots.findPublishedOrphans(paths),
+      info: message => console.log(message),
+      warn: message => console.warn(message),
+    });
+  } catch {
+    console.warn('Dataset preset startup maintenance failed (Error)');
+  }
+}
+
+// Journal setup and recovery both finish before the interval can accept work.
+export async function startCronWorker(): Promise<CronWorker> {
+  return startWorkerAfterMaintenance({
+    ensureJournalMode,
+    maintenance: maintainDatasetPresets,
+    start: () => {
+      const cronWorker = new CronWorker();
+      console.log('Cron worker started with interval:', cronWorker.interval, 'ms');
+      return cronWorker;
+    },
+    warn: message => console.warn(message),
   });
+}
+
+if (require.main === module) void startCronWorker();

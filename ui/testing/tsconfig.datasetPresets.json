@@ -20,6 +20,7 @@
     "../src/server/datasetPresetSnapshotService.ts",
     "../src/server/datasetPresetService.ts",
     "../src/server/datasetPresetRouteHandlers.ts",
+    "../src/server/datasetPresetMaintenance.ts",
     "../src/server/jobDatasetPresetService.ts",
     "../src/server/jobStartOrchestration.ts",
     "../src/server/jobDatasetPresetPrismaStore.ts",

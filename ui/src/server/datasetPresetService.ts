@@ -168,6 +168,7 @@ export interface DatasetPresetWithVersionsRow extends DatasetPresetRow {
 }
 
 export interface DatasetPresetStore {
+  listManifestPaths(): Promise<string[]>;
   listActiveWithVersions(): Promise<DatasetPresetWithVersionsRow[]>;
   getPreset(id: string): Promise<DatasetPresetRow | null>;
   findPresetByNameKey(nameKey: string): Promise<DatasetPresetRow | null>;

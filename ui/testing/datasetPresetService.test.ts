@@ -68,6 +68,10 @@ class MemoryStore implements DatasetPresetStore {
   countVersionUsagesCalls = 0;
   beforeInsertReservedVersion?: () => void | Promise<void>;
 
+  async listManifestPaths(): Promise<string[]> {
+    return this.versions.map(version => version.manifest_path).sort();
+  }
+
   async listActive(): Promise<DatasetPresetRow[]> {
     return clone(this.presets.filter(row => row.archived_at === null));
   }
@@ -275,6 +279,9 @@ class FakeSnapshots implements DatasetPresetSnapshotStore {
     };
   }
   async cleanupStaging(): Promise<string[]> {
+    return [];
+  }
+  async findPublishedOrphans(): Promise<string[]> {
     return [];
   }
 }

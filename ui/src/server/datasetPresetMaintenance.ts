@@ -1,0 +1,66 @@
+import { normalizeRelativeMediaPath } from '../helpers/datasetPresets';
+import { DATASET_PRESET_MAINTENANCE_MAX_REPORT } from './datasetPresetSnapshotService';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export interface DatasetPresetStartupMaintenanceDependencies {
+  now(): Date;
+  cleanupStaging(cutoff: Date): Promise<string[]>;
+  listManifestPaths(): Promise<string[]>;
+  findPublishedOrphans(authoritativeManifestPaths: readonly string[]): Promise<string[]>;
+  info(message: string): void;
+  warn(message: string): void;
+}
+
+export interface WorkerStartupDependencies<T> {
+  ensureJournalMode(): Promise<void>;
+  maintenance(): Promise<void>;
+  start(): T;
+  warn(message: string): void;
+}
+
+function safeRelativePath(value: string): string | undefined {
+  try {
+    const normalized = normalizeRelativeMediaPath(value);
+    return normalized.length <= 512 ? normalized : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function runDatasetPresetStartupMaintenance(
+  dependencies: DatasetPresetStartupMaintenanceDependencies,
+): Promise<void> {
+  try {
+    const now = dependencies.now();
+    if (!(now instanceof Date) || Number.isNaN(now.getTime())) throw new Error('Invalid maintenance clock');
+    const removed = await dependencies.cleanupStaging(new Date(now.getTime() - DAY_MS));
+    for (const path of removed.slice(0, DATASET_PRESET_MAINTENANCE_MAX_REPORT)) {
+      const safe = safeRelativePath(path);
+      if (safe !== undefined) dependencies.info(`Dataset preset recovery removed stale staging: ${safe}`);
+    }
+    const authoritative = await dependencies.listManifestPaths();
+    const orphans = await dependencies.findPublishedOrphans(authoritative);
+    for (const path of orphans.slice(0, DATASET_PRESET_MAINTENANCE_MAX_REPORT)) {
+      const safe = safeRelativePath(path);
+      if (safe !== undefined) dependencies.info(`Dataset preset recovery found published orphan: ${safe}`);
+    }
+  } catch (error) {
+    const label = error instanceof Error && /^[A-Za-z][A-Za-z0-9]*$/.test(error.name) ? error.name : 'Error';
+    dependencies.warn(`Dataset preset startup maintenance failed (${label})`);
+  }
+}
+
+export async function startWorkerAfterMaintenance<T>(dependencies: WorkerStartupDependencies<T>): Promise<T> {
+  try {
+    await dependencies.ensureJournalMode();
+  } catch {
+    dependencies.warn('Could not check/convert database journal mode');
+  }
+  try {
+    await dependencies.maintenance();
+  } catch {
+    dependencies.warn('Dataset preset startup maintenance failed (Error)');
+  }
+  return dependencies.start();
+}

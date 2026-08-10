@@ -13,6 +13,7 @@ const testFiles = [
   'datasetPresetSnapshotService.test.js',
   'datasetPresetService.test.js',
   'datasetPresetPrismaIntegration.test.js',
+  'datasetPresetMaintenance.test.js',
   'datasetPresetRouteHandlers.test.js',
   'datasetPresetSelection.test.js',
   'datasetPresetDialog.test.js',
