@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { normalizeRelativeMediaPath } from './datasetSelection';
+
+export { applySelectionAction, normalizeRelativeMediaPath, type SelectionAction } from './datasetSelection';
 
 export const DATASET_PRESET_SCHEMA_VERSION = 1 as const;
 export const DATASET_PRESET_NAME_MAX = 80;
@@ -83,8 +86,6 @@ export interface DatasetPresetReference {
   manifest_sha256: string;
 }
 
-export type SelectionAction = 'all' | 'none' | 'invert';
-
 const EXTERNAL_PATH_KEYS = new Set([
   'folder_path',
   'dataset_path',
@@ -99,8 +100,6 @@ const EXTERNAL_PATH_KEYS = new Set([
 ]);
 const SHA256 = /^[a-f0-9]{64}$/;
 const CAPTION_EXTENSION = /^\.?[A-Za-z0-9_-]{1,32}$/;
-const WINDOWS_RESERVED_BASENAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
-const PORTABLE_SEGMENT_INVALID_CHARACTER = /[\u0000-\u001f<>:"|?*]/;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -195,29 +194,6 @@ export function normalizePresetName(input: unknown): { name: string; nameKey: st
     throw new Error(`Preset name must be at most ${DATASET_PRESET_NAME_MAX} characters`);
   }
   return { name, nameKey: name.toLowerCase() };
-}
-
-export function normalizeRelativeMediaPath(input: unknown): string {
-  if (typeof input !== 'string') throw new Error('Media path must be a string');
-  const path = input.replace(/\\/g, '/');
-  if (path.length === 0 || path.includes('\0') || path.startsWith('/') || /^[A-Za-z]:/.test(path)) {
-    throw new Error('Media path must be a nonempty relative path');
-  }
-  const segments = path.split('/');
-  if (
-    segments.some(
-      segment =>
-        segment.length === 0 ||
-        segment === '.' ||
-        segment === '..' ||
-        PORTABLE_SEGMENT_INVALID_CHARACTER.test(segment) ||
-        /[. ]$/.test(segment) ||
-        WINDOWS_RESERVED_BASENAME.test(segment),
-    )
-  ) {
-    throw new Error('Media path must contain portable safe segments');
-  }
-  return segments.join('/');
 }
 
 export function validateLoaderConfig(untrusted: unknown): DatasetPresetLoaderConfig {
@@ -409,16 +385,4 @@ export function serializeManifest(untrusted: unknown): string {
 
 export function manifestSha256(untrusted: unknown): string {
   return createHash('sha256').update(serializeManifest(untrusted)).digest('hex');
-}
-
-export function applySelectionAction(
-  selected: ReadonlySet<string>,
-  available: Iterable<string>,
-  action: SelectionAction,
-): Set<string> {
-  const options = new Set(available);
-  if (action === 'all') return new Set(options);
-  if (action === 'none') return new Set();
-  if (action === 'invert') return new Set([...options].filter(value => !selected.has(value)));
-  throw new Error(`Unknown selection action: ${String(action)}`);
 }

@@ -14,6 +14,8 @@ const testFiles = [
   'datasetPresetService.test.js',
   'datasetPresetPrismaIntegration.test.js',
   'datasetPresetRouteHandlers.test.js',
+  'datasetPresetSelection.test.js',
+  'datasetPresetPageIntegration.test.js',
 ];
 let outputDirectory;
 

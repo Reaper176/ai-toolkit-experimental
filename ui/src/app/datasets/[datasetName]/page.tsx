@@ -5,6 +5,7 @@ import { LuImageOff, LuLoader, LuBan } from 'react-icons/lu';
 import { FaChevronLeft } from 'react-icons/fa';
 import { VirtuosoGrid } from 'react-virtuoso';
 import DatasetImageCard from '@/components/DatasetImageCard';
+import DatasetSelectionToolbar from '@/components/DatasetSelectionToolbar';
 import DatasetImageViewer from '@/components/DatasetImageViewer';
 import { Button } from '@headlessui/react';
 import AddImagesModal, { openImagesModal, useOpenImagesModalOnDrag } from '@/components/AddImagesModal';
@@ -15,9 +16,24 @@ import { pathJoin } from '@/utils/basic';
 import AutoCaptionButton from '@/components/AutoCaptionButton';
 import CaptionMonitor from '@/components/CaptionMonitor';
 import { CreatableSelectInput } from '@/components/formInputs';
+import { openConfirm } from '@/components/ConfirmModal';
+import {
+  applySelectionAction,
+  areSelectionsEqual,
+  createDirtySelectionLeaveGuard,
+  normalizeRelativeMediaPath,
+  reconcileSelection,
+  type DirtySelectionLeaveGuard,
+  type SelectionAction,
+} from '@/helpers/datasetSelection';
+
+interface DatasetImageEntry {
+  img_path: string;
+  relative_path: string;
+}
 
 export default function DatasetPage({ params }: { params: { datasetName: string } }) {
-  const [imgList, setImgList] = useState<{ img_path: string }[]>([]);
+  const [imgList, setImgList] = useState<DatasetImageEntry[]>([]);
   const [isAutoCaptioning, setIsAutoCaptioning] = useState(false);
   const usableParams = use(params as any) as { datasetName: string };
   const datasetName = usableParams.datasetName;
@@ -28,8 +44,23 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   const [captionRefreshKeys, setCaptionRefreshKeys] = useState<Record<string, number>>({});
   const [scrollParent, setScrollParent] = useState<HTMLDivElement | null>(null);
   const [captionBarHeight, setCaptionBarHeight] = useState(0);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set());
+  const [baseSelection, setBaseSelection] = useState<Set<string>>(() => new Set());
   const scrollParentCallback = useCallback((el: HTMLDivElement | null) => setScrollParent(el), []);
   const isRefreshingRef = useRef(false);
+  const baseSelectionRef = useRef(baseSelection);
+  const leaveGuardRef = useRef<DirtySelectionLeaveGuard | null>(null);
+  const discardSelectionRef = useRef<() => void>(() => undefined);
+
+  baseSelectionRef.current = baseSelection;
+  const selectionDirty = selectionMode && !areSelectionsEqual(selectedPaths, baseSelection);
+  const selectionSaving = false;
+
+  discardSelectionRef.current = () => {
+    setSelectedPaths(new Set(baseSelectionRef.current));
+    setSelectionMode(false);
+  };
 
   const refreshImageList = (dbName: string) => {
     // Only allow one listImages request in flight at a time.
@@ -44,7 +75,22 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
         // keep the payload small. Plain concat rebuilds the native absolute path on any OS.
         // Server already sorts; avoid a client-side sort on large lists.
         const root = data.root;
-        setImgList(data.images.map((subPath: string) => ({ img_path: root + subPath })));
+        if (typeof root !== 'string' || !Array.isArray(data.images)) {
+          throw new Error('Dataset image list response is malformed');
+        }
+        const nextImages: DatasetImageEntry[] = [];
+        for (const subPath of data.images) {
+          try {
+            const relative_path = normalizeRelativeMediaPath(subPath);
+            nextImages.push({ img_path: root + subPath, relative_path });
+          } catch (error) {
+            console.error('Skipping invalid dataset image path:', subPath, error);
+          }
+        }
+        setImgList(nextImages);
+        const availablePaths = nextImages.map(image => image.relative_path);
+        setSelectedPaths(current => reconcileSelection(current, availablePaths));
+        setBaseSelection(current => reconcileSelection(current, availablePaths));
         setStatus('success');
       })
       .catch(error => {
@@ -58,6 +104,82 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   useOpenImagesModalOnDrag(datasetName, () => refreshImageList(datasetName));
 
   const imgPaths = useMemo(() => imgList.map(img => img.img_path), [imgList]);
+
+  useEffect(() => {
+    const guard = createDirtySelectionLeaveGuard(window, () => {
+      openConfirm({
+        title: 'Discard selection changes?',
+        message: 'Your selection changes have not been saved.',
+        type: 'warning',
+        confirmText: 'Discard and leave',
+        onConfirm: () => {
+          discardSelectionRef.current();
+          leaveGuardRef.current?.allowLeave();
+        },
+      });
+    });
+    leaveGuardRef.current = guard;
+    return () => {
+      guard.dispose();
+      if (leaveGuardRef.current === guard) leaveGuardRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    leaveGuardRef.current?.setDirty(selectionDirty);
+  }, [selectionDirty]);
+
+  useEffect(() => {
+    if (!selectionDirty) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [selectionDirty]);
+
+  const enterSelectionMode = () => {
+    setBaseSelection(new Set());
+    setSelectedPaths(new Set());
+    setSelectionMode(true);
+  };
+
+  const cancelSelectionMode = () => {
+    const cancel = () => discardSelectionRef.current();
+    if (!selectionDirty) {
+      cancel();
+      return;
+    }
+    openConfirm({
+      title: 'Discard selection changes?',
+      message: 'Your selection changes have not been saved.',
+      type: 'warning',
+      confirmText: 'Discard changes',
+      onConfirm: cancel,
+    });
+  };
+
+  const handleSelectionAction = (action: SelectionAction) => {
+    setSelectedPaths(applySelectionAction(selectedPaths, imgList.map(img => img.relative_path), action));
+  };
+
+  const handlePageBack = () => {
+    if (!selectionDirty) {
+      history.back();
+      return;
+    }
+    openConfirm({
+      title: 'Discard selection changes?',
+      message: 'Your selection changes have not been saved.',
+      type: 'warning',
+      confirmText: 'Discard and leave',
+      onConfirm: () => {
+        discardSelectionRef.current();
+        leaveGuardRef.current?.allowLeave();
+      },
+    });
+  };
 
   useEffect(() => {
     if (datasetName) {
@@ -120,7 +242,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
       {/* Fixed top bar */}
       <TopBar>
         <div className="flex-shrink-0">
-          <Button className="text-gray-500 dark:text-gray-300 px-2 sm:px-3 mt-1" onClick={() => history.back()}>
+          <Button className="text-gray-500 dark:text-gray-300 px-2 sm:px-3 mt-1" onClick={handlePageBack}>
             <FaChevronLeft />
           </Button>
         </div>
@@ -152,6 +274,13 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
           />
           <Button
             className="text-white bg-slate-600 px-2 sm:px-3 py-1 rounded-md text-sm sm:text-base whitespace-nowrap"
+            onClick={selectionMode ? cancelSelectionMode : enterSelectionMode}
+          >
+            <span className="hidden sm:inline">{selectionMode ? 'Selection' : 'Select images'}</span>
+            <span className="sm:hidden">Select</span>
+          </Button>
+          <Button
+            className="text-white bg-slate-600 px-2 sm:px-3 py-1 rounded-md text-sm sm:text-base whitespace-nowrap"
             onClick={() => openImagesModal(datasetName, () => refreshImageList(datasetName))}
           >
             <span className="sm:hidden">+ Add</span>
@@ -159,6 +288,16 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
           </Button>
         </div>
       </TopBar>
+      {selectionMode && (
+        <DatasetSelectionToolbar
+          selectedCount={selectedPaths.size}
+          totalCount={imgList.length}
+          dirty={selectionDirty}
+          saving={selectionSaving}
+          onAction={handleSelectionAction}
+          onCancel={cancelSelectionMode}
+        />
+      )}
       <MainContent ref={scrollParentCallback}>
         {PageInfoContent}
         {status === 'success' && imgList.length > 0 && scrollParent && (
@@ -176,14 +315,24 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
                   isAutoCaptioning={isAutoCaptioning}
                   imageUrl={img.img_path}
                   onDelete={() => refreshImageList(datasetName)}
-                  onImageClick={() => setSelectedImgPath(img.img_path)}
+                  onImageClick={selectionMode ? undefined : () => setSelectedImgPath(img.img_path)}
+                  selectionMode={selectionMode}
+                  selected={selectedPaths.has(img.relative_path)}
+                  onSelectionChange={selected => {
+                    setSelectedPaths(current => {
+                      const next = new Set(current);
+                      if (selected) next.add(img.relative_path);
+                      else next.delete(img.relative_path);
+                      return next;
+                    });
+                  }}
                   captionRefreshKey={captionRefreshKeys[img.img_path] || 0}
                   observerRoot={scrollParent}
                   captionExt={captionExt}
                 />
               );
             }}
-            computeItemKey={index => imgList[index]?.img_path ?? index}
+            computeItemKey={index => imgList[index]?.relative_path ?? index}
           />
         )}
         {/* Spacer so the last cards stay accessible above the floating caption bar.
