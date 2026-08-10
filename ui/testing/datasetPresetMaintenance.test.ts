@@ -3,6 +3,7 @@ import {
   runDatasetPresetStartupMaintenance,
   startWorkerAfterMaintenance,
 } from '../src/server/datasetPresetMaintenance';
+import { startCronWorker } from '../cron/worker';
 
 async function main(): Promise<void> {
   const now = new Date('2026-08-10T12:00:00.000Z');
@@ -16,7 +17,10 @@ async function main(): Promise<void> {
     cleanupStaging: async value => {
       calls.push('cleanup');
       cutoff = value;
-      return ['preset/.staging-old'];
+      return {
+        reportedRemoved: ['preset/.staging-old'], totalRemoved: 1, truncatedRemoved: 0,
+        skippedCandidates: 0, reportedSkippedCandidates: [],
+      };
     },
     listManifestPaths: async () => {
       calls.push('db');
@@ -24,7 +28,10 @@ async function main(): Promise<void> {
     },
     findPublishedOrphans: async paths => {
       calls.push(`scan:${paths.join(',')}`);
-      return ['preset/v2'];
+      return {
+        reportedOrphans: ['preset/v2'], totalOrphans: 1, truncatedOrphans: 0,
+        skippedCandidates: 0, reportedSkippedCandidates: [],
+      };
     },
     info: message => info.push(message),
     warn: message => warn.push(message),
@@ -48,7 +55,10 @@ async function main(): Promise<void> {
       laterRan = true;
       return [];
     },
-    findPublishedOrphans: async () => [],
+    findPublishedOrphans: async () => ({
+      reportedOrphans: [], totalOrphans: 0, truncatedOrphans: 0,
+      skippedCandidates: 0, reportedSkippedCandidates: [],
+    }),
     info: () => undefined,
     warn: message => warn.push(message),
   });
@@ -58,14 +68,45 @@ async function main(): Promise<void> {
   const noisyInfo: string[] = [];
   await runDatasetPresetStartupMaintenance({
     now: () => now,
-    cleanupStaging: async () => Array.from({ length: 150 }, (_, index) => `p/.staging-${index}`),
+    cleanupStaging: async () => ({
+      reportedRemoved: Array.from({ length: 100 }, (_, index) => `p/.staging-${index}`),
+      totalRemoved: 150,
+      truncatedRemoved: 50,
+      skippedCandidates: 0,
+      reportedSkippedCandidates: [],
+    }),
     listManifestPaths: async () => [],
-    findPublishedOrphans: async () => Array.from({ length: 150 }, (_, index) => `p/v${index + 1}`),
+    findPublishedOrphans: async () => ({
+      reportedOrphans: Array.from({ length: 100 }, (_, index) => `p/v${index + 1}`),
+      totalOrphans: 150,
+      truncatedOrphans: 50,
+      skippedCandidates: 2,
+      reportedSkippedCandidates: ['unsafe/v1', '/absolute/must-not-log'],
+    }),
     info: message => noisyInfo.push(message),
     warn: () => undefined,
   });
-  assert.equal(noisyInfo.length, 200, 'maintenance logging must remain bounded');
+  assert.equal(noisyInfo.length, 202, 'maintenance logging and truncation summaries must remain bounded');
   assert.ok(noisyInfo.every(message => !message.startsWith('/')));
+  assert.ok(noisyInfo.includes('Dataset preset recovery removed 150 stale staging directories; 50 paths omitted'));
+  assert.ok(noisyInfo.includes('Dataset preset recovery found 150 published orphans; 50 paths omitted'));
+
+  const scanWarnings: string[] = [];
+  await runDatasetPresetStartupMaintenance({
+    now: () => now,
+    cleanupStaging: async () => ({
+      reportedRemoved: [], totalRemoved: 0, truncatedRemoved: 0,
+      skippedCandidates: 0, reportedSkippedCandidates: [],
+    }),
+    listManifestPaths: async () => [],
+    findPublishedOrphans: async () => ({
+      reportedOrphans: [], totalOrphans: 0, truncatedOrphans: 0,
+      skippedCandidates: 3, reportedSkippedCandidates: ['safe/v1', '/private/root', 'bad:name'],
+    }),
+    info: () => undefined,
+    warn: message => scanWarnings.push(message),
+  });
+  assert.deepEqual(scanWarnings, ['Dataset preset recovery skipped 3 unsafe, inaccessible, or raced candidates: safe/v1']);
 
   const startupCalls: string[] = [];
   const started = await startWorkerAfterMaintenance({
@@ -93,6 +134,37 @@ async function main(): Promise<void> {
     warn: message => isolatedCalls.push(message),
   });
   assert.deepEqual(isolatedCalls, ['Dataset preset startup maintenance failed (Error)', 'start']);
+
+  const actualStartupCalls: string[] = [];
+  await startCronWorker({
+    ensureJournalMode: async () => { actualStartupCalls.push('journal'); },
+    createMaintenance: () => {
+      actualStartupCalls.push('factory');
+      return async () => { actualStartupCalls.push('maintenance'); };
+    },
+    start: () => {
+      actualStartupCalls.push('start');
+      return { interval: 0 } as never;
+    },
+    warn: message => actualStartupCalls.push(message),
+  });
+  assert.deepEqual(actualStartupCalls, ['journal', 'factory', 'maintenance', 'start']);
+
+  const failedActualStartupCalls: string[] = [];
+  await startCronWorker({
+    ensureJournalMode: async () => { throw new Error('journal'); },
+    createMaintenance: () => async () => { throw new Error('maintenance'); },
+    start: () => {
+      failedActualStartupCalls.push('start');
+      return { interval: 0 } as never;
+    },
+    warn: message => failedActualStartupCalls.push(message),
+  });
+  assert.deepEqual(failedActualStartupCalls, [
+    'Could not check/convert database journal mode',
+    'Dataset preset startup maintenance failed (Error)',
+    'start',
+  ]);
 
   console.log('Dataset preset maintenance tests passed');
 }

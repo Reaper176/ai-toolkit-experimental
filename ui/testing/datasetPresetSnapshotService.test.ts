@@ -51,6 +51,16 @@ async function expectRejects(action: () => Promise<unknown>, pattern: RegExp): P
   await assert.rejects(action, pattern);
 }
 
+function assertOrphanPaths(
+  result: { reportedOrphans: string[]; totalOrphans: number; truncatedOrphans: number },
+  expected: string[],
+  message?: string,
+): void {
+  assert.deepEqual(result.reportedOrphans, expected, message);
+  assert.equal(result.totalOrphans, expected.length, message);
+  assert.equal(result.truncatedOrphans, 0, message);
+}
+
 function publishedManifestPaths(dataRoot: string): string[] {
   const managedRoot = join(dataRoot, 'dataset_presets');
   return readdirSync(managedRoot, { withFileTypes: true }).flatMap(preset => {
@@ -1086,7 +1096,10 @@ async function main(): Promise<void> {
       new Date('2026-01-01T00:00:00.000Z'),
     );
     utimesSync(join(cleanupPresetRoot, '.staging-new'), cutoff, cutoff);
-    assert.deepEqual(await store.cleanupStaging(cutoff), ['cleanup/.staging-old']);
+    assert.deepEqual(await store.cleanupStaging(cutoff), {
+      reportedRemoved: ['cleanup/.staging-old'], totalRemoved: 1, truncatedRemoved: 0,
+      skippedCandidates: 0, reportedSkippedCandidates: [],
+    });
     assert.equal(existsSync(join(cleanupPresetRoot, '.staging-old')), false);
     assert.equal(lstatSync(join(cleanupPresetRoot, '.staging-new')).isDirectory(), true);
     assert.equal(lstatSync(join(cleanupPresetRoot, '.quarantine-v1-ignore')).isDirectory(), true);
@@ -1104,7 +1117,10 @@ async function main(): Promise<void> {
     utimesSync(join(rootTombstone, '.staging-old'), older, older);
     utimesSync(rootTombstone, older, older);
     utimesSync(newerRootTombstone, cutoff, cutoff);
-    assert.deepEqual(await store.cleanupStaging(cutoff), ['.safe-dot-preset/.staging-old']);
+    assert.deepEqual(await store.cleanupStaging(cutoff), {
+      reportedRemoved: ['.safe-dot-preset/.staging-old'], totalRemoved: 1, truncatedRemoved: 0,
+      skippedCandidates: 0, reportedSkippedCandidates: [],
+    });
     assert.equal(existsSync(join(safeDotPresetRoot, '.staging-old')), false);
     assert.equal(existsSync(rootTombstone), true);
     assert.equal(existsSync(newerRootTombstone), true);
@@ -1116,7 +1132,7 @@ async function main(): Promise<void> {
     mkdirSync(orphanVersion, { recursive: true });
     writeFileSync(join(referencedVersion, 'manifest.json'), '{}');
     writeFileSync(join(orphanVersion, 'manifest.json'), '{}');
-    assert.deepEqual(
+    assertOrphanPaths(
       await store.findPublishedOrphans([
         ...priorPublished,
         'recovery/v1/manifest.json',
@@ -1132,11 +1148,14 @@ async function main(): Promise<void> {
     mkdirSync(join(dataRoot, 'dataset_presets/recovery/.quarantine-v3-ignore'));
     mkdirSync(join(dataRoot, 'dataset_presets/recovery/.staging-ignore'));
     writeFileSync(join(dataRoot, 'dataset_presets/recovery/unrelated.txt'), 'keep');
-    assert.deepEqual(await store.findPublishedOrphans([...priorPublished, 'recovery/v1/manifest.json']), ['recovery/v2']);
+    assertOrphanPaths(
+      await store.findPublishedOrphans([...priorPublished, 'recovery/v1/manifest.json']),
+      ['recovery/v2'],
+    );
     const validDotPresetVersion = join(dataRoot, 'dataset_presets/.quarantine-valid-preset/v1');
     mkdirSync(validDotPresetVersion, { recursive: true });
     writeFileSync(join(validDotPresetVersion, 'manifest.json'), '{}');
-    assert.deepEqual(
+    assertOrphanPaths(
       await store.findPublishedOrphans([...priorPublished, 'recovery/v1/manifest.json']),
       ['.quarantine-valid-preset/v1', 'recovery/v2'],
       'a root dot-name outside the reserved tombstone namespace is a valid preset ID',
@@ -1152,7 +1171,10 @@ async function main(): Promise<void> {
       mkdirSync(unsafeVersion, { mode: 0o777 });
       writeFileSync(join(unsafeVersion, 'manifest.json'), '{}');
       chmodSync(unsafeVersion, 0o777);
-      assert.deepEqual(await store.findPublishedOrphans(authoritativeWithDot), ['recovery/v2']);
+      const unsafeVersionScan = await store.findPublishedOrphans(authoritativeWithDot);
+      assertOrphanPaths(unsafeVersionScan, ['recovery/v2']);
+      assert.ok(unsafeVersionScan.skippedCandidates >= 1);
+      assert.ok(unsafeVersionScan.reportedSkippedCandidates.includes('recovery/v3'));
       chmodSync(unsafeVersion, 0o700);
 
       const unsafeManifestVersion = join(dataRoot, 'dataset_presets/recovery/v5');
@@ -1160,11 +1182,26 @@ async function main(): Promise<void> {
       const unsafeManifest = join(unsafeManifestVersion, 'manifest.json');
       writeFileSync(unsafeManifest, '{}');
       chmodSync(unsafeManifest, 0o666);
-      assert.deepEqual(await store.findPublishedOrphans([
+      const unsafeManifestScan = await store.findPublishedOrphans([
         ...authoritativeWithDot, 'recovery/v3/manifest.json',
-      ]), ['recovery/v2']);
+      ]);
+      assertOrphanPaths(unsafeManifestScan, ['recovery/v2']);
+      assert.ok(unsafeManifestScan.skippedCandidates >= 1);
+      assert.ok(unsafeManifestScan.reportedSkippedCandidates.includes('recovery/v5'));
       chmodSync(unsafeManifest, 0o600);
     }
+
+    for (let index = 0; index < 10_005; index += 1) {
+      writeFileSync(join(dataRoot, 'dataset_presets', `aaa-prefix-${String(index).padStart(5, '0')}`), 'x');
+    }
+    const lateCleanup = join(dataRoot, 'dataset_presets/zz-late-cleanup/.staging-old');
+    mkdirSync(lateCleanup, { recursive: true });
+    utimesSync(lateCleanup, older, older);
+    assert.deepEqual(await store.cleanupStaging(cutoff), {
+      reportedRemoved: ['zz-late-cleanup/.staging-old'], totalRemoved: 1, truncatedRemoved: 0,
+      skippedCandidates: 0, reportedSkippedCandidates: [],
+    });
+    assert.equal(existsSync(lateCleanup), false, 'complete traversal processes staging after a >10k prefix');
 
     const boundedRoot = join(dataRoot, 'dataset_presets/bounded');
     for (let index = 1; index <= 105; index += 1) {
@@ -1172,10 +1209,25 @@ async function main(): Promise<void> {
       mkdirSync(versionRoot, { recursive: true });
       writeFileSync(join(versionRoot, 'manifest.json'), '{}');
     }
-    const boundedOrphans = await store.findPublishedOrphans(authoritativeWithDot);
-    assert.equal(boundedOrphans.length, 100, 'orphan reporting must be bounded');
-    assert.deepEqual(boundedOrphans, [...boundedOrphans].sort());
-    assert.ok(boundedOrphans.every(path => !isAbsolute(path) && !path.includes('..')));
+    const lateOrphan = join(dataRoot, 'dataset_presets/zz-late-orphan/v1');
+    mkdirSync(lateOrphan, { recursive: true });
+    writeFileSync(join(lateOrphan, 'manifest.json'), '{}');
+    const lateAuthoritative = join(dataRoot, 'dataset_presets/zz-late-authoritative/v1');
+    mkdirSync(lateAuthoritative, { recursive: true });
+    writeFileSync(join(lateAuthoritative, 'manifest.json'), '{}');
+    const boundedOrphans = await store.findPublishedOrphans([
+      ...authoritativeWithDot, 'recovery/v3/manifest.json', 'recovery/v5/manifest.json',
+      'zz-late-authoritative/v1/manifest.json',
+    ]);
+    assert.equal(boundedOrphans.reportedOrphans.length, 100, 'orphan reporting must be bounded');
+    assert.equal(boundedOrphans.totalOrphans, 107, 'complete traversal counts all 105 bounded, recovery, and late orphans');
+    assert.equal(boundedOrphans.truncatedOrphans, 7);
+    assert.deepEqual(boundedOrphans.reportedOrphans, [...boundedOrphans.reportedOrphans].sort());
+    assert.ok(boundedOrphans.reportedOrphans.every(path => !isAbsolute(path) && !path.includes('..')));
+    await expectRejects(
+      () => store.findPublishedOrphans(Array.from({ length: 10_001 }, () => 'recovery/v1/manifest.json')),
+      /authoritative.*limit/i,
+    );
 
     if (symlinksSupported) {
       const cleanupOutside = join(ownedRoot, 'cleanup-outside');
@@ -1186,7 +1238,14 @@ async function main(): Promise<void> {
         join(dataRoot, 'dataset_presets/cleanup-link'),
         process.platform === 'win32' ? 'junction' : 'dir',
       );
-      await expectRejects(() => store.cleanupStaging(new Date()), /symlink|preset|parent|root/i);
+      const afterSymlinkStaging = join(dataRoot, 'dataset_presets/zz-after-symlink/.staging-old');
+      mkdirSync(afterSymlinkStaging, { recursive: true });
+      utimesSync(afterSymlinkStaging, older, older);
+      const cleanupWithSymlink = await store.cleanupStaging(cutoff);
+      assert.equal(cleanupWithSymlink.totalRemoved, 1);
+      assert.deepEqual(cleanupWithSymlink.reportedRemoved, ['zz-after-symlink/.staging-old']);
+      assert.ok(cleanupWithSymlink.skippedCandidates >= 1);
+      assert.ok(cleanupWithSymlink.reportedSkippedCandidates.includes('cleanup-link'));
       assert.equal(readFileSync(join(cleanupOutside, '.staging-old/sentinel'), 'utf8'), 'keep');
       unlinkSync(join(dataRoot, 'dataset_presets/cleanup-link'));
 
@@ -1194,8 +1253,30 @@ async function main(): Promise<void> {
       mkdirSync(orphanOutside);
       writeFileSync(join(orphanOutside, 'manifest.json'), '{}');
       symlinkSync(orphanOutside, join(dataRoot, 'dataset_presets/recovery/v4'), 'dir');
-      const found = await store.findPublishedOrphans(authoritativeWithDot);
-      assert.equal(found.includes('recovery/v4'), false, 'orphan discovery must not follow version symlinks');
+      const found = await store.findPublishedOrphans([
+        ...authoritativeWithDot, 'recovery/v3/manifest.json', 'recovery/v5/manifest.json',
+      ]);
+      assert.equal(found.reportedOrphans.includes('recovery/v4'), false, 'orphan discovery must not follow version symlinks');
+      assert.ok(found.skippedCandidates >= 1);
+      assert.ok(found.reportedSkippedCandidates.includes('recovery/v4'));
+
+      const manifestLinkVersion = join(dataRoot, 'dataset_presets/recovery/v6');
+      mkdirSync(manifestLinkVersion);
+      symlinkSync(join(orphanOutside, 'manifest.json'), join(manifestLinkVersion, 'manifest.json'));
+      const manifestLinkScan = await store.findPublishedOrphans(authoritativeWithDot);
+      assert.ok(manifestLinkScan.reportedSkippedCandidates.includes('recovery/v6'));
+
+      const racedVersion = join(dataRoot, 'dataset_presets/zz-raced/v1');
+      mkdirSync(racedVersion, { recursive: true });
+      writeFileSync(join(racedVersion, 'manifest.json'), '{}');
+      const raceStore = createDatasetPresetSnapshotStore(dataRoot, {
+        beforeOrphanCandidateCheck: relativePath => {
+          if (relativePath === 'zz-raced/v1') rmSync(racedVersion, { recursive: true });
+        },
+      });
+      const raced = await raceStore.findPublishedOrphans(authoritativeWithDot);
+      assert.ok(raced.skippedCandidates >= 1);
+      assert.ok(raced.reportedSkippedCandidates.includes('zz-raced/v1'));
     }
   } finally {
     if (existsSync(ownedRoot)) rmSync(ownedRoot, { recursive: true });

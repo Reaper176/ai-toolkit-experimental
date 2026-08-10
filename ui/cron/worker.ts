@@ -72,23 +72,36 @@ class CronWorker {
   }
 }
 
+export interface CronWorkerStartupDependencies {
+  ensureJournalMode?: () => Promise<void>;
+  createMaintenance?: () => () => Promise<void>;
+  start?: () => CronWorker;
+  warn?: (message: string) => void;
+}
+
 // Journal setup and recovery both finish before the interval can accept work.
-export async function startCronWorker(): Promise<CronWorker> {
+export async function startCronWorker(dependencies: CronWorkerStartupDependencies = {}): Promise<CronWorker> {
+  const createMaintenance =
+    dependencies.createMaintenance ??
+    (() =>
+      createDatasetPresetStartupMaintenance({
+        getDataRoot,
+        prisma,
+        now: () => new Date(),
+        info: message => console.log(message),
+        warn: message => console.warn(message),
+      }));
   return startWorkerAfterMaintenance({
-    ensureJournalMode,
-    maintenance: createDatasetPresetStartupMaintenance({
-      getDataRoot,
-      prisma,
-      now: () => new Date(),
-      info: message => console.log(message),
-      warn: message => console.warn(message),
-    }),
-    start: () => {
-      const cronWorker = new CronWorker();
-      console.log('Cron worker started with interval:', cronWorker.interval, 'ms');
-      return cronWorker;
-    },
-    warn: message => console.warn(message),
+    ensureJournalMode: dependencies.ensureJournalMode ?? ensureJournalMode,
+    maintenance: async () => createMaintenance()(),
+    start:
+      dependencies.start ??
+      (() => {
+        const cronWorker = new CronWorker();
+        console.log('Cron worker started with interval:', cronWorker.interval, 'ms');
+        return cronWorker;
+      }),
+    warn: dependencies.warn ?? (message => console.warn(message)),
   });
 }
 

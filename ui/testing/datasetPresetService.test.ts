@@ -278,11 +278,17 @@ class FakeSnapshots implements DatasetPresetSnapshotStore {
       },
     };
   }
-  async cleanupStaging(): Promise<string[]> {
-    return [];
+  async cleanupStaging() {
+    return {
+      reportedRemoved: [], totalRemoved: 0, truncatedRemoved: 0,
+      skippedCandidates: 0, reportedSkippedCandidates: [],
+    };
   }
-  async findPublishedOrphans(): Promise<string[]> {
-    return [];
+  async findPublishedOrphans() {
+    return {
+      reportedOrphans: [], totalOrphans: 0, truncatedOrphans: 0,
+      skippedCandidates: 0, reportedSkippedCandidates: [],
+    };
   }
 }
 

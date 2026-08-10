@@ -8,7 +8,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, createWriteStream, lstatSync, realpathSync, statSync } from 'node:fs';
-import { lstat, mkdir, open, readdir, realpath, rename, rm, stat } from 'node:fs/promises';
+import { lstat, mkdir, open, opendir, readdir, realpath, rename, rm, stat } from 'node:fs/promises';
 import type { BigIntStats } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
@@ -105,8 +105,24 @@ export interface DatasetPresetSnapshotStore {
   verifyFull(relativeManifestPath: string): Promise<DatasetPresetManifestV1>;
   resolveMediaRoot(relativeManifestPath: string): string;
   quarantineVersion(relativeManifestPath: string): Promise<SnapshotQuarantine>;
-  cleanupStaging(olderThan: Date): Promise<string[]>;
-  findPublishedOrphans(authoritativeManifestPaths: readonly string[]): Promise<string[]>;
+  cleanupStaging(olderThan: Date): Promise<StagingCleanupResult>;
+  findPublishedOrphans(authoritativeManifestPaths: readonly string[]): Promise<PublishedOrphanScanResult>;
+}
+
+export interface StagingCleanupResult {
+  reportedRemoved: string[];
+  totalRemoved: number;
+  truncatedRemoved: number;
+  skippedCandidates: number;
+  reportedSkippedCandidates: string[];
+}
+
+export interface PublishedOrphanScanResult {
+  reportedOrphans: string[];
+  totalOrphans: number;
+  truncatedOrphans: number;
+  skippedCandidates: number;
+  reportedSkippedCandidates: string[];
 }
 
 export const DATASET_PRESET_MAINTENANCE_MAX_SCAN = 10_000;
@@ -115,6 +131,7 @@ export const DATASET_PRESET_MAINTENANCE_MAX_REPORT = 100;
 export interface DatasetPresetSnapshotDependencies {
   randomId(): string;
   beforeCopyComplete?: (sourcePath: string) => void | Promise<void>;
+  beforeOrphanCandidateCheck?: (relativeVersionPath: string) => void | Promise<void>;
 }
 
 interface ParsedManifestPath {
@@ -219,6 +236,26 @@ function toSystemPath(root: string, portableRelativePath: string): string {
 
 function cloneManifest(manifest: DatasetPresetManifestV1): DatasetPresetManifestV1 {
   return validateManifest(manifest);
+}
+
+function retainFirstSorted(values: string[], value: string, limit: number): void {
+  if (values.length < limit) {
+    values.push(value);
+    values.sort();
+    return;
+  }
+  if (value >= values[values.length - 1]) return;
+  values[values.length - 1] = value;
+  values.sort();
+}
+
+function safeMaintenanceLabel(value: string): string | undefined {
+  try {
+    const normalized = normalizeRelativeMediaPath(value);
+    return normalized.length <= 512 ? normalized : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -401,6 +438,7 @@ export function createDatasetPresetSnapshotStore(
   const resolvedDependencies: DatasetPresetSnapshotDependencies = {
     randomId: dependencies?.randomId ?? randomUUID,
     beforeCopyComplete: dependencies?.beforeCopyComplete,
+    beforeOrphanCandidateCheck: dependencies?.beforeOrphanCandidateCheck,
   };
   let rootPin: RootPin | undefined;
 
@@ -1174,49 +1212,79 @@ export function createDatasetPresetSnapshotStore(
         },
       };
     },
-    async cleanupStaging(olderThan: Date): Promise<string[]> {
+    async cleanupStaging(olderThan: Date): Promise<StagingCleanupResult> {
       if (!(olderThan instanceof Date) || Number.isNaN(olderThan.getTime()))
         throw new Error('Cleanup cutoff must be a Date');
       await initializeManagedRoot();
       requirePinnedRootsSync();
-      const removed: string[] = [];
-      let scanned = 0;
-      const presetEntries = (await readdir(managedRoot, { withFileTypes: true })).sort((a, b) =>
-        a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
-      );
-      for (const presetEntry of presetEntries) {
-        if (++scanned > DATASET_PRESET_MAINTENANCE_MAX_SCAN) break;
+      const reportedRemoved: string[] = [];
+      const reportedSkippedCandidates: string[] = [];
+      let totalRemoved = 0;
+      let skippedCandidates = 0;
+      const skip = (label: string) => {
+        skippedCandidates += 1;
+        const safe = safeMaintenanceLabel(label);
+        if (safe !== undefined) retainFirstSorted(reportedSkippedCandidates, safe, 10);
+      };
+      for await (const presetEntry of await opendir(managedRoot)) {
         requirePinnedRootsSync();
         // Dot-prefixed preset IDs are valid. Only this reserved root namespace
         // represents an internal deletion tombstone and must be skipped.
         if (presetEntry.name.toLowerCase().startsWith('.tombstone-')) continue;
-        if (presetEntry.isSymbolicLink()) throw new Error(`Preset parent must not be a symlink: ${presetEntry.name}`);
+        if (presetEntry.isSymbolicLink()) {
+          skip(presetEntry.name);
+          continue;
+        }
         if (!presetEntry.isDirectory()) continue;
         const presetRoot = join(managedRoot, presetEntry.name);
-        const presetPin = pinDirectorySync(presetRoot, 'Preset root', managedRoot);
-        const childEntries = (await readdir(presetRoot, { withFileTypes: true })).sort((a, b) =>
-          a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
-        );
-        for (const childEntry of childEntries) {
-          if (++scanned > DATASET_PRESET_MAINTENANCE_MAX_SCAN) break;
+        let presetPin: DirectoryPin;
+        let presetDirectory;
+        try {
+          presetPin = pinDirectorySync(presetRoot, 'Preset root', managedRoot);
+          presetDirectory = await opendir(presetRoot);
+        } catch {
+          skip(presetEntry.name);
+          continue;
+        }
+        for await (const childEntry of presetDirectory) {
           if (!/^\.staging-.+/.test(childEntry.name)) continue;
-          if (childEntry.isSymbolicLink())
-            throw new Error(`Staging directory must not be a symlink: ${childEntry.name}`);
+          const relativeStagingPath = `${presetEntry.name}/${childEntry.name}`;
+          if (childEntry.isSymbolicLink()) {
+            skip(relativeStagingPath);
+            continue;
+          }
           if (!childEntry.isDirectory()) continue;
           const childPath = join(presetRoot, childEntry.name);
-          const info = await lstat(childPath, { bigint: true });
-          if (info.isSymbolicLink() || !info.isDirectory() || info.mtimeMs >= BigInt(olderThan.getTime())) continue;
-          const stagingPin = pinDirectorySync(childPath, 'Staging directory', presetRoot);
-          await removePinnedDirectory(stagingPin, presetPin, 'Staging directory');
-          if (removed.length < DATASET_PRESET_MAINTENANCE_MAX_REPORT) {
-            removed.push(`${presetEntry.name}/${childEntry.name}`);
+          try {
+            const info = await lstat(childPath, { bigint: true });
+            if (info.isSymbolicLink() || !info.isDirectory()) {
+              skip(relativeStagingPath);
+              continue;
+            }
+            if (info.mtimeMs >= BigInt(olderThan.getTime())) continue;
+            const stagingPin = pinDirectorySync(childPath, 'Staging directory', presetRoot);
+            await removePinnedDirectory(stagingPin, presetPin, 'Staging directory');
+          } catch {
+            skip(relativeStagingPath);
+            continue;
           }
+          totalRemoved += 1;
+          retainFirstSorted(
+            reportedRemoved,
+            `${presetEntry.name}/${childEntry.name}`,
+            DATASET_PRESET_MAINTENANCE_MAX_REPORT,
+          );
         }
-        if (scanned > DATASET_PRESET_MAINTENANCE_MAX_SCAN) break;
       }
-      return removed.sort();
+      return {
+        reportedRemoved,
+        totalRemoved,
+        truncatedRemoved: Math.max(0, totalRemoved - reportedRemoved.length),
+        skippedCandidates,
+        reportedSkippedCandidates,
+      };
     },
-    async findPublishedOrphans(authoritativeManifestPaths: readonly string[]): Promise<string[]> {
+    async findPublishedOrphans(authoritativeManifestPaths: readonly string[]): Promise<PublishedOrphanScanResult> {
       if (!Array.isArray(authoritativeManifestPaths)) throw new Error('Manifest paths must be an array');
       if (authoritativeManifestPaths.length > DATASET_PRESET_MAINTENANCE_MAX_SCAN) {
         throw new Error('Authoritative manifest path scan limit exceeded');
@@ -1235,20 +1303,22 @@ export function createDatasetPresetSnapshotStore(
         }
       }
 
-      const orphans: string[] = [];
-      let scanned = 0;
-      const presetEntries = (await readdir(managedRoot, { withFileTypes: true })).sort((a, b) =>
-        a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
-      );
-      for (const presetEntry of presetEntries) {
-        if (++scanned > DATASET_PRESET_MAINTENANCE_MAX_SCAN || orphans.length >= DATASET_PRESET_MAINTENANCE_MAX_REPORT)
-          break;
-        if (
-          presetEntry.name.toLowerCase().startsWith('.tombstone-') ||
-          presetEntry.isSymbolicLink() ||
-          !presetEntry.isDirectory()
-        )
+      const reportedOrphans: string[] = [];
+      const reportedSkippedCandidates: string[] = [];
+      let totalOrphans = 0;
+      let skippedCandidates = 0;
+      const skip = (label: string) => {
+        skippedCandidates += 1;
+        const safe = safeMaintenanceLabel(label);
+        if (safe !== undefined) retainFirstSorted(reportedSkippedCandidates, safe, 10);
+      };
+      for await (const presetEntry of await opendir(managedRoot)) {
+        if (presetEntry.name.toLowerCase().startsWith('.tombstone-')) continue;
+        if (presetEntry.isSymbolicLink()) {
+          skip(presetEntry.name);
           continue;
+        }
+        if (!presetEntry.isDirectory()) continue;
         let presetId: string;
         let presetRoot: string;
         try {
@@ -1256,40 +1326,58 @@ export function createDatasetPresetSnapshotStore(
           presetRoot = join(managedRoot, presetId);
           pinDirectorySync(presetRoot, 'Preset root', managedRoot);
         } catch {
+          skip(presetEntry.name);
           continue;
         }
 
-        let children;
+        let presetDirectory;
         try {
-          children = (await readdir(presetRoot, { withFileTypes: true })).sort((a, b) =>
-            a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
-          );
+          presetDirectory = await opendir(presetRoot);
         } catch (error) {
-          if (isMissing(error)) continue;
-          throw error;
+          skip(presetId);
+          continue;
         }
-        for (const child of children) {
-          if (++scanned > DATASET_PRESET_MAINTENANCE_MAX_SCAN || orphans.length >= DATASET_PRESET_MAINTENANCE_MAX_REPORT)
-            break;
+        for await (const child of presetDirectory) {
           const match = /^v([1-9]\d*)$/.exec(child.name);
-          if (!match || child.isSymbolicLink() || !child.isDirectory()) continue;
+          if (!match) continue;
+          const relativeVersionPath = `${presetId}/${child.name}`;
+          if (child.isSymbolicLink() || !child.isDirectory()) {
+            skip(relativeVersionPath);
+            continue;
+          }
           const version = Number(match[1]);
-          if (!Number.isSafeInteger(version)) continue;
+          if (!Number.isSafeInteger(version)) {
+            skip(relativeVersionPath);
+            continue;
+          }
           const versionRoot = join(presetRoot, child.name);
           try {
+            await resolvedDependencies.beforeOrphanCandidateCheck?.(relativeVersionPath);
             pinDirectorySync(versionRoot, 'Version root', presetRoot);
             const manifestInfo = await lstat(join(versionRoot, 'manifest.json'), { bigint: true });
-            if (manifestInfo.isSymbolicLink() || !manifestInfo.isFile()) continue;
+            if (manifestInfo.isSymbolicLink() || !manifestInfo.isFile()) {
+              skip(relativeVersionPath);
+              continue;
+            }
             validateAccountBoundary(manifestInfo, 'Manifest');
           } catch (error) {
-            if (isMissing(error)) continue;
+            skip(relativeVersionPath);
             continue;
           }
           const manifestPath = `${presetId}/v${version}/manifest.json`;
-          if (!authoritative.has(manifestPath)) orphans.push(`${presetId}/v${version}`);
+          if (!authoritative.has(manifestPath)) {
+            totalOrphans += 1;
+            retainFirstSorted(reportedOrphans, relativeVersionPath, DATASET_PRESET_MAINTENANCE_MAX_REPORT);
+          }
         }
       }
-      return orphans.sort();
+      return {
+        reportedOrphans,
+        totalOrphans,
+        truncatedOrphans: Math.max(0, totalOrphans - reportedOrphans.length),
+        skippedCandidates,
+        reportedSkippedCandidates,
+      };
     },
   };
 }
