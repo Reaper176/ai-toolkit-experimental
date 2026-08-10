@@ -1187,6 +1187,8 @@ export function createDatasetPresetSnapshotStore(
       for (const presetEntry of presetEntries) {
         if (++scanned > DATASET_PRESET_MAINTENANCE_MAX_SCAN) break;
         requirePinnedRootsSync();
+        // Dot-prefixed preset IDs are valid. Only this reserved root namespace
+        // represents an internal deletion tombstone and must be skipped.
         if (presetEntry.name.toLowerCase().startsWith('.tombstone-')) continue;
         if (presetEntry.isSymbolicLink()) throw new Error(`Preset parent must not be a symlink: ${presetEntry.name}`);
         if (!presetEntry.isDirectory()) continue;
@@ -1241,7 +1243,12 @@ export function createDatasetPresetSnapshotStore(
       for (const presetEntry of presetEntries) {
         if (++scanned > DATASET_PRESET_MAINTENANCE_MAX_SCAN || orphans.length >= DATASET_PRESET_MAINTENANCE_MAX_REPORT)
           break;
-        if (presetEntry.name.startsWith('.') || presetEntry.isSymbolicLink() || !presetEntry.isDirectory()) continue;
+        if (
+          presetEntry.name.toLowerCase().startsWith('.tombstone-') ||
+          presetEntry.isSymbolicLink() ||
+          !presetEntry.isDirectory()
+        )
+          continue;
         let presetId: string;
         let presetRoot: string;
         try {

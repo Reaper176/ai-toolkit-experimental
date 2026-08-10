@@ -1,5 +1,9 @@
 import { normalizeRelativeMediaPath } from '../helpers/datasetPresets';
-import { DATASET_PRESET_MAINTENANCE_MAX_REPORT } from './datasetPresetSnapshotService';
+import { createDatasetPresetPrismaStore, type DatasetPresetPrismaClient } from './datasetPresetPrismaStore';
+import {
+  createDatasetPresetSnapshotStore,
+  DATASET_PRESET_MAINTENANCE_MAX_REPORT,
+} from './datasetPresetSnapshotService';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -16,6 +20,14 @@ export interface WorkerStartupDependencies<T> {
   ensureJournalMode(): Promise<void>;
   maintenance(): Promise<void>;
   start(): T;
+  warn(message: string): void;
+}
+
+export interface DatasetPresetStartupMaintenanceWiring {
+  getDataRoot(): Promise<string>;
+  prisma: DatasetPresetPrismaClient;
+  now(): Date;
+  info(message: string): void;
   warn(message: string): void;
 }
 
@@ -49,6 +61,30 @@ export async function runDatasetPresetStartupMaintenance(
     const label = error instanceof Error && /^[A-Za-z][A-Za-z0-9]*$/.test(error.name) ? error.name : 'Error';
     dependencies.warn(`Dataset preset startup maintenance failed (${label})`);
   }
+}
+
+export function createDatasetPresetStartupMaintenance(
+  wiring: DatasetPresetStartupMaintenanceWiring,
+): () => Promise<void> {
+  return async () => {
+    let dataRoot: string;
+    try {
+      dataRoot = await wiring.getDataRoot();
+    } catch {
+      wiring.warn('Dataset preset startup maintenance failed (Error)');
+      return;
+    }
+    const snapshots = createDatasetPresetSnapshotStore(dataRoot);
+    const store = createDatasetPresetPrismaStore(wiring.prisma);
+    await runDatasetPresetStartupMaintenance({
+      now: wiring.now,
+      cleanupStaging: cutoff => snapshots.cleanupStaging(cutoff),
+      listManifestPaths: () => store.listManifestPaths(),
+      findPublishedOrphans: paths => snapshots.findPublishedOrphans(paths),
+      info: wiring.info,
+      warn: wiring.warn,
+    });
+  };
 }
 
 export async function startWorkerAfterMaintenance<T>(dependencies: WorkerStartupDependencies<T>): Promise<T> {

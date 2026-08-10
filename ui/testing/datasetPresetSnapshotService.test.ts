@@ -1092,6 +1092,8 @@ async function main(): Promise<void> {
     assert.equal(lstatSync(join(cleanupPresetRoot, '.quarantine-v1-ignore')).isDirectory(), true);
     assert.equal(lstatSync(join(cleanupPresetRoot, 'v9')).isDirectory(), true);
     const safeDotPresetRoot = join(dataRoot, 'dataset_presets/.safe-dot-preset');
+    // Dot-prefixed preset IDs are valid. Only the reserved root tombstone
+    // namespace is skipped by cleanup.
     const rootTombstone = join(dataRoot, 'dataset_presets/.tombstone-owned');
     const newerRootTombstone = join(dataRoot, 'dataset_presets/.tombstone-newer');
     mkdirSync(join(safeDotPresetRoot, '.staging-old'), { recursive: true });
@@ -1131,13 +1133,26 @@ async function main(): Promise<void> {
     mkdirSync(join(dataRoot, 'dataset_presets/recovery/.staging-ignore'));
     writeFileSync(join(dataRoot, 'dataset_presets/recovery/unrelated.txt'), 'keep');
     assert.deepEqual(await store.findPublishedOrphans([...priorPublished, 'recovery/v1/manifest.json']), ['recovery/v2']);
+    const validDotPresetVersion = join(dataRoot, 'dataset_presets/.quarantine-valid-preset/v1');
+    mkdirSync(validDotPresetVersion, { recursive: true });
+    writeFileSync(join(validDotPresetVersion, 'manifest.json'), '{}');
+    assert.deepEqual(
+      await store.findPublishedOrphans([...priorPublished, 'recovery/v1/manifest.json']),
+      ['.quarantine-valid-preset/v1', 'recovery/v2'],
+      'a root dot-name outside the reserved tombstone namespace is a valid preset ID',
+    );
+    const authoritativeWithDot = [
+      ...priorPublished,
+      'recovery/v1/manifest.json',
+      '.quarantine-valid-preset/v1/manifest.json',
+    ];
 
     if (process.platform !== 'win32') {
       const unsafeVersion = join(dataRoot, 'dataset_presets/recovery/v3');
       mkdirSync(unsafeVersion, { mode: 0o777 });
       writeFileSync(join(unsafeVersion, 'manifest.json'), '{}');
       chmodSync(unsafeVersion, 0o777);
-      assert.deepEqual(await store.findPublishedOrphans([...priorPublished, 'recovery/v1/manifest.json']), ['recovery/v2']);
+      assert.deepEqual(await store.findPublishedOrphans(authoritativeWithDot), ['recovery/v2']);
       chmodSync(unsafeVersion, 0o700);
 
       const unsafeManifestVersion = join(dataRoot, 'dataset_presets/recovery/v5');
@@ -1146,7 +1161,7 @@ async function main(): Promise<void> {
       writeFileSync(unsafeManifest, '{}');
       chmodSync(unsafeManifest, 0o666);
       assert.deepEqual(await store.findPublishedOrphans([
-        ...priorPublished, 'recovery/v1/manifest.json', 'recovery/v3/manifest.json',
+        ...authoritativeWithDot, 'recovery/v3/manifest.json',
       ]), ['recovery/v2']);
       chmodSync(unsafeManifest, 0o600);
     }
@@ -1157,7 +1172,7 @@ async function main(): Promise<void> {
       mkdirSync(versionRoot, { recursive: true });
       writeFileSync(join(versionRoot, 'manifest.json'), '{}');
     }
-    const boundedOrphans = await store.findPublishedOrphans([...priorPublished, 'recovery/v1/manifest.json']);
+    const boundedOrphans = await store.findPublishedOrphans(authoritativeWithDot);
     assert.equal(boundedOrphans.length, 100, 'orphan reporting must be bounded');
     assert.deepEqual(boundedOrphans, [...boundedOrphans].sort());
     assert.ok(boundedOrphans.every(path => !isAbsolute(path) && !path.includes('..')));
@@ -1179,7 +1194,7 @@ async function main(): Promise<void> {
       mkdirSync(orphanOutside);
       writeFileSync(join(orphanOutside, 'manifest.json'), '{}');
       symlinkSync(orphanOutside, join(dataRoot, 'dataset_presets/recovery/v4'), 'dir');
-      const found = await store.findPublishedOrphans([...priorPublished, 'recovery/v1/manifest.json']);
+      const found = await store.findPublishedOrphans(authoritativeWithDot);
       assert.equal(found.includes('recovery/v4'), false, 'orphan discovery must not follow version symlinks');
     }
   } finally {

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -28,6 +30,13 @@ import {
   saveJobWithDatasetUsages,
 } from '../src/server/jobDatasetPresetService';
 import { prepareClaimAndLaunchJob } from '../src/server/jobStartOrchestration';
+import {
+  createDatasetPresetStartupMaintenance,
+  startWorkerAfterMaintenance,
+} from '../src/server/datasetPresetMaintenance';
+import DatasetProvenance from '../src/components/DatasetProvenance';
+import React from 'react';
+import TestRenderer, { act, type ReactTestInstance } from 'react-test-renderer';
 import type {
   DatasetPresetSnapshotStore,
   SnapshotQuarantine,
@@ -38,6 +47,7 @@ import type { JobConfig } from '../src/types';
 
 const TEMP_PREFIX = 'ai-toolkit-dataset-preset-db-';
 const uiRoot = resolve(process.cwd());
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 type GeneratedClientHarness = DatasetPresetPrismaClient &
   Pick<RepositoryPrismaClient, 'job'> & { $disconnect(): Promise<void> };
 
@@ -67,6 +77,10 @@ function runPrisma(args: string[]): void {
   });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`Prisma failed: ${result.stdout}\n${result.stderr}`);
+}
+
+function renderedText(node: ReactTestInstance): string {
+  return node.children.map(child => (typeof child === 'string' ? child : renderedText(child))).join('');
 }
 
 const loaderConfig: DatasetPresetLoaderConfig = {
@@ -445,6 +459,91 @@ async function main(): Promise<void> {
     assert.deepEqual(smokeResponse.dataset_preset_usages.map(usage => [
       usage.preset_version, usage.resolved_loader_config.num_repeats,
     ]), [[1, 2], [2, 5]]);
+
+    const versionDetails = new Map([
+      [smokeV1.id, await smokeService.getVersion(smokeV1.id)],
+      [smokeV2.id, await smokeService.getVersion(smokeV2.id)],
+    ]);
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const versionId = decodeURIComponent(String(input).split('/').at(-1) ?? '');
+      const detail = versionDetails.get(versionId);
+      return new Response(JSON.stringify(detail ?? { error: 'missing' }), { status: detail ? 200 : 404 });
+    }) as typeof fetch;
+    const originalConsoleError = console.error;
+    console.error = (...args: unknown[]) => {
+      if (!String(args[0]).includes('react-test-renderer is deprecated')) originalConsoleError(...args);
+    };
+    let provenanceRenderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      provenanceRenderer = TestRenderer.create(React.createElement(DatasetProvenance, {
+        usages: smokeResponse.dataset_preset_usages,
+      }));
+    });
+    const provenanceCards = provenanceRenderer.root.findAllByType('article');
+    assert.equal(provenanceCards.length, 2);
+    assert.match(renderedText(provenanceCards[0]), /Dataset 1.*smoke-preset.*Version 1/);
+    assert.match(renderedText(provenanceCards[1]), /Dataset 2.*smoke-preset.*Version 2/);
+    await act(async () => {
+      for (const card of provenanceCards) card.findByType('button').props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    assert.match(renderedText(provenanceRenderer.root.findAllByType('article')[0]), /num_repeats2/);
+    assert.match(renderedText(provenanceRenderer.root.findAllByType('article')[1]), /num_repeats5/);
+    await act(async () => provenanceRenderer.unmount());
+    console.error = originalConsoleError;
+
+    const maintenancePresetRoot = join(smokeDataRoot, 'dataset_presets', smokePreset.id);
+    const oldStaging = join(maintenancePresetRoot, '.staging-startup-old');
+    const newStaging = join(maintenancePresetRoot, '.staging-startup-new');
+    const orphanRoot = join(smokeDataRoot, 'dataset_presets', 'startup-orphan', 'v1');
+    mkdirSync(oldStaging);
+    mkdirSync(newStaging);
+    mkdirSync(orphanRoot, { recursive: true });
+    writeFileSync(join(orphanRoot, 'manifest.json'), '{}');
+    const startupNow = new Date('2026-08-10T12:00:00.000Z');
+    utimesSync(oldStaging, new Date('2026-08-09T11:59:59.000Z'), new Date('2026-08-09T11:59:59.000Z'));
+    utimesSync(newStaging, new Date('2026-08-09T12:00:00.000Z'), new Date('2026-08-09T12:00:00.000Z'));
+    const maintenanceInfo: string[] = [];
+    let maintenanceStarts = 0;
+    await startWorkerAfterMaintenance({
+      ensureJournalMode: async () => undefined,
+      maintenance: createDatasetPresetStartupMaintenance({
+        getDataRoot: async () => smokeDataRoot,
+        prisma: client,
+        now: () => startupNow,
+        info: message => maintenanceInfo.push(message),
+        warn: message => maintenanceInfo.push(message),
+      }),
+      start: () => { maintenanceStarts += 1; },
+      warn: message => maintenanceInfo.push(message),
+    });
+    assert.equal(maintenanceStarts, 1);
+    assert.equal(existsSync(oldStaging), false);
+    assert.equal(existsSync(newStaging), true);
+    assert.equal(existsSync(join(smokeDataRoot, 'dataset_presets', smokeV1.manifest_path)), true);
+    assert.equal(existsSync(orphanRoot), true);
+    assert.ok(maintenanceInfo.includes(`Dataset preset recovery removed stale staging: ${smokePreset.id}/.staging-startup-old`));
+    assert.ok(maintenanceInfo.includes('Dataset preset recovery found published orphan: startup-orphan/v1'));
+
+    const failedMaintenanceRoot = join(directory, 'maintenance-root-file');
+    writeFileSync(failedMaintenanceRoot, 'not a directory');
+    let failureStarts = 0;
+    const failureWarnings: string[] = [];
+    await startWorkerAfterMaintenance({
+      ensureJournalMode: async () => undefined,
+      maintenance: createDatasetPresetStartupMaintenance({
+        getDataRoot: async () => failedMaintenanceRoot,
+        prisma: client,
+        now: () => startupNow,
+        info: () => undefined,
+        warn: message => failureWarnings.push(message),
+      }),
+      start: () => { failureStarts += 1; },
+      warn: () => undefined,
+    });
+    assert.equal(failureStarts, 1, 'production-wired maintenance failure never blocks worker startup');
+    assert.deepEqual(failureWarnings, ['Dataset preset startup maintenance failed (Error)']);
 
     let launched = false;
     assert.equal(await prepareClaimAndLaunchJob({
