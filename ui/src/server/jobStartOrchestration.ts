@@ -6,40 +6,60 @@ export interface StoredStartJob {
   job_config: string;
 }
 
+export interface WorkerStartAttempt extends StoredStartJob {
+  updated_at: Date;
+  name: string;
+  gpu_ids: string;
+  queue_position: number;
+}
+
+export class QueueMutationError extends Error {
+  constructor(options?: { cause?: unknown }) {
+    super('Queue mutation failed', options);
+    this.name = 'QueueMutationError';
+  }
+}
+
 export async function prepareAndQueueJob(
   job: StoredStartJob,
   deps: {
     prepare(jobConfig: JobConfig): Promise<JobConfig>;
-    nextQueuePosition(): Promise<number>;
-    setQueuePosition(position: number): Promise<void>;
-    ensureQueue(): Promise<void>;
-    markQueued(): Promise<void>;
+    mutateQueue(): Promise<void>;
   },
 ): Promise<void> {
   const parsed = JSON.parse(job.job_config) as JobConfig;
   await deps.prepare(parsed);
-  const position = await deps.nextQueuePosition();
-  await deps.setQueuePosition(position);
-  await deps.ensureQueue();
-  await deps.markQueued();
+  try {
+    await deps.mutateQueue();
+  } catch (error) {
+    throw new QueueMutationError({ cause: error });
+  }
 }
 
 export async function prepareClaimAndLaunchJob(
-  job: StoredStartJob,
+  job: WorkerStartAttempt,
   deps: {
     prepare(jobConfig: JobConfig): Promise<JobConfig>;
-    claim(): Promise<boolean>;
-    fail(error: unknown): Promise<boolean>;
+    claim(attempt: WorkerStartAttempt): Promise<boolean>;
+    fail(error: unknown, attempt: WorkerStartAttempt): Promise<boolean>;
     launch(jobConfig: JobConfig): void;
   },
 ): Promise<'started' | 'cancelled' | 'failed'> {
+  const attempt = Object.freeze({
+    id: job.id,
+    job_config: job.job_config,
+    updated_at: new Date(job.updated_at.getTime()),
+    name: job.name,
+    gpu_ids: job.gpu_ids,
+    queue_position: job.queue_position,
+  });
   let prepared: JobConfig;
   try {
     prepared = await deps.prepare(JSON.parse(job.job_config) as JobConfig);
   } catch (error) {
-    return (await deps.fail(error)) ? 'failed' : 'cancelled';
+    return (await deps.fail(error, attempt)) ? 'failed' : 'cancelled';
   }
-  if (!(await deps.claim())) return 'cancelled';
+  if (!(await deps.claim(attempt))) return 'cancelled';
   deps.launch(prepared);
   return 'started';
 }
@@ -53,6 +73,9 @@ export function classifyQueuePreflightError(error: unknown): {
       status: 409,
       body: { error: error.message, preset: error.preset, version: error.version, missing: error.missing },
     };
+  }
+  if (error instanceof QueueMutationError) {
+    return { status: 500, body: { error: 'Failed to queue job' } };
   }
   if (error instanceof SyntaxError || error instanceof JobDatasetPresetError) {
     return { status: 400, body: { error: 'Job dataset preset configuration is invalid' } };

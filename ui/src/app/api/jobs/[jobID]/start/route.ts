@@ -27,21 +27,24 @@ export async function GET(request: NextRequest, { params }: { params: { jobID: s
           snapshots: createDatasetPresetSnapshotStore(await getDataRoot()),
         });
       },
-      async nextQueuePosition() {
-        const highestQueuePosition = await prisma.job.aggregate({ _max: { queue_position: true } });
-        return (highestQueuePosition._max.queue_position || 0) + 1000;
-      },
-      async setQueuePosition(queuePosition) {
-        await prisma.job.update({ where: { id: jobID }, data: { queue_position: queuePosition } });
-      },
-      async ensureQueue() {
-        const queue = await prisma.queue.findFirst({ where: { gpu_ids: job.gpu_ids } });
-        if (!queue) await prisma.queue.create({ data: { gpu_ids: job.gpu_ids, is_running: false } });
-      },
-      async markQueued() {
-        await prisma.job.update({
-          where: { id: jobID },
-          data: { status: 'queued', stop: false, return_to_queue: false, info: 'Job queued' },
+      async mutateQueue() {
+        await prisma.$transaction(async transaction => {
+          const highest = await transaction.job.aggregate({ _max: { queue_position: true } });
+          const queuePosition = (highest._max.queue_position || 0) + 1000;
+          const queue = await transaction.queue.findFirst({ where: { gpu_ids: job.gpu_ids } });
+          if (!queue) {
+            await transaction.queue.create({ data: { gpu_ids: job.gpu_ids, is_running: false } });
+          }
+          await transaction.job.update({
+            where: { id: jobID },
+            data: {
+              queue_position: queuePosition,
+              status: 'queued',
+              stop: false,
+              return_to_queue: false,
+              info: 'Job queued',
+            },
+          });
         });
       },
     });

@@ -446,18 +446,36 @@ export async function startAndWatchJob(jobID: string) {
         snapshots: createDatasetPresetSnapshotStore(await getDataRoot()),
       });
     },
-    async claim() {
+    async claim(attempt) {
       const claimed = await prisma.job.updateMany({
-        where: { id: jobID, status: 'queued', stop: false },
+        where: {
+          id: jobID,
+          status: 'queued',
+          stop: false,
+          updated_at: attempt.updated_at,
+          job_config: attempt.job_config,
+          name: attempt.name,
+          gpu_ids: attempt.gpu_ids,
+          queue_position: attempt.queue_position,
+        },
         data: { status: 'running', return_to_queue: false, info: 'Starting job...' },
       });
       return claimed.count === 1;
     },
-    async fail(error) {
+    async fail(error, attempt) {
       const message = safePreflightMessage(error);
       try {
         const failed = await prisma.job.updateMany({
-          where: { id: jobID, status: 'queued', stop: false },
+          where: {
+            id: jobID,
+            status: 'queued',
+            stop: false,
+            updated_at: attempt.updated_at,
+            job_config: attempt.job_config,
+            name: attempt.name,
+            gpu_ids: attempt.gpu_ids,
+            queue_position: attempt.queue_position,
+          },
           data: { status: 'error', info: message, pid: null },
         });
         if (failed.count !== 1) return false;

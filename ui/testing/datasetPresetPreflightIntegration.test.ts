@@ -138,21 +138,15 @@ async function main(): Promise<void> {
   const queueEvents: string[] = [];
   await prepareAndQueueJob({ id: 'job', job_config: JSON.stringify(config([])) }, {
     async prepare(value) { queueEvents.push('preflight'); return structuredClone(value); },
-    async nextQueuePosition() { queueEvents.push('position-read'); return 1000; },
-    async setQueuePosition() { queueEvents.push('position-write'); },
-    async ensureQueue() { queueEvents.push('ensure-queue'); },
-    async markQueued() { queueEvents.push('queued'); },
+    async mutateQueue() { queueEvents.push('queue-transaction'); },
   });
-  assert.deepEqual(queueEvents, ['preflight', 'position-read', 'position-write', 'ensure-queue', 'queued']);
+  assert.deepEqual(queueEvents, ['preflight', 'queue-transaction']);
 
   const noMutationEvents: string[] = [];
   await assert.rejects(
     prepareAndQueueJob({ id: 'job', job_config: JSON.stringify(config(refs)) }, {
       async prepare() { throw caught; },
-      async nextQueuePosition() { noMutationEvents.push('position-read'); return 1000; },
-      async setQueuePosition() { noMutationEvents.push('position-write'); },
-      async ensureQueue() { noMutationEvents.push('ensure-queue'); },
-      async markQueued() { noMutationEvents.push('queued'); },
+      async mutateQueue() { noMutationEvents.push('queue-transaction'); },
     }),
     error => error === caught,
   );
@@ -164,46 +158,82 @@ async function main(): Promise<void> {
   assert.deepEqual(classifyQueuePreflightError(dependencyFailure), {
     status: 500, body: { error: 'Unable to verify job dataset presets' },
   });
+  let queueMutationFailure: unknown;
+  try {
+    await prepareAndQueueJob({ id: 'job', job_config: JSON.stringify(config([])) }, {
+      async prepare(value) { return value; },
+      async mutateQueue() { throw new Error('database unavailable after preflight'); },
+    });
+  } catch (error) {
+    queueMutationFailure = error;
+  }
+  assert.deepEqual(classifyQueuePreflightError(queueMutationFailure), {
+    status: 500, body: { error: 'Failed to queue job' },
+  }, 'post-preflight database errors are not mislabeled as snapshot verification failures');
 
   let releasePreparation!: (value: JobConfig) => void;
   const delayedPreparation = new Promise<JobConfig>(resolve => { releasePreparation = resolve; });
-  let status = 'queued';
+  const attemptA = {
+    id: 'job', job_config: JSON.stringify(malicious), updated_at: new Date('2026-08-10T01:00:00.123Z'),
+    name: 'job-a', gpu_ids: '0', queue_position: 1000,
+  };
+  let liveAttempt = { ...attemptA, updated_at: new Date(attemptA.updated_at), status: 'queued' };
   let launches = 0;
   const workerStart = prepareClaimAndLaunchJob(
-    { id: 'job', job_config: JSON.stringify(malicious) },
+    attemptA,
     {
       async prepare() { return delayedPreparation; },
-      async claim() { if (status !== 'queued') return false; status = 'running'; return true; },
+      async claim(attempt) {
+        if (liveAttempt.status !== 'queued' || liveAttempt.updated_at.getTime() !== attempt.updated_at.getTime() ||
+          liveAttempt.job_config !== attempt.job_config) return false;
+        liveAttempt.status = 'running';
+        return true;
+      },
       async fail() { assert.fail('cancellation is not a preflight failure'); },
       launch() { launches += 1; },
     },
   );
-  status = 'stopped';
+  liveAttempt = {
+    ...liveAttempt,
+    status: 'queued',
+    job_config: JSON.stringify(config([])),
+    updated_at: new Date('2026-08-10T01:00:00.124Z'),
+  };
   releasePreparation(prepared);
   assert.equal(await workerStart, 'cancelled');
-  assert.equal(status, 'stopped');
+  assert.equal(liveAttempt.status, 'queued', 'stop/edit/requeue revision B remains queued');
   assert.equal(launches, 0, 'cancelled job has no training side effects');
 
-  status = 'queued';
+  liveAttempt = { ...attemptA, updated_at: new Date(attemptA.updated_at), status: 'queued' };
   let rejectPreparation!: (error: Error) => void;
   const rejectedPreparation = new Promise<JobConfig>((_resolve, reject) => { rejectPreparation = reject; });
   const stoppedFailure = prepareClaimAndLaunchJob(
-    { id: 'job', job_config: JSON.stringify(malicious) },
+    attemptA,
     {
       async prepare() { return rejectedPreparation; },
       async claim() { assert.fail('failed preflight must not claim'); },
-      async fail() { return status === 'queued'; },
+      async fail(_error, attempt) {
+        if (liveAttempt.status !== 'queued' || liveAttempt.updated_at.getTime() !== attempt.updated_at.getTime() ||
+          liveAttempt.job_config !== attempt.job_config) return false;
+        liveAttempt.status = 'error';
+        return true;
+      },
       launch() { assert.fail('failed preflight must not launch'); },
     },
   );
-  status = 'stopped';
+  liveAttempt = {
+    ...liveAttempt,
+    status: 'queued',
+    job_config: JSON.stringify(config([])),
+    updated_at: new Date('2026-08-10T01:00:00.124Z'),
+  };
   rejectPreparation(new Error('snapshot disappeared'));
-  assert.equal(await stoppedFailure, 'cancelled', 'a stop racing a failed preflight is preserved');
-  assert.equal(status, 'stopped');
+  assert.equal(await stoppedFailure, 'cancelled', 'a requeued revision racing a failed preflight is preserved');
+  assert.equal(liveAttempt.status, 'queued', 'failed attempt A does not overwrite queued revision B');
 
   let launchedConfig: JobConfig | null = null;
   assert.equal(await prepareClaimAndLaunchJob(
-    { id: 'job', job_config: JSON.stringify(malicious) },
+    attemptA,
     {
       async prepare() { return prepared; }, async claim() { return true; },
       async fail() { assert.fail('valid job must not fail'); },
@@ -215,20 +245,30 @@ async function main(): Promise<void> {
 
   const route = readFileSync(join(process.cwd(), 'src/app/api/jobs/[jobID]/start/route.ts'), 'utf8');
   assert.match(route, /prepareAndQueueJob/, 'queue route delegates to executable tested orchestration');
+  assert.match(route, /prisma\.\$transaction/,
+    'post-preflight queue position, queue creation, and status writes are atomic');
 
   const worker = readFileSync(join(process.cwd(), 'cron/actions/startJob.ts'), 'utf8');
   const authoritativeRead = worker.indexOf('prisma.job.findUnique');
   const workerPreflight = worker.indexOf('prepareClaimAndLaunchJob', authoritativeRead);
   assert.ok(workerPreflight > authoritativeRead, 'worker delegates after its authoritative job read');
-  const claimBlock = worker.slice(worker.indexOf('async claim()', workerPreflight), worker.indexOf('async fail(', workerPreflight));
+  const claimBlock = worker.slice(worker.indexOf('async claim(', workerPreflight), worker.indexOf('async fail(', workerPreflight));
   assert.match(claimBlock, /updateMany/);
-  assert.match(claimBlock, /status: 'queued', stop: false/,
+  assert.match(claimBlock, /status: 'queued',\s+stop: false/,
     'production worker claims only a still-queued, non-stopped job');
+  for (const revisionField of ['updated_at', 'job_config', 'name', 'gpu_ids', 'queue_position']) {
+    assert.match(claimBlock, new RegExp(`${revisionField}: attempt\\.${revisionField}`),
+      `production claim pins the read ${revisionField}`);
+  }
   assert.match(claimBlock, /status: 'running'/);
   const failureBlock = worker.slice(worker.indexOf('async fail(', workerPreflight), worker.indexOf('launch(jobConfig)', workerPreflight));
   assert.match(failureBlock, /updateMany/);
-  assert.match(failureBlock, /status: 'queued', stop: false/,
+  assert.match(failureBlock, /status: 'queued',\s+stop: false/,
     'production worker does not overwrite a stop racing a failed preflight');
+  for (const revisionField of ['updated_at', 'job_config', 'name', 'gpu_ids', 'queue_position']) {
+    assert.match(failureBlock, new RegExp(`${revisionField}: attempt\\.${revisionField}`),
+      `production failure transition pins the read ${revisionField}`);
+  }
   const appendFailure = worker.slice(
     worker.indexOf('async function appendPreflightFailureToExistingLog'),
     worker.indexOf('export async function startAndWatchJob'),
