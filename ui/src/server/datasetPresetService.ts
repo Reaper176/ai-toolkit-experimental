@@ -74,7 +74,13 @@ export class DatasetPresetNotFoundError extends DatasetPresetServiceError {}
 export class DatasetPresetReferencedError extends DatasetPresetServiceError {}
 export class DatasetPresetStorageError extends DatasetPresetServiceError {}
 
-export type DatasetPresetStoreErrorCode = 'name_conflict' | 'version_conflict' | 'not_found' | 'referenced';
+export type DatasetPresetStoreErrorCode =
+  | 'name_conflict'
+  | 'version_conflict'
+  | 'not_found'
+  | 'referenced'
+  | 'archived'
+  | 'last_version';
 
 export class DatasetPresetStoreError extends Error {
   constructor(
@@ -91,6 +97,7 @@ export interface DatasetPresetRow {
   id: string;
   name: string;
   name_key: string;
+  next_version: number;
   archived_at: Date | null;
   created_at: Date;
   updated_at: Date;
@@ -127,20 +134,25 @@ export interface DatasetPresetVersionCreateData {
   total_bytes: bigint;
 }
 
+export interface DatasetPresetWithVersionsRow extends DatasetPresetRow {
+  versions: DatasetPresetVersionRow[];
+}
+
 export interface DatasetPresetStore {
-  listActive(): Promise<DatasetPresetRow[]>;
+  listActiveWithVersions(): Promise<DatasetPresetWithVersionsRow[]>;
   getPreset(id: string): Promise<DatasetPresetRow | null>;
   findPresetByNameKey(nameKey: string): Promise<DatasetPresetRow | null>;
   createPreset(data: DatasetPresetCreateData): Promise<DatasetPresetRow>;
   deleteEmptyPreset(id: string): Promise<void>;
   listVersions(presetId: string): Promise<DatasetPresetVersionRow[]>;
-  getLatestVersion(presetId: string): Promise<DatasetPresetVersionRow | null>;
-  insertVersion(data: DatasetPresetVersionCreateData): Promise<DatasetPresetVersionRow>;
+  reserveNextVersion(presetId: string): Promise<number>;
+  insertReservedVersionIfActive(data: DatasetPresetVersionCreateData): Promise<DatasetPresetVersionRow>;
   updateName(id: string, name: string, nameKey: string): Promise<DatasetPresetRow>;
   setArchived(id: string, archivedAt: Date | null): Promise<DatasetPresetRow>;
   getVersion(id: string): Promise<DatasetPresetVersionRow | null>;
   countVersionUsages(id: string): Promise<number>;
-  deleteVersion(id: string): Promise<void>;
+  countVersions(presetId: string): Promise<number>;
+  deleteVersionIfNotLast(id: string, presetId: string): Promise<void>;
 }
 
 export interface DatasetPresetService {
@@ -170,7 +182,12 @@ function detail(error: unknown): string {
 function storeCode(error: unknown): DatasetPresetStoreErrorCode | undefined {
   if (error === null || typeof error !== 'object' || !('code' in error)) return undefined;
   const code = (error as { code?: unknown }).code;
-  return code === 'name_conflict' || code === 'version_conflict' || code === 'not_found' || code === 'referenced'
+  return code === 'name_conflict' ||
+    code === 'version_conflict' ||
+    code === 'not_found' ||
+    code === 'referenced' ||
+    code === 'archived' ||
+    code === 'last_version'
     ? code
     : undefined;
 }
@@ -217,7 +234,9 @@ function versionDto(row: DatasetPresetVersionRow): DatasetPresetVersionRecord {
   try {
     if (!Number.isSafeInteger(row.version) || row.version <= 0) throw new Error('Invalid stored version');
     if (!Number.isSafeInteger(row.media_count) || row.media_count <= 0) throw new Error('Invalid stored media count');
-    if (typeof row.total_bytes !== 'bigint' || row.total_bytes < 0n) throw new Error('Invalid stored total bytes');
+    if (typeof row.total_bytes !== 'bigint' || row.total_bytes < BigInt(0)) {
+      throw new Error('Invalid stored total bytes');
+    }
     if (!/^[a-f0-9]{64}$/.test(row.manifest_sha256)) throw new Error('Invalid stored manifest checksum');
     if (row.note !== null && (typeof row.note !== 'string' || row.note.length > 500))
       throw new Error('Invalid stored note');
@@ -245,7 +264,7 @@ function versionDto(row: DatasetPresetVersionRow): DatasetPresetVersionRecord {
 
 function presetDto(row: DatasetPresetRow, versionsInput: DatasetPresetVersionRow[]): DatasetPresetDetail {
   const versions = [...versionsInput].sort((left, right) => left.version - right.version);
-  const latest = versions.at(-1);
+  const latest = versions.length === 0 ? undefined : versions[versions.length - 1];
   return {
     id: row.id,
     name: row.name,
@@ -266,13 +285,6 @@ function storageError(message: string, cause: unknown): DatasetPresetStorageErro
 
 function combined(primary: unknown, cleanupErrors: unknown[]): unknown {
   return cleanupErrors.length === 0 ? primary : new AggregateError([primary, ...cleanupErrors], detail(primary));
-}
-
-function publicationRace(error: unknown): boolean {
-  return (
-    storeCode(error) === 'version_conflict' ||
-    (error instanceof Error && /existing (?:final )?version|replace existing version/i.test(error.message))
-  );
 }
 
 function assertManifestAgreement(row: DatasetPresetVersionRow, manifestInput: unknown): DatasetPresetManifestV1 {
@@ -324,6 +336,34 @@ export function createDatasetPresetService(dependencies: {
     }
   }
 
+  async function getVersionRow(versionId: string): Promise<DatasetPresetVersionRow> {
+    let row: DatasetPresetVersionRow | null;
+    try {
+      row = await store.getVersion(versionId);
+    } catch (error) {
+      throw storageError('Dataset preset storage is unavailable', error);
+    }
+    if (!row) throw new DatasetPresetNotFoundError(`Dataset preset version "${versionId}" was not found`);
+    return row;
+  }
+
+  async function getVerifiedVersion(
+    row: DatasetPresetVersionRow,
+    verification: 'read' | 'fast' | 'full',
+  ): Promise<DatasetPresetVersionDetail> {
+    let manifest: DatasetPresetManifestV1;
+    try {
+      manifest = await (verification === 'full'
+        ? snapshots.verifyFull(row.manifest_path)
+        : verification === 'fast'
+          ? snapshots.verifyFast(row.manifest_path)
+          : snapshots.readManifest(row.manifest_path));
+    } catch (error) {
+      throw storageError('Dataset preset snapshot is unavailable', error);
+    }
+    return { ...versionDto(row), manifest: assertManifestAgreement(row, manifest) };
+  }
+
   async function rollbackAndCleanup(
     primary: unknown,
     publication: StagedPublication | undefined,
@@ -344,7 +384,17 @@ export function createDatasetPresetService(dependencies: {
         cleanupErrors.push(error);
       }
     }
-    throw storageError('Dataset preset snapshot could not be published', combined(primary, cleanupErrors));
+    const failure = combined(primary, cleanupErrors);
+    if (storeCode(primary) === 'archived') {
+      throw new DatasetPresetConflictError('Dataset preset was archived before publication committed', failure);
+    }
+    if (storeCode(primary) === 'version_conflict') {
+      throw new DatasetPresetConflictError('A dataset preset version conflict could not be resolved', failure);
+    }
+    if (storeCode(primary) === 'not_found') {
+      throw new DatasetPresetNotFoundError('Dataset preset was removed before publication committed', failure);
+    }
+    throw storageError('Dataset preset snapshot could not be published', failure);
   }
 
   async function createVersionData(
@@ -404,7 +454,7 @@ export function createDatasetPresetService(dependencies: {
   const service: DatasetPresetService = {
     async listActive(): Promise<DatasetPresetSummary[]> {
       try {
-        const details = await Promise.all((await store.listActive()).map(getDetail));
+        const details = (await store.listActiveWithVersions()).map(({ versions, ...row }) => presetDto(row, versions));
         return details
           .map(({ versions: _versions, ...summary }) => summary)
           .sort(
@@ -452,14 +502,15 @@ export function createDatasetPresetService(dependencies: {
 
       let publication: StagedPublication | undefined;
       try {
-        const staged = await createVersionData(preset, 1, valid);
+        const reservedVersion = await store.reserveNextVersion(preset.id);
+        const staged = await createVersionData(preset, reservedVersion, valid);
         publication = staged.publication;
         await publication.publish();
-        await store.insertVersion(staged.data);
+        await store.insertReservedVersionIfActive(staged.data);
       } catch (error) {
         return rollbackAndCleanup(error, publication, preset.id);
       }
-      return getDetail(preset);
+      return getDetail(await getPresetRow(preset.id));
     },
 
     async publishVersion(presetIdInput: string, input: PublishVersionInput): Promise<DatasetPresetVersionRecord> {
@@ -485,54 +536,32 @@ export function createDatasetPresetService(dependencies: {
         const preset = await getPresetRow(presetId);
         if (preset.archived_at !== null)
           throw new DatasetPresetValidationError('Archived dataset presets cannot publish new versions');
-        let base: DatasetPresetVersionRow | null;
-        try {
-          base = await store.getVersion(baseVersionId);
-        } catch (error) {
-          throw storageError('Dataset preset storage is unavailable', error);
-        }
-        if (!base) throw new DatasetPresetNotFoundError(`Dataset preset version "${baseVersionId}" was not found`);
+        const base = await getVersionRow(baseVersionId);
         if (base.preset_id !== presetId)
           throw new DatasetPresetValidationError('Base version must belong to the same dataset preset');
+        await getVerifiedVersion(base, 'fast');
 
-        let minimumVersion = 1;
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-          let latest: DatasetPresetVersionRow | null;
-          try {
-            latest = await store.getLatestVersion(presetId);
-          } catch (error) {
-            throw storageError('Dataset preset storage is unavailable', error);
+        let reservedVersion: number;
+        try {
+          reservedVersion = await store.reserveNextVersion(presetId);
+        } catch (error) {
+          if (storeCode(error) === 'archived') {
+            throw new DatasetPresetConflictError('Archived dataset presets cannot publish new versions', error);
           }
-          const nextVersion = Math.max((latest?.version ?? 0) + 1, minimumVersion);
-          let publication: StagedPublication | undefined;
-          let inserted: DatasetPresetVersionRow | undefined;
-          try {
-            const staged = await createVersionData(preset, nextVersion, valid, retainedPaths, base.manifest_path);
-            publication = staged.publication;
-            await publication.publish();
-            inserted = await store.insertVersion(staged.data);
-          } catch (error) {
-            const cleanupErrors: unknown[] = [];
-            if (publication) {
-              try {
-                await publication.rollback();
-              } catch (cleanupError) {
-                cleanupErrors.push(cleanupError);
-              }
-            }
-            const failure = combined(error, cleanupErrors);
-            if (attempt === 0 && cleanupErrors.length === 0 && publicationRace(error)) {
-              minimumVersion = nextVersion + 1;
-              continue;
-            }
-            if (publicationRace(error)) {
-              throw new DatasetPresetConflictError('A dataset preset version conflict could not be resolved', failure);
-            }
-            throw storageError('Dataset preset snapshot could not be published', failure);
+          if (storeCode(error) === 'not_found') {
+            throw new DatasetPresetNotFoundError(`Dataset preset "${presetId}" was not found`, error);
           }
-          return versionDto(inserted);
+          throw storageError('Dataset preset storage is unavailable', error);
         }
-        throw new DatasetPresetConflictError('A dataset preset version conflict could not be resolved');
+        let publication: StagedPublication | undefined;
+        try {
+          const staged = await createVersionData(preset, reservedVersion, valid, retainedPaths, base.manifest_path);
+          publication = staged.publication;
+          await publication.publish();
+          return versionDto(await store.insertReservedVersionIfActive(staged.data));
+        } catch (error) {
+          return rollbackAndCleanup(error, publication);
+        }
       });
     },
 
@@ -575,51 +604,18 @@ export function createDatasetPresetService(dependencies: {
 
     async getVersion(versionIdInput: string): Promise<DatasetPresetVersionDetail> {
       const versionId = validateId(versionIdInput, 'Version id');
-      let row: DatasetPresetVersionRow | null;
-      try {
-        row = await store.getVersion(versionId);
-      } catch (error) {
-        throw storageError('Dataset preset storage is unavailable', error);
-      }
-      if (!row) throw new DatasetPresetNotFoundError(`Dataset preset version "${versionId}" was not found`);
-      let manifest: DatasetPresetManifestV1;
-      try {
-        manifest = await snapshots.readManifest(row.manifest_path);
-      } catch (error) {
-        throw storageError('Dataset preset snapshot is unavailable', error);
-      }
-      return { ...versionDto(row), manifest: assertManifestAgreement(row, manifest) };
+      return getVerifiedVersion(await getVersionRow(versionId), 'read');
     },
 
     async verifyVersion(versionIdInput: string, full: boolean): Promise<DatasetPresetManifestV1> {
       const versionId = validateId(versionIdInput, 'Version id');
       if (typeof full !== 'boolean') throw new DatasetPresetValidationError('Full verification flag must be a boolean');
-      let row: DatasetPresetVersionRow | null;
-      try {
-        row = await store.getVersion(versionId);
-      } catch (error) {
-        throw storageError('Dataset preset storage is unavailable', error);
-      }
-      if (!row) throw new DatasetPresetNotFoundError(`Dataset preset version "${versionId}" was not found`);
-      try {
-        return assertManifestAgreement(
-          row,
-          await (full ? snapshots.verifyFull(row.manifest_path) : snapshots.verifyFast(row.manifest_path)),
-        );
-      } catch (error) {
-        throw storageError('Dataset preset snapshot verification failed', error);
-      }
+      return (await getVerifiedVersion(await getVersionRow(versionId), full ? 'full' : 'fast')).manifest;
     },
 
     async deleteVersion(versionIdInput: string): Promise<void> {
       const versionId = validateId(versionIdInput, 'Version id');
-      let row: DatasetPresetVersionRow | null;
-      try {
-        row = await store.getVersion(versionId);
-      } catch (error) {
-        throw storageError('Dataset preset storage is unavailable', error);
-      }
-      if (!row) throw new DatasetPresetNotFoundError(`Dataset preset version "${versionId}" was not found`);
+      const row = await getVersionRow(versionId);
       let usageCount: number;
       try {
         usageCount = await store.countVersionUsages(versionId);
@@ -628,6 +624,17 @@ export function createDatasetPresetService(dependencies: {
       }
       if (usageCount > 0)
         throw new DatasetPresetReferencedError('Dataset preset version is referenced by one or more jobs');
+      let versionCount: number;
+      try {
+        versionCount = await store.countVersions(row.preset_id);
+      } catch (error) {
+        throw storageError('Dataset preset storage is unavailable', error);
+      }
+      if (versionCount <= 1) {
+        throw new DatasetPresetConflictError('The last dataset preset version cannot be deleted');
+      }
+
+      await getVerifiedVersion(row, 'full');
 
       let quarantine;
       try {
@@ -636,7 +643,7 @@ export function createDatasetPresetService(dependencies: {
         throw storageError('Dataset preset snapshot could not be quarantined', error);
       }
       try {
-        await store.deleteVersion(versionId);
+        await store.deleteVersionIfNotLast(versionId, row.preset_id);
       } catch (primary) {
         const cleanupErrors: unknown[] = [];
         try {
@@ -652,6 +659,11 @@ export function createDatasetPresetService(dependencies: {
         if (storeCode(primary) === 'not_found')
           throw new DatasetPresetNotFoundError(
             `Dataset preset version "${versionId}" was not found`,
+            combined(primary, cleanupErrors),
+          );
+        if (storeCode(primary) === 'last_version')
+          throw new DatasetPresetConflictError(
+            'The last dataset preset version cannot be deleted',
             combined(primary, cleanupErrors),
           );
         throw storageError('Dataset preset version could not be deleted', combined(primary, cleanupErrors));

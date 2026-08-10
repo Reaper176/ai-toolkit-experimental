@@ -52,15 +52,32 @@ function clone<T>(value: T): T {
 }
 
 class MemoryStore implements DatasetPresetStore {
-  presets: DatasetPresetRow[] = [];
+  presets: Array<DatasetPresetRow & { next_version: number }> = [];
   versions: DatasetPresetVersionRow[] = [];
   usages = new Map<string, number>();
   insertFailures: unknown[] = [];
   deleteVersionError: unknown;
   listVersionsError: unknown;
+  listActiveWithVersionsCalls = 0;
+  listVersionsCalls = 0;
+  beforeInsertReservedVersion?: () => void | Promise<void>;
+  beforeDeleteVersionIfNotLast?: () => void | Promise<void>;
 
   async listActive(): Promise<DatasetPresetRow[]> {
     return clone(this.presets.filter(row => row.archived_at === null));
+  }
+  async listActiveWithVersions() {
+    this.listActiveWithVersionsCalls += 1;
+    return clone(
+      this.presets
+        .filter(row => row.archived_at === null)
+        .map(row => ({
+          ...row,
+          versions: this.versions
+            .filter(version => version.preset_id === row.id)
+            .sort((left, right) => left.version - right.version),
+        })),
+    );
   }
   async getPreset(id: string): Promise<DatasetPresetRow | null> {
     return clone(this.presets.find(row => row.id === id) ?? null);
@@ -74,6 +91,7 @@ class MemoryStore implements DatasetPresetStore {
     const row = {
       id: `preset-${this.presets.length + 1}`,
       ...data,
+      next_version: 1,
       archived_at: null,
       created_at: now,
       updated_at: now,
@@ -86,6 +104,7 @@ class MemoryStore implements DatasetPresetStore {
     this.presets = this.presets.filter(row => row.id !== id);
   }
   async listVersions(presetId: string): Promise<DatasetPresetVersionRow[]> {
+    this.listVersionsCalls += 1;
     if (this.listVersionsError !== undefined) throw this.listVersionsError;
     return clone(this.versions.filter(row => row.preset_id === presetId).sort((a, b) => a.version - b.version));
   }
@@ -93,6 +112,19 @@ class MemoryStore implements DatasetPresetStore {
     return clone(
       this.versions.filter(row => row.preset_id === presetId).sort((a, b) => b.version - a.version)[0] ?? null,
     );
+  }
+  async reserveNextVersion(presetId: string): Promise<number> {
+    const row = this.presets.find(candidate => candidate.id === presetId);
+    if (!row) throw { code: 'not_found' };
+    if (row.archived_at !== null) throw { code: 'archived' };
+    const latestVersion = Math.max(
+      0,
+      ...this.versions.filter(version => version.preset_id === presetId).map(version => version.version),
+    );
+    const reserved = Math.max(row.next_version, latestVersion + 1);
+    row.next_version = reserved + 1;
+    row.updated_at = new Date('2026-01-20T00:00:00.000Z');
+    return reserved;
   }
   async insertVersion(data: DatasetPresetVersionCreateData): Promise<DatasetPresetVersionRow> {
     const failure = this.insertFailures.shift();
@@ -107,6 +139,13 @@ class MemoryStore implements DatasetPresetStore {
     };
     this.versions.push(clone(row));
     return clone(row);
+  }
+  async insertReservedVersionIfActive(data: DatasetPresetVersionCreateData): Promise<DatasetPresetVersionRow> {
+    await this.beforeInsertReservedVersion?.();
+    const preset = this.presets.find(row => row.id === data.preset_id);
+    if (!preset) throw { code: 'not_found' };
+    if (preset.archived_at !== null) throw { code: 'archived' };
+    return this.insertVersion(data);
   }
   async updateName(id: string, name: string, nameKey: string): Promise<DatasetPresetRow> {
     if (this.presets.some(row => row.id !== id && row.name_key === nameKey)) throw { code: 'name_conflict' };
@@ -130,10 +169,15 @@ class MemoryStore implements DatasetPresetStore {
   async countVersionUsages(id: string): Promise<number> {
     return this.usages.get(id) ?? 0;
   }
-  async deleteVersion(id: string): Promise<void> {
+  async countVersions(presetId: string): Promise<number> {
+    return this.versions.filter(row => row.preset_id === presetId).length;
+  }
+  async deleteVersionIfNotLast(id: string, presetId: string): Promise<void> {
+    await this.beforeDeleteVersionIfNotLast?.();
     if (this.deleteVersionError !== undefined) throw this.deleteVersionError;
     const index = this.versions.findIndex(row => row.id === id);
     if (index < 0) throw { code: 'not_found' };
+    if (this.versions.filter(row => row.preset_id === presetId).length <= 1) throw { code: 'last_version' };
     this.versions.splice(index, 1);
   }
 }
@@ -151,7 +195,6 @@ class FakeSnapshots implements DatasetPresetSnapshotStore {
   removeError: unknown;
   rollbackError: unknown;
   restoreError: unknown;
-  publishErrors: unknown[] = [];
 
   async stageVersion(input: StageVersionInput): Promise<StagedPublication> {
     if (this.stageError !== undefined) throw this.stageError;
@@ -183,8 +226,6 @@ class FakeSnapshots implements DatasetPresetSnapshotStore {
       manifest,
       manifestSha256: manifestSha256(manifest),
       publish: async () => {
-        const publishError = this.publishErrors.shift();
-        if (publishError !== undefined) throw publishError;
         this.manifests.set(manifestPath, clone(manifest));
       },
       rollback: async () => {
@@ -287,7 +328,7 @@ async function main(): Promise<void> {
   assert.equal(historical.manifest.version, 2);
   await service.verifyVersion(v2.id, false);
   await service.verifyVersion(v2.id, true);
-  assert.equal(snapshots.fastChecks, 1);
+  assert.equal(snapshots.fastChecks, 2, 'base publication and explicit verification must both fast-check');
   assert.equal(snapshots.fullChecks, 1);
   await service.setArchived(created.id, false);
 
@@ -310,14 +351,20 @@ async function main(): Promise<void> {
     datasetsRoot: '/datasets',
   });
   const removeFailurePreset = await removeFailureService.createPreset({ ...publishInput, name: 'Remove failure' });
+  const removeFailureV2 = await removeFailureService.publishVersion(removeFailurePreset.id, {
+    ...publishInput,
+    base_version_id: removeFailurePreset.versions[0].id,
+    retained_paths: [],
+    selected_paths: ['remove-failure.jpg'],
+  });
   removeFailureSnapshots.removeError = new Error('/private/quarantine cleanup failed');
-  await assert.rejects(removeFailureService.deleteVersion(removeFailurePreset.versions[0].id), error => {
+  await assert.rejects(removeFailureService.deleteVersion(removeFailureV2.id), error => {
     assert(error instanceof DatasetPresetStorageError);
     assert.match(error.message, /maintenance/i);
     assert(!error.message.includes('/private/'));
     return true;
   });
-  assert.equal(await removeFailureStore.getVersion(removeFailurePreset.versions[0].id), null);
+  assert.equal(await removeFailureStore.getVersion(removeFailureV2.id), null);
   assert.equal(removeFailureSnapshots.restores, 0, 'final cleanup failure must not recreate committed metadata');
   assert.equal(removeFailureSnapshots.removes, 1);
 
@@ -329,14 +376,17 @@ async function main(): Promise<void> {
     datasetsRoot: '/datasets',
   });
   const lateReferencePreset = await lateReferenceService.createPreset({ ...publishInput, name: 'Late reference' });
+  const lateReferenceV2 = await lateReferenceService.publishVersion(lateReferencePreset.id, {
+    ...publishInput,
+    base_version_id: lateReferencePreset.versions[0].id,
+    retained_paths: [],
+    selected_paths: ['late-reference.jpg'],
+  });
   lateReferenceStore.deleteVersionError = { code: 'referenced' };
-  await assert.rejects(
-    lateReferenceService.deleteVersion(lateReferencePreset.versions[0].id),
-    DatasetPresetReferencedError,
-  );
+  await assert.rejects(lateReferenceService.deleteVersion(lateReferenceV2.id), DatasetPresetReferencedError);
   assert.equal(lateReferenceSnapshots.quarantines, 1);
   assert.equal(lateReferenceSnapshots.restores, 1);
-  assert.notEqual(await lateReferenceStore.getVersion(lateReferencePreset.versions[0].id), null);
+  assert.notEqual(await lateReferenceStore.getVersion(lateReferenceV2.id), null);
 
   await assert.rejects(service.getPreset('missing'), DatasetPresetNotFoundError);
   await assert.rejects(
@@ -398,10 +448,16 @@ async function main(): Promise<void> {
     datasetsRoot: '/datasets',
   });
   const restoreFailurePreset = await restoreFailureService.createPreset({ ...publishInput, name: 'Restore failure' });
+  const restoreFailureV2 = await restoreFailureService.publishVersion(restoreFailurePreset.id, {
+    ...publishInput,
+    base_version_id: restoreFailurePreset.versions[0].id,
+    retained_paths: [],
+    selected_paths: ['restore-failure.jpg'],
+  });
   const primaryDeleteError = new Error('primary delete failure');
   restoreFailureStore.deleteVersionError = primaryDeleteError;
   restoreFailureSnapshots.restoreError = new Error('/private/restore failure');
-  await assert.rejects(restoreFailureService.deleteVersion(restoreFailurePreset.versions[0].id), error => {
+  await assert.rejects(restoreFailureService.deleteVersion(restoreFailureV2.id), error => {
     assert(error instanceof DatasetPresetStorageError);
     assert(!error.message.includes('/private/'));
     assert(error.cause instanceof AggregateError);
@@ -475,7 +531,7 @@ async function main(): Promise<void> {
     [
       'total bytes',
       (row: DatasetPresetVersionRow) => {
-        row.total_bytes += 1n;
+        row.total_bytes += BigInt(1);
       },
     ],
   ] as const) {
@@ -523,6 +579,7 @@ async function main(): Promise<void> {
       id: 'z-tie',
       name: 'ábaco',
       name_key: 'ábaco',
+      next_version: 1,
       archived_at: null,
       created_at: new Date('2026-01-01T00:00:00.000Z'),
       updated_at: new Date('2026-01-01T00:00:00.000Z'),
@@ -531,6 +588,7 @@ async function main(): Promise<void> {
       id: 'z-zoo',
       name: 'Zoo',
       name_key: 'zoo',
+      next_version: 1,
       archived_at: null,
       created_at: new Date('2026-01-01T00:00:00.000Z'),
       updated_at: new Date('2026-01-01T00:00:00.000Z'),
@@ -539,6 +597,7 @@ async function main(): Promise<void> {
       id: 'a-tie',
       name: 'abaco',
       name_key: 'abaco',
+      next_version: 1,
       archived_at: null,
       created_at: new Date('2026-01-01T00:00:00.000Z'),
       updated_at: new Date('2026-01-01T00:00:00.000Z'),
@@ -547,6 +606,7 @@ async function main(): Promise<void> {
       id: 'apple',
       name: 'apple',
       name_key: 'apple',
+      next_version: 1,
       archived_at: null,
       created_at: new Date('2026-01-01T00:00:00.000Z'),
       updated_at: new Date('2026-01-01T00:00:00.000Z'),
@@ -572,45 +632,27 @@ async function main(): Promise<void> {
   });
   const retryPreset = await retryService.createPreset({ ...publishInput, name: 'Retry' });
   retryStore.insertFailures.push({ code: 'version_conflict' });
-  const retried = await retryService.publishVersion(retryPreset.id, {
+  await assert.rejects(
+    retryService.publishVersion(retryPreset.id, {
+      ...publishInput,
+      base_version_id: retryPreset.versions[0].id,
+      retained_paths: [],
+      selected_paths: ['retry.jpg'],
+    }),
+    DatasetPresetConflictError,
+  );
+  const afterConflict = await retryService.publishVersion(retryPreset.id, {
     ...publishInput,
     base_version_id: retryPreset.versions[0].id,
     retained_paths: [],
-    selected_paths: ['retry.jpg'],
+    selected_paths: ['after-conflict.jpg'],
   });
-  assert.equal(retried.version, 3, 'a uniqueness race must retry the complete publication with the next version');
+  assert.equal(afterConflict.version, 3, 'a failed reserved insert must leave a monotonic gap');
   assert.deepEqual(
     retrySnapshots.stageInputs.map(input => input.version),
     [1, 2, 3],
   );
   assert.equal(retrySnapshots.rollbacks, 1);
-
-  const exhaustedRaceStore = new MemoryStore();
-  const exhaustedRaceSnapshots = new FakeSnapshots();
-  const exhaustedRaceService = createDatasetPresetService({
-    store: exhaustedRaceStore,
-    snapshots: exhaustedRaceSnapshots,
-    datasetsRoot: '/datasets',
-  });
-  const exhaustedRacePreset = await exhaustedRaceService.createPreset({ ...publishInput, name: 'Exhausted race' });
-  exhaustedRaceSnapshots.publishErrors.push(
-    new Error('Refusing to replace existing version: v2'),
-    new Error('Refusing to replace existing version: v3'),
-  );
-  await assert.rejects(
-    exhaustedRaceService.publishVersion(exhaustedRacePreset.id, {
-      ...publishInput,
-      base_version_id: exhaustedRacePreset.versions[0].id,
-      retained_paths: [],
-      selected_paths: ['collision.jpg'],
-    }),
-    DatasetPresetConflictError,
-  );
-  assert.deepEqual(
-    exhaustedRaceSnapshots.stageInputs.map(input => input.version),
-    [1, 2, 3],
-  );
-  assert.equal(exhaustedRaceSnapshots.rollbacks, 2);
 
   const concurrentStore = new MemoryStore();
   const concurrentSnapshots = new FakeSnapshots();
@@ -644,6 +686,267 @@ async function main(): Promise<void> {
     'publishes for one preset must serialize without a uniqueness rollback',
   );
   assert.equal(concurrentSnapshots.rollbacks, 0);
+
+  const monotonicStore = new MemoryStore();
+  const monotonicSnapshots = new FakeSnapshots();
+  const monotonicService = createDatasetPresetService({
+    store: monotonicStore,
+    snapshots: monotonicSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const monotonicPreset = await monotonicService.createPreset({ ...publishInput, name: 'Monotonic' });
+  assert.equal(monotonicStore.presets[0].next_version, 2, 'v1 creation must reserve the first high-water value');
+  assert.equal(
+    monotonicPreset.updated_at,
+    monotonicStore.presets[0].updated_at.toISOString(),
+    'create must return the parent timestamp updated by reservation',
+  );
+  const monotonicV2 = await monotonicService.publishVersion(monotonicPreset.id, {
+    ...publishInput,
+    base_version_id: monotonicPreset.versions[0].id,
+    retained_paths: [],
+    selected_paths: ['v2.jpg'],
+  });
+  await monotonicService.deleteVersion(monotonicV2.id);
+  const monotonicV3 = await monotonicService.publishVersion(monotonicPreset.id, {
+    ...publishInput,
+    base_version_id: monotonicPreset.versions[0].id,
+    retained_paths: [],
+    selected_paths: ['v3.jpg'],
+  });
+  assert.equal(monotonicV3.version, 3, 'deleting the latest version must not reuse its number');
+
+  const soleStore = new MemoryStore();
+  const soleSnapshots = new FakeSnapshots();
+  const soleService = createDatasetPresetService({
+    store: soleStore,
+    snapshots: soleSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const solePreset = await soleService.createPreset({ ...publishInput, name: 'Sole' });
+  await assert.rejects(soleService.deleteVersion(solePreset.versions[0].id), DatasetPresetConflictError);
+  assert.equal(soleSnapshots.quarantines, 0, 'last-version deletion must reject before quarantine');
+  assert.notEqual(await soleStore.getVersion(solePreset.versions[0].id), null);
+
+  const deleteRaceStore = new MemoryStore();
+  const deleteRaceSnapshots = new FakeSnapshots();
+  const deleteRaceService = createDatasetPresetService({
+    store: deleteRaceStore,
+    snapshots: deleteRaceSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const deleteRacePreset = await deleteRaceService.createPreset({ ...publishInput, name: 'Delete race' });
+  const deleteRaceV2 = await deleteRaceService.publishVersion(deleteRacePreset.id, {
+    ...publishInput,
+    base_version_id: deleteRacePreset.versions[0].id,
+    retained_paths: [],
+    selected_paths: ['delete-race.jpg'],
+  });
+  deleteRaceStore.beforeDeleteVersionIfNotLast = () => {
+    deleteRaceStore.versions = deleteRaceStore.versions.filter(row => row.id !== deleteRacePreset.versions[0].id);
+  };
+  await assert.rejects(deleteRaceService.deleteVersion(deleteRaceV2.id), DatasetPresetConflictError);
+  assert.equal(deleteRaceSnapshots.quarantines, 1, 'the destructive race is detected by the transactional recheck');
+  assert.equal(deleteRaceSnapshots.restores, 1, 'a last-version race must restore the quarantined snapshot');
+  assert.notEqual(await deleteRaceStore.getVersion(deleteRaceV2.id), null, 'the last row must remain stored');
+
+  for (const failurePoint of ['stage', 'insert'] as const) {
+    const gapStore = new MemoryStore();
+    const gapSnapshots = new FakeSnapshots();
+    const gapService = createDatasetPresetService({
+      store: gapStore,
+      snapshots: gapSnapshots,
+      datasetsRoot: '/datasets',
+    });
+    const gapPreset = await gapService.createPreset({ ...publishInput, name: `Gap ${failurePoint}` });
+    if (failurePoint === 'stage') gapSnapshots.stageError = new Error('stage failed');
+    else gapStore.insertFailures.push(new Error('insert failed'));
+    await assert.rejects(
+      gapService.publishVersion(gapPreset.id, {
+        ...publishInput,
+        base_version_id: gapPreset.versions[0].id,
+        retained_paths: [],
+        selected_paths: ['failed.jpg'],
+      }),
+      DatasetPresetStorageError,
+    );
+    gapSnapshots.stageError = undefined;
+    const afterGap = await gapService.publishVersion(gapPreset.id, {
+      ...publishInput,
+      base_version_id: gapPreset.versions[0].id,
+      retained_paths: [],
+      selected_paths: ['after-gap.jpg'],
+    });
+    assert.equal(afterGap.version, 3, `${failurePoint} failure must consume its reserved version`);
+  }
+
+  const archiveRaceStore = new MemoryStore();
+  const archiveRaceSnapshots = new FakeSnapshots();
+  const archiveRaceService = createDatasetPresetService({
+    store: archiveRaceStore,
+    snapshots: archiveRaceSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const archiveRacePreset = await archiveRaceService.createPreset({ ...publishInput, name: 'Archive race' });
+  archiveRaceStore.beforeInsertReservedVersion = () => {
+    const row = archiveRaceStore.presets.find(candidate => candidate.id === archiveRacePreset.id)!;
+    row.archived_at = new Date('2026-04-01T00:00:00.000Z');
+  };
+  await assert.rejects(
+    archiveRaceService.publishVersion(archiveRacePreset.id, {
+      ...publishInput,
+      base_version_id: archiveRacePreset.versions[0].id,
+      retained_paths: [],
+      selected_paths: ['archived.jpg'],
+    }),
+    DatasetPresetConflictError,
+  );
+  assert.equal(archiveRaceSnapshots.rollbacks, 1, 'archive-before-insert must roll the publication back');
+  assert.deepEqual(
+    archiveRaceStore.versions.map(version => version.version),
+    [1],
+  );
+
+  const sharedStore = new MemoryStore();
+  const sharedSnapshots = new FakeSnapshots();
+  const sharedServiceA = createDatasetPresetService({
+    store: sharedStore,
+    snapshots: sharedSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const sharedServiceB = createDatasetPresetService({
+    store: sharedStore,
+    snapshots: sharedSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const sharedPreset = await sharedServiceA.createPreset({ ...publishInput, name: 'Shared services' });
+  const sharedVersions = await Promise.all([
+    sharedServiceA.publishVersion(sharedPreset.id, {
+      ...publishInput,
+      base_version_id: sharedPreset.versions[0].id,
+      retained_paths: [],
+      selected_paths: ['service-a.jpg'],
+    }),
+    sharedServiceB.publishVersion(sharedPreset.id, {
+      ...publishInput,
+      base_version_id: sharedPreset.versions[0].id,
+      retained_paths: [],
+      selected_paths: ['service-b.jpg'],
+    }),
+  ]);
+  assert.deepEqual(
+    sharedVersions.map(version => version.version).sort((left, right) => left - right),
+    [2, 3],
+  );
+  assert.equal(
+    sharedSnapshots.rollbacks,
+    0,
+    'shared-store reservations must avoid cross-service publication conflicts',
+  );
+
+  const exactDeleteStore = new MemoryStore();
+  const exactDeleteSnapshots = new FakeSnapshots();
+  const exactDeleteService = createDatasetPresetService({
+    store: exactDeleteStore,
+    snapshots: exactDeleteSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const exactDeleteA = await exactDeleteService.createPreset({ ...publishInput, name: 'Exact delete A' });
+  const exactDeleteB = await exactDeleteService.createPreset({ ...publishInput, name: 'Exact delete B' });
+  const exactDeleteV2 = await exactDeleteService.publishVersion(exactDeleteA.id, {
+    ...publishInput,
+    base_version_id: exactDeleteA.versions[0].id,
+    retained_paths: [],
+    selected_paths: ['exact-delete.jpg'],
+  });
+  exactDeleteStore.versions.find(version => version.id === exactDeleteV2.id)!.manifest_path =
+    exactDeleteB.versions[0].manifest_path;
+  await assert.rejects(exactDeleteService.deleteVersion(exactDeleteV2.id), DatasetPresetStorageError);
+  assert.equal(exactDeleteSnapshots.quarantines, 0, 'foreign valid manifest path must reject before quarantine');
+
+  for (const [label, mutate] of [
+    ['checksum', (row: DatasetPresetVersionRow) => (row.manifest_sha256 = 'e'.repeat(64))],
+    [
+      'loader',
+      (row: DatasetPresetVersionRow) => (row.loader_config = JSON.stringify({ ...loaderConfig, num_repeats: 9 })),
+    ],
+    ['count', (row: DatasetPresetVersionRow) => (row.media_count += 1)],
+    ['bytes', (row: DatasetPresetVersionRow) => (row.total_bytes += BigInt(1))],
+  ] as const) {
+    const checkedStore = new MemoryStore();
+    const checkedSnapshots = new FakeSnapshots();
+    const checkedService = createDatasetPresetService({
+      store: checkedStore,
+      snapshots: checkedSnapshots,
+      datasetsRoot: '/datasets',
+    });
+    const checkedPreset = await checkedService.createPreset({ ...publishInput, name: `Checked delete ${label}` });
+    const checkedV2 = await checkedService.publishVersion(checkedPreset.id, {
+      ...publishInput,
+      base_version_id: checkedPreset.versions[0].id,
+      retained_paths: [],
+      selected_paths: [`${label}.jpg`],
+    });
+    mutate(checkedStore.versions.find(version => version.id === checkedV2.id)!);
+    await assert.rejects(checkedService.deleteVersion(checkedV2.id), DatasetPresetStorageError);
+    assert.equal(checkedSnapshots.quarantines, 0, `${label} mismatch must reject before quarantine`);
+  }
+
+  for (const [label, mutate] of [
+    [
+      'path',
+      (row: DatasetPresetVersionRow, other: DatasetPresetVersionRow) => (row.manifest_path = other.manifest_path),
+    ],
+    ['checksum', (row: DatasetPresetVersionRow) => (row.manifest_sha256 = 'd'.repeat(64))],
+    [
+      'loader',
+      (row: DatasetPresetVersionRow) => (row.loader_config = JSON.stringify({ ...loaderConfig, num_repeats: 7 })),
+    ],
+    ['count', (row: DatasetPresetVersionRow) => (row.media_count += 1)],
+    ['bytes', (row: DatasetPresetVersionRow) => (row.total_bytes += BigInt(1))],
+  ] as const) {
+    const baseStore = new MemoryStore();
+    const baseSnapshots = new FakeSnapshots();
+    const baseService = createDatasetPresetService({
+      store: baseStore,
+      snapshots: baseSnapshots,
+      datasetsRoot: '/datasets',
+    });
+    const basePreset = await baseService.createPreset({ ...publishInput, name: `Base ${label}` });
+    const otherPreset = await baseService.createPreset({ ...publishInput, name: `Other ${label}` });
+    const baseRow = baseStore.versions.find(version => version.id === basePreset.versions[0].id)!;
+    const otherRow = baseStore.versions.find(version => version.id === otherPreset.versions[0].id)!;
+    mutate(baseRow, otherRow);
+    const stagesBefore = baseSnapshots.stageInputs.length;
+    await assert.rejects(
+      baseService.publishVersion(basePreset.id, {
+        ...publishInput,
+        base_version_id: basePreset.versions[0].id,
+        retained_paths: ['a.jpg'],
+        selected_paths: ['new.jpg'],
+      }),
+      DatasetPresetStorageError,
+    );
+    assert.equal(baseSnapshots.stageInputs.length, stagesBefore, `${label} base mismatch must block staging`);
+  }
+
+  const bulkStore = new MemoryStore();
+  const bulkSnapshots = new FakeSnapshots();
+  const bulkService = createDatasetPresetService({
+    store: bulkStore,
+    snapshots: bulkSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  await bulkService.createPreset({ ...publishInput, name: 'Bulk B' });
+  await bulkService.createPreset({ ...publishInput, name: 'Bulk A' });
+  bulkStore.listActiveWithVersionsCalls = 0;
+  bulkStore.listVersionsCalls = 0;
+  assert.deepEqual(
+    (await bulkService.listActive()).map(summary => summary.name),
+    ['Bulk A', 'Bulk B'],
+  );
+  assert.equal(bulkStore.listActiveWithVersionsCalls, 1, 'active listing must use one bulk store call');
+  assert.equal(bulkStore.listVersionsCalls, 0, 'active listing must not query versions once per preset');
 
   console.log('Dataset preset service tests passed');
 }

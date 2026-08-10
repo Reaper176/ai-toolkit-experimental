@@ -62,13 +62,14 @@ model TrainingPreset {
 }
 
 model DatasetPreset {
-  id          String                 @id @default(uuid())
-  name        String
-  name_key    String                 @unique
-  archived_at DateTime?
-  created_at  DateTime               @default(now())
-  updated_at  DateTime               @updatedAt
-  versions    DatasetPresetVersion[]
+  id           String                 @id @default(uuid())
+  name         String
+  name_key     String                 @unique
+  next_version Int                    @default(1)
+  archived_at  DateTime?
+  created_at   DateTime               @default(now())
+  updated_at   DateTime               @updatedAt
+  versions     DatasetPresetVersion[]
 
   @@index([name])
 }

@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSyn
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import type { PrismaClient as RepositoryPrismaClient } from '@prisma/client';
 import {
   buildDatasetPresetManifest,
   manifestSha256,
@@ -14,7 +15,7 @@ import {
   DatasetPresetStoreError,
   createDatasetPresetService,
 } from '../src/server/datasetPresetService';
-import { createDatasetPresetPrismaStore } from '../src/server/datasetPresetPrismaStore';
+import { createDatasetPresetPrismaStore, type DatasetPresetPrismaClient } from '../src/server/datasetPresetPrismaStore';
 import type {
   DatasetPresetSnapshotStore,
   SnapshotQuarantine,
@@ -24,6 +25,8 @@ import type {
 
 const TEMP_PREFIX = 'ai-toolkit-dataset-preset-db-';
 const uiRoot = resolve(process.cwd());
+type GeneratedClientHarness = DatasetPresetPrismaClient &
+  Pick<RepositoryPrismaClient, 'job'> & { $disconnect(): Promise<void> };
 
 function assertSafe(directory: string): void {
   const realTemp = realpathSync(tmpdir());
@@ -144,7 +147,8 @@ class FakeSnapshots implements DatasetPresetSnapshotStore {
 
 async function main(): Promise<void> {
   const directory = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
-  let client: any;
+  let client: GeneratedClientHarness | undefined;
+  let secondClient: GeneratedClientHarness | undefined;
   try {
     assertSafe(directory);
     writeFileSync(join(directory, 'package.json'), '{"private":true}', 'utf8');
@@ -168,10 +172,12 @@ async function main(): Promise<void> {
     writeFileSync(schemaPath, temporarySchema, 'utf8');
     runPrisma(['generate', '--schema', schemaPath]);
     runPrisma(['db', 'push', '--schema', schemaPath, '--skip-generate']);
-    const { PrismaClient } = require(clientOutput) as { PrismaClient: new () => any };
-    client = new PrismaClient();
+    const { PrismaClient: GeneratedPrismaClient } = require(clientOutput) as { PrismaClient: new () => unknown };
+    client = new GeneratedPrismaClient() as GeneratedClientHarness;
+    secondClient = new GeneratedPrismaClient() as GeneratedClientHarness;
 
     const store = createDatasetPresetPrismaStore(client);
+    const secondStore = createDatasetPresetPrismaStore(secondClient);
     const snapshots = new FakeSnapshots();
     const service = createDatasetPresetService({ store, snapshots, datasetsRoot: directory });
     const input = {
@@ -195,9 +201,99 @@ async function main(): Promise<void> {
       (await service.getPreset(v1Preset.id)).versions.map(version => version.version),
       [1, 2],
     );
+    assert.equal((await client.datasetPreset.findUnique({ where: { id: v1Preset.id } }))?.next_version, 3);
+
+    await client.datasetPreset.update({ where: { id: v1Preset.id }, data: { next_version: 1 } });
+    assert.equal(
+      await store.reserveNextVersion(v1Preset.id),
+      3,
+      'reservation must repair a counter introduced below existing versions during db push',
+    );
+    assert.equal((await client.datasetPreset.findUnique({ where: { id: v1Preset.id } }))?.next_version, 4);
+
+    const reservationPreset = await store.createPreset({ name: 'Reservation', name_key: 'reservation' });
+    const reservations = await Promise.all([
+      store.reserveNextVersion(reservationPreset.id),
+      secondStore.reserveNextVersion(reservationPreset.id),
+    ]);
+    assert.deepEqual(
+      reservations.sort((left, right) => left - right),
+      [1, 2],
+    );
+    assert.equal((await client.datasetPreset.findUnique({ where: { id: reservationPreset.id } }))?.next_version, 3);
+
+    const archivedInsertPreset = await store.createPreset({ name: 'Archived insert', name_key: 'archived insert' });
+    const archivedReservedVersion = await store.reserveNextVersion(archivedInsertPreset.id);
+    await store.setArchived(archivedInsertPreset.id, new Date('2026-04-01T00:00:00.000Z'));
+    await assert.rejects(
+      store.reserveNextVersion(archivedInsertPreset.id),
+      error => error instanceof DatasetPresetStoreError && error.code === 'archived',
+    );
+    await assert.rejects(
+      store.insertReservedVersionIfActive({
+        preset_id: archivedInsertPreset.id,
+        version: archivedReservedVersion,
+        source_dataset: 'photos',
+        manifest_path: 'archived',
+        manifest_sha256: 'a'.repeat(64),
+        loader_config: JSON.stringify(loaderConfig),
+        note: null,
+        media_count: 1,
+        total_bytes: BigInt(1),
+      }),
+      error => error instanceof DatasetPresetStoreError && error.code === 'archived',
+    );
+
+    const highWaterPreset = await service.createPreset({ ...input, name: 'High water' });
+    const highWaterV2 = await service.publishVersion(highWaterPreset.id, {
+      ...input,
+      base_version_id: highWaterPreset.versions[0].id,
+      retained_paths: [],
+      selected_paths: ['high-water-v2.jpg'],
+    });
+    await service.deleteVersion(highWaterV2.id);
+    const highWaterV3 = await service.publishVersion(highWaterPreset.id, {
+      ...input,
+      base_version_id: highWaterPreset.versions[0].id,
+      retained_paths: [],
+      selected_paths: ['high-water-v3.jpg'],
+    });
+    assert.equal(highWaterV3.version, 3);
+    assert.equal((await client.datasetPreset.findUnique({ where: { id: highWaterPreset.id } }))?.next_version, 4);
+
+    const deleteRacePreset = await store.createPreset({ name: 'Delete transaction', name_key: 'delete transaction' });
+    const deleteRaceVersionIds: string[] = [];
+    for (const adapter of [store, secondStore]) {
+      const version = await adapter.reserveNextVersion(deleteRacePreset.id);
+      const inserted = await adapter.insertReservedVersionIfActive({
+        preset_id: deleteRacePreset.id,
+        version,
+        source_dataset: 'photos',
+        manifest_path: `delete-transaction-${version}`,
+        manifest_sha256: String(version).repeat(64),
+        loader_config: JSON.stringify(loaderConfig),
+        note: null,
+        media_count: 1,
+        total_bytes: BigInt(version),
+      });
+      deleteRaceVersionIds.push(inserted.id);
+    }
+    const deleteRaceResults = await Promise.allSettled([
+      store.deleteVersionIfNotLast(deleteRaceVersionIds[0], deleteRacePreset.id),
+      secondStore.deleteVersionIfNotLast(deleteRaceVersionIds[1], deleteRacePreset.id),
+    ]);
+    assert.equal(deleteRaceResults.filter(result => result.status === 'fulfilled').length, 1);
+    assert.equal(deleteRaceResults.filter(result => result.status === 'rejected').length, 1);
+    const deleteRaceFailure = deleteRaceResults.find(result => result.status === 'rejected');
+    assert(
+      deleteRaceFailure?.status === 'rejected' &&
+        deleteRaceFailure.reason instanceof DatasetPresetStoreError &&
+        deleteRaceFailure.reason.code === 'last_version',
+    );
+    assert.equal(await store.countVersions(deleteRacePreset.id), 1, 'transactional deletes must retain one version');
 
     await assert.rejects(
-      store.insertVersion({
+      store.insertReservedVersionIfActive({
         preset_id: v1Preset.id,
         version: 2,
         source_dataset: 'photos',
@@ -206,13 +302,13 @@ async function main(): Promise<void> {
         loader_config: JSON.stringify(loaderConfig),
         note: null,
         media_count: 1,
-        total_bytes: 1n,
+        total_bytes: BigInt(1),
       }),
       error => error instanceof DatasetPresetStoreError && error.code === 'version_conflict',
     );
 
-    const huge = 9007199254740993000n;
-    await store.insertVersion({
+    const huge = BigInt('9007199254740993000');
+    await store.insertReservedVersionIfActive({
       preset_id: v1Preset.id,
       version: 3,
       source_dataset: 'photos',
@@ -231,7 +327,7 @@ async function main(): Promise<void> {
       store.updateName(stalePreset.id, 'Gone', 'gone'),
       error => error instanceof DatasetPresetStoreError && error.code === 'not_found',
     );
-    const staleVersion = await store.insertVersion({
+    const staleVersion = await store.insertReservedVersionIfActive({
       preset_id: v1Preset.id,
       version: 4,
       source_dataset: 'photos',
@@ -240,11 +336,11 @@ async function main(): Promise<void> {
       loader_config: JSON.stringify(loaderConfig),
       note: null,
       media_count: 1,
-      total_bytes: 1n,
+      total_bytes: BigInt(1),
     });
     await client.datasetPresetVersion.delete({ where: { id: staleVersion.id } });
     await assert.rejects(
-      store.deleteVersion(staleVersion.id),
+      store.deleteVersionIfNotLast(staleVersion.id, v1Preset.id),
       error => error instanceof DatasetPresetStoreError && error.code === 'not_found',
     );
 
@@ -263,7 +359,7 @@ async function main(): Promise<void> {
       },
     });
     await assert.rejects(
-      store.deleteVersion(v2.id),
+      store.deleteVersionIfNotLast(v2.id, v1Preset.id),
       error => error instanceof DatasetPresetStoreError && error.code === 'referenced',
     );
     assert.notEqual(await store.getVersion(v2.id), null, 'a restricted direct delete must retain the version row');
@@ -307,6 +403,7 @@ async function main(): Promise<void> {
     console.log('Dataset preset Prisma integration tests passed');
   } finally {
     try {
+      await secondClient?.$disconnect();
       await client?.$disconnect();
     } finally {
       if (existsSync(directory)) {
