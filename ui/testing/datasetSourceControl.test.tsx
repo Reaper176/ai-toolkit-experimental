@@ -482,6 +482,108 @@ async function runPresetIdentitySwitchBehavior(): Promise<void> {
   await act(async () => renderer.unmount());
 }
 
+async function runInstanceIdentitySafetyBehavior(): Promise<void> {
+  const pendingReplacementVersion = deferred<Response>();
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === '/api/dataset-presets') return response({ presets: [activePreset] });
+    if (url === '/api/dataset-presets/preset-1') return response({ ...activePreset, versions });
+    if (url === '/api/dataset-preset-versions/version-2') return pendingReplacementVersion.promise;
+    throw new Error(`Unexpected URL ${url}`);
+  }) as typeof fetch;
+  const sharedSource: DatasetConfig = {
+    ...initialDataset,
+    folder_path: '',
+    dataset_preset: {
+      version_id: 'version-1', preset_id: 'preset-1', preset_name: 'Faces', version: 1,
+      manifest_sha256: 'a'.repeat(64),
+    },
+  };
+  let replacementChanges = 0;
+  let renderer!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    renderer = TestRenderer.create(
+      <DatasetSourceControl
+        dataset={{ ...sharedSource, mask_min_value: 0.1 }}
+        liveOptions={[]}
+        instanceToken="block-a"
+        onChange={() => { replacementChanges += 1; }}
+      />,
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    void select(renderer.root, 'Preset version').props.onChange('version-2');
+    await Promise.resolve();
+  });
+  await act(async () => {
+    renderer.update(
+      <DatasetSourceControl
+        dataset={{ ...sharedSource, mask_min_value: 0.9 }}
+        liveOptions={[]}
+        instanceToken="block-b"
+        onChange={() => { replacementChanges += 1; }}
+      />,
+    );
+  });
+  await act(async () => {
+    pendingReplacementVersion.resolve(response({ ...versions[1], manifest: {} }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(replacementChanges, 0, 'same-source whole-instance replacement cancels stale version work');
+  assert.equal(select(renderer.root, 'Preset version').props.value, 'version-1');
+  await act(async () => renderer.unmount());
+
+  const removedBlockVersion = deferred<Response>();
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === '/api/dataset-presets') return response({ presets: [activePreset] });
+    if (url === '/api/dataset-presets/preset-1') return response({ ...activePreset, versions });
+    if (url === '/api/dataset-preset-versions/version-2') return removedBlockVersion.promise;
+    throw new Error(`Unexpected URL ${url}`);
+  }) as typeof fetch;
+  const secondDataset = { ...sharedSource, mask_min_value: 0.8 };
+  let secondChanges = 0;
+  let removeFirst!: () => void;
+  function BlocksHarness() {
+    const [blocks, setBlocks] = useState([
+      { id: 'first', dataset: { ...sharedSource, mask_min_value: 0.2 } },
+      { id: 'second', dataset: secondDataset },
+    ]);
+    removeFirst = () => setBlocks(previous => previous.slice(1));
+    return <>{blocks.map(block => (
+      <DatasetSourceControl
+        key={block.id}
+        instanceToken={block.id}
+        dataset={block.dataset}
+        liveOptions={[]}
+        onChange={() => { if (block.id === 'second') secondChanges += 1; }}
+      />
+    ))}</>;
+  }
+  await act(async () => {
+    renderer = TestRenderer.create(<BlocksHarness />);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const firstControl = renderer.root.findAllByType(DatasetSourceControl)[0];
+  await act(async () => {
+    void select(firstControl, 'Preset version').props.onChange('version-2');
+    await Promise.resolve();
+  });
+  await act(async () => removeFirst());
+  assert.equal(renderer.root.findAllByType(DatasetSourceControl)[0].props.instanceToken, 'second');
+  await act(async () => {
+    removedBlockVersion.resolve(response({ ...versions[1], manifest: {} }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(secondChanges, 0, 'removed identical-source block response cannot mutate the shifted block');
+  await act(async () => renderer.unmount());
+}
+
 async function runSharedListBehavior(): Promise<void> {
   const listResponse = deferred<Response>();
   let fetchCount = 0;
@@ -555,6 +657,7 @@ async function main(): Promise<void> {
   await runPendingVersionSafetyBehavior();
   await runExternalReplacementSafetyBehavior();
   await runPresetIdentitySwitchBehavior();
+  await runInstanceIdentitySafetyBehavior();
   await runSharedListBehavior();
   await runCloneHydrationBehavior();
   console.error = originalError;

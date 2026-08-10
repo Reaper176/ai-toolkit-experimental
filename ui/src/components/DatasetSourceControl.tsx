@@ -14,6 +14,7 @@ export interface DatasetSourceControlProps {
   dataset: DatasetConfig;
   liveOptions: Array<{ value: string; label: string }>;
   onChange(next: DatasetConfig): void;
+  instanceToken?: string | number;
 }
 
 function applyPresetVersion(
@@ -45,7 +46,7 @@ function datasetSourceSignature(dataset: DatasetConfig): string {
     : `live:${typeof dataset.folder_path === 'string' ? dataset.folder_path : ''}`;
 }
 
-export default function DatasetSourceControl({ dataset, liveOptions, onChange }: DatasetSourceControlProps) {
+export default function DatasetSourceControl({ dataset, liveOptions, onChange, instanceToken }: DatasetSourceControlProps) {
   const { presets, status, error, refresh, loadPreset, loadVersion } = useDatasetPresets();
   const [mode, setMode] = useState<'live' | 'preset'>(() => (dataset.dataset_preset ? 'preset' : 'live'));
   const [selectedPresetId, setSelectedPresetId] = useState(dataset.dataset_preset?.preset_id ?? '');
@@ -60,6 +61,7 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange }:
   const sourceSignature = datasetSourceSignature(dataset);
   const previousSourceSignatureRef = useRef(sourceSignature);
   const emittedSourceSignatureRef = useRef<string | null>(null);
+  const previousInstanceTokenRef = useRef(instanceToken);
 
   const emitChange = (next: DatasetConfig) => {
     emittedSourceSignatureRef.current = datasetSourceSignature(next);
@@ -77,6 +79,26 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange }:
     },
     [],
   );
+
+  useLayoutEffect(() => {
+    if (instanceToken === previousInstanceTokenRef.current) return;
+    previousInstanceTokenRef.current = instanceToken;
+    previousSourceSignatureRef.current = sourceSignature;
+    emittedSourceSignatureRef.current = null;
+    presetRequests.current.cancelCurrent();
+    versionRequests.current.cancelCurrent();
+    setLoadingDetail(false);
+    setLoadingVersion(false);
+    setDetail(null);
+    setLocalError(null);
+    if (dataset.dataset_preset) {
+      setMode('preset');
+      setSelectedPresetId(dataset.dataset_preset.preset_id);
+    } else {
+      setMode('live');
+      setSelectedPresetId('');
+    }
+  }, [dataset.dataset_preset, instanceToken, sourceSignature]);
 
   useLayoutEffect(() => {
     if (sourceSignature === previousSourceSignatureRef.current) return;

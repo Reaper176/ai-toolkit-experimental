@@ -405,7 +405,11 @@ export default function TrainingForm() {
       )}
 
       {showAdvancedView ? (
-        <div className={`pt-[48px] absolute top-0 left-0 w-full h-full overflow-auto ${!presetReady ? 'pointer-events-none opacity-50' : ''}`}>
+        <div
+          className={`pt-[48px] absolute top-0 left-0 w-full h-full overflow-auto ${!presetReady ? 'pointer-events-none opacity-50' : ''}`}
+          inert={!presetReady ? true : undefined}
+          aria-busy={!presetReady}
+        >
           <AdvancedConfigEditor
             config={jobConfig}
             setConfig={setJobConfig}
@@ -441,6 +445,7 @@ export default function TrainingForm() {
               setGpuIDs={setGpuIDs}
               gpuList={gpuList}
               datasetOptions={datasetOptions}
+              datasetInstanceToken={`${presetSourceKey}:${presetSessionGeneration}`}
               isLoading={!presetReady || !isSettingsLoaded || !isGPUInfoLoaded || datasetFetchStatus !== 'success'}
             />
           </ErrorBoundary>

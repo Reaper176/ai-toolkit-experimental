@@ -19,6 +19,9 @@ assert.match(
 assert.match(runnerSource, /datasetPresetDialog\.test\.js/, 'dialog test must be required by the runner');
 assert.match(runnerSource, /datasetSourceControl\.test\.js/, 'training source-control test must be required by the runner');
 assert.match(simpleJobSource, /<DatasetSourceControl\b/, 'dataset blocks render the shared source control');
+assert.match(simpleJobSource, /key=\{datasetBlockIds\[i\]\}/, 'dataset source controls use stable UI-only block keys');
+assert.match(simpleJobSource, /instanceToken=\{datasetBlockIds\[i\]\}/, 'dataset source controls receive their stable instance token');
+assert.doesNotMatch(simpleJobSource, /dataset_preset_ui_id/, 'UI block identities are never persisted in DatasetConfig');
 assert.doesNotMatch(
   simpleJobSource,
   /<SelectInput\s+label=["']Target Dataset["']/,
@@ -38,6 +41,9 @@ assert.match(
   'topbar save control is disabled before hydration',
 );
 assert.match(jobPageSource, /isLoading=\{[^}]*!presetReady[^}]*\}/, 'simple form is noninteractive before hydration');
+assert.match(simpleJobSource, /inert=\{isLoading\s*\?\s*true\s*:\s*undefined\}/, 'blocked simple form is removed from keyboard interaction');
+assert.match(simpleJobSource, /aria-busy=\{isLoading\}/, 'blocked simple form exposes semantic busy state');
+assert.match(jobPageSource, /inert=\{!presetReady\s*\?\s*true\s*:\s*undefined\}/, 'advanced editor is inert during hydration');
 assert.ok(
   jobPageSource.indexOf('loadedJobConfig = await removeArchivedPresetSourcesFromClone') <
     jobPageSource.indexOf("dispatchPresetPage({ type: 'external-load-succeeded'"),
