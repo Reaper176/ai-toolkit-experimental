@@ -48,6 +48,8 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange }:
   const [localError, setLocalError] = useState<string | null>(null);
   const presetRequests = useRef(createLatestDatasetPresetRequestGate());
   const versionRequests = useRef(createLatestDatasetPresetRequestGate());
+  const latestDatasetRef = useRef(dataset);
+  latestDatasetRef.current = dataset;
 
   useEffect(() => {
     void refresh().catch(() => undefined);
@@ -129,7 +131,7 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange }:
       const version = await loadVersion(versionId);
       if (!request.isCurrent()) return;
       if (version.preset_id !== detail.id) throw new Error('Dataset preset version does not belong to this preset');
-      onChange(applyPresetVersion(dataset, detail, version));
+      onChange(applyPresetVersion(latestDatasetRef.current, detail, version));
     } catch (cause) {
       if (!request.isCurrent()) return;
       setLocalError(cause instanceof Error ? cause.message : 'Unable to load dataset preset version');

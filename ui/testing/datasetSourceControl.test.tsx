@@ -5,6 +5,11 @@ import DatasetSourceControl from '../src/components/DatasetSourceControl';
 import { SelectInput } from '../src/components/formInputs';
 import type { DatasetConfig } from '../src/types';
 import type { DatasetPresetLoaderConfig } from '../src/helpers/datasetPresetValidation';
+import {
+  hasMissingDatasetSource,
+  removeArchivedPresetSourcesFromClone,
+} from '../src/helpers/jobDatasetPresetClient';
+import type { JobConfig } from '../src/types';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const originalError = console.error;
@@ -92,6 +97,16 @@ function response(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 function textOf(node: ReactTestInstance): string {
   return node.children.map(child => (typeof child === 'string' ? child : textOf(child))).join('');
 }
@@ -120,7 +135,7 @@ async function runActivePresetBehavior(): Promise<void> {
     throw new Error(`Unexpected URL ${url}`);
   }) as typeof fetch;
 
-  let current = initialDataset;
+  let current: DatasetConfig = initialDataset;
   let editDataset!: (change: Partial<DatasetConfig>) => void;
   function Harness() {
     const [dataset, setDataset] = useState(initialDataset);
@@ -233,9 +248,143 @@ async function runArchivedBehavior(): Promise<void> {
   await act(async () => renderer.unmount());
 }
 
+async function runPendingVersionSafetyBehavior(): Promise<void> {
+  const versionOneResponse = deferred<Response>();
+  const versionTwoResponse = deferred<Response>();
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === '/api/dataset-presets') return response({ presets: [activePreset] });
+    if (url === '/api/dataset-presets/preset-1') return response({ ...activePreset, versions });
+    if (url === '/api/dataset-preset-versions/version-1') return versionOneResponse.promise;
+    if (url === '/api/dataset-preset-versions/version-2') return versionTwoResponse.promise;
+    throw new Error(`Unexpected URL ${url}`);
+  }) as typeof fetch;
+
+  let current: DatasetConfig = initialDataset;
+  let editDataset!: (change: Partial<DatasetConfig>) => void;
+  function Harness() {
+    const [dataset, setDataset] = useState(initialDataset);
+    current = dataset;
+    editDataset = change => setDataset(previous => ({ ...previous, ...change }));
+    return <DatasetSourceControl dataset={dataset} liveOptions={[]} onChange={setDataset} />;
+  }
+  let renderer!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    renderer = TestRenderer.create(<Harness />);
+    await Promise.resolve();
+  });
+  await act(async () => {
+    button(renderer.root, 'Saved preset').props.onClick();
+  });
+  await act(async () => {
+    await select(renderer.root, 'Dataset preset').props.onChange('preset-1');
+  });
+  await act(async () => {
+    void select(renderer.root, 'Preset version').props.onChange('version-1');
+    await Promise.resolve();
+  });
+  await act(async () => {
+    editDataset({
+      mask_path: '/masks/edited-while-pending',
+      control_path: '/controls/edited-while-pending',
+      default_caption: 'allowlisted edit while pending',
+    });
+  });
+  await act(async () => {
+    void select(renderer.root, 'Preset version').props.onChange('version-2');
+    await Promise.resolve();
+  });
+  await act(async () => {
+    versionOneResponse.resolve(response({ ...versions[0], manifest: {} }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(current.dataset_preset, undefined, 'a stale version response cannot update the dataset');
+  assert.equal(current.mask_path, '/masks/edited-while-pending');
+  await act(async () => {
+    versionTwoResponse.resolve(response({ ...versions[1], manifest: {} }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal((current as DatasetConfig).dataset_preset?.version_id, 'version-2', 'the latest explicit version wins');
+  assert.equal(current.mask_path, '/masks/edited-while-pending', 'latest architecture edits survive async resolution');
+  assert.equal(current.control_path, '/controls/edited-while-pending', 'non-loader fields are merged from latest state');
+  assert.equal(
+    current.default_caption,
+    loaderTwo.default_caption,
+    'the selected version intentionally replaces allowlisted loader edits',
+  );
+  await act(async () => renderer.unmount());
+
+  const unmountVersionResponse = deferred<Response>();
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === '/api/dataset-presets') return response({ presets: [activePreset] });
+    if (url === '/api/dataset-presets/preset-1') return response({ ...activePreset, versions });
+    if (url === '/api/dataset-preset-versions/version-1') return unmountVersionResponse.promise;
+    throw new Error(`Unexpected URL ${url}`);
+  }) as typeof fetch;
+  let changes = 0;
+  await act(async () => {
+    renderer = TestRenderer.create(
+      <DatasetSourceControl dataset={initialDataset} liveOptions={[]} onChange={() => { changes += 1; }} />,
+    );
+    await Promise.resolve();
+  });
+  await act(async () => {
+    button(renderer.root, 'Saved preset').props.onClick();
+  });
+  await act(async () => {
+    await select(renderer.root, 'Dataset preset').props.onChange('preset-1');
+  });
+  await act(async () => {
+    void select(renderer.root, 'Preset version').props.onChange('version-1');
+    await Promise.resolve();
+    renderer.unmount();
+  });
+  await act(async () => {
+    unmountVersionResponse.resolve(response({ ...versions[0], manifest: {} }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(changes, 0, 'a version response after unmount cannot call onChange');
+}
+
+async function runCloneHydrationBehavior(): Promise<void> {
+  const baseJob = {
+    config: { process: [{ datasets: [
+      { ...initialDataset, dataset_preset: { version_id: 'v-active', preset_id: 'active', preset_name: 'Active', version: 1, manifest_sha256: 'a'.repeat(64) } },
+      { ...initialDataset, folder_path: '/managed/archived', dataset_preset: { version_id: 'v-old', preset_id: 'archived', preset_name: 'Archived', version: 2, manifest_sha256: 'b'.repeat(64) } },
+    ] }] },
+  } as unknown as JobConfig;
+  const result = await removeArchivedPresetSourcesFromClone(baseJob, async (presetId: string) => ({
+    id: presetId,
+    archived_at: presetId === 'archived' ? '2026-08-03T00:00:00.000Z' : null,
+  }));
+  assert.equal(result.config.process[0].datasets[0].dataset_preset?.preset_id, 'active', 'active clone reference remains');
+  assert.equal(result.config.process[0].datasets[0].folder_path, '/datasets/live');
+  assert.equal(result.config.process[0].datasets[1].dataset_preset, undefined, 'archived clone metadata is cleared');
+  assert.equal(result.config.process[0].datasets[1].folder_path, '', 'archived clone cannot reuse its managed path');
+  assert.equal(hasMissingDatasetSource(result), true, 'cleared archived source blocks saving');
+  result.config.process[0].datasets[1].folder_path = '/datasets/replacement';
+  assert.equal(hasMissingDatasetSource(result), false, 'choosing a live replacement permits saving');
+  result.config.process[0].datasets[1].folder_path = '';
+  result.config.process[0].datasets[1].dataset_preset = {
+    version_id: 'v-new', preset_id: 'active', preset_name: 'Active', version: 1, manifest_sha256: 'c'.repeat(64),
+  };
+  assert.equal(hasMissingDatasetSource(result), false, 'choosing an active preset permits saving');
+  await assert.rejects(
+    removeArchivedPresetSourcesFromClone(baseJob, async () => { throw new Error('availability check failed'); }),
+    /availability check failed/,
+    'clone hydration rejects when availability cannot be established',
+  );
+}
+
 async function main(): Promise<void> {
   await runActivePresetBehavior();
   await runArchivedBehavior();
+  await runPendingVersionSafetyBehavior();
+  await runCloneHydrationBehavior();
   console.error = originalError;
   console.log('dataset source control behavior tests passed');
 }

@@ -30,8 +30,7 @@ assert.match(
   'source changes replace the same dataset object edited by all loader controls',
 );
 assert.match(jobPageSource, /removeArchivedPresetSourcesFromClone/, 'clone hydration checks stored preset availability');
-assert.match(jobPageSource, /archived_at\s*!==\s*null/, 'archived presets are unavailable to cloned jobs');
-assert.match(jobPageSource, /dataset_preset/, 'job hydration preserves stored preset metadata');
+assert.match(jobPageSource, /hasMissingDatasetSource\(jobConfig\)/, 'job saving validates every dataset source');
 assert.match(pageSource, /relative_path:\s*string/, 'entries retain a normalized relative path');
 assert.match(pageSource, /normalizeRelativeMediaPath\(subPath\)/, 'server response paths are normalized before use');
 assert.match(

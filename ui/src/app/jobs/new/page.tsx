@@ -24,30 +24,9 @@ import { apiClient } from '@/utils/api';
 import { isMac } from '@/helpers/basic';
 import { createTrainingPresetPageState, trainingPresetPageReducer } from './trainingPresetPageState';
 import type { DatasetPresetDetail } from '@/hooks/useDatasetPresets';
+import { hasMissingDatasetSource, removeArchivedPresetSourcesFromClone } from '@/helpers/jobDatasetPresetClient';
 
 const isDev = process.env.NODE_ENV === 'development';
-
-async function removeArchivedPresetSourcesFromClone(jobConfig: JobConfig, signal: AbortSignal): Promise<JobConfig> {
-  const datasets = jobConfig.config.process[0].datasets;
-  const presetIds = [...new Set(datasets.flatMap(dataset => dataset.dataset_preset?.preset_id ?? []))];
-  if (presetIds.length === 0) return jobConfig;
-  const details = await Promise.all(
-    presetIds.map(async presetId => {
-      const response = await apiClient.get<DatasetPresetDetail>(`/api/dataset-presets/${encodeURIComponent(presetId)}`, {
-        signal,
-      });
-      return response.data;
-    }),
-  );
-  const archivedIds = new Set(details.filter(detail => detail.archived_at !== null).map(detail => detail.id));
-  if (archivedIds.size === 0) return jobConfig;
-  jobConfig.config.process[0].datasets = datasets.map(dataset => {
-    if (!dataset.dataset_preset || !archivedIds.has(dataset.dataset_preset.preset_id)) return dataset;
-    const { dataset_preset: _archivedPreset, ...liveDataset } = dataset;
-    return { ...liveDataset, folder_path: '' };
-  });
-  return jobConfig;
-}
 
 export default function TrainingForm() {
   const router = useRouter();
@@ -184,7 +163,15 @@ export default function TrainingForm() {
         console.log(cloneId ? 'Clone Training:' : 'Training:', data);
         setGpuIDs(data.gpu_ids);
         let loadedJobConfig = migrateJobConfig(JSON.parse(data.job_config));
-        if (cloneId) loadedJobConfig = await removeArchivedPresetSourcesFromClone(loadedJobConfig, controller.signal);
+        if (cloneId) {
+          loadedJobConfig = await removeArchivedPresetSourcesFromClone(loadedJobConfig, async presetId => {
+            const response = await apiClient.get<DatasetPresetDetail>(
+              `/api/dataset-presets/${encodeURIComponent(presetId)}`,
+              { signal: controller.signal },
+            );
+            return response.data;
+          });
+        }
         if (!active || controller.signal.aborted || replacementToken !== replacementTokenRef.current) return;
         if (cloneId) loadedJobConfig.config.name = `${loadedJobConfig.config.name}_copy`;
         setJobConfig(loadedJobConfig);
@@ -242,11 +229,7 @@ export default function TrainingForm() {
       alert('No trainable GPU was detected. Verify ROCm or NVIDIA GPU monitoring before creating a job.');
       return;
     }
-    if (
-      jobConfig.config.process[0].datasets.some(
-        dataset => !dataset.dataset_preset && (typeof dataset.folder_path !== 'string' || dataset.folder_path.trim() === ''),
-      )
-    ) {
+    if (hasMissingDatasetSource(jobConfig)) {
       alert('Choose a live folder or an active dataset preset for every dataset.');
       return;
     }
