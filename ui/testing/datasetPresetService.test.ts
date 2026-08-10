@@ -1,0 +1,507 @@
+import assert from 'node:assert/strict';
+import {
+  buildDatasetPresetManifest,
+  manifestSha256,
+  type DatasetPresetLoaderConfig,
+} from '../src/helpers/datasetPresets';
+import {
+  DatasetPresetConflictError,
+  DatasetPresetNotFoundError,
+  DatasetPresetReferencedError,
+  DatasetPresetStorageError,
+  DatasetPresetValidationError,
+  createDatasetPresetService,
+  type DatasetPresetCreateData,
+  type DatasetPresetRow,
+  type DatasetPresetStore,
+  type DatasetPresetVersionCreateData,
+  type DatasetPresetVersionRow,
+} from '../src/server/datasetPresetService';
+import type {
+  DatasetPresetSnapshotStore,
+  SnapshotQuarantine,
+  StageVersionInput,
+  StagedPublication,
+} from '../src/server/datasetPresetSnapshotService';
+
+const loaderConfig: DatasetPresetLoaderConfig = {
+  caption_ext: 'txt',
+  default_caption: '',
+  caption_dropout_rate: 0,
+  shuffle_tokens: false,
+  num_repeats: 1,
+  resolution: [512],
+  is_reg: false,
+  network_weight: 1,
+  cache_latents_to_disk: false,
+  flip_x: false,
+  flip_y: false,
+  num_frames: 1,
+  shrink_video_to_frames: true,
+  fps: 24,
+  auto_frame_count: false,
+  do_i2v: false,
+  do_audio: false,
+  audio_normalize: false,
+  audio_preserve_pitch: false,
+  controls: [],
+};
+
+function clone<T>(value: T): T {
+  return structuredClone(value);
+}
+
+class MemoryStore implements DatasetPresetStore {
+  presets: DatasetPresetRow[] = [];
+  versions: DatasetPresetVersionRow[] = [];
+  usages = new Map<string, number>();
+  insertFailures: unknown[] = [];
+  deleteVersionError: unknown;
+  listVersionsError: unknown;
+
+  async listActive(): Promise<DatasetPresetRow[]> {
+    return clone(this.presets.filter(row => row.archived_at === null));
+  }
+  async getPreset(id: string): Promise<DatasetPresetRow | null> {
+    return clone(this.presets.find(row => row.id === id) ?? null);
+  }
+  async findPresetByNameKey(nameKey: string): Promise<DatasetPresetRow | null> {
+    return clone(this.presets.find(row => row.name_key === nameKey) ?? null);
+  }
+  async createPreset(data: DatasetPresetCreateData): Promise<DatasetPresetRow> {
+    if (this.presets.some(row => row.name_key === data.name_key)) throw { code: 'name_conflict' };
+    const now = new Date(`2026-01-${String(this.presets.length + 1).padStart(2, '0')}T00:00:00.000Z`);
+    const row = {
+      id: `preset-${this.presets.length + 1}`,
+      ...data,
+      archived_at: null,
+      created_at: now,
+      updated_at: now,
+    };
+    this.presets.push(clone(row));
+    return clone(row);
+  }
+  async deleteEmptyPreset(id: string): Promise<void> {
+    if (this.versions.some(version => version.preset_id === id)) return;
+    this.presets = this.presets.filter(row => row.id !== id);
+  }
+  async listVersions(presetId: string): Promise<DatasetPresetVersionRow[]> {
+    if (this.listVersionsError !== undefined) throw this.listVersionsError;
+    return clone(this.versions.filter(row => row.preset_id === presetId).sort((a, b) => a.version - b.version));
+  }
+  async getLatestVersion(presetId: string): Promise<DatasetPresetVersionRow | null> {
+    return clone(
+      this.versions.filter(row => row.preset_id === presetId).sort((a, b) => b.version - a.version)[0] ?? null,
+    );
+  }
+  async insertVersion(data: DatasetPresetVersionCreateData): Promise<DatasetPresetVersionRow> {
+    const failure = this.insertFailures.shift();
+    if (failure !== undefined) throw failure;
+    if (this.versions.some(row => row.preset_id === data.preset_id && row.version === data.version)) {
+      throw { code: 'version_conflict' };
+    }
+    const row = {
+      id: `version-${this.versions.length + 1}`,
+      ...data,
+      created_at: new Date('2026-02-01T00:00:00.000Z'),
+    };
+    this.versions.push(clone(row));
+    return clone(row);
+  }
+  async updateName(id: string, name: string, nameKey: string): Promise<DatasetPresetRow> {
+    if (this.presets.some(row => row.id !== id && row.name_key === nameKey)) throw { code: 'name_conflict' };
+    const row = this.presets.find(candidate => candidate.id === id);
+    if (!row) throw { code: 'not_found' };
+    row.name = name;
+    row.name_key = nameKey;
+    row.updated_at = new Date('2026-03-01T00:00:00.000Z');
+    return clone(row);
+  }
+  async setArchived(id: string, archivedAt: Date | null): Promise<DatasetPresetRow> {
+    const row = this.presets.find(candidate => candidate.id === id);
+    if (!row) throw { code: 'not_found' };
+    row.archived_at = archivedAt;
+    row.updated_at = new Date('2026-03-02T00:00:00.000Z');
+    return clone(row);
+  }
+  async getVersion(id: string): Promise<DatasetPresetVersionRow | null> {
+    return clone(this.versions.find(row => row.id === id) ?? null);
+  }
+  async countVersionUsages(id: string): Promise<number> {
+    return this.usages.get(id) ?? 0;
+  }
+  async deleteVersion(id: string): Promise<void> {
+    if (this.deleteVersionError !== undefined) throw this.deleteVersionError;
+    const index = this.versions.findIndex(row => row.id === id);
+    if (index < 0) throw { code: 'not_found' };
+    this.versions.splice(index, 1);
+  }
+}
+
+class FakeSnapshots implements DatasetPresetSnapshotStore {
+  stageInputs: StageVersionInput[] = [];
+  manifests = new Map<string, ReturnType<typeof buildDatasetPresetManifest>>();
+  rollbacks = 0;
+  quarantines = 0;
+  restores = 0;
+  removes = 0;
+  fastChecks = 0;
+  fullChecks = 0;
+  stageError: unknown;
+  removeError: unknown;
+  rollbackError: unknown;
+  restoreError: unknown;
+  publishErrors: unknown[] = [];
+
+  async stageVersion(input: StageVersionInput): Promise<StagedPublication> {
+    if (this.stageError !== undefined) throw this.stageError;
+    this.stageInputs.push(clone(input));
+    const manifest = buildDatasetPresetManifest({
+      preset_id: input.presetId,
+      version: input.version,
+      preset_name: input.presetName,
+      source_dataset: input.sourceDataset,
+      created_at: '2026-02-01T00:00:00.000Z',
+      note: input.note,
+      loader_config: input.loaderConfig,
+      files: [...input.selectedPaths, ...(input.retainedPaths ?? [])].map((path, index) => ({
+        source_path: path,
+        managed_path: `media/${path}`,
+        media_bytes: index + 1,
+        media_sha256: String(index + 1).repeat(64),
+        caption_ext: input.captionExt,
+        caption_text: null,
+        caption_bytes: null,
+        caption_sha256: null,
+        caption_missing: true,
+      })),
+    });
+    const manifestPath = `${input.presetId}/v${input.version}/manifest.json`;
+    return {
+      versionRoot: `/private/${input.presetId}/v${input.version}`,
+      manifestPath,
+      manifest,
+      manifestSha256: manifestSha256(manifest),
+      publish: async () => {
+        const publishError = this.publishErrors.shift();
+        if (publishError !== undefined) throw publishError;
+        this.manifests.set(manifestPath, clone(manifest));
+      },
+      rollback: async () => {
+        this.rollbacks += 1;
+        if (this.rollbackError !== undefined) throw this.rollbackError;
+        this.manifests.delete(manifestPath);
+      },
+    };
+  }
+  async readManifest(path: string) {
+    const result = this.manifests.get(path);
+    if (!result) throw new Error('/private/missing manifest');
+    return clone(result);
+  }
+  async verifyFast(path: string) {
+    this.fastChecks += 1;
+    return this.readManifest(path);
+  }
+  async verifyFull(path: string) {
+    this.fullChecks += 1;
+    return this.readManifest(path);
+  }
+  resolveMediaRoot(path: string): string {
+    return path;
+  }
+  async quarantineVersion(path: string): Promise<SnapshotQuarantine> {
+    this.quarantines += 1;
+    const manifest = this.manifests.get(path);
+    this.manifests.delete(path);
+    return {
+      restore: async () => {
+        this.restores += 1;
+        if (this.restoreError !== undefined) throw this.restoreError;
+        if (manifest) this.manifests.set(path, manifest);
+      },
+      remove: async () => {
+        this.removes += 1;
+        if (this.removeError !== undefined) throw this.removeError;
+      },
+    };
+  }
+  async cleanupStaging(): Promise<string[]> {
+    return [];
+  }
+}
+
+const publishInput = {
+  name: '  Faces  ',
+  source_dataset: 'photos',
+  selected_paths: ['a.jpg'],
+  caption_ext: 'txt',
+  loader_config: loaderConfig,
+  note: null,
+};
+
+async function main(): Promise<void> {
+  const store = new MemoryStore();
+  const snapshots = new FakeSnapshots();
+  const service = createDatasetPresetService({ store, snapshots, datasetsRoot: '/datasets' });
+  const created = await service.createPreset(publishInput);
+  assert.equal(created.name, 'Faces');
+  assert.equal(created.latest_version, 1);
+  assert.equal(created.version_count, 1);
+  assert.equal(created.total_bytes, '1');
+  assert.equal(store.presets[0].name_key, 'faces');
+  assert.equal(snapshots.stageInputs[0].sourceRoot, '/datasets/photos');
+
+  await assert.rejects(service.createPreset({ ...publishInput, name: 'FACES' }), DatasetPresetConflictError);
+  assert.equal(snapshots.stageInputs.length, 1, 'duplicate name must not perform snapshot work');
+
+  const v2 = await service.publishVersion(created.id, {
+    ...publishInput,
+    base_version_id: created.versions[0].id,
+    retained_paths: ['a.jpg'],
+    selected_paths: ['b.jpg'],
+  });
+  assert.equal(v2.version, 2);
+  assert.deepEqual(snapshots.stageInputs[1].retainedPaths, ['a.jpg']);
+  assert.equal(snapshots.stageInputs[1].priorManifestPath, created.versions[0].manifest_path);
+  assert.equal(created.versions.length, 1, 'publishing must not mutate prior DTOs');
+
+  const renamed = await service.rename(created.id, ' Portraits ');
+  assert.equal(renamed.name, 'Portraits');
+  assert.deepEqual(
+    renamed.versions.map(version => version.version),
+    [1, 2],
+  );
+  await service.setArchived(created.id, true);
+  assert.deepEqual(await service.listActive(), []);
+  await assert.rejects(
+    service.publishVersion(created.id, {
+      ...publishInput,
+      base_version_id: v2.id,
+      retained_paths: ['a.jpg'],
+      selected_paths: ['c.jpg'],
+    }),
+    DatasetPresetValidationError,
+  );
+  const historical = await service.getVersion(v2.id);
+  assert.equal(historical.manifest.version, 2);
+  await service.verifyVersion(v2.id, false);
+  await service.verifyVersion(v2.id, true);
+  assert.equal(snapshots.fastChecks, 1);
+  assert.equal(snapshots.fullChecks, 1);
+  await service.setArchived(created.id, false);
+
+  store.usages.set(v2.id, 1);
+  await assert.rejects(service.deleteVersion(v2.id), DatasetPresetReferencedError);
+  assert.equal(snapshots.quarantines, 0);
+  store.usages.set(v2.id, 0);
+  store.deleteVersionError = new Error('db unavailable');
+  await assert.rejects(service.deleteVersion(v2.id), DatasetPresetStorageError);
+  assert.equal(snapshots.restores, 1);
+  store.deleteVersionError = undefined;
+  await service.deleteVersion(v2.id);
+  assert.equal(snapshots.removes, 1);
+
+  await assert.rejects(service.getPreset('missing'), DatasetPresetNotFoundError);
+  await assert.rejects(
+    service.createPreset({ ...publishInput, source_dataset: 'nested/photos' }),
+    DatasetPresetValidationError,
+  );
+  const emptySelectionStore = new MemoryStore();
+  const emptySelectionSnapshots = new FakeSnapshots();
+  await assert.rejects(
+    createDatasetPresetService({
+      store: emptySelectionStore,
+      snapshots: emptySelectionSnapshots,
+      datasetsRoot: '/datasets',
+    }).createPreset({ ...publishInput, name: 'Empty', selected_paths: [] }),
+    DatasetPresetValidationError,
+  );
+  assert.equal(emptySelectionStore.presets.length, 0, 'invalid empty selection must be rejected before persistence');
+  assert.equal(emptySelectionSnapshots.stageInputs.length, 0);
+
+  const rollbackStore = new MemoryStore();
+  const rollbackSnapshots = new FakeSnapshots();
+  rollbackStore.insertFailures.push(new Error('/private/database.sqlite unavailable'));
+  await assert.rejects(
+    createDatasetPresetService({
+      store: rollbackStore,
+      snapshots: rollbackSnapshots,
+      datasetsRoot: '/datasets',
+    }).createPreset({ ...publishInput, name: 'Rollback' }),
+    error => error instanceof DatasetPresetStorageError && !error.message.includes('/private/'),
+  );
+  assert.equal(rollbackSnapshots.rollbacks, 1);
+  assert.equal(rollbackStore.presets.length, 0);
+
+  const cleanupFailureStore = new MemoryStore();
+  const cleanupFailureSnapshots = new FakeSnapshots();
+  const primaryInsertError = new Error('primary insert failure');
+  cleanupFailureStore.insertFailures.push(primaryInsertError);
+  cleanupFailureSnapshots.rollbackError = new Error('/private/rollback failure');
+  await assert.rejects(
+    createDatasetPresetService({
+      store: cleanupFailureStore,
+      snapshots: cleanupFailureSnapshots,
+      datasetsRoot: '/datasets',
+    }).createPreset({ ...publishInput, name: 'Cleanup failure' }),
+    error => {
+      assert(error instanceof DatasetPresetStorageError);
+      assert(!error.message.includes('/private/'));
+      assert(error.cause instanceof AggregateError);
+      assert.equal(error.cause.errors[0], primaryInsertError);
+      return true;
+    },
+  );
+
+  const restoreFailureStore = new MemoryStore();
+  const restoreFailureSnapshots = new FakeSnapshots();
+  const restoreFailureService = createDatasetPresetService({
+    store: restoreFailureStore,
+    snapshots: restoreFailureSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const restoreFailurePreset = await restoreFailureService.createPreset({ ...publishInput, name: 'Restore failure' });
+  const primaryDeleteError = new Error('primary delete failure');
+  restoreFailureStore.deleteVersionError = primaryDeleteError;
+  restoreFailureSnapshots.restoreError = new Error('/private/restore failure');
+  await assert.rejects(restoreFailureService.deleteVersion(restoreFailurePreset.versions[0].id), error => {
+    assert(error instanceof DatasetPresetStorageError);
+    assert(!error.message.includes('/private/'));
+    assert(error.cause instanceof AggregateError);
+    assert.equal(error.cause.errors[0], primaryDeleteError);
+    return true;
+  });
+
+  const stageFailureStore = new MemoryStore();
+  const stageFailureSnapshots = new FakeSnapshots();
+  stageFailureSnapshots.stageError = new Error('/private/source disappeared');
+  await assert.rejects(
+    createDatasetPresetService({
+      store: stageFailureStore,
+      snapshots: stageFailureSnapshots,
+      datasetsRoot: '/datasets',
+    }).createPreset({ ...publishInput, name: 'Stage failure' }),
+    error => error instanceof DatasetPresetStorageError && !error.message.includes('/private/'),
+  );
+  assert.equal(stageFailureStore.presets.length, 0, 'failed staging must remove the stable empty preset');
+
+  const postInsertStore = new MemoryStore();
+  const postInsertSnapshots = new FakeSnapshots();
+  const postInsertService = createDatasetPresetService({
+    store: postInsertStore,
+    snapshots: postInsertSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  postInsertStore.listVersionsError = new Error('readback failed');
+  await assert.rejects(
+    postInsertService.createPreset({ ...publishInput, name: 'Committed' }),
+    DatasetPresetStorageError,
+  );
+  assert.equal(
+    postInsertStore.versions.length,
+    1,
+    'a committed metadata row must remain intact after readback failure',
+  );
+  assert.equal(postInsertSnapshots.rollbacks, 0, 'a committed snapshot must not roll back after readback failure');
+
+  const mismatchStore = new MemoryStore();
+  const mismatchSnapshots = new FakeSnapshots();
+  const mismatchService = createDatasetPresetService({
+    store: mismatchStore,
+    snapshots: mismatchSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const mismatch = await mismatchService.createPreset({ ...publishInput, name: 'Mismatch' });
+  mismatchSnapshots.manifests.get(mismatch.versions[0].manifest_path)!.version = 99;
+  await assert.rejects(mismatchService.getVersion(mismatch.versions[0].id), DatasetPresetStorageError);
+
+  const retryStore = new MemoryStore();
+  const retrySnapshots = new FakeSnapshots();
+  const retryService = createDatasetPresetService({
+    store: retryStore,
+    snapshots: retrySnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const retryPreset = await retryService.createPreset({ ...publishInput, name: 'Retry' });
+  retryStore.insertFailures.push({ code: 'version_conflict' });
+  const retried = await retryService.publishVersion(retryPreset.id, {
+    ...publishInput,
+    base_version_id: retryPreset.versions[0].id,
+    retained_paths: [],
+    selected_paths: ['retry.jpg'],
+  });
+  assert.equal(retried.version, 3, 'a uniqueness race must retry the complete publication with the next version');
+  assert.deepEqual(
+    retrySnapshots.stageInputs.map(input => input.version),
+    [1, 2, 3],
+  );
+  assert.equal(retrySnapshots.rollbacks, 1);
+
+  const exhaustedRaceStore = new MemoryStore();
+  const exhaustedRaceSnapshots = new FakeSnapshots();
+  const exhaustedRaceService = createDatasetPresetService({
+    store: exhaustedRaceStore,
+    snapshots: exhaustedRaceSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const exhaustedRacePreset = await exhaustedRaceService.createPreset({ ...publishInput, name: 'Exhausted race' });
+  exhaustedRaceSnapshots.publishErrors.push(
+    new Error('Refusing to replace existing version: v2'),
+    new Error('Refusing to replace existing version: v3'),
+  );
+  await assert.rejects(
+    exhaustedRaceService.publishVersion(exhaustedRacePreset.id, {
+      ...publishInput,
+      base_version_id: exhaustedRacePreset.versions[0].id,
+      retained_paths: [],
+      selected_paths: ['collision.jpg'],
+    }),
+    DatasetPresetConflictError,
+  );
+  assert.deepEqual(
+    exhaustedRaceSnapshots.stageInputs.map(input => input.version),
+    [1, 2, 3],
+  );
+  assert.equal(exhaustedRaceSnapshots.rollbacks, 2);
+
+  const concurrentStore = new MemoryStore();
+  const concurrentSnapshots = new FakeSnapshots();
+  const concurrentService = createDatasetPresetService({
+    store: concurrentStore,
+    snapshots: concurrentSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const concurrentPreset = await concurrentService.createPreset({ ...publishInput, name: 'Concurrent' });
+  const concurrentVersions = await Promise.all([
+    concurrentService.publishVersion(concurrentPreset.id, {
+      ...publishInput,
+      base_version_id: concurrentPreset.versions[0].id,
+      retained_paths: [],
+      selected_paths: ['two.jpg'],
+    }),
+    concurrentService.publishVersion(concurrentPreset.id, {
+      ...publishInput,
+      base_version_id: concurrentPreset.versions[0].id,
+      retained_paths: [],
+      selected_paths: ['three.jpg'],
+    }),
+  ]);
+  assert.deepEqual(
+    concurrentVersions.map(version => version.version),
+    [2, 3],
+  );
+  assert.deepEqual(
+    concurrentSnapshots.stageInputs.map(input => input.version),
+    [1, 2, 3],
+    'publishes for one preset must serialize without a uniqueness rollback',
+  );
+  assert.equal(concurrentSnapshots.rollbacks, 0);
+
+  console.log('Dataset preset service tests passed');
+}
+
+main().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});
