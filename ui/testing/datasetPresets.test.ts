@@ -158,10 +158,26 @@ expectThrows(() => validateManifest({ ...manifest, version: Number.MAX_SAFE_INTE
 assert.deepEqual(normalizePresetName('  Faces  '), { name: 'Faces', nameKey: 'faces' });
 assert.equal(normalizeRelativeMediaPath('sub\\nested/a.jpg'), 'sub/nested/a.jpg');
 
-for (const path of ['', '../a.jpg', 'a/../b.jpg', '/a.jpg', 'C:\\a.jpg', 'a\0b.jpg']) {
-  expectThrows(() => normalizeRelativeMediaPath(path), /path/i);
-}
-for (const path of ['a:b.jpg', 'CON', 'aux.txt', 'LPT9.json', 'folder/name. ', 'folder/name.']) {
+for (const path of [
+  '',
+  '../a.jpg',
+  'a/../b.jpg',
+  '/a.jpg',
+  'C:\\a.jpg',
+  'a\0b.jpg',
+  'a:b.jpg',
+  'a?.jpg',
+  'a*.jpg',
+  'a|b.jpg',
+  'a"b.jpg',
+  '<a>.jpg',
+  'a\u0001b.jpg',
+  'CON',
+  'aux.txt',
+  'LPT9.json',
+  'folder/name. ',
+  'folder/name.',
+]) {
   expectThrows(() => normalizeRelativeMediaPath(path), /path|segment/i);
 }
 assert.equal(normalizeRelativeMediaPath('space folder/üñïçødé file.jpg'), 'space folder/üñïçødé file.jpg');

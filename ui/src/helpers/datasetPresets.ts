@@ -100,6 +100,7 @@ const EXTERNAL_PATH_KEYS = new Set([
 const SHA256 = /^[a-f0-9]{64}$/;
 const CAPTION_EXTENSION = /^\.?[A-Za-z0-9_-]{1,32}$/;
 const WINDOWS_RESERVED_BASENAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+const PORTABLE_SEGMENT_INVALID_CHARACTER = /[\u0000-\u001f<>:"|?*]/;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -209,7 +210,7 @@ export function normalizeRelativeMediaPath(input: unknown): string {
         segment.length === 0 ||
         segment === '.' ||
         segment === '..' ||
-        segment.includes(':') ||
+        PORTABLE_SEGMENT_INVALID_CHARACTER.test(segment) ||
         /[. ]$/.test(segment) ||
         WINDOWS_RESERVED_BASENAME.test(segment),
     )
