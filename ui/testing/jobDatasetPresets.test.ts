@@ -1,0 +1,219 @@
+import assert from 'node:assert/strict';
+import { manifestSha256, type DatasetPresetLoaderConfig, type DatasetPresetManifestV1 } from '../src/helpers/datasetPresets';
+import {
+  preflightJobDatasetPresets,
+  resolveJobDatasetPresets,
+  saveJobWithDatasetUsages,
+  type JobDatasetVersionStore,
+  type JobWriteStore,
+} from '../src/server/jobDatasetPresetService';
+import type { DatasetPresetVersionRecord } from '../src/server/datasetPresetService';
+import type { DatasetPresetSnapshotStore } from '../src/server/datasetPresetSnapshotService';
+import type { DatasetConfig, JobConfig } from '../src/types';
+
+const loader: DatasetPresetLoaderConfig = {
+  caption_ext: 'txt', default_caption: '', caption_dropout_rate: 0.1, shuffle_tokens: true,
+  num_repeats: 2, resolution: [512, 768], is_reg: false, network_weight: 1,
+  cache_latents_to_disk: true, flip_x: false, flip_y: true, num_frames: 1,
+  shrink_video_to_frames: false, fps: 24, auto_frame_count: false, do_i2v: false,
+  do_audio: false, audio_normalize: false, audio_preserve_pitch: false, controls: [],
+};
+
+function dataset(versionId?: string): DatasetConfig {
+  return {
+    folder_path: versionId ? '/browser/attack' : '/live/images', mask_path: null, mask_min_value: 0,
+    default_caption: loader.default_caption, caption_ext: loader.caption_ext,
+    caption_dropout_rate: loader.caption_dropout_rate, shuffle_tokens: loader.shuffle_tokens,
+    is_reg: loader.is_reg, network_weight: loader.network_weight,
+    cache_latents_to_disk: loader.cache_latents_to_disk, resolution: [...loader.resolution], controls: [],
+    num_frames: loader.num_frames, shrink_video_to_frames: loader.shrink_video_to_frames,
+    do_i2v: loader.do_i2v, do_audio: loader.do_audio, audio_normalize: loader.audio_normalize,
+    audio_preserve_pitch: loader.audio_preserve_pitch, fps: loader.fps, flip_x: loader.flip_x,
+    flip_y: loader.flip_y, num_repeats: loader.num_repeats, auto_frame_count: loader.auto_frame_count,
+    ...(versionId ? { dataset_preset: {
+      version_id: versionId, preset_id: 'browser-preset', preset_name: 'Browser lie', version: 999,
+      manifest_sha256: 'f'.repeat(64),
+    } } : {}),
+  };
+}
+
+function job(datasets: DatasetConfig[]): JobConfig {
+  return { job: 'extension', meta: { name: 'x', version: '1' }, config: {
+    name: 'job', process: [{ type: 'sd_trainer', training_folder: '/train', performance_log_every: 1,
+      trigger_word: null, device: 'cuda', save: {} as never, datasets, train: {} as never,
+      logging: {} as never, model: {} as never, sample: {} as never }],
+  } };
+}
+
+function manifest(id: string, presetId: string, version: number, config = loader): DatasetPresetManifestV1 {
+  return {
+    schema_version: 1, preset_id: presetId, version, preset_name: `manifest-${presetId}`,
+    source_dataset: 'source', created_at: '2026-08-10T00:00:00.000Z', note: null,
+    loader_config: structuredClone(config), media_count: 1, total_bytes: 3,
+    files: [{ source_path: 'a.png', managed_path: 'a.png', media_bytes: 3,
+      media_sha256: 'a'.repeat(64), caption_ext: 'txt', caption_text: null,
+      caption_bytes: null, caption_sha256: null, caption_missing: true }],
+  };
+}
+
+function fixtures(entries: Array<{ id: string; archived?: boolean; presetId?: string; version?: number }>) {
+  const records = new Map<string, { preset: { id: string; name: string; archived_at: Date | null }; version: DatasetPresetVersionRecord }>();
+  const manifests = new Map<string, DatasetPresetManifestV1>();
+  for (const entry of entries) {
+    const presetId = entry.presetId ?? `p-${entry.id}`;
+    const versionNumber = entry.version ?? 1;
+    const value = manifest(entry.id, presetId, versionNumber);
+    const path = `${presetId}/v${versionNumber}/manifest.json`;
+    manifests.set(path, value);
+    records.set(entry.id, { preset: { id: presetId, name: `Preset ${entry.id}`, archived_at: entry.archived ? new Date() : null }, version: {
+      id: entry.id, preset_id: presetId, version: versionNumber, source_dataset: 'source',
+      manifest_path: path, manifest_sha256: manifestSha256(value), loader_config: structuredClone(loader),
+      note: null, media_count: 1, total_bytes: '3', created_at: '2026-08-10T00:00:00.000Z',
+    } });
+  }
+  const existing = new Map<string, string>();
+  const versions: JobDatasetVersionStore = {
+    async getVersionForResolution(id) { return structuredClone(records.get(id) ?? null); },
+    async existingUsage(jobId, index) {
+      const preset_version_id = existing.get(`${jobId}:${index}`);
+      return preset_version_id ? { preset_version_id } : null;
+    },
+  };
+  const snapshots = {
+    async verifyFast(path: string) {
+      const value = manifests.get(path);
+      if (!value) throw new Error(`/private/root/${path} is corrupt`);
+      return structuredClone(value);
+    },
+    resolveMediaRoot(path: string) {
+      if (!manifests.has(path)) throw new Error(`/private/root/${path} missing`);
+      return `/managed/${path.replace('/manifest.json', '/media')}`;
+    },
+  } as DatasetPresetSnapshotStore;
+  return { records, manifests, existing, versions, snapshots };
+}
+
+async function runResolutionTests(): Promise<void> {
+  const f = fixtures([{ id: 'v1' }, { id: 'v2', presetId: 'p2', version: 4 }]);
+  const input = job([dataset('v1'), dataset(), dataset('v2'), dataset('v1')]);
+  input.config.process[0].datasets[0].caption_dropout_rate = 0.42;
+  (input.config.process[0].datasets[0] as DatasetConfig & { browser_only?: string }).browser_only = 'discard me';
+  const resolved = await resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: input,
+    versions: f.versions, snapshots: f.snapshots });
+  assert.equal(input.config.process[0].datasets[0].folder_path, '/browser/attack', 'input is not mutated');
+  assert.equal(resolved.jobConfig.config.process[0].datasets[0].folder_path, '/managed/p-v1/v1/media');
+  assert.equal(resolved.jobConfig.config.process[0].datasets[1].folder_path, '/live/images');
+  assert.deepEqual(resolved.usages.map(item => item.dataset_index), [0, 2, 3]);
+  assert.deepEqual(resolved.usages.map(item => item.preset_version_id), ['v1', 'v2', 'v1']);
+  assert.deepEqual(resolved.jobConfig.config.process[0].datasets[0].dataset_preset, {
+    version_id: 'v1', preset_id: 'p-v1', preset_name: 'Preset v1', version: 1,
+    manifest_sha256: f.records.get('v1')!.version.manifest_sha256,
+  });
+  assert.deepEqual(resolved.usages[0].resolved_loader_config, { ...loader, caption_dropout_rate: 0.42 },
+    'usage contains the final user-edited allowlisted settings only');
+  assert.equal('browser_only' in resolved.usages[0].resolved_loader_config, false);
+  resolved.usages[0].resolved_loader_config.resolution[0] = 99;
+  assert.equal(resolved.usages[2].resolved_loader_config.resolution[0], 512, 'duplicate usages do not alias');
+  assert.equal(input.config.process[0].datasets[0].resolution[0], 512, 'outputs do not alias input');
+}
+
+async function runArchiveAndFailureTests(): Promise<void> {
+  const f = fixtures([{ id: 'archived', archived: true }, { id: 'active' }]);
+  await assert.rejects(resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([dataset('archived')]), versions: f.versions, snapshots: f.snapshots }), /active/i);
+  f.existing.set('job-1:0', 'archived');
+  await resolveJobDatasetPresets({ jobId: 'job-1', clone: false, jobConfig: job([dataset('archived')]), versions: f.versions, snapshots: f.snapshots });
+  await assert.rejects(resolveJobDatasetPresets({ jobId: 'job-1', clone: true, jobConfig: job([dataset('archived')]), versions: f.versions, snapshots: f.snapshots }), /active/i);
+  f.existing.set('job-1:0', 'active');
+  await assert.rejects(resolveJobDatasetPresets({ jobId: 'job-1', clone: false, jobConfig: job([dataset('archived')]), versions: f.versions, snapshots: f.snapshots }), /active/i);
+  await assert.rejects(resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([dataset('missing')]), versions: f.versions, snapshots: f.snapshots }), /unavailable/i);
+
+  const corrupt = fixtures([{ id: 'v1' }]);
+  corrupt.manifests.get('p-v1/v1/manifest.json')!.preset_id = 'wrong';
+  await assert.rejects(resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([dataset('v1')]), versions: corrupt.versions, snapshots: corrupt.snapshots }), error => {
+    assert.equal(String(error).includes('/private/root'), false, 'errors do not leak managed roots');
+    return /unavailable|invalid|inconsistent/i.test(String(error));
+  });
+  const missingSnapshot = fixtures([{ id: 'v1' }]);
+  missingSnapshot.manifests.delete('p-v1/v1/manifest.json');
+  await assert.rejects(resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([dataset('v1')]),
+    versions: missingSnapshot.versions, snapshots: missingSnapshot.snapshots }), error => {
+    assert.equal(String(error).includes('/private/root'), false, 'snapshot errors do not leak managed roots');
+    return /unavailable/i.test(String(error));
+  });
+
+  for (const malformed of [null, {}, { config: null }, { config: { process: [{ datasets: {} }] } }]) {
+    await assert.rejects(resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: malformed as JobConfig,
+      versions: f.versions, snapshots: f.snapshots }), /job configuration/i);
+  }
+  const malformedDataset = job([null as unknown as DatasetConfig]);
+  await assert.rejects(resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: malformedDataset,
+    versions: f.versions, snapshots: f.snapshots }), /dataset/i);
+}
+
+function transactionalStore(options: { failJob?: boolean; failUsage?: boolean } = {}) {
+  let state: { jobs: Array<{ id: string; job_config: JobConfig }>; usages: Array<{ jobId: string; dataset_index: number }> } = {
+    jobs: [], usages: [{ jobId: 'edit', dataset_index: 9 }],
+  };
+  const store: JobWriteStore = { async transaction(operation) {
+    const draft = structuredClone(state);
+    const result = await operation({
+      async createOrUpdateJob(input) {
+        if (options.failJob) throw new Error('job write failed');
+        const id = input.id ?? 'created';
+        draft.jobs = draft.jobs.filter(item => item.id !== id);
+        draft.jobs.push({ id, job_config: structuredClone(input.job_config) });
+        return { id } as never;
+      },
+      async deleteUsages(jobId) { draft.usages = draft.usages.filter(item => item.jobId !== jobId); },
+      async createUsages(jobId, usages) {
+        if (options.failUsage) throw new Error('usage write failed');
+        draft.usages.push(...usages.map(item => ({ jobId, dataset_index: item.dataset_index })));
+      },
+    });
+    state = draft;
+    return result;
+  } };
+  return { store, state: () => structuredClone(state) };
+}
+
+async function runSaveTests(): Promise<void> {
+  const f = fixtures([{ id: 'v1' }]);
+  const success = transactionalStore();
+  const saved = await saveJobWithDatasetUsages({ id: 'edit', clone: false, name: 'name', gpu_ids: '0',
+    job_config: job([dataset('v1')]), jobs: success.store, versions: f.versions, snapshots: f.snapshots });
+  assert.equal(saved.id, 'edit');
+  assert.deepEqual(success.state().usages, [{ jobId: 'edit', dataset_index: 0 }], 'stale usages are replaced');
+  await saveJobWithDatasetUsages({ id: 'edit', clone: false, name: 'name', gpu_ids: '0',
+    job_config: job([dataset()]), jobs: success.store, versions: f.versions, snapshots: f.snapshots });
+  assert.deepEqual(success.state().usages, [], 'switching to live removes stale provenance');
+  for (const failure of [{ failJob: true }, { failUsage: true }]) {
+    const target = transactionalStore(failure);
+    const before = target.state();
+    await assert.rejects(saveJobWithDatasetUsages({ id: 'edit', clone: false, name: 'name', gpu_ids: '0',
+      job_config: job([dataset('v1')]), jobs: target.store, versions: f.versions, snapshots: f.snapshots }));
+    assert.deepEqual(target.state(), before, 'transaction rolls back every write');
+  }
+  const wrongId: JobWriteStore = { async transaction(operation) { return operation({
+    async createOrUpdateJob() { return { id: 'wrong' } as never; }, async deleteUsages() {}, async createUsages() {},
+  }); } };
+  await assert.rejects(saveJobWithDatasetUsages({ id: 'edit', clone: false, name: 'name', gpu_ids: '0',
+    job_config: job([]), jobs: wrongId, versions: f.versions, snapshots: f.snapshots }), /identity/i);
+}
+
+async function runPreflightTests(): Promise<void> {
+  const f = fixtures([{ id: 'v1' }]);
+  const input = job([dataset('v1')]);
+  const before = structuredClone(input);
+  await preflightJobDatasetPresets(input, { versions: f.versions, snapshots: f.snapshots });
+  assert.deepEqual(input, before, 'preflight does not mutate its input');
+}
+
+async function main(): Promise<void> {
+  await runResolutionTests();
+  await runArchiveAndFailureTests();
+  await runSaveTests();
+  await runPreflightTests();
+  console.log('job dataset preset provenance tests passed');
+}
+
+void main().catch(error => { console.error(error); process.exitCode = 1; });

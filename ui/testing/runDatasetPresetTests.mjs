@@ -18,6 +18,7 @@ const testFiles = [
   'datasetPresetDialog.test.js',
   'datasetSourceControl.test.js',
   'datasetPresetPageIntegration.test.js',
+  'jobDatasetPresets.test.js',
 ];
 let outputDirectory;
 
