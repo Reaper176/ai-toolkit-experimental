@@ -113,13 +113,19 @@ async function requireActivePreset(transaction: Prisma.TransactionClient, preset
 export function createDatasetPresetPrismaStore(prisma: DatasetPresetPrismaClient = defaultPrisma): DatasetPresetStore {
   return {
     async listManifestPaths(): Promise<string[]> {
-      const rows = await prisma.datasetPresetVersion.findMany({
-        orderBy: [{ manifest_path: 'asc' }, { id: 'asc' }],
-        select: { manifest_path: true },
-        take: 10_001,
-      });
-      if (rows.length > 10_000) throw new Error('Dataset preset manifest path scan limit exceeded');
-      return [...new Set(rows.map(row => row.manifest_path))];
+      const manifestPaths = new Set<string>();
+      const pageSize = 10_000;
+      for (let skip = 0; ; skip += pageSize) {
+        const rows = await prisma.datasetPresetVersion.findMany({
+          orderBy: [{ manifest_path: 'asc' }, { id: 'asc' }],
+          select: { manifest_path: true },
+          skip,
+          take: pageSize,
+        });
+        for (const row of rows) manifestPaths.add(row.manifest_path);
+        if (rows.length < pageSize) break;
+      }
+      return [...manifestPaths];
     },
     async listActiveWithVersions(): Promise<DatasetPresetWithVersionsRow[]> {
       return (

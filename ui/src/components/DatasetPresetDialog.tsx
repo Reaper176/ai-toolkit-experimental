@@ -278,8 +278,18 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
       return;
     }
     const validation = validateForm(form, props.mode === 'create', emptyNumericFields);
-    setFieldErrors(validation.errors);
-    if (!validation.loader) {
+    const captionExtensionChangedWithRetainedFiles =
+      props.mode === 'version' &&
+      retainedPaths.length > 0 &&
+      form.captionExt.replace(/^\./, '') !== props.initialValues.loaderConfig.caption_ext.replace(/^\./, '');
+    const nextFieldErrors = captionExtensionChangedWithRetainedFiles
+      ? {
+          ...validation.errors,
+          captionExt: 'Caption extension cannot change while files are retained from the base version.',
+        }
+      : validation.errors;
+    setFieldErrors(nextFieldErrors);
+    if (!validation.loader || captionExtensionChangedWithRetainedFiles) {
       pendingRef.current = false;
       setPending(false);
       props.onPendingChange?.(false);

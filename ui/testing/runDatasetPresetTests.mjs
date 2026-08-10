@@ -55,6 +55,7 @@ function assertSafe(directory) {
 }
 
 try {
+  run('python', [join(uiRoot, 'testing', 'datasetPresetPythonCompatibility.py')]);
   outputDirectory = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
   assertSafe(outputDirectory);
   run(process.execPath, [tsc, '--project', 'testing/tsconfig.datasetPresets.json', '--outDir', outputDirectory]);

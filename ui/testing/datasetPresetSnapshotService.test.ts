@@ -216,6 +216,52 @@ async function main(): Promise<void> {
       );
     }
 
+    if (dataRootSymlinksSupported) {
+      const boundaryDatasetsRoot = join(ownedRoot, 'boundary-datasets');
+      const outsideDataset = join(ownedRoot, 'outside-dataset');
+      mkdirSync(boundaryDatasetsRoot);
+      mkdirSync(outsideDataset);
+      writeFileSync(join(outsideDataset, 'outside.jpg'), 'secret');
+      symlinkSync(outsideDataset, join(boundaryDatasetsRoot, 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
+      const boundaryDataRoot = join(ownedRoot, 'boundary-data');
+      await expectRejects(
+        () =>
+          createDatasetPresetSnapshotStore(boundaryDataRoot).stageVersion({
+            presetId: 'boundary',
+            version: 1,
+            presetName: 'Boundary',
+            sourceDataset: 'escape',
+            datasetsRoot: boundaryDatasetsRoot,
+            sourceRoot: join(boundaryDatasetsRoot, 'escape'),
+            selectedPaths: ['outside.jpg'],
+            captionExt: 'txt',
+            loaderConfig,
+            note: null,
+          }),
+        /dataset|source|outside|root|boundary/i,
+      );
+      assert.equal(existsSync(join(boundaryDataRoot, 'dataset_presets')), false);
+
+      const insideDataset = join(boundaryDatasetsRoot, 'real-inside');
+      mkdirSync(insideDataset);
+      writeFileSync(join(insideDataset, 'inside.jpg'), 'inside');
+      symlinkSync(insideDataset, join(boundaryDatasetsRoot, 'inside'), process.platform === 'win32' ? 'junction' : 'dir');
+      const insidePublication = await createDatasetPresetSnapshotStore(boundaryDataRoot).stageVersion({
+        presetId: 'inside-boundary',
+        version: 1,
+        presetName: 'Inside boundary',
+        sourceDataset: 'inside',
+        datasetsRoot: boundaryDatasetsRoot,
+        sourceRoot: join(boundaryDatasetsRoot, 'inside'),
+        selectedPaths: ['inside.jpg'],
+        captionExt: 'txt',
+        loaderConfig,
+        note: null,
+      });
+      assert.equal(insidePublication.manifest.files[0].media_sha256.length, 64);
+      await insidePublication.rollback();
+    }
+
     let nextId = 0;
     const store = createDatasetPresetSnapshotStore(dataRoot, { randomId: () => `id-${++nextId}` });
     const publication = await store.stageVersion({
@@ -239,6 +285,25 @@ async function main(): Promise<void> {
     escapedManifest.files[0].source_path = 'mutated.png';
     assert.equal(publication.manifest.files[0].source_path, 'b.png');
     await publication.publish();
+
+    await expectRejects(
+      () =>
+        store.stageVersion({
+          presetId: 'preset-1',
+          version: 99,
+          presetName: 'Faces',
+          sourceDataset: 'my-images',
+          sourceRoot,
+          selectedPaths: [],
+          retainedPaths: ['b.png'],
+          priorManifestPath: publication.manifestPath,
+          captionExt: 'cap',
+          loaderConfig: { ...loaderConfig, caption_ext: '.cap' },
+          note: null,
+        }),
+      /caption extension.*retained|retained.*caption extension/i,
+    );
+    assert.equal(existsSync(join(dataRoot, 'dataset_presets/preset-1/v99')), false);
 
     const aggregatePublication = await store.stageVersion({
       presetId: 'aggregate-missing',
@@ -1224,10 +1289,11 @@ async function main(): Promise<void> {
     assert.equal(boundedOrphans.truncatedOrphans, 7);
     assert.deepEqual(boundedOrphans.reportedOrphans, [...boundedOrphans.reportedOrphans].sort());
     assert.ok(boundedOrphans.reportedOrphans.every(path => !isAbsolute(path) && !path.includes('..')));
-    await expectRejects(
-      () => store.findPublishedOrphans(Array.from({ length: 10_001 }, () => 'recovery/v1/manifest.json')),
-      /authoritative.*limit/i,
-    );
+    const largeAuthoritativeScan = await store.findPublishedOrphans([
+      ...Array.from({ length: 10_001 }, () => 'recovery/v1/manifest.json'),
+      'zz-late-authoritative/v1/manifest.json',
+    ]);
+    assert.ok(largeAuthoritativeScan.totalOrphans > 0, 'authoritative sets over 10k are scanned instead of rejected');
 
     if (symlinksSupported) {
       const cleanupOutside = join(ownedRoot, 'cleanup-outside');

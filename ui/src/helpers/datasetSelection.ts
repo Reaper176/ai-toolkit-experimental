@@ -3,6 +3,20 @@ export type SelectionAction = 'all' | 'none' | 'invert';
 const WINDOWS_RESERVED_BASENAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 const PORTABLE_SEGMENT_INVALID_CHARACTER = /[\u0000-\u001f<>:"|?*]/;
 
+export const SUPPORTED_DATASET_MEDIA_EXTENSIONS = [
+  '.png', '.jpg', '.jpeg', '.webp',
+  '.mp4', '.avi', '.mov', '.mkv', '.wmv', '.m4v', '.flv',
+  '.mp3', '.wav', '.flac', '.ogg',
+] as const;
+
+const SUPPORTED_DATASET_MEDIA_EXTENSION_SET = new Set<string>(SUPPORTED_DATASET_MEDIA_EXTENSIONS);
+
+export function isSupportedDatasetMediaPath(path: string): boolean {
+  const name = path.replace(/\\/g, '/').split('/').pop() ?? '';
+  const dot = name.lastIndexOf('.');
+  return dot > 0 && SUPPORTED_DATASET_MEDIA_EXTENSION_SET.has(name.slice(dot).toLowerCase());
+}
+
 export function normalizeRelativeMediaPath(input: unknown): string {
   if (typeof input !== 'string') throw new Error('Media path must be a string');
   const path = input.replace(/\\/g, '/');

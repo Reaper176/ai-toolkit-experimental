@@ -313,6 +313,14 @@ async function main(): Promise<void> {
   assert.equal(store.presets[0].name_key, 'faces');
   assert.equal(snapshots.stageInputs[0].sourceRoot, '/datasets/photos');
 
+  for (const selected_paths of [['README'], ['caption.txt'], ['sidecar.json']]) {
+    await assert.rejects(
+      service.createPreset({ ...publishInput, name: `Blocked ${selected_paths[0]}`, selected_paths }),
+      /supported.*media|media.*extension/i,
+    );
+  }
+  assert.equal(snapshots.stageInputs.length, 1, 'unsupported media paths fail before snapshot storage');
+
   await assert.rejects(service.createPreset({ ...publishInput, name: 'FACES' }), DatasetPresetConflictError);
   assert.equal(snapshots.stageInputs.length, 1, 'duplicate name must not perform snapshot work');
 
@@ -326,6 +334,38 @@ async function main(): Promise<void> {
   assert.deepEqual(snapshots.stageInputs[1].retainedPaths, ['a.jpg']);
   assert.equal(snapshots.stageInputs[1].priorManifestPath, created.versions[0].manifest_path);
   assert.equal(created.versions.length, 1, 'publishing must not mutate prior DTOs');
+
+  const stagesAfterValidV2 = snapshots.stageInputs.length;
+  await assert.rejects(
+    service.publishVersion(created.id, {
+      ...publishInput,
+      base_version_id: created.versions[0].id,
+      retained_paths: [],
+      selected_paths: ['a.jpg'],
+    }),
+    /selected.*prior|newly enabled|base manifest/i,
+  );
+  await assert.rejects(
+    service.publishVersion(created.id, {
+      ...publishInput,
+      base_version_id: created.versions[0].id,
+      retained_paths: ['not-in-base.jpg'],
+      selected_paths: [],
+    }),
+    /retained.*prior|base manifest/i,
+  );
+  await assert.rejects(
+    service.publishVersion(created.id, {
+      ...publishInput,
+      caption_ext: '.cap',
+      loader_config: { ...loaderConfig, caption_ext: 'cap' },
+      base_version_id: created.versions[0].id,
+      retained_paths: ['a.jpg'],
+      selected_paths: [],
+    }),
+    /caption extension.*retained|retained.*caption extension/i,
+  );
+  assert.equal(snapshots.stageInputs.length, stagesAfterValidV2, 'invalid base derivations must not stage storage');
 
   const renamed = await service.rename(created.id, ' Portraits ');
   assert.equal(renamed.name, 'Portraits');
@@ -348,7 +388,7 @@ async function main(): Promise<void> {
   assert.equal(historical.manifest.version, 2);
   await service.verifyVersion(v2.id, false);
   await service.verifyVersion(v2.id, true);
-  assert.equal(snapshots.fastChecks, 2, 'base publication and explicit verification must both fast-check');
+  assert.equal(snapshots.fastChecks, 5, 'base publications and explicit verification must all fast-check');
   assert.equal(snapshots.fullChecks, 1);
 
   const verifiedDetailStore = new MemoryStore();

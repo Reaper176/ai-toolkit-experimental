@@ -157,11 +157,16 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
       activeVersion?.manifest.files.map(file => file.source_path).filter(path => !liveRelativePaths.has(path)) ?? [],
     [activeVersion, liveRelativePaths],
   );
+  const activeManifestPaths = useMemo(
+    () => new Set(activeVersion?.manifest.files.map(file => file.source_path) ?? []),
+    [activeVersion],
+  );
   const retainedPaths = activeVersion
     ? activeVersion.manifest.files
         .map(file => file.source_path)
-        .filter(path => selectedPaths.has(path) && !liveRelativePaths.has(path))
+        .filter(path => selectedPaths.has(path))
     : [];
+  const newlySelectedPaths = [...selectedPaths].filter(path => !activeManifestPaths.has(path));
 
   useEffect(() => {
     void refreshPresets().catch(() => undefined);
@@ -662,7 +667,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
           : {})}
         isOpen={presetDialogOpen}
         sourceDataset={datasetName}
-        selectedPaths={[...selectedPaths]}
+        selectedPaths={newlySelectedPaths}
         retainedPaths={retainedPaths}
         initialValues={dialogInitialValues}
         onClose={() => setPresetDialogOpen(false)}

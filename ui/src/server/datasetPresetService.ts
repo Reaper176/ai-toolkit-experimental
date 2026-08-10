@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import {
   manifestSha256,
+  isSupportedDatasetMediaPath,
   normalizePresetName,
   normalizeRelativeMediaPath,
   validateLoaderConfig,
@@ -234,6 +235,8 @@ function validatePublishInput(input: Omit<PublishPresetInput, 'name'>): ValidPub
     if (sourceDataset.includes('/')) throw new Error('Source dataset must be one portable directory component');
     if (!Array.isArray(input.selected_paths)) throw new Error('Selected paths must be an array');
     const selectedPaths = input.selected_paths.map(normalizeRelativeMediaPath);
+    const unsupportedPath = selectedPaths.find(path => !isSupportedDatasetMediaPath(path));
+    if (unsupportedPath !== undefined) throw new Error(`Selected path must use a supported media extension: ${unsupportedPath}`);
     const selectedKeys = new Set(selectedPaths.map(path => path.toLowerCase()));
     if (selectedKeys.size !== selectedPaths.length) throw new Error('Selected paths must be unique');
     const loaderConfig = validateLoaderConfig(input.loader_config);
@@ -555,6 +558,7 @@ export function createDatasetPresetService(dependencies: {
       version,
       presetName: preset.name,
       sourceDataset: input.sourceDataset,
+      datasetsRoot,
       sourceRoot: join(datasetsRoot, input.sourceDataset),
       selectedPaths: input.selectedPaths,
       retainedPaths,
@@ -685,7 +689,26 @@ export function createDatasetPresetService(dependencies: {
         const base = await getVersionRow(baseVersionId);
         if (base.preset_id !== presetId)
           throw new DatasetPresetValidationError('Base version must belong to the same dataset preset');
-        await getVerifiedVersion(base, 'fast');
+        const verifiedBase = await getVerifiedVersion(base, 'fast');
+        const basePathKeys = new Set(verifiedBase.manifest.files.map(file => file.source_path.toLowerCase()));
+        const selectedFromBase = valid.selectedPaths.find(path => basePathKeys.has(path.toLowerCase()));
+        if (selectedFromBase !== undefined) {
+          throw new DatasetPresetValidationError(
+            `Selected path must be newly enabled and absent from the base manifest: ${selectedFromBase}`,
+          );
+        }
+        const invalidRetained = retainedPaths.find(path => !basePathKeys.has(path.toLowerCase()));
+        if (invalidRetained !== undefined) {
+          throw new DatasetPresetValidationError(`Retained path is missing from the base manifest: ${invalidRetained}`);
+        }
+        if (
+          retainedPaths.length > 0 &&
+          valid.captionExt.replace(/^\./, '') !== verifiedBase.manifest.loader_config.caption_ext.replace(/^\./, '')
+        ) {
+          throw new DatasetPresetValidationError(
+            'Caption extension cannot change while files are retained from the base manifest',
+          );
+        }
 
         for (let attempt = 0; attempt < 2; attempt += 1) {
           let publication: StagedPublication | undefined;

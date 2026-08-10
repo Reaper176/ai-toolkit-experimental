@@ -33,6 +33,8 @@ export interface StageVersionInput {
   version: number;
   presetName: string;
   sourceDataset: string;
+  /** Configured datasets boundary. The canonical source root must remain within it. */
+  datasetsRoot?: string;
   sourceRoot: string;
   selectedPaths: string[];
   retainedPaths?: string[];
@@ -921,7 +923,15 @@ export function createDatasetPresetSnapshotStore(
     if (typeof input.sourceRoot !== 'string' || input.sourceRoot.trim().length === 0) {
       throw new Error('Source root must be a nonempty path');
     }
+    const configuredDatasetsRoot = input.datasetsRoot ?? resolve(input.sourceRoot, '..');
+    if (typeof configuredDatasetsRoot !== 'string' || configuredDatasetsRoot.trim().length === 0) {
+      throw new Error('Datasets root must be a nonempty path');
+    }
+    const canonicalDatasetsRoot = await realpath(configuredDatasetsRoot);
+    const datasetsRootInfo = await stat(canonicalDatasetsRoot, { bigint: true });
+    if (!datasetsRootInfo.isDirectory()) throw new Error('Datasets root must be a directory');
     const realSourceRoot = await realpath(input.sourceRoot);
+    assertWithinRoot(canonicalDatasetsRoot, realSourceRoot, 'Source root');
     const sourceRootInfo = await stat(realSourceRoot, { bigint: true });
     if (!sourceRootInfo.isDirectory()) throw new Error('Source root must be a directory');
     const sourceRootPin = pinDirectorySync(realSourceRoot, 'Source root');
@@ -932,8 +942,15 @@ export function createDatasetPresetSnapshotStore(
     let priorVersionPin: DirectoryPin | undefined;
     if (retainedPaths.length > 0 && parsedPriorGrammar && input.priorManifestPath !== undefined) {
       const priorManifest = await verifyFast(input.priorManifestPath);
+      if (captionExt !== priorManifest.loader_config.caption_ext.replace(/^\./, '')) {
+        throw new Error('Caption extension cannot change while files are retained from the prior manifest');
+      }
       const parsedPriorPath = resolveManifestPath(managedRoot, parsedPriorGrammar);
       priorBySource = new Map(priorManifest.files.map(file => [file.source_path.toLowerCase(), file]));
+      const selectedFromPrior = selectedPaths.find(path => priorBySource.has(path.toLowerCase()));
+      if (selectedFromPrior !== undefined) {
+        throw new Error(`Selected path must be absent from the prior manifest: ${selectedFromPrior}`);
+      }
       priorRoot = parsedPriorPath.versionRoot;
       priorPresetPin = pinDirectorySync(parsedPriorPath.presetRoot, 'Prior preset root', managedRoot);
       priorVersionPin = pinDirectorySync(parsedPriorPath.versionRoot, 'Prior version root', parsedPriorPath.presetRoot);
@@ -1286,9 +1303,6 @@ export function createDatasetPresetSnapshotStore(
     },
     async findPublishedOrphans(authoritativeManifestPaths: readonly string[]): Promise<PublishedOrphanScanResult> {
       if (!Array.isArray(authoritativeManifestPaths)) throw new Error('Manifest paths must be an array');
-      if (authoritativeManifestPaths.length > DATASET_PRESET_MAINTENANCE_MAX_SCAN) {
-        throw new Error('Authoritative manifest path scan limit exceeded');
-      }
       await initializeManagedRoot();
       requirePinnedRootsSync();
 

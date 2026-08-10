@@ -8,7 +8,13 @@ import {
   type DatasetPresetLoaderConfig,
 } from './datasetPresetValidation';
 
-export { applySelectionAction, normalizeRelativeMediaPath, type SelectionAction } from './datasetSelection';
+export {
+  applySelectionAction,
+  isSupportedDatasetMediaPath,
+  normalizeRelativeMediaPath,
+  SUPPORTED_DATASET_MEDIA_EXTENSIONS,
+  type SelectionAction,
+} from './datasetSelection';
 export {
   DATASET_PRESET_NAME_MAX,
   DATASET_PRESET_NOTE_MAX,

@@ -11,6 +11,7 @@ import {
 import type { DatasetPresetVersionRecord } from './datasetPresetService';
 import type { DatasetPresetSnapshotStore } from './datasetPresetSnapshotService';
 import type { DatasetConfig, JobConfig } from '../types';
+import { DATASET_PRESET_EXTERNAL_AUXILIARY_PATH_KEYS } from '../helpers/datasetPresetValidation';
 
 export interface ResolvedJobDatasets {
   jobConfig: JobConfig;
@@ -183,6 +184,21 @@ function nonblank(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function hasExternalAuxiliaryValue(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+function rejectPresetExternalAuxiliaryPaths(dataset: DatasetConfig): void {
+  for (const key of DATASET_PRESET_EXTERNAL_AUXILIARY_PATH_KEYS) {
+    if (hasExternalAuxiliaryValue(dataset[key as keyof DatasetConfig])) {
+      throw new JobDatasetPresetError(`Dataset preset cannot use external auxiliary path field ${key}`);
+    }
+  }
+}
+
 function loaderSettings(dataset: DatasetConfig): DatasetPresetLoaderConfig {
   const candidate: Record<string, unknown> = {};
   for (const key of LOADER_CONFIG_KEYS) candidate[key] = dataset[key as keyof DatasetConfig];
@@ -293,6 +309,7 @@ async function resolveJobDatasetPresetsInternal(input: {
     if (!isPlainObject(dataset.dataset_preset) || !nonblank(dataset.dataset_preset.version_id)) {
       throw new JobDatasetPresetError('Dataset preset reference is invalid');
     }
+    rejectPresetExternalAuxiliaryPaths(dataset);
     const versionId = dataset.dataset_preset.version_id.trim();
     const authoritative = await getVerified(versionId, dataset.dataset_preset);
     if (eligibility === 'save' && authoritative.preset.archived_at !== null) {

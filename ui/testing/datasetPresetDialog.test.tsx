@@ -355,6 +355,39 @@ async function testDialogBehavior(): Promise<void> {
   assert.deepEqual(versionPayload.selected_paths, ['folder/a.png']);
   assert.deepEqual(versionPayload.retained_paths, ['gone/b.png']);
 
+  fetchCalls = [];
+  let retainedCaptionRenderer: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    retainedCaptionRenderer = TestRenderer.create(
+      <DatasetPresetDialog
+        mode="version"
+        presetId="preset-1"
+        presetName="My images"
+        baseVersionId="version-1"
+        isOpen
+        sourceDataset="my-images"
+        selectedPaths={[]}
+        retainedPaths={['gone/b.png']}
+        initialValues={initialValues}
+        onClose={() => undefined}
+        onSaved={() => undefined}
+      />,
+    );
+  });
+  await act(async () => {
+    retainedCaptionRenderer!.root.findByType(CreatableSelectInput).props.onChange('.cap');
+  });
+  await act(async () => {
+    await retainedCaptionRenderer!.root.findByType('form').props.onSubmit({ preventDefault() {} });
+  });
+  assert.equal(fetchCalls.length, 0, 'retained files block a local caption-extension change');
+  assert.ok(
+    retainedCaptionRenderer!.root
+      .findAll(node => node.props.role === 'alert')
+      .some(node => /caption extension.*retained/i.test(textOf(node))),
+    'retained caption-extension mismatch is rendered as a local field error',
+  );
+
   let serverErrorRenderer: TestRenderer.ReactTestRenderer;
   globalThis.fetch = (async () =>
     new Response(JSON.stringify({ error: 'Preset name already exists' }), {

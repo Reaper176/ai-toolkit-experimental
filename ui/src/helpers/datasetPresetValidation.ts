@@ -46,17 +46,21 @@ export interface DatasetPresetLoaderConfig {
   controls: string[];
 }
 
-const EXTERNAL_PATH_KEYS = new Set([
-  'folder_path',
-  'dataset_path',
+export const DATASET_PRESET_EXTERNAL_AUXILIARY_PATH_KEYS = [
+  'mask_path',
   'control_path',
   'control_path_1',
   'control_path_2',
   'control_path_3',
-  'mask_path',
   'unconditional_path',
   'inpaint_path',
   'clip_image_path',
+] as const;
+
+const EXTERNAL_PATH_KEYS = new Set([
+  'folder_path',
+  'dataset_path',
+  ...DATASET_PRESET_EXTERNAL_AUXILIARY_PATH_KEYS,
 ]);
 const CAPTION_EXTENSION = /^\.?[A-Za-z0-9_-]{1,32}$/;
 

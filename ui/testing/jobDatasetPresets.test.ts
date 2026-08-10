@@ -10,6 +10,7 @@ import {
 import type { DatasetPresetVersionRecord } from '../src/server/datasetPresetService';
 import type { DatasetPresetSnapshotStore } from '../src/server/datasetPresetSnapshotService';
 import type { DatasetConfig, JobConfig } from '../src/types';
+import { DATASET_PRESET_EXTERNAL_AUXILIARY_PATH_KEYS } from '../src/helpers/datasetPresetValidation';
 
 const loader: DatasetPresetLoaderConfig = {
   caption_ext: 'txt', default_caption: '', caption_dropout_rate: 0.1, shuffle_tokens: true,
@@ -115,6 +116,38 @@ async function runResolutionTests(): Promise<void> {
   resolved.usages[0].resolved_loader_config.resolution[0] = 99;
   assert.equal(resolved.usages[2].resolved_loader_config.resolution[0], 512, 'duplicate usages do not alias');
   assert.equal(input.config.process[0].datasets[0].resolution[0], 512, 'outputs do not alias input');
+}
+
+async function runExternalAuxiliaryPathTests(): Promise<void> {
+  const f = fixtures([{ id: 'v1' }]);
+  assert.deepEqual(DATASET_PRESET_EXTERNAL_AUXILIARY_PATH_KEYS, [
+    'mask_path',
+    'control_path',
+    'control_path_1',
+    'control_path_2',
+    'control_path_3',
+    'unconditional_path',
+    'inpaint_path',
+    'clip_image_path',
+  ]);
+  for (const key of DATASET_PRESET_EXTERNAL_AUXILIARY_PATH_KEYS) {
+    const blocked = dataset('v1') as DatasetConfig & Record<string, unknown>;
+    blocked[key] = '/external/assets';
+    await assert.rejects(
+      resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([blocked]), versions: f.versions, snapshots: f.snapshots }),
+      new RegExp(key),
+      `${key} is rejected on a preset-backed dataset`,
+    );
+    for (const empty of [null, '']) {
+      const allowed = dataset('v1') as DatasetConfig & Record<string, unknown>;
+      allowed[key] = empty;
+      await resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([allowed]), versions: f.versions, snapshots: f.snapshots });
+    }
+  }
+  const live = dataset() as DatasetConfig & Record<string, unknown>;
+  live.mask_path = '/external/live-mask';
+  const resolved = await resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([live]), versions: f.versions, snapshots: f.snapshots });
+  assert.equal(resolved.jobConfig.config.process[0].datasets[0].mask_path, '/external/live-mask');
 }
 
 async function runArchiveAndFailureTests(): Promise<void> {
@@ -270,6 +303,7 @@ async function runPreflightTests(): Promise<void> {
 
 async function main(): Promise<void> {
   await runResolutionTests();
+  await runExternalAuxiliaryPathTests();
   await runArchiveAndFailureTests();
   await runSaveTests();
   await runLaterProcessValidationTests();

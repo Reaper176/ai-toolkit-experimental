@@ -6,6 +6,7 @@ import {
   manifestSha256,
   normalizePresetName,
   normalizeRelativeMediaPath,
+  isSupportedDatasetMediaPath,
   serializeManifest,
   validateLoaderConfig,
   validateManifest,
@@ -62,6 +63,12 @@ const manifest = buildDatasetPresetManifest({
 });
 
 assert.equal(DATASET_PRESET_SCHEMA_VERSION, 1);
+for (const path of ['image.JPG', 'video.Mp4', 'audio.FLAC', 'nested/a.webp']) {
+  assert.equal(isSupportedDatasetMediaPath(path), true, `${path} is supported by dataset listing and publication`);
+}
+for (const path of ['README', 'caption.txt', 'archive.zip', 'sidecar.json']) {
+  assert.equal(isSupportedDatasetMediaPath(path), false, `${path} is not publishable media`);
+}
 assert.equal(manifest.schema_version, 1);
 assert.equal(manifest.media_count, 1);
 assert.equal(manifest.total_bytes, 9);

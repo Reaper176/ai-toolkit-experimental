@@ -98,6 +98,16 @@ assert.match(pageSource, /useState<Set<string>>/, 'selection remains owned by th
 assert.match(pageSource, /baseSelection/, 'page keeps a base selection for dirty checks');
 assert.match(
   pageSource,
+  /activeVersion\.manifest\.files[\s\S]{0,220}selectedPaths\.has\(path\)/,
+  'every still-selected base-version path is retained from immutable snapshot storage',
+);
+assert.match(
+  pageSource,
+  /selectedPaths[\s\S]{0,220}!activeManifestPaths[^\n]*has\(path\)/,
+  'only paths absent from the base manifest are sent as newly selected live files',
+);
+assert.match(
+  pageSource,
   /applySelectionAction\(selectedPaths,\s*\[\.\.\.imgList\.map\(img\s*=>\s*img\.relative_path\),\s*\.\.\.sourceMissingPaths\],\s*action\)/,
 );
 assert.match(pageSource, /selected=\{selectedPaths\.has\(img\.relative_path\)\}/);
@@ -155,11 +165,6 @@ assert.match(
   pageSource,
   /manifest\.files\.map\(file\s*=>\s*file\.source_path\)/,
   'version selection includes every manifest path',
-);
-assert.match(
-  pageSource,
-  /selectedPaths\.has\(path\)\s*&&\s*!liveRelativePaths\.has\(path\)/,
-  'retained paths are selected base files missing from the source',
 );
 assert.match(pageSource, /await refreshPresets\(\)/, 'publication refreshes the preset list');
 assert.match(pageSource, /setBaseSelection\(/, 'publication establishes a clean immutable base selection');
