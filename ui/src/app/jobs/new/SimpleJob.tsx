@@ -34,6 +34,7 @@ import { handleModelArchChange } from './utils';
 import { IoFlaskSharp } from 'react-icons/io5';
 import { isMac } from '@/helpers/basic';
 import { normalizeOptionalModelPath } from '@/helpers/animaModelPaths';
+import DatasetSourceControl from '@/components/DatasetSourceControl';
 
 type Props = {
   jobConfig: JobConfig;
@@ -1170,11 +1171,10 @@ export default function SimpleJob({
                   <h2 className="text-lg font-bold mb-4">Dataset {i + 1}</h2>
                   <div className={datasetStyleClass}>
                     <div>
-                      <SelectInput
-                        label="Target Dataset"
-                        value={dataset.folder_path}
-                        onChange={value => setJobConfig(value, `config.process[0].datasets[${i}].folder_path`)}
-                        options={datasetOptions}
+                      <DatasetSourceControl
+                        dataset={dataset}
+                        liveOptions={datasetOptions}
+                        onChange={next => setJobConfig(next, `config.process[0].datasets[${i}]`)}
                       />
                       {modelArch?.additionalSections?.includes('datasets.control_path') && (
                         <SelectInput

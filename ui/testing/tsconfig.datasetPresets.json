@@ -27,6 +27,7 @@
     "../src/components/DatasetProvenance.tsx",
     "datasetPreset*.test.ts",
     "datasetPreset*.test.tsx",
+    "datasetSourceControl.test.tsx",
     "jobDatasetPresets.test.ts"
   ],
   "exclude": ["../.next", "../node_modules"]

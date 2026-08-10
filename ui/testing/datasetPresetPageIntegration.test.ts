@@ -6,6 +6,8 @@ import ts from 'typescript';
 const pageSource = readFileSync(resolve(process.cwd(), 'src/app/datasets/[datasetName]/page.tsx'), 'utf8');
 const cardSource = readFileSync(resolve(process.cwd(), 'src/components/DatasetImageCard.tsx'), 'utf8');
 const runnerSource = readFileSync(resolve(process.cwd(), 'testing/runDatasetPresetTests.mjs'), 'utf8');
+const simpleJobSource = readFileSync(resolve(process.cwd(), 'src/app/jobs/new/SimpleJob.tsx'), 'utf8');
+const jobPageSource = readFileSync(resolve(process.cwd(), 'src/app/jobs/new/page.tsx'), 'utf8');
 const page = ts.createSourceFile('page.tsx', pageSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 
 assert.match(runnerSource, /datasetPresetSelection\.test\.js/, 'selection test must be required by the runner');
@@ -15,6 +17,21 @@ assert.match(
   'page integration test must be required by the runner',
 );
 assert.match(runnerSource, /datasetPresetDialog\.test\.js/, 'dialog test must be required by the runner');
+assert.match(runnerSource, /datasetSourceControl\.test\.js/, 'training source-control test must be required by the runner');
+assert.match(simpleJobSource, /<DatasetSourceControl\b/, 'dataset blocks render the shared source control');
+assert.doesNotMatch(
+  simpleJobSource,
+  /<SelectInput\s+label=["']Target Dataset["']/,
+  'the old target selector is replaced instead of duplicated',
+);
+assert.match(
+  simpleJobSource,
+  /onChange=\{next\s*=>\s*setJobConfig\(next,\s*`config\.process\[0\]\.datasets\[\$\{i\}\]`\)\}/,
+  'source changes replace the same dataset object edited by all loader controls',
+);
+assert.match(jobPageSource, /removeArchivedPresetSourcesFromClone/, 'clone hydration checks stored preset availability');
+assert.match(jobPageSource, /archived_at\s*!==\s*null/, 'archived presets are unavailable to cloned jobs');
+assert.match(jobPageSource, /dataset_preset/, 'job hydration preserves stored preset metadata');
 assert.match(pageSource, /relative_path:\s*string/, 'entries retain a normalized relative path');
 assert.match(pageSource, /normalizeRelativeMediaPath\(subPath\)/, 'server response paths are normalized before use');
 assert.match(
