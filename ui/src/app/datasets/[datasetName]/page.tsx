@@ -8,6 +8,7 @@ import { VirtuosoGrid } from 'react-virtuoso';
 import DatasetImageCard from '@/components/DatasetImageCard';
 import DatasetSelectionToolbar from '@/components/DatasetSelectionToolbar';
 import DatasetSourceMissingList from '@/components/DatasetSourceMissingList';
+import DatasetPresetLifecycleControls, { type LifecycleChange } from '@/components/DatasetPresetLifecycleControls';
 import DatasetPresetDialog, {
   DEFAULT_DATASET_PRESET_LOADER_CONFIG,
   type DatasetPresetDialogInitialValues,
@@ -250,6 +251,38 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
     applyLoadedVersion(version);
   };
 
+  const handleLifecycleChanged = async (change: LifecycleChange) => {
+    const request = presetRequestGateRef.current.begin();
+    setPresetLoadError(null);
+    if (change.preset && request.isCurrent()) {
+      setActivePreset(change.preset);
+      setActivePresetDetail(change.preset);
+    }
+    if (change.version && request.isCurrent()) setActiveVersion(change.version);
+    try {
+      await refreshPresets();
+      if (!request.isCurrent()) return;
+      if (change.deletedVersionId && activePresetDetail) {
+        const detail = await loadPreset(activePresetDetail.id);
+        if (!request.isCurrent()) return;
+        setActivePreset(detail);
+        setActivePresetDetail(detail);
+        const latest = [...detail.versions].sort((left, right) => right.version - left.version)[0];
+        if (!latest) {
+          setActiveVersion(null);
+          setBaseSelection(new Set());
+          return;
+        }
+        const version = await loadVersion(latest.id);
+        if (request.isCurrent()) applyLoadedVersion(version);
+      }
+    } catch (error) {
+      if (request.isCurrent()) {
+        setPresetLoadError(error instanceof Error ? error.message : 'Unable to refresh dataset preset state');
+      }
+    }
+  };
+
   const dialogInitialValues = useMemo<DatasetPresetDialogInitialValues>(
     () => ({
       name: activePreset?.name ?? '',
@@ -487,6 +520,11 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
                   className="ml-2 rounded bg-gray-800 px-2 py-1 text-sm"
                 >
                   <option value="">New preset</option>
+                  {activePreset &&
+                    activePreset.archived_at !== null &&
+                    !presets.some(preset => preset.id === activePreset.id) && (
+                      <option value={activePreset.id}>{activePreset.name} (archived)</option>
+                    )}
                   {presets.map(preset => (
                     <option key={preset.id} value={preset.id}>
                       {preset.name}
@@ -511,9 +549,18 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
                 </select>
               </label>
               {activePreset && activeVersion && (
-                <p className="text-sm text-gray-200">
-                  {activePreset.name} / version {activeVersion.version}
-                </p>
+                <>
+                  <p className="text-sm text-gray-200">
+                    {activePreset.name} / version {activeVersion.version}
+                  </p>
+                  {activePresetDetail && (
+                    <DatasetPresetLifecycleControls
+                      preset={activePresetDetail}
+                      version={activeVersion}
+                      onChanged={handleLifecycleChanged}
+                    />
+                  )}
+                </>
               )}
               {(presetError || presetLoadError) && (
                 <p role="alert" className="text-sm text-red-400">

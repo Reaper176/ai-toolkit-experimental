@@ -63,6 +63,7 @@ class MemoryStore implements DatasetPresetStore {
   listActiveWithVersionsCalls = 0;
   listVersionsCalls = 0;
   getVersionCalls = 0;
+  countVersionUsagesCalls = 0;
   beforeInsertReservedVersion?: () => void | Promise<void>;
 
   async listActive(): Promise<DatasetPresetRow[]> {
@@ -170,6 +171,7 @@ class MemoryStore implements DatasetPresetStore {
     return clone(this.versions.find(row => row.id === id) ?? null);
   }
   async countVersionUsages(id: string): Promise<number> {
+    this.countVersionUsagesCalls += 1;
     return this.usages.get(id) ?? 0;
   }
   async deleteVersion(id: string): Promise<void> {
@@ -341,9 +343,12 @@ async function main(): Promise<void> {
   });
   const verifiedDetailPreset = await verifiedDetailService.createPreset({ ...publishInput, name: 'Verified detail' });
   const verifiedDetailVersionId = verifiedDetailPreset.versions[0].id;
+  verifiedDetailStore.usages.set(verifiedDetailVersionId, 7);
   const readsBeforeVerifiedDetail = verifiedDetailStore.getVersionCalls;
   const fullChecksBeforeVerifiedDetail = verifiedDetailSnapshots.fullChecks;
   const verifiedDetail = await verifiedDetailService.verifyVersionDetail(verifiedDetailVersionId, true);
+  assert.equal(verifiedDetail.reference_count, 7, 'version detail exposes authoritative usage count');
+  assert.equal(verifiedDetailStore.countVersionUsagesCalls, 1, 'detail uses one aggregate count query');
   assert.equal(verifiedDetailStore.getVersionCalls - readsBeforeVerifiedDetail, 1);
   assert.equal(verifiedDetailSnapshots.fullChecks - fullChecksBeforeVerifiedDetail, 1);
   verifiedDetail.loader_config.num_repeats = 999;

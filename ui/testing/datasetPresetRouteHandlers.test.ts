@@ -79,7 +79,7 @@ const detail: DatasetPresetDetail = {
   updated_at: '2025-01-01T00:00:00.000Z',
   versions: [version],
 };
-const versionDetail: DatasetPresetVersionDetail = { ...version, manifest };
+const versionDetail: DatasetPresetVersionDetail = { ...version, reference_count: 0, manifest };
 
 class FakeService implements DatasetPresetService {
   calls: Array<{ method: string; args: unknown[] }> = [];

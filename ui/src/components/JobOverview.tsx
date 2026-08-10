@@ -8,9 +8,11 @@ import { getTotalSteps } from '@/utils/jobs';
 import { Cpu, HardDrive, Info, Gauge } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import useJobLog from '@/hooks/useJobLog';
+import DatasetProvenance from '@/components/DatasetProvenance';
+import type { JobDatasetPresetUsageView } from '@/types';
 
 interface JobOverviewProps {
-  job: Job;
+  job: Job & { dataset_preset_usages?: JobDatasetPresetUsageView[] };
 }
 
 export default function JobOverview({ job }: JobOverviewProps) {
@@ -138,6 +140,8 @@ export default function JobOverview({ job }: JobOverviewProps) {
               </div>
             </div>
           </div>
+
+          <DatasetProvenance usages={job.dataset_preset_usages ?? []} />
 
           {/* Log - Now using flex-grow to fill remaining space */}
           <div className="bg-gray-950 rounded-lg p-4 relative flex-grow min-h-60">

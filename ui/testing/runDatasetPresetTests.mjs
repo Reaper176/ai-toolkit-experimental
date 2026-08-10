@@ -18,6 +18,7 @@ const testFiles = [
   'datasetPresetDialog.test.js',
   'datasetSourceControl.test.js',
   'datasetPresetPageIntegration.test.js',
+  'datasetProvenance.test.js',
   'jobDatasetPresets.test.js',
   'jobDatasetSaveRequest.test.js',
   'jobDatasetPresetPrismaIntegration.test.js',

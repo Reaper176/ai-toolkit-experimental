@@ -41,8 +41,11 @@ export interface DatasetPresetVersionRecord {
 }
 
 export interface DatasetPresetVersionDetail extends DatasetPresetVersionRecord {
+  reference_count: number;
   manifest: DatasetPresetManifestV1;
 }
+
+type VerifiedDatasetPresetVersion = DatasetPresetVersionRecord & { manifest: DatasetPresetManifestV1 };
 
 export interface DatasetPresetDetail extends DatasetPresetSummary {
   versions: DatasetPresetVersionRecord[];
@@ -359,7 +362,7 @@ export function createDatasetPresetService(dependencies: {
   async function getVerifiedVersion(
     row: DatasetPresetVersionRow,
     verification: 'read' | 'fast' | 'full',
-  ): Promise<DatasetPresetVersionDetail> {
+  ): Promise<VerifiedDatasetPresetVersion> {
     let manifest: DatasetPresetManifestV1;
     try {
       manifest = await (verification === 'full'
@@ -371,6 +374,20 @@ export function createDatasetPresetService(dependencies: {
       throw storageError('Dataset preset snapshot is unavailable', error);
     }
     return { ...versionDto(row), manifest: assertManifestAgreement(row, manifest) };
+  }
+
+  async function getVersionDetail(
+    row: DatasetPresetVersionRow,
+    verification: 'read' | 'fast' | 'full',
+  ): Promise<DatasetPresetVersionDetail> {
+    const verified = await getVerifiedVersion(row, verification);
+    let referenceCount: number;
+    try {
+      referenceCount = await store.countVersionUsages(row.id);
+    } catch (error) {
+      throw storageError('Dataset preset storage is unavailable', error);
+    }
+    return { ...verified, reference_count: referenceCount };
   }
 
   async function rollbackAndCleanup(
@@ -617,7 +634,7 @@ export function createDatasetPresetService(dependencies: {
 
     async getVersion(versionIdInput: string): Promise<DatasetPresetVersionDetail> {
       const versionId = validateId(versionIdInput, 'Version id');
-      return getVerifiedVersion(await getVersionRow(versionId), 'read');
+      return getVersionDetail(await getVersionRow(versionId), 'read');
     },
 
     async verifyVersion(versionIdInput: string, full: boolean): Promise<DatasetPresetManifestV1> {
@@ -627,7 +644,7 @@ export function createDatasetPresetService(dependencies: {
     async verifyVersionDetail(versionIdInput: string, full: boolean): Promise<DatasetPresetVersionDetail> {
       const versionId = validateId(versionIdInput, 'Version id');
       if (typeof full !== 'boolean') throw new DatasetPresetValidationError('Full verification flag must be a boolean');
-      return getVerifiedVersion(await getVersionRow(versionId), full ? 'full' : 'fast');
+      return getVersionDetail(await getVersionRow(versionId), full ? 'full' : 'fast');
     },
 
     async deleteVersion(versionIdInput: string): Promise<void> {

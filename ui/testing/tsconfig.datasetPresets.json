@@ -27,8 +27,11 @@
     "../src/components/DatasetPresetDialog.tsx",
     "../src/components/DatasetSourceControl.tsx",
     "../src/components/DatasetProvenance.tsx",
+    "../src/components/DatasetPresetLifecycleControls.tsx",
+    "../src/hooks/useJob.tsx",
     "datasetPreset*.test.ts",
     "datasetPreset*.test.tsx",
+    "datasetProvenance.test.tsx",
     "datasetSourceControl.test.tsx",
     "jobDataset*.test.ts",
     "jobsRoute.test.ts"

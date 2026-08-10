@@ -8,6 +8,10 @@ const cardSource = readFileSync(resolve(process.cwd(), 'src/components/DatasetIm
 const runnerSource = readFileSync(resolve(process.cwd(), 'testing/runDatasetPresetTests.mjs'), 'utf8');
 const simpleJobSource = readFileSync(resolve(process.cwd(), 'src/app/jobs/new/SimpleJob.tsx'), 'utf8');
 const jobPageSource = readFileSync(resolve(process.cwd(), 'src/app/jobs/new/page.tsx'), 'utf8');
+const lifecycleSource = readFileSync(
+  resolve(process.cwd(), 'src/components/DatasetPresetLifecycleControls.tsx'),
+  'utf8',
+);
 const page = ts.createSourceFile('page.tsx', pageSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 
 assert.match(runnerSource, /datasetPresetSelection\.test\.js/, 'selection test must be required by the runner');
@@ -17,11 +21,23 @@ assert.match(
   'page integration test must be required by the runner',
 );
 assert.match(runnerSource, /datasetPresetDialog\.test\.js/, 'dialog test must be required by the runner');
-assert.match(runnerSource, /datasetSourceControl\.test\.js/, 'training source-control test must be required by the runner');
+assert.match(
+  runnerSource,
+  /datasetSourceControl\.test\.js/,
+  'training source-control test must be required by the runner',
+);
 assert.match(simpleJobSource, /<DatasetSourceControl\b/, 'dataset blocks render the shared source control');
 assert.match(simpleJobSource, /key=\{datasetBlockIds\[i\]\}/, 'dataset source controls use stable UI-only block keys');
-assert.match(simpleJobSource, /instanceToken=\{datasetBlockIds\[i\]\}/, 'dataset source controls receive their stable instance token');
-assert.doesNotMatch(simpleJobSource, /dataset_preset_ui_id/, 'UI block identities are never persisted in DatasetConfig');
+assert.match(
+  simpleJobSource,
+  /instanceToken=\{datasetBlockIds\[i\]\}/,
+  'dataset source controls receive their stable instance token',
+);
+assert.doesNotMatch(
+  simpleJobSource,
+  /dataset_preset_ui_id/,
+  'UI block identities are never persisted in DatasetConfig',
+);
 assert.doesNotMatch(
   simpleJobSource,
   /<SelectInput\s+label=["']Target Dataset["']/,
@@ -32,13 +48,21 @@ assert.match(
   /onChange=\{next\s*=>\s*setJobConfig\(next,\s*`config\.process\[0\]\.datasets\[\$\{i\}\]`\)\}/,
   'source changes replace the same dataset object edited by all loader controls',
 );
-assert.match(jobPageSource, /removeArchivedPresetSourcesFromClone/, 'clone hydration checks stored preset availability');
+assert.match(
+  jobPageSource,
+  /removeArchivedPresetSourcesFromClone/,
+  'clone hydration checks stored preset availability',
+);
 assert.match(
   jobPageSource,
   /buildTrainingJobSaveRequest\(\{[\s\S]{0,200}runId,[\s\S]{0,100}cloneId,/,
   'job saves derive the explicit clone flag from the actual clone query mode',
 );
-assert.match(jobPageSource, /canSaveTrainingJob\(presetReady,\s*jobConfig\)/, 'job saving validates readiness and every dataset source');
+assert.match(
+  jobPageSource,
+  /canSaveTrainingJob\(presetReady,\s*jobConfig\)/,
+  'job saving validates readiness and every dataset source',
+);
 assert.match(jobPageSource, /if\s*\(!presetReady\)\s*return/, 'all save entry points are blocked before hydration');
 assert.match(
   jobPageSource,
@@ -46,9 +70,17 @@ assert.match(
   'topbar save control is disabled before hydration',
 );
 assert.match(jobPageSource, /isLoading=\{[^}]*!presetReady[^}]*\}/, 'simple form is noninteractive before hydration');
-assert.match(simpleJobSource, /inert=\{isLoading\s*\?\s*true\s*:\s*undefined\}/, 'blocked simple form is removed from keyboard interaction');
+assert.match(
+  simpleJobSource,
+  /inert=\{isLoading\s*\?\s*true\s*:\s*undefined\}/,
+  'blocked simple form is removed from keyboard interaction',
+);
 assert.match(simpleJobSource, /aria-busy=\{isLoading\}/, 'blocked simple form exposes semantic busy state');
-assert.match(jobPageSource, /inert=\{!presetReady\s*\?\s*true\s*:\s*undefined\}/, 'advanced editor is inert during hydration');
+assert.match(
+  jobPageSource,
+  /inert=\{!presetReady\s*\?\s*true\s*:\s*undefined\}/,
+  'advanced editor is inert during hydration',
+);
 assert.ok(
   jobPageSource.indexOf('loadedJobConfig = await removeArchivedPresetSourcesFromClone') <
     jobPageSource.indexOf("dispatchPresetPage({ type: 'external-load-succeeded'"),
@@ -146,6 +178,14 @@ assert.match(
 assert.match(pageSource, /if \(!request\.isCurrent\(\)\) return/, 'stale preset results and errors are ignored');
 assert.match(pageSource, /if \(!latest\) return/, 'empty presets remain cleared instead of retaining an old version');
 assert.match(pageSource, /presetLoadError/, 'current preset load failures are recoverable in the toolbar');
+assert.match(pageSource, /DatasetPresetLifecycleControls/, 'active versions expose lifecycle management');
+assert.match(pageSource, /handleLifecycleChanged/, 'successful lifecycle actions refresh authoritative page state');
+assert.match(
+  lifecycleSource,
+  /reference_count\s*===\s*0/,
+  'permanent delete visibility is driven by authoritative version detail',
+);
+assert.match(pageSource, /archived_at\s*!==\s*null/, 'an active archived preset remains readable and can be restored');
 
 const jsx = page.statements.find(ts.isFunctionDeclaration);
 assert.ok(jsx || pageSource.includes('selectionMode'), 'selection state stays in the page component');

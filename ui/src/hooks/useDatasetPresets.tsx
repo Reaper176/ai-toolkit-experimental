@@ -30,6 +30,7 @@ export interface DatasetPresetVersionRecord {
 }
 
 export interface DatasetPresetVersionDetail extends DatasetPresetVersionRecord {
+  reference_count: number;
   manifest: DatasetPresetManifestV1;
 }
 
