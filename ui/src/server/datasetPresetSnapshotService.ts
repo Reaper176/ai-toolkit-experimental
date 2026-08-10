@@ -63,8 +63,11 @@ export interface StagedPublication {
 export class DatasetPresetSnapshotConflictError extends Error {
   readonly code = 'version_exists';
 
-  constructor(message = 'Dataset preset snapshot version already exists') {
-    super(message);
+  constructor(
+    message = 'Dataset preset snapshot version already exists',
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
     this.name = 'DatasetPresetSnapshotConflictError';
   }
 }
@@ -373,7 +376,9 @@ export function createDatasetPresetSnapshotStore(
 
   function validateAccountBoundary(info: BigIntStats, label: string): void {
     if (process.platform === 'win32') return;
-    if ((info.mode & 0o022n) !== 0n) throw new Error(`${label} must not be group/world writable`);
+    if ((info.mode & BigInt(0o022)) !== BigInt(0)) {
+      throw new Error(`${label} must not be group/world writable`);
+    }
     const getuid = process.getuid;
     if (typeof getuid === 'function' && info.uid !== BigInt(getuid())) {
       throw new Error(`${label} must be owned by the application account`);
@@ -830,9 +835,26 @@ export function createDatasetPresetSnapshotStore(
           validateDirectoryPinSync(presetPin, 'Preset root', managedRoot);
           validateDirectoryPinSync(ownedPin, 'Owned staging directory', presetRoot);
           if (await pathExists(versionRoot)) {
-            throw new DatasetPresetSnapshotConflictError(`Dataset preset snapshot version v${version} already exists`);
+            const cause = Object.assign(new Error('Final snapshot version destination already exists'), {
+              code: 'EEXIST',
+            });
+            throw new DatasetPresetSnapshotConflictError(
+              `Dataset preset snapshot version v${version} already exists`,
+              { cause },
+            );
           }
-          await rename(stagingRoot, versionRoot);
+          try {
+            await rename(stagingRoot, versionRoot);
+          } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            if ((code === 'EEXIST' || code === 'ENOTEMPTY') && await pathExists(versionRoot)) {
+              throw new DatasetPresetSnapshotConflictError(
+                `Dataset preset snapshot version v${version} already exists`,
+                { cause: error },
+              );
+            }
+            throw error;
+          }
           ownedPin = validateMovedDirectoryPin(ownedPin, versionRoot, 'Owned published directory');
           state = 'published';
         },

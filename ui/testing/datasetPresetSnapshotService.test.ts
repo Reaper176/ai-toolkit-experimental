@@ -182,9 +182,15 @@ async function main(): Promise<void> {
     assert.equal(typeof managedIdentity.dev, 'bigint');
     assert.equal(typeof managedIdentity.ino, 'bigint');
     if (process.platform !== 'win32') {
-      assert.equal(managedIdentity.mode & 0o777n, 0o700n);
-      assert.equal(statSync(dirname(publication.versionRoot), { bigint: true }).mode & 0o777n, 0o700n);
-      assert.equal(statSync(publication.versionRoot, { bigint: true }).mode & 0o777n, 0o700n);
+      assert.equal(managedIdentity.mode & BigInt(0o777), BigInt(0o700));
+      assert.equal(
+        statSync(dirname(publication.versionRoot), { bigint: true }).mode & BigInt(0o777),
+        BigInt(0o700),
+      );
+      assert.equal(
+        statSync(publication.versionRoot, { bigint: true }).mode & BigInt(0o777),
+        BigInt(0o700),
+      );
     }
     await publication.publish();
     const verified = await store.verifyFast(publication.manifestPath);
@@ -493,12 +499,39 @@ async function main(): Promise<void> {
       selectedPaths: ['b.png'], captionExt: 'txt', loaderConfig, note: null,
     });
     await winner.publish();
+    let collisionError: DatasetPresetSnapshotConflictError | undefined;
     await assert.rejects(
       () => loser.publish(),
-      error => error instanceof DatasetPresetSnapshotConflictError && error.code === 'version_exists',
+      error => {
+        if (!(error instanceof DatasetPresetSnapshotConflictError)) return false;
+        collisionError = error;
+        return error.code === 'version_exists';
+      },
     );
+    assert.equal(collisionError?.cause instanceof Error, true);
+    assert.equal(collisionError?.message.includes(dataRoot), false);
     await loser.rollback();
     assert.equal(existsSync(winner.versionRoot), true);
+
+    if (symlinksSupported) {
+      const genericFailure = await store.stageVersion({
+        presetId: 'generic-publish-failure', version: 1, presetName: 'Generic', sourceDataset: 'my-images', sourceRoot,
+        selectedPaths: ['new.webp'], captionExt: 'txt', loaderConfig, note: null,
+      });
+      const genericPresetRoot = dirname(genericFailure.versionRoot);
+      const genericPresetMoved = `${genericPresetRoot}-real`;
+      const genericOutside = join(ownedRoot, 'generic-publish-outside');
+      mkdirSync(genericOutside);
+      renameSync(genericPresetRoot, genericPresetMoved);
+      symlinkSync(genericOutside, genericPresetRoot, process.platform === 'win32' ? 'junction' : 'dir');
+      await assert.rejects(
+        () => genericFailure.publish(),
+        error => error instanceof Error && !(error instanceof DatasetPresetSnapshotConflictError),
+      );
+      unlinkSync(genericPresetRoot);
+      renameSync(genericPresetMoved, genericPresetRoot);
+      await genericFailure.rollback();
+    }
 
     const verifyPublication = await store.stageVersion({
       presetId: 'verification', version: 1, presetName: 'Verify', sourceDataset: 'my-images', sourceRoot,
