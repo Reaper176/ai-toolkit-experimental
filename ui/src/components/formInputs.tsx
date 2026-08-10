@@ -181,6 +181,7 @@ export interface NumberInputProps extends InputProps {
   min?: number;
   max?: number;
   disabled?: boolean;
+  onValuePresenceChange?: (hasValue: boolean) => void;
 }
 
 export const NumberInput = (props: NumberInputProps) => {
@@ -197,6 +198,7 @@ export const NumberInput = (props: NumberInputProps) => {
     ariaInvalid,
     ariaDescribedBy,
     disabled,
+    onValuePresenceChange,
   } = props;
   let { doc } = props;
   if (!doc && docKey) {
@@ -237,6 +239,7 @@ export const NumberInput = (props: NumberInputProps) => {
 
           // Handle empty or partial inputs
           if (rawValue === '' || rawValue === '-') {
+            onValuePresenceChange?.(false);
             // For empty or partial negative input, don't call onChange yet
             return;
           }
@@ -246,12 +249,16 @@ export const NumberInput = (props: NumberInputProps) => {
           // don't clamp to min/max while typing, it mangles partial input (typing 1024 with
           // min 64 becomes 64024). Clamping happens on blur.
           if (!isNaN(numValue)) {
+            onValuePresenceChange?.(true);
             onChange(numValue);
+          } else {
+            onValuePresenceChange?.(false);
           }
         }}
         onBlur={() => {
           const numValue = Number(inputValue);
           if (inputValue === '' || isNaN(numValue)) {
+            onValuePresenceChange?.(false);
             return;
           }
           let constrainedValue = numValue;
@@ -385,6 +392,11 @@ export const CreatableSelectInput = (props: CreatableSelectInputProps) => {
   const inputId = props.id ?? generatedId;
   const selectInputId = `${inputId}-choice`;
   const customInputId = `${inputId}-custom`;
+
+  React.useEffect(() => {
+    if (value) setIsCustom(!isInOptions);
+    else if (isInOptions) setIsCustom(false);
+  }, [isInOptions, value]);
 
   // Build select options with "Custom" at the top
   const customOption: SelectOption = { value: CUSTOM_SELECT_VALUE, label: 'Custom' };

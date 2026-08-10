@@ -91,6 +91,8 @@ type FormState = {
   controls: string;
 };
 
+type NumericField = 'captionDropoutRate' | 'numRepeats' | 'networkWeight' | 'numFrames' | 'fps';
+
 function initialForm(values: DatasetPresetDialogInitialValues): FormState {
   const loader = values.loaderConfig;
   return {
@@ -136,6 +138,7 @@ function normalizedUnique(paths: readonly string[]): string[] {
 function validateForm(
   form: FormState,
   requireName: boolean,
+  emptyNumericFields: ReadonlySet<NumericField>,
 ): { errors: Record<string, string>; name?: string; loader?: DatasetPresetLoaderConfig } {
   const errors: Record<string, string> = {};
   let name: string | undefined;
@@ -156,18 +159,18 @@ function validateForm(
   const untrustedLoader = {
     caption_ext: form.captionExt,
     default_caption: form.defaultCaption,
-    caption_dropout_rate: form.captionDropoutRate,
+    caption_dropout_rate: emptyNumericFields.has('captionDropoutRate') ? null : form.captionDropoutRate,
     shuffle_tokens: form.shuffleTokens,
-    num_repeats: form.numRepeats,
+    num_repeats: emptyNumericFields.has('numRepeats') ? null : form.numRepeats,
     resolution,
     is_reg: form.isReg,
-    network_weight: form.networkWeight,
+    network_weight: emptyNumericFields.has('networkWeight') ? null : form.networkWeight,
     cache_latents_to_disk: form.cacheLatentsToDisk,
     flip_x: form.flipX,
     flip_y: form.flipY,
-    num_frames: form.numFrames,
+    num_frames: emptyNumericFields.has('numFrames') ? null : form.numFrames,
     shrink_video_to_frames: form.shrinkVideoToFrames,
-    fps: form.fps,
+    fps: emptyNumericFields.has('fps') ? null : form.fps,
     auto_frame_count: form.autoFrameCount,
     do_i2v: form.doI2v,
     do_audio: form.doAudio,
@@ -216,6 +219,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [responseError, setResponseError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [emptyNumericFields, setEmptyNumericFields] = useState<Set<NumericField>>(() => new Set());
   const pendingRef = useRef(false);
 
   useEffect(() => {
@@ -224,6 +228,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
       setFieldErrors({});
       setResponseError(null);
       setPending(false);
+      setEmptyNumericFields(new Set());
       pendingRef.current = false;
     }
   }, [props.isOpen, props.initialValues]);
@@ -236,11 +241,18 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
   );
   const setField = <Key extends keyof FormState>(key: Key, value: FormState[Key]) =>
     setForm(current => ({ ...current, [key]: value }));
+  const setNumericPresence = (key: NumericField, hasValue: boolean) =>
+    setEmptyNumericFields(current => {
+      const next = new Set(current);
+      if (hasValue) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (pendingRef.current || selectedPaths.length + retainedPaths.length === 0) return;
-    const validation = validateForm(form, props.mode === 'create');
+    const validation = validateForm(form, props.mode === 'create', emptyNumericFields);
     setFieldErrors(validation.errors);
     if (!validation.loader) return;
     pendingRef.current = true;
@@ -363,6 +375,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
               label="Caption dropout rate"
               value={form.captionDropoutRate}
               onChange={value => setField('captionDropoutRate', value)}
+              onValuePresenceChange={hasValue => setNumericPresence('captionDropoutRate', hasValue)}
               disabled={pending}
               {...errorProps('captionDropoutRate')}
             />
@@ -373,6 +386,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
               label="Number of repeats"
               value={form.numRepeats}
               onChange={value => setField('numRepeats', value)}
+              onValuePresenceChange={hasValue => setNumericPresence('numRepeats', hasValue)}
               disabled={pending}
               {...errorProps('numRepeats')}
             />
@@ -393,6 +407,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
               label="Network weight"
               value={form.networkWeight}
               onChange={value => setField('networkWeight', value)}
+              onValuePresenceChange={hasValue => setNumericPresence('networkWeight', hasValue)}
               disabled={pending}
               {...errorProps('networkWeight')}
             />
@@ -403,6 +418,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
               label="Number of frames"
               value={form.numFrames}
               onChange={value => setField('numFrames', value)}
+              onValuePresenceChange={hasValue => setNumericPresence('numFrames', hasValue)}
               disabled={pending}
               {...errorProps('numFrames')}
             />
@@ -413,6 +429,7 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
               label="Frames per second"
               value={form.fps}
               onChange={value => setField('fps', value)}
+              onValuePresenceChange={hasValue => setNumericPresence('fps', hasValue)}
               disabled={pending}
               {...errorProps('fps')}
             />

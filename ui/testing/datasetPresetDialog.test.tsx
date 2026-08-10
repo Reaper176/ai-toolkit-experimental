@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import React from 'react';
 import TestRenderer, { act, type ReactTestInstance } from 'react-test-renderer';
 import DatasetPresetDialog, { DEFAULT_DATASET_PRESET_LOADER_CONFIG } from '../src/components/DatasetPresetDialog';
+import { CreatableSelectInput } from '../src/components/formInputs';
 
 const dialogPath = resolve(process.cwd(), 'src/components/DatasetPresetDialog.tsx');
 const hookPath = resolve(process.cwd(), 'src/hooks/useDatasetPresets.tsx');
@@ -109,6 +110,90 @@ const accessibleLabels = [
 ];
 
 async function testDialogBehavior(): Promise<void> {
+  const captionOptions = [
+    { value: 'txt', label: 'txt' },
+    { value: 'json', label: 'json' },
+  ];
+  let controlledCaption = 'txt';
+  let creatableRenderer: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    creatableRenderer = TestRenderer.create(
+      <CreatableSelectInput
+        label="Caption extension"
+        value={controlledCaption}
+        options={captionOptions}
+        onChange={value => {
+          controlledCaption = value;
+        }}
+      />,
+    );
+  });
+  await act(async () => {
+    creatableRenderer!.update(
+      <CreatableSelectInput
+        label="Caption extension"
+        value=".cap"
+        options={captionOptions}
+        onChange={value => {
+          controlledCaption = value;
+        }}
+      />,
+    );
+  });
+  const customCaptionInput = creatableRenderer!.root.findAllByType('input').find(input => input.props.type === 'text');
+  assert.ok(customCaptionInput, 'controlled standard-to-custom value change shows the custom input');
+  assert.equal(customCaptionInput.props.value, '.cap');
+  await act(async () => {
+    creatableRenderer!.update(
+      <CreatableSelectInput
+        label="Caption extension"
+        value=".cap"
+        options={[...captionOptions, { value: '.cap', label: '.cap' }]}
+        onChange={value => {
+          controlledCaption = value;
+        }}
+      />,
+    );
+  });
+  assert.equal(
+    creatableRenderer!.root.findAllByType('input').filter(input => input.props.type === 'text').length,
+    0,
+    'adding the controlled value to options switches custom mode back to standard',
+  );
+  await act(async () => {
+    creatableRenderer!.update(
+      <CreatableSelectInput
+        label="Caption extension"
+        value=".cap"
+        options={captionOptions}
+        onChange={value => {
+          controlledCaption = value;
+        }}
+      />,
+    );
+  });
+  assert.ok(
+    creatableRenderer!.root.findAllByType('input').find(input => input.props.type === 'text'),
+    'removing the controlled value from options restores custom mode',
+  );
+  await act(async () => {
+    creatableRenderer!.update(
+      <CreatableSelectInput
+        label="Caption extension"
+        value="json"
+        options={captionOptions}
+        onChange={value => {
+          controlledCaption = value;
+        }}
+      />,
+    );
+  });
+  assert.equal(
+    creatableRenderer!.root.findAllByType('input').filter(input => input.props.type === 'text').length,
+    0,
+    'controlled custom-to-standard value change hides the custom input',
+  );
+
   let renderer: TestRenderer.ReactTestRenderer;
   await act(async () => {
     renderer = TestRenderer.create(
@@ -181,6 +266,41 @@ async function testDialogBehavior(): Promise<void> {
     await firstSubmit;
   });
 
+  const customInitialValues = {
+    ...initialValues,
+    captionExt: '.cap',
+    loaderConfig: { ...DEFAULT_DATASET_PRESET_LOADER_CONFIG, caption_ext: '.cap' },
+  };
+  const syncedDialogProps = { ...createProps, initialValues };
+  let syncedDialogRenderer: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    syncedDialogRenderer = TestRenderer.create(<DatasetPresetDialog {...syncedDialogProps} />);
+  });
+  await act(async () => {
+    syncedDialogRenderer!.update(<DatasetPresetDialog {...syncedDialogProps} initialValues={customInitialValues} />);
+  });
+  let syncedPayload: Record<string, unknown> | undefined;
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    syncedPayload = JSON.parse(String(init?.body));
+    return new Response(
+      JSON.stringify({
+        id: 'custom-caption-preset',
+        name: 'My images',
+        versions: [{ id: 'custom-caption-version', preset_id: 'custom-caption-preset', version: 1 }],
+      }),
+      { status: 201, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch;
+  await act(async () => {
+    await syncedDialogRenderer!.root.findByType('form').props.onSubmit({ preventDefault() {} });
+  });
+  assert.equal(syncedPayload?.caption_ext, '.cap', 'controlled custom caption value is submitted');
+  assert.equal(
+    (syncedPayload?.loader_config as { caption_ext?: string }).caption_ext,
+    '.cap',
+    'controlled custom caption value remains synchronized in loader config',
+  );
+
   fetchCalls = [];
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     fetchCalls.push({ url: String(url), init });
@@ -250,10 +370,71 @@ async function testDialogBehavior(): Promise<void> {
     'field-level validation is visible',
   );
 
+  const numericFields = [
+    ['Caption dropout rate', 'caption_dropout_rate'],
+    ['Number of repeats', 'num_repeats'],
+    ['Network weight', 'network_weight'],
+    ['Number of frames', 'num_frames'],
+    ['Frames per second', 'fps'],
+  ] as const;
+  const numericRenderers: TestRenderer.ReactTestRenderer[] = [];
+  for (const [label, canonicalKey] of numericFields) {
+    let numericFetches = 0;
+    globalThis.fetch = (async () => {
+      numericFetches += 1;
+      return new Response(
+        JSON.stringify({
+          id: 'stale-number-preset',
+          name: 'My images',
+          versions: [{ id: 'stale-number-version', preset_id: 'stale-number-preset', version: 1 }],
+        }),
+        { status: 201, headers: { 'content-type': 'application/json' } },
+      );
+    }) as typeof fetch;
+    let numericRenderer: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      numericRenderer = TestRenderer.create(<DatasetPresetDialog {...createProps} />);
+    });
+    numericRenderers.push(numericRenderer!);
+    const control = labelControl(numericRenderer!.root, label);
+    await act(async () => control.props.onChange({ target: { value: '' } }));
+    await act(async () => {
+      await numericRenderer!.root.findByType('form').props.onSubmit({ preventDefault() {} });
+    });
+    assert.equal(numericFetches, 0, `clearing ${label} cannot publish its stale prior number`);
+    assert.ok(
+      numericRenderer!.root
+        .findAll(node => node.props.role === 'alert')
+        .some(node => textOf(node).includes(canonicalKey)),
+      `${label} displays its canonical field validation error`,
+    );
+  }
+
+  let partialRenderer: TestRenderer.ReactTestRenderer;
   await act(async () => {
+    partialRenderer = TestRenderer.create(<DatasetPresetDialog {...createProps} />);
+  });
+  let partialFetches = 0;
+  globalThis.fetch = (async () => {
+    partialFetches += 1;
+    return new Response('{}', { status: 201 });
+  }) as typeof fetch;
+  await act(async () =>
+    labelControl(partialRenderer!.root, 'Number of repeats').props.onChange({ target: { value: '-' } }),
+  );
+  await act(async () => {
+    await partialRenderer!.root.findByType('form').props.onSubmit({ preventDefault() {} });
+  });
+  assert.equal(partialFetches, 0, 'a partial negative numeric input cannot publish its stale prior number');
+
+  await act(async () => {
+    creatableRenderer!.unmount();
     renderer!.unmount();
     serverErrorRenderer!.unmount();
     invalidRenderer!.unmount();
+    syncedDialogRenderer!.unmount();
+    partialRenderer!.unmount();
+    for (const numericRenderer of numericRenderers) numericRenderer.unmount();
   });
   console.error = originalError;
 }
