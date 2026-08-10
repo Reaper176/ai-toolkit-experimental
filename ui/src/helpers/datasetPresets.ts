@@ -98,6 +98,8 @@ const EXTERNAL_PATH_KEYS = new Set([
   'clip_image_path',
 ]);
 const SHA256 = /^[a-f0-9]{64}$/;
+const CAPTION_EXTENSION = /^\.?[A-Za-z0-9_-]{1,32}$/;
+const WINDOWS_RESERVED_BASENAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -140,7 +142,7 @@ function requireFiniteNumber(value: unknown, path: string): number {
 
 function requirePositiveInteger(value: unknown, path: string): number {
   const number = requireFiniteNumber(value, path);
-  if (!Number.isInteger(number) || number <= 0) throw new Error(`${path} must be a positive integer`);
+  if (!Number.isSafeInteger(number) || number <= 0) throw new Error(`${path} must be a positive safe integer`);
   return number;
 }
 
@@ -154,6 +156,26 @@ function requireNonnegativeSafeInteger(value: unknown, path: string): number {
 function requireSha256(value: unknown, path: string): string {
   if (typeof value !== 'string' || !SHA256.test(value)) throw new Error(`${path} must be a lowercase SHA-256 hash`);
   return value;
+}
+
+function validateCaptionExtension(value: unknown, path: string): string {
+  if (typeof value !== 'string' || !CAPTION_EXTENSION.test(value)) {
+    throw new Error(`${path} must be a safe caption extension`);
+  }
+  return value;
+}
+
+function portablePathKey(path: string): string {
+  return path.toLowerCase();
+}
+
+function requireCanonicalUtcMillisecondTimestamp(value: unknown, path: string): string {
+  const timestamp = requireText(value, path);
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime()) || date.toISOString() !== timestamp) {
+    throw new Error(`${path} must be a canonical UTC millisecond ISO timestamp`);
+  }
+  return timestamp;
 }
 
 function sortFiles(files: DatasetPresetManifestFile[]): DatasetPresetManifestFile[] {
@@ -181,8 +203,18 @@ export function normalizeRelativeMediaPath(input: unknown): string {
     throw new Error('Media path must be a nonempty relative path');
   }
   const segments = path.split('/');
-  if (segments.some(segment => segment.length === 0 || segment === '.' || segment === '..')) {
-    throw new Error('Media path must not contain empty, dot, or traversal segments');
+  if (
+    segments.some(
+      segment =>
+        segment.length === 0 ||
+        segment === '.' ||
+        segment === '..' ||
+        segment.includes(':') ||
+        /[. ]$/.test(segment) ||
+        WINDOWS_RESERVED_BASENAME.test(segment),
+    )
+  ) {
+    throw new Error('Media path must contain portable safe segments');
   }
   return segments.join('/');
 }
@@ -190,7 +222,7 @@ export function normalizeRelativeMediaPath(input: unknown): string {
 export function validateLoaderConfig(untrusted: unknown): DatasetPresetLoaderConfig {
   const value = requirePlainObject(untrusted, 'Loader config');
   requireExactKeys(value, LOADER_CONFIG_KEYS, 'Loader config');
-  const captionExt = requireText(value.caption_ext, 'Loader config.caption_ext');
+  const captionExt = validateCaptionExtension(value.caption_ext, 'Loader config.caption_ext');
   const defaultCaption = requireText(value.default_caption, 'Loader config.default_caption', true);
   const captionDropoutRate = requireFiniteNumber(value.caption_dropout_rate, 'Loader config.caption_dropout_rate');
   if (captionDropoutRate < 0 || captionDropoutRate > 1) {
@@ -266,7 +298,7 @@ function validateFile(untrusted: unknown, path: string): DatasetPresetManifestFi
     managed_path: normalizeRelativeMediaPath(value.managed_path),
     media_bytes: requireNonnegativeSafeInteger(value.media_bytes, `${path}.media_bytes`),
     media_sha256: requireSha256(value.media_sha256, `${path}.media_sha256`),
-    caption_ext: requireText(value.caption_ext, `${path}.caption_ext`),
+    caption_ext: validateCaptionExtension(value.caption_ext, `${path}.caption_ext`),
     caption_text: captionMissing ? null : (captionText as string),
     caption_bytes: captionMissing ? null : (captionBytes as number),
     caption_sha256: captionMissing ? null : (captionSha256 as string),
@@ -303,13 +335,15 @@ function validateManifestFields(untrusted: unknown): DatasetPresetManifestV1 {
   const sourcePaths = new Set<string>();
   const managedPaths = new Set<string>();
   for (const file of files) {
-    if (sourcePaths.has(file.source_path) || managedPaths.has(file.managed_path)) {
-      throw new Error('Dataset preset manifest files must have unique normalized paths');
+    const sourcePathKey = portablePathKey(file.source_path);
+    const managedPathKey = portablePathKey(file.managed_path);
+    if (sourcePaths.has(sourcePathKey) || managedPaths.has(managedPathKey)) {
+      throw new Error('Dataset preset manifest files must have unique portable paths');
     }
-    sourcePaths.add(file.source_path);
-    managedPaths.add(file.managed_path);
+    sourcePaths.add(sourcePathKey);
+    managedPaths.add(managedPathKey);
   }
-  const mediaCount = requireNonnegativeSafeInteger(value.media_count, 'Dataset preset manifest.media_count');
+  const mediaCount = requirePositiveInteger(value.media_count, 'Dataset preset manifest.media_count');
   const totalBytes = requireNonnegativeSafeInteger(value.total_bytes, 'Dataset preset manifest.total_bytes');
   const derivedBytes = files.reduce((total, file) => total + file.media_bytes + (file.caption_bytes ?? 0), 0);
   if (!Number.isSafeInteger(derivedBytes)) throw new Error('Dataset preset manifest total bytes exceed safe integer range');
@@ -321,8 +355,7 @@ function validateManifestFields(untrusted: unknown): DatasetPresetManifestV1 {
   if (typeof note === 'string' && note.length > DATASET_PRESET_NOTE_MAX) {
     throw new Error(`Dataset preset manifest.note must be at most ${DATASET_PRESET_NOTE_MAX} characters`);
   }
-  const createdAt = requireText(value.created_at, 'Dataset preset manifest.created_at');
-  if (Number.isNaN(Date.parse(createdAt))) throw new Error('Dataset preset manifest.created_at must be an ISO timestamp');
+  const createdAt = requireCanonicalUtcMillisecondTimestamp(value.created_at, 'Dataset preset manifest.created_at');
   return {
     schema_version: DATASET_PRESET_SCHEMA_VERSION,
     preset_id: requireText(value.preset_id, 'Dataset preset manifest.preset_id'),
