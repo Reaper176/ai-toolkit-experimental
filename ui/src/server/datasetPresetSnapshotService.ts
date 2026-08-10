@@ -8,16 +8,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, createWriteStream, lstatSync, realpathSync, statSync } from 'node:fs';
-import {
-  lstat,
-  mkdir,
-  open,
-  readdir,
-  realpath,
-  rename,
-  rm,
-  stat,
-} from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, realpath, rename, rm, stat } from 'node:fs/promises';
 import type { BigIntStats } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
@@ -63,22 +54,36 @@ export interface StagedPublication {
 export class DatasetPresetSnapshotConflictError extends Error {
   readonly code = 'version_exists';
 
-  constructor(
-    message = 'Dataset preset snapshot version already exists',
-    options?: { cause?: unknown },
-  ) {
+  constructor(message = 'Dataset preset snapshot version already exists', options?: { cause?: unknown }) {
     super(message, options);
     this.name = 'DatasetPresetSnapshotConflictError';
   }
 }
 
+export type DatasetPresetVerificationMismatchKind = 'missing' | 'size' | 'hash' | 'caption' | 'manifest';
+export type DatasetPresetVerificationAsset = 'media' | 'caption' | 'manifest';
+
+export interface DatasetPresetVerificationMismatch {
+  kind: DatasetPresetVerificationMismatchKind;
+  asset: DatasetPresetVerificationAsset;
+  path: string;
+  expected?: string | number | null;
+  actual?: string | number | null;
+}
+
 export class DatasetPresetSnapshotVerificationError extends Error {
   readonly missingPaths: string[];
 
-  constructor(message: string, missingPaths: string[] = [], options?: { cause?: unknown }) {
-    super(message, options);
+  constructor(
+    readonly presetId: string,
+    readonly version: number,
+    readonly mismatches: DatasetPresetVerificationMismatch[],
+    options?: { cause?: unknown },
+  ) {
+    super('Dataset preset snapshot verification failed', options);
     this.name = 'DatasetPresetSnapshotVerificationError';
-    this.missingPaths = missingPaths.slice(0, 5);
+    this.mismatches = mismatches.slice(0, 5).map(mismatch => ({ ...mismatch }));
+    this.missingPaths = this.mismatches.filter(mismatch => mismatch.kind === 'missing').map(mismatch => mismatch.path);
   }
 }
 
@@ -121,6 +126,10 @@ interface CopyResult {
   content?: Buffer;
 }
 
+function boundedSize(value: bigint): number | string {
+  return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : value.toString();
+}
+
 interface DirectoryPin {
   path: string;
   realPath: string;
@@ -152,10 +161,7 @@ function isDescendant(root: string, candidate: string): boolean {
   return child !== '' && child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child);
 }
 
-function sameIdentity(
-  left: Pick<BigIntStats, 'dev' | 'ino'>,
-  right: Pick<BigIntStats, 'dev' | 'ino'>,
-): boolean {
+function sameIdentity(left: Pick<BigIntStats, 'dev' | 'ino'>, right: Pick<BigIntStats, 'dev' | 'ino'>): boolean {
   return left.dev === right.dev && left.ino === right.ino;
 }
 
@@ -238,9 +244,9 @@ async function validatePinnedFile(file: PinnedRegularFile): Promise<BigIntStats>
     throw new Error(`File path identity changed: ${file.path}`);
   }
   if (
-    opened.size !== file.baseline.size
-    || opened.mtimeNs !== file.baseline.mtimeNs
-    || !sameIdentity(opened, file.baseline)
+    opened.size !== file.baseline.size ||
+    opened.mtimeNs !== file.baseline.mtimeNs ||
+    !sameIdentity(opened, file.baseline)
   ) {
     throw new Error(`Source changed while it was being copied: ${file.path}`);
   }
@@ -336,7 +342,11 @@ async function hashPinnedFile(file: PinnedRegularFile): Promise<string> {
 }
 
 function parseManifestGrammar(relativeManifestPath: string): ParsedManifestGrammar {
-  if (typeof relativeManifestPath !== 'string' || isAbsolute(relativeManifestPath) || relativeManifestPath.includes('\\')) {
+  if (
+    typeof relativeManifestPath !== 'string' ||
+    isAbsolute(relativeManifestPath) ||
+    relativeManifestPath.includes('\\')
+  ) {
     throw new Error('Manifest path must be a relative portable path');
   }
   const segments = relativeManifestPath.split('/');
@@ -471,7 +481,10 @@ export function createDatasetPresetSnapshotStore(
     label: string,
   ): Promise<void> {
     requirePinnedRootsSync();
-    if (basename(pin.path).toLowerCase().startsWith('.tombstone-') && relative(managedRoot, pin.path) === basename(pin.path)) {
+    if (
+      basename(pin.path).toLowerCase().startsWith('.tombstone-') &&
+      relative(managedRoot, pin.path) === basename(pin.path)
+    ) {
       validateDirectoryPinSync(pin, `${label} tombstone`, managedRoot);
       return;
     }
@@ -547,36 +560,93 @@ export function createDatasetPresetSnapshotStore(
   async function verifyFiles(relativeManifestPath: string, full: boolean): Promise<DatasetPresetManifestV1> {
     requirePinnedRootsSync();
     const parsed = resolveManifestPath(managedRoot, parseManifestGrammar(relativeManifestPath));
-    const manifest = await readManifest(relativeManifestPath);
+    let manifest: DatasetPresetManifestV1;
+    try {
+      manifest = await readManifest(relativeManifestPath);
+    } catch (error) {
+      if (error instanceof DatasetPresetSnapshotVerificationError) throw error;
+      throw new DatasetPresetSnapshotVerificationError(
+        parsed.presetId,
+        parsed.version,
+        [
+          {
+            kind: 'manifest',
+            asset: 'manifest',
+            path: 'manifest.json',
+            expected: 'canonical valid manifest',
+            actual: 'invalid',
+          },
+        ],
+        { cause: error },
+      );
+    }
     const presetPin = pinDirectorySync(parsed.presetRoot, 'Preset root', managedRoot);
     const versionPin = pinDirectorySync(parsed.versionRoot, 'Version root', parsed.presetRoot);
-    const missingPaths: string[] = [];
-    const recordMissing = (sourcePath: string) => {
-      if (missingPaths.length < 5 && !missingPaths.includes(sourcePath)) missingPaths.push(sourcePath);
+    const mismatches: DatasetPresetVerificationMismatch[] = [];
+    const recordMismatch = (mismatch: DatasetPresetVerificationMismatch) => {
+      if (mismatches.length >= 5) return;
+      if (
+        mismatches.some(
+          existing =>
+            existing.kind === mismatch.kind && existing.asset === mismatch.asset && existing.path === mismatch.path,
+        )
+      ) {
+        return;
+      }
+      mismatches.push(mismatch);
     };
     for (const file of manifest.files) {
       requirePinnedRootsSync();
       validateDirectoryPinSync(presetPin, 'Preset root', managedRoot);
       validateDirectoryPinSync(versionPin, 'Version root', parsed.presetRoot);
       const managedPath = normalizeRelativeMediaPath(file.managed_path);
-      if (!managedPath.startsWith('media/')) throw new Error(`Managed media path must be within media/: ${managedPath}`);
+      if (!managedPath.startsWith('media/'))
+        throw new Error(`Managed media path must be within media/: ${managedPath}`);
       const mediaPath = toSystemPath(parsed.versionRoot, managedPath);
       let pinnedMedia: PinnedRegularFile | null = null;
       try {
         pinnedMedia = await openPinnedRegularFile(mediaPath, parsed.versionRoot);
       } catch (error) {
         if (isMissing(error)) {
-          recordMissing(file.source_path);
+          recordMismatch({
+            kind: 'missing',
+            asset: 'media',
+            path: file.source_path,
+            expected: 'present',
+            actual: 'missing',
+          });
         } else {
-          throw error;
+          recordMismatch({
+            kind: 'missing',
+            asset: 'media',
+            path: file.source_path,
+            expected: 'present',
+            actual: 'unreadable',
+          });
         }
       }
       if (pinnedMedia !== null) {
         try {
           const mediaInfo = await pinnedMedia.handle.stat({ bigint: true });
-          if (mediaInfo.size !== BigInt(file.media_bytes)) throw new Error(`Managed media size mismatch: ${managedPath}`);
-          if (full && (await hashPinnedFile(pinnedMedia)) !== file.media_sha256) {
-            throw new Error(`Managed media checksum mismatch: ${managedPath}`);
+          if (mediaInfo.size !== BigInt(file.media_bytes)) {
+            recordMismatch({
+              kind: 'size',
+              asset: 'media',
+              path: file.source_path,
+              expected: file.media_bytes,
+              actual: boundedSize(mediaInfo.size),
+            });
+          } else if (full) {
+            const actualHash = await hashPinnedFile(pinnedMedia);
+            if (actualHash !== file.media_sha256) {
+              recordMismatch({
+                kind: 'hash',
+                asset: 'media',
+                path: file.source_path,
+                expected: file.media_sha256,
+                actual: actualHash,
+              });
+            }
           }
         } finally {
           await pinnedMedia.handle.close().catch(() => undefined);
@@ -586,7 +656,13 @@ export function createDatasetPresetSnapshotStore(
       const absoluteCaptionPath = toSystemPath(parsed.versionRoot, captionPath);
       if (file.caption_missing) {
         if (await pathExists(absoluteCaptionPath)) {
-          throw new Error(`Unexpected managed caption exists: ${captionPath}`);
+          recordMismatch({
+            kind: 'caption',
+            asset: 'caption',
+            path: sidecarPath(file.source_path, file.caption_ext),
+            expected: 'missing',
+            actual: 'present',
+          });
         }
       } else {
         let pinnedCaption: PinnedRegularFile | null = null;
@@ -594,19 +670,45 @@ export function createDatasetPresetSnapshotStore(
           pinnedCaption = await openPinnedRegularFile(absoluteCaptionPath, parsed.versionRoot);
         } catch (error) {
           if (isMissing(error)) {
-            recordMissing(sidecarPath(file.source_path, file.caption_ext));
+            recordMismatch({
+              kind: 'missing',
+              asset: 'caption',
+              path: sidecarPath(file.source_path, file.caption_ext),
+              expected: 'present',
+              actual: 'missing',
+            });
           } else {
-            throw error;
+            recordMismatch({
+              kind: 'missing',
+              asset: 'caption',
+              path: sidecarPath(file.source_path, file.caption_ext),
+              expected: 'present',
+              actual: 'unreadable',
+            });
           }
         }
         if (pinnedCaption !== null) {
           try {
             const captionInfo = await pinnedCaption.handle.stat({ bigint: true });
             if (captionInfo.size !== BigInt(file.caption_bytes as number)) {
-              throw new Error(`Managed caption size mismatch: ${captionPath}`);
-            }
-            if (full && (await hashPinnedFile(pinnedCaption)) !== file.caption_sha256) {
-              throw new Error(`Managed caption checksum mismatch: ${captionPath}`);
+              recordMismatch({
+                kind: 'size',
+                asset: 'caption',
+                path: sidecarPath(file.source_path, file.caption_ext),
+                expected: file.caption_bytes,
+                actual: boundedSize(captionInfo.size),
+              });
+            } else if (full) {
+              const actualHash = await hashPinnedFile(pinnedCaption);
+              if (actualHash !== file.caption_sha256) {
+                recordMismatch({
+                  kind: 'hash',
+                  asset: 'caption',
+                  path: sidecarPath(file.source_path, file.caption_ext),
+                  expected: file.caption_sha256,
+                  actual: actualHash,
+                });
+              }
             }
           } finally {
             await pinnedCaption.handle.close().catch(() => undefined);
@@ -617,8 +719,8 @@ export function createDatasetPresetSnapshotStore(
     validateDirectoryPinSync(versionPin, 'Version root', parsed.presetRoot);
     validateDirectoryPinSync(presetPin, 'Preset root', managedRoot);
     requirePinnedRootsSync();
-    if (missingPaths.length > 0) {
-      throw new DatasetPresetSnapshotVerificationError('Managed snapshot files are missing', missingPaths);
+    if (mismatches.length > 0) {
+      throw new DatasetPresetSnapshotVerificationError(parsed.presetId, parsed.version, mismatches);
     }
     return manifest;
   }
@@ -670,9 +772,8 @@ export function createDatasetPresetSnapshotStore(
       throw new Error('A prior manifest path is required for retained paths');
     }
 
-    const parsedPriorGrammar = input.priorManifestPath !== undefined
-      ? parseManifestGrammar(input.priorManifestPath)
-      : undefined;
+    const parsedPriorGrammar =
+      input.priorManifestPath !== undefined ? parseManifestGrammar(input.priorManifestPath) : undefined;
     if (parsedPriorGrammar && retainedPaths.length > 0 && parsedPriorGrammar.presetId !== presetId) {
       throw new Error('Prior manifest must belong to the same preset ID');
     }
@@ -877,16 +978,15 @@ export function createDatasetPresetSnapshotStore(
             const cause = Object.assign(new Error('Final snapshot version destination already exists'), {
               code: 'EEXIST',
             });
-            throw new DatasetPresetSnapshotConflictError(
-              `Dataset preset snapshot version v${version} already exists`,
-              { cause },
-            );
+            throw new DatasetPresetSnapshotConflictError(`Dataset preset snapshot version v${version} already exists`, {
+              cause,
+            });
           }
           try {
             await rename(stagingRoot, versionRoot);
           } catch (error) {
             const code = (error as NodeJS.ErrnoException).code;
-            if ((code === 'EEXIST' || code === 'ENOTEMPTY') && await pathExists(versionRoot)) {
+            if ((code === 'EEXIST' || code === 'ENOTEMPTY') && (await pathExists(versionRoot))) {
               throw new DatasetPresetSnapshotConflictError(
                 `Dataset preset snapshot version v${version} already exists`,
                 { cause: error },
@@ -973,7 +1073,8 @@ export function createDatasetPresetSnapshotStore(
       };
     },
     async cleanupStaging(olderThan: Date): Promise<string[]> {
-      if (!(olderThan instanceof Date) || Number.isNaN(olderThan.getTime())) throw new Error('Cleanup cutoff must be a Date');
+      if (!(olderThan instanceof Date) || Number.isNaN(olderThan.getTime()))
+        throw new Error('Cleanup cutoff must be a Date');
       await initializeManagedRoot();
       requirePinnedRootsSync();
       const removed: string[] = [];
@@ -986,7 +1087,8 @@ export function createDatasetPresetSnapshotStore(
         const presetPin = pinDirectorySync(presetRoot, 'Preset root', managedRoot);
         for (const childEntry of await readdir(presetRoot, { withFileTypes: true })) {
           if (!/^\.staging-.+/.test(childEntry.name)) continue;
-          if (childEntry.isSymbolicLink()) throw new Error(`Staging directory must not be a symlink: ${childEntry.name}`);
+          if (childEntry.isSymbolicLink())
+            throw new Error(`Staging directory must not be a symlink: ${childEntry.name}`);
           if (!childEntry.isDirectory()) continue;
           const childPath = join(presetRoot, childEntry.name);
           const info = await lstat(childPath, { bigint: true });

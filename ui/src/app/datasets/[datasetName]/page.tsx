@@ -68,6 +68,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   const [activeVersion, setActiveVersion] = useState<DatasetPresetVersionDetail | null>(null);
   const [presetDialogOpen, setPresetDialogOpen] = useState(false);
   const [selectionSaving, setSelectionSaving] = useState(false);
+  const [lifecyclePending, setLifecyclePending] = useState(false);
   const [presetLoadError, setPresetLoadError] = useState<string | null>(null);
   const { presets, error: presetError, refresh: refreshPresets, loadPreset, loadVersion } = useDatasetPresets();
   const scrollParentCallback = useCallback((el: HTMLDivElement | null) => setScrollParent(el), []);
@@ -251,7 +252,11 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
     applyLoadedVersion(version);
   };
 
-  const handleLifecycleChanged = async (change: LifecycleChange) => {
+  const handleLifecycleChanged = async (change: LifecycleChange, applyToActiveIdentity: boolean) => {
+    if (!applyToActiveIdentity) {
+      await refreshPresets().catch(() => undefined);
+      return;
+    }
     const request = presetRequestGateRef.current.begin();
     setPresetLoadError(null);
     if (change.preset && request.isCurrent()) {
@@ -516,7 +521,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
                 <select
                   value={activePreset?.id ?? ''}
                   onChange={event => void selectPreset(event.target.value)}
-                  disabled={selectionSaving}
+                  disabled={selectionSaving || lifecyclePending}
                   className="ml-2 rounded bg-gray-800 px-2 py-1 text-sm"
                 >
                   <option value="">New preset</option>
@@ -537,7 +542,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
                 <select
                   value={activeVersion?.id ?? ''}
                   onChange={event => void selectVersion(event.target.value)}
-                  disabled={!activePresetDetail || selectionSaving}
+                  disabled={!activePresetDetail || selectionSaving || lifecyclePending}
                   className="ml-2 rounded bg-gray-800 px-2 py-1 text-sm"
                 >
                   <option value="">Select version</option>
@@ -557,6 +562,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
                     <DatasetPresetLifecycleControls
                       preset={activePresetDetail}
                       version={activeVersion}
+                      onPendingChange={setLifecyclePending}
                       onChanged={handleLifecycleChanged}
                     />
                   )}

@@ -186,6 +186,13 @@ assert.match(
   'permanent delete visibility is driven by authoritative version detail',
 );
 assert.match(pageSource, /archived_at\s*!==\s*null/, 'an active archived preset remains readable and can be restored');
+assert.match(pageSource, /lifecyclePending/, 'page owns lifecycle pending state');
+assert.match(
+  pageSource,
+  /disabled=\{selectionSaving\s*\|\|\s*lifecyclePending\}/,
+  'normal preset and version selection is disabled while a lifecycle mutation is pending',
+);
+assert.match(pageSource, /onPendingChange=\{setLifecyclePending\}/, 'lifecycle controls coordinate page busy state');
 
 const jsx = page.statements.find(ts.isFunctionDeclaration);
 assert.ok(jsx || pageSource.includes('selectionMode'), 'selection state stays in the page component');

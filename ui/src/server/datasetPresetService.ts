@@ -10,6 +10,8 @@ import {
 } from '../helpers/datasetPresets';
 import {
   DatasetPresetSnapshotConflictError,
+  DatasetPresetSnapshotVerificationError,
+  type DatasetPresetVerificationMismatch,
   type DatasetPresetSnapshotStore,
   type StagedPublication,
 } from './datasetPresetSnapshotService';
@@ -80,6 +82,26 @@ export class DatasetPresetConflictError extends DatasetPresetServiceError {}
 export class DatasetPresetNotFoundError extends DatasetPresetServiceError {}
 export class DatasetPresetReferencedError extends DatasetPresetServiceError {}
 export class DatasetPresetStorageError extends DatasetPresetServiceError {}
+export class DatasetPresetVerificationError extends DatasetPresetServiceError {
+  readonly preset_id: string;
+  readonly version_id: string;
+  readonly version: number;
+  readonly mismatches: DatasetPresetVerificationMismatch[];
+
+  constructor(input: {
+    preset_id: string;
+    version_id: string;
+    version: number;
+    mismatches: DatasetPresetVerificationMismatch[];
+    cause?: unknown;
+  }) {
+    super('Dataset preset verification failed', input.cause);
+    this.preset_id = input.preset_id;
+    this.version_id = input.version_id;
+    this.version = input.version;
+    this.mismatches = input.mismatches.slice(0, 5).map(mismatch => ({ ...mismatch }));
+  }
+}
 
 export type DatasetPresetStoreErrorCode =
   | 'name_conflict'
@@ -371,9 +393,39 @@ export function createDatasetPresetService(dependencies: {
           ? snapshots.verifyFast(row.manifest_path)
           : snapshots.readManifest(row.manifest_path));
     } catch (error) {
+      if (error instanceof DatasetPresetSnapshotVerificationError) {
+        throw new DatasetPresetVerificationError({
+          preset_id: row.preset_id,
+          version_id: row.id,
+          version: row.version,
+          mismatches: error.mismatches,
+          cause: error,
+        });
+      }
       throw storageError('Dataset preset snapshot is unavailable', error);
     }
-    return { ...versionDto(row), manifest: assertManifestAgreement(row, manifest) };
+    try {
+      return { ...versionDto(row), manifest: assertManifestAgreement(row, manifest) };
+    } catch (error) {
+      if (verification === 'full') {
+        throw new DatasetPresetVerificationError({
+          preset_id: row.preset_id,
+          version_id: row.id,
+          version: row.version,
+          mismatches: [
+            {
+              kind: 'manifest',
+              asset: 'manifest',
+              path: 'manifest.json',
+              expected: row.manifest_sha256,
+              actual: manifestSha256(manifest),
+            },
+          ],
+          cause: error,
+        });
+      }
+      throw error;
+    }
   }
 
   async function getVersionDetail(

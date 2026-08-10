@@ -11,6 +11,7 @@ import {
   DatasetPresetStorageError,
   DatasetPresetStoreError,
   DatasetPresetValidationError,
+  DatasetPresetVerificationError,
   createDatasetPresetService,
   type DatasetPresetCreateData,
   type DatasetPresetRow,
@@ -20,6 +21,7 @@ import {
 } from '../src/server/datasetPresetService';
 import {
   DatasetPresetSnapshotConflictError,
+  DatasetPresetSnapshotVerificationError,
   type DatasetPresetSnapshotStore,
   type SnapshotQuarantine,
   type StageVersionInput,
@@ -196,6 +198,7 @@ class FakeSnapshots implements DatasetPresetSnapshotStore {
   removeError: unknown;
   rollbackError: unknown;
   restoreError: unknown;
+  verificationError: unknown;
 
   async stageVersion(input: StageVersionInput): Promise<StagedPublication> {
     if (this.stageError !== undefined) throw this.stageError;
@@ -249,6 +252,7 @@ class FakeSnapshots implements DatasetPresetSnapshotStore {
   }
   async verifyFull(path: string) {
     this.fullChecks += 1;
+    if (this.verificationError !== undefined) throw this.verificationError;
     return this.readManifest(path);
   }
   resolveMediaRoot(path: string): string {
@@ -356,6 +360,22 @@ async function main(): Promise<void> {
   const verifiedDetailAgain = await verifiedDetailService.verifyVersionDetail(verifiedDetailVersionId, true);
   assert.equal(verifiedDetailAgain.loader_config.num_repeats, 1);
   assert.equal(verifiedDetailAgain.manifest.loader_config.num_repeats, 1);
+  verifiedDetailSnapshots.verificationError = new DatasetPresetSnapshotVerificationError(verifiedDetailPreset.id, 1, [
+    { kind: 'hash', asset: 'media', path: 'a.jpg', expected: 'a'.repeat(64), actual: 'b'.repeat(64) },
+  ]);
+  await assert.rejects(
+    () => verifiedDetailService.verifyVersionDetail(verifiedDetailVersionId, true),
+    error =>
+      error instanceof DatasetPresetVerificationError &&
+      error.preset_id === verifiedDetailPreset.id &&
+      error.version_id === verifiedDetailVersionId &&
+      error.version === 1 &&
+      error.mismatches.length === 1 &&
+      error.mismatches[0]?.path === 'a.jpg' &&
+      !JSON.stringify(error).includes('/private/'),
+    'snapshot verification failures cross the service boundary without filesystem details',
+  );
+  verifiedDetailSnapshots.verificationError = undefined;
   await service.setArchived(created.id, false);
 
   store.usages.set(v2.id, 1);
@@ -577,7 +597,11 @@ async function main(): Promise<void> {
     );
     await assert.rejects(
       agreementService.verifyVersion(agreementPreset.versions[0].id, true),
-      DatasetPresetStorageError,
+      error =>
+        error instanceof DatasetPresetVerificationError &&
+        error.mismatches.length === 1 &&
+        error.mismatches[0]?.kind === 'manifest' &&
+        error.mismatches[0]?.path === 'manifest.json',
       `${label} mismatch must reject verifyVersion`,
     );
   }

@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import { openConfirm, type ConfirmState } from '@/components/ConfirmModal';
 import { formatDatasetPresetBytes } from '@/components/DatasetProvenance';
 import { normalizePresetName } from '@/helpers/datasetPresetValidation';
+import { normalizeRelativeMediaPath } from '@/helpers/datasetSelection';
 import {
+  DatasetPresetRequestError,
   requestDatasetPresetJson,
   type DatasetPresetDetail,
   type DatasetPresetVersionDetail,
@@ -20,20 +22,58 @@ interface DatasetPresetLifecycleControlsProps {
   preset: DatasetPresetDetail;
   version: DatasetPresetVersionDetail;
   confirm?: (state: ConfirmState) => void;
-  onChanged(change: LifecycleChange): Promise<void> | void;
+  onPendingChange?(pending: boolean): void;
+  onChanged(change: LifecycleChange, applyToActiveIdentity: boolean): Promise<void> | void;
 }
 
 const MAX_RESULT_LENGTH = 240;
 
 function boundedMessage(error: unknown): string {
+  if (error instanceof DatasetPresetRequestError) {
+    const detail = verificationFailureMessage(error.body);
+    if (detail) return detail;
+  }
   const message = error instanceof Error ? error.message : 'Dataset preset operation failed';
   return message.length <= MAX_RESULT_LENGTH ? message : `${message.slice(0, MAX_RESULT_LENGTH - 1)}…`;
+}
+
+function boundedValue(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return String(value);
+  if (typeof value !== 'string' || value.length > 80) return null;
+  return value;
+}
+
+function verificationFailureMessage(body: unknown): string | null {
+  if (!body || typeof body !== 'object' || !('mismatches' in body) || !Array.isArray(body.mismatches)) return null;
+  const lines: string[] = [];
+  for (const untrusted of body.mismatches.slice(0, 5)) {
+    if (!untrusted || typeof untrusted !== 'object') continue;
+    const mismatch = untrusted as Record<string, unknown>;
+    if (!['missing', 'size', 'hash', 'caption', 'manifest'].includes(String(mismatch.kind))) continue;
+    if (!['media', 'caption', 'manifest'].includes(String(mismatch.asset))) continue;
+    let path: string;
+    try {
+      path =
+        mismatch.asset === 'manifest' && mismatch.path === 'manifest.json'
+          ? 'manifest.json'
+          : normalizeRelativeMediaPath(mismatch.path);
+    } catch {
+      continue;
+    }
+    const expected = boundedValue(mismatch.expected);
+    const actual = boundedValue(mismatch.actual);
+    lines.push(
+      `${mismatch.asset} ${mismatch.kind}: ${path}${expected === null ? '' : `; expected ${expected}`}${actual === null ? '' : `; actual ${actual}`}`,
+    );
+  }
+  return lines.length === 0 ? null : lines.join(' | ');
 }
 
 export default function DatasetPresetLifecycleControls({
   preset,
   version,
   confirm = openConfirm,
+  onPendingChange = () => undefined,
   onChanged,
 }: DatasetPresetLifecycleControlsProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -41,7 +81,7 @@ export default function DatasetPresetLifecycleControls({
   const [name, setName] = useState(preset.name);
   const [pending, setPending] = useState<string | null>(null);
   const [result, setResult] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
-  const pendingRef = useRef(false);
+  const activeOperation = useRef<symbol | null>(null);
   const mounted = useRef(true);
   const identity = useRef(`${preset.id}:${version.id}`);
   identity.current = `${preset.id}:${version.id}`;
@@ -50,37 +90,55 @@ export default function DatasetPresetLifecycleControls({
     mounted.current = true;
     return () => {
       mounted.current = false;
+      onPendingChange(false);
     };
   }, []);
 
   useEffect(() => {
-    setName(preset.name);
+    activeOperation.current = null;
+    setPending(null);
+    onPendingChange(false);
     setRenaming(false);
     setMenuOpen(false);
     setResult(null);
-  }, [preset.id, preset.name, version.id]);
+  }, [preset.id, version.id]);
 
-  const mutate = async <T,>(label: string, action: () => Promise<T>, succeeded: (value: T) => Promise<void> | void) => {
-    if (pendingRef.current) return;
+  useEffect(() => {
+    setName(preset.name);
+  }, [preset.name]);
+
+  const mutate = async <T,>(
+    label: string,
+    action: () => Promise<T>,
+    succeeded: (value: T, applyToActiveIdentity: boolean) => Promise<void> | void,
+  ) => {
+    if (activeOperation.current !== null) return;
+    const operation = Symbol(label);
     const requestIdentity = identity.current;
-    pendingRef.current = true;
+    activeOperation.current = operation;
     setPending(label);
+    onPendingChange(true);
     setResult(null);
     try {
       const value = await action();
-      if (!mounted.current || identity.current !== requestIdentity) return;
-      await succeeded(value);
-      if (!mounted.current || identity.current !== requestIdentity) return;
-      setResult({ kind: 'success', message: label === 'verify' ? 'Full integrity verification passed.' : 'Saved.' });
-      setMenuOpen(false);
-      setRenaming(false);
+      if (!mounted.current) return;
+      const applyToActiveIdentity = identity.current === requestIdentity && activeOperation.current === operation;
+      await succeeded(value, applyToActiveIdentity);
+      if (mounted.current && identity.current === requestIdentity && activeOperation.current === operation) {
+        setResult({ kind: 'success', message: label === 'verify' ? 'Full integrity verification passed.' : 'Saved.' });
+        setMenuOpen(false);
+        setRenaming(false);
+      }
     } catch (error) {
-      if (mounted.current && identity.current === requestIdentity) {
+      if (mounted.current && identity.current === requestIdentity && activeOperation.current === operation) {
         setResult({ kind: 'error', message: boundedMessage(error) });
       }
     } finally {
-      pendingRef.current = false;
-      if (mounted.current && identity.current === requestIdentity) setPending(null);
+      if (activeOperation.current === operation) {
+        activeOperation.current = null;
+        if (mounted.current) setPending(null);
+        onPendingChange(false);
+      }
     }
   };
 
@@ -101,7 +159,7 @@ export default function DatasetPresetLifecycleControls({
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ archived }),
             }),
-          nextPreset => onChanged({ preset: nextPreset, version }),
+          (nextPreset, apply) => onChanged({ preset: nextPreset, version }, apply),
         ),
     });
   };
@@ -121,7 +179,7 @@ export default function DatasetPresetLifecycleControls({
               `/api/dataset-preset-versions/${encodeURIComponent(version.id)}`,
               { method: 'DELETE' },
             ),
-          () => onChanged({ deletedVersionId: version.id }),
+          (_response, apply) => onChanged({ deletedVersionId: version.id }, apply),
         ),
     });
   };
@@ -158,7 +216,7 @@ export default function DatasetPresetLifecycleControls({
                     `/api/dataset-preset-versions/${encodeURIComponent(version.id)}/verify`,
                     { method: 'POST' },
                   ),
-                verified => onChanged({ version: verified.version, preset }),
+                (verified, apply) => onChanged({ version: verified.version, preset }, apply),
               )
             }
           >
@@ -191,7 +249,7 @@ export default function DatasetPresetLifecycleControls({
                   headers: { 'content-type': 'application/json' },
                   body: JSON.stringify({ name: normalized }),
                 }),
-              nextPreset => onChanged({ preset: nextPreset, version }),
+              (nextPreset, apply) => onChanged({ preset: nextPreset, version }, apply),
             );
           }}
           className="flex items-center gap-2"

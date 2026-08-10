@@ -89,10 +89,21 @@ function errorMessage(body: unknown, status: number): string {
   return `Dataset preset request failed (${status})`;
 }
 
+export class DatasetPresetRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly body: unknown,
+  ) {
+    super(message);
+    this.name = 'DatasetPresetRequestError';
+  }
+}
+
 export async function requestDatasetPresetJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   const body = await readJson(response);
-  if (!response.ok) throw new Error(errorMessage(body, response.status));
+  if (!response.ok) throw new DatasetPresetRequestError(errorMessage(body, response.status), response.status, body);
   return body as T;
 }
 

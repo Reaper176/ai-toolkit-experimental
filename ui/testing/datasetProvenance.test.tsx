@@ -248,6 +248,38 @@ async function run(): Promise<void> {
   assert.match(textOf(renderer.root), /Full integrity verification passed/);
 
   await act(async () => {
+    lifecycleButton('Manage preset').props.onClick();
+  });
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        error: 'Dataset preset verification failed',
+        preset_id: 'preset-1',
+        version_id: 'version-1',
+        version: 3,
+        mismatches: [
+          {
+            kind: 'hash',
+            asset: 'caption',
+            path: 'sub/image.txt',
+            expected: 'a'.repeat(64),
+            actual: 'b'.repeat(64),
+          },
+        ],
+      }),
+      { status: 422 },
+    )) as typeof fetch;
+  await act(async () => {
+    lifecycleButton('Verify active version').props.onClick();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const mismatchText = textOf(renderer.root.findAll(node => node.props.role === 'alert')[0]);
+  assert.match(mismatchText, /caption.*hash.*sub\/image\.txt/i);
+  assert.match(mismatchText, new RegExp(`${'a'.repeat(64)}.*${'b'.repeat(64)}`, 'i'));
+  assert.doesNotMatch(mismatchText, /\/private\/|dataset_presets\//);
+
+  await act(async () => {
     renderer.update(
       <DatasetPresetLifecycleControls
         preset={lifecyclePreset}
@@ -266,6 +298,138 @@ async function run(): Promise<void> {
     false,
     'referenced or unknown versions do not expose permanent deletion',
   );
+  await act(async () => renderer.unmount());
+
+  async function staleLifecycleMutation(kind: 'verify' | 'rename' | 'archive', succeeds: boolean): Promise<void> {
+    const pendingRequest = deferred<Response>();
+    const pendingEvents: boolean[] = [];
+    const applied: boolean[] = [];
+    let globalRefreshes = 0;
+    let localConfirmation: ConfirmState | null = null;
+    globalThis.fetch = (() => pendingRequest.promise) as typeof fetch;
+    const onChanged = async (_change: unknown, applyToActiveIdentity: boolean) => {
+      globalRefreshes += 1;
+      applied.push(applyToActiveIdentity);
+    };
+    await act(async () => {
+      renderer = TestRenderer.create(
+        <DatasetPresetLifecycleControls
+          preset={lifecyclePreset}
+          version={{ ...lifecycleVersion, reference_count: 0 }}
+          confirm={(next: ConfirmState) => {
+            localConfirmation = next;
+          }}
+          onPendingChange={(value: boolean) => pendingEvents.push(value)}
+          onChanged={onChanged}
+        />,
+      );
+    });
+    const actionButton = (label: string) => {
+      const found = renderer.root.findAllByType('button').find(node => textOf(node).includes(label));
+      assert.ok(found, `stale lifecycle button ${label}`);
+      return found;
+    };
+    await act(async () => actionButton('Manage preset').props.onClick());
+    if (kind === 'verify') {
+      await act(async () => actionButton('Verify active version').props.onClick());
+    } else if (kind === 'rename') {
+      await act(async () => actionButton('Rename preset').props.onClick());
+      const input = renderer.root.findByProps({ id: 'dataset-preset-rename' });
+      await act(async () => input.props.onChange({ target: { value: 'Old renamed' } }));
+      await act(async () =>
+        renderer.root.findByProps({ 'aria-label': 'Rename dataset preset' }).props.onSubmit({ preventDefault() {} }),
+      );
+    } else {
+      await act(async () => actionButton('Archive preset').props.onClick());
+      const archiveConfirmation = localConfirmation as ConfirmState | null;
+      await act(async () => {
+        archiveConfirmation?.onConfirm?.();
+      });
+    }
+    assert.equal(pendingEvents.at(-1), true, `${kind} reports page-level pending`);
+    const newPreset = { ...lifecyclePreset, id: 'preset-2', name: 'New active' };
+    const newVersion = { ...lifecycleVersion, id: 'version-2', preset_id: 'preset-2', reference_count: 0 };
+    await act(async () => {
+      renderer.update(
+        <DatasetPresetLifecycleControls
+          preset={newPreset}
+          version={newVersion}
+          confirm={(next: ConfirmState) => {
+            localConfirmation = next;
+          }}
+          onPendingChange={(value: boolean) => pendingEvents.push(value)}
+          onChanged={onChanged}
+        />,
+      );
+    });
+    assert.equal(pendingEvents.at(-1), false, `${kind} identity change clears page-level pending`);
+    assert.doesNotMatch(textOf(renderer.root), /Working/);
+    const successBody =
+      kind === 'verify'
+        ? { valid: true, version: lifecycleVersion }
+        : kind === 'rename'
+          ? { ...lifecyclePreset, name: 'Old renamed' }
+          : { ...lifecyclePreset, archived_at: '2026-08-04T00:00:00.000Z' };
+    await act(async () => {
+      pendingRequest.resolve(
+        new Response(JSON.stringify(succeeds ? successBody : { error: 'old request failed' }), {
+          status: succeeds ? 200 : 500,
+        }),
+      );
+      await pendingRequest.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    assert.equal(globalRefreshes, succeeds ? 1 : 0, `${kind} stale success refreshes globally exactly once`);
+    assert.deepEqual(applied, succeeds ? [false] : [], `${kind} stale result cannot update the new identity`);
+    assert.equal(
+      renderer.root.findAll(node => node.props.role === 'alert').length,
+      0,
+      `${kind} old failure stays hidden`,
+    );
+    assert.doesNotMatch(textOf(renderer.root), /Full integrity verification passed|Saved\./);
+    await act(async () => renderer.unmount());
+  }
+
+  await staleLifecycleMutation('verify', true);
+  await staleLifecycleMutation('rename', true);
+  await staleLifecycleMutation('archive', true);
+  await staleLifecycleMutation('verify', false);
+
+  const sameIdentityRequest = deferred<Response>();
+  const sameIdentityPending: boolean[] = [];
+  globalThis.fetch = (() => sameIdentityRequest.promise) as typeof fetch;
+  await act(async () => {
+    renderer = TestRenderer.create(
+      <DatasetPresetLifecycleControls
+        preset={lifecyclePreset}
+        version={{ ...lifecycleVersion, reference_count: 0 }}
+        onPendingChange={(value: boolean) => sameIdentityPending.push(value)}
+        onChanged={() => undefined}
+      />,
+    );
+  });
+  await act(async () => lifecycleButton('Manage preset').props.onClick());
+  await act(async () => lifecycleButton('Verify active version').props.onClick());
+  await act(async () => {
+    renderer.update(
+      <DatasetPresetLifecycleControls
+        preset={{ ...lifecyclePreset, name: 'Same identity renamed' }}
+        version={{ ...lifecycleVersion, reference_count: 0 }}
+        onPendingChange={(value: boolean) => sameIdentityPending.push(value)}
+        onChanged={() => undefined}
+      />,
+    );
+  });
+  assert.equal(sameIdentityPending.at(-1), true, 'same-ID metadata refresh does not clear mutation busy state');
+  assert.match(textOf(renderer.root), /Working/);
+  await act(async () => {
+    sameIdentityRequest.resolve(
+      new Response(JSON.stringify({ valid: true, version: lifecycleVersion }), { status: 200 }),
+    );
+    await sameIdentityRequest.promise;
+    await Promise.resolve();
+  });
   await act(async () => renderer.unmount());
 
   let currentJob: JobWithDatasetPresetUsages | null = null;

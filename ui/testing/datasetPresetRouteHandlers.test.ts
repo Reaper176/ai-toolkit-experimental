@@ -8,6 +8,7 @@ import {
   DatasetPresetReferencedError,
   DatasetPresetStorageError,
   DatasetPresetValidationError,
+  DatasetPresetVerificationError,
   type DatasetPresetDetail,
   type DatasetPresetService,
   type DatasetPresetVersionDetail,
@@ -290,6 +291,31 @@ async function main(): Promise<void> {
   assert.deepEqual(service.calls.slice(versionCallStart), [{ method: 'getVersion', args: ['version-1'] }]);
   await assertStatus(handlers.verify('version-1'), 200, { valid: true, version: versionDetail });
   assert.deepEqual(service.calls.at(-1), { method: 'verifyVersionDetail', args: ['version-1', true] });
+  const verificationService = new FakeService();
+  verificationService.failure = new DatasetPresetVerificationError({
+    preset_id: 'preset-1',
+    version_id: 'version-1',
+    version: 1,
+    mismatches: [
+      { kind: 'hash', asset: 'caption', path: 'sub/image.txt', expected: 'a'.repeat(64), actual: 'b'.repeat(64) },
+    ],
+    cause: new Error('/private/dataset_presets/preset-1/v1/media/sub/image.txt failed'),
+  });
+  const verificationResponse = await createDatasetPresetRouteHandlers(verificationService).verify('version-1');
+  assert.equal(
+    JSON.stringify(verificationResponse.body).includes('/private/'),
+    false,
+    'verification response hides roots',
+  );
+  await assertStatus(Promise.resolve(verificationResponse), 422, {
+    error: 'Dataset preset verification failed',
+    preset_id: 'preset-1',
+    version_id: 'version-1',
+    version: 1,
+    mismatches: [
+      { kind: 'hash', asset: 'caption', path: 'sub/image.txt', expected: 'a'.repeat(64), actual: 'b'.repeat(64) },
+    ],
+  });
 
   for (const body of [undefined, '', 'not-json', '[]', 'null'])
     await assertStatus(createDatasetPresetRouteHandlers(new FakeService(), () => undefined).create(request(body)), 400);

@@ -7,6 +7,7 @@ import {
   DatasetPresetNotFoundError,
   DatasetPresetReferencedError,
   DatasetPresetValidationError,
+  DatasetPresetVerificationError,
   type DatasetPresetService,
   type PublishPresetInput,
   type PublishVersionInput,
@@ -205,6 +206,18 @@ function mapError(error: unknown, operation: string, logger: DatasetPresetRouteL
   if (error instanceof RequestBodyError) return { status: 400, body: { error: error.message } };
   if (error instanceof DatasetPresetValidationError) return { status: 400, body: { error: error.message } };
   if (error instanceof DatasetPresetNotFoundError) return { status: 404, body: { error: error.message } };
+  if (error instanceof DatasetPresetVerificationError) {
+    return {
+      status: 422,
+      body: {
+        error: error.message,
+        preset_id: error.preset_id,
+        version_id: error.version_id,
+        version: error.version,
+        mismatches: error.mismatches,
+      },
+    };
+  }
   if (error instanceof DatasetPresetConflictError || error instanceof DatasetPresetReferencedError) {
     return { status: 409, body: { error: error.message } };
   }
