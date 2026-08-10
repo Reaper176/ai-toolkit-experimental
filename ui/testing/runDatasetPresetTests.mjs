@@ -8,7 +8,7 @@ const TEMP_PREFIX = 'ai-toolkit-dataset-presets-';
 const testingDirectory = dirname(fileURLToPath(import.meta.url));
 const uiRoot = resolve(testingDirectory, '..');
 const tsc = join(uiRoot, 'node_modules', 'typescript', 'bin', 'tsc');
-const testFiles = ['datasetPresets.test.js'];
+const testFiles = ['datasetPresets.test.js', 'datasetPresetSnapshotService.test.js'];
 let outputDirectory;
 
 function run(command, args) {
