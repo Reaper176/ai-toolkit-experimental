@@ -67,11 +67,17 @@ function jobConfigField(value: unknown, jobType: string): string {
       if (!hasSamples && !hasPrompts) {
         throw new Error('Job response was malformed');
       }
+      if (Array.isArray(sample.prompts)) {
+        if (sample.prompts.length > 0 || !hasSamples) {
+          sample.samples = sample.prompts.map(prompt => ({ prompt }));
+        }
+        delete sample.prompts;
+      }
     }
   } catch {
     throw new Error('Job response was malformed');
   }
-  return serialized;
+  return JSON.stringify(parsed);
 }
 
 function usageField(value: unknown): JobDatasetPresetUsageView {

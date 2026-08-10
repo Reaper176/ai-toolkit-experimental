@@ -7,6 +7,8 @@ import type { ConfirmState } from '../src/components/ConfirmModal';
 import type { DatasetPresetDetail, DatasetPresetVersionDetail } from '../src/hooks/useDatasetPresets';
 import type { JobDatasetPresetUsageView } from '../src/types';
 import useJob from '../src/hooks/useJob';
+import SampleImages from '../src/components/SampleImages';
+import SampleImageViewer from '../src/components/SampleImageViewer';
 import { apiClient } from '../src/utils/api';
 import type { Job } from '@prisma/client';
 import { readFileSync } from 'node:fs';
@@ -558,7 +560,7 @@ async function run(): Promise<void> {
   const jobB = jobResponse('job-b', {
     name: 'B',
     job_config: JSON.stringify({
-      config: { process: [{ train: { steps: 10 }, sample: { prompts: [] } }] },
+      config: { process: [{ train: { steps: 10 }, sample: { prompts: ['legacy one', 'legacy two'] } }] },
     }),
     dataset_preset_usages: [usage({ preset_name: 'B preset' })],
   });
@@ -575,11 +577,10 @@ async function run(): Promise<void> {
     await requestB.promise;
   });
   assert.equal(observedJob()?.id, 'job-b');
-  assert.deepEqual(
-    JSON.parse(observedJob()!.job_config).config.process[0].sample.prompts,
-    [],
-    'initial GET accepts supported zero-sample legacy prompt jobs',
-  );
+  const nonemptyLegacyJob = observedJob()!;
+  assert.deepEqual(JSON.parse(nonemptyLegacyJob.job_config).config.process[0].sample, {
+    samples: [{ prompt: 'legacy one' }, { prompt: 'legacy two' }],
+  }, 'initial GET normalizes supported legacy prompts for Samples consumers');
   await act(async () => {
     requestA.resolve({ data: jobA });
     await requestA.promise;
@@ -590,15 +591,48 @@ async function run(): Promise<void> {
   queued.push(compactResponse);
   await act(async () => {
     const refresh = refreshCurrent();
-    compactResponse.resolve({ data: { ...jobB, status: 'running', dataset_preset_usages: undefined } });
+    compactResponse.resolve({
+      data: jobResponse('job-b', {
+        ...jobB,
+        status: 'running',
+        job_config: JSON.stringify({
+          config: { process: [{ train: { steps: 10 }, sample: { prompts: [] } }] },
+        }),
+        dataset_preset_usages: undefined,
+      }),
+    });
     await refresh;
   });
   assert.equal(observedJob()?.dataset_preset_usages?.[0]?.preset_name, 'B preset', 'compact polls preserve provenance');
+  const emptyLegacyJob = observedJob()!;
   assert.deepEqual(
-    JSON.parse(observedJob()!.job_config).config.process[0].sample.prompts,
-    [],
-    'compact polls remain compatible with zero-sample legacy prompt jobs',
+    JSON.parse(emptyLegacyJob.job_config).config.process[0].sample,
+    { samples: [] },
+    'compact polls normalize zero-sample legacy jobs without dropping provenance',
   );
+  apiClient.get = (async () => ({ data: { samples: [] } })) as typeof apiClient.get;
+  const globalRecord = globalThis as unknown as Record<string, unknown>;
+  const previousWindow = globalRecord.window;
+  globalRecord.window = { addEventListener() {}, removeEventListener() {} };
+  for (const [renderJob, count, prompts] of [
+    [nonemptyLegacyJob, 2, ['legacy one', 'legacy two']],
+    [emptyLegacyJob, 1, []],
+  ] as const) {
+    await act(async () => {
+      renderer = TestRenderer.create(<SampleImages job={renderJob} />);
+      await Promise.resolve();
+    });
+    const viewer = renderer.root.findByType(SampleImageViewer);
+    assert.equal(viewer.props.numSamples, count, 'Samples uses the normalized sample count');
+    assert.deepEqual(
+      viewer.props.sampleConfig.samples.map((sample: { prompt: string }) => sample.prompt),
+      prompts,
+      'Samples and its viewer receive canonical prompt objects',
+    );
+    await act(async () => renderer.unmount());
+  }
+  if (previousWindow === undefined) delete globalRecord.window;
+  else globalRecord.window = previousWindow;
   apiClient.get = (async () => ({ data: null })) as typeof apiClient.get;
   await act(async () => {
     await refreshCurrent();
