@@ -2,7 +2,8 @@ import processQueue from './actions/processQueue';
 import prisma from './prisma';
 import { getDataRoot } from './paths';
 import {
-  createDatasetPresetStartupMaintenance,
+  createDatasetPresetStartupMaintenanceSessionFromWiring,
+  type DatasetPresetStartupMaintenanceSession,
   startWorkerAfterMaintenance,
 } from '../src/server/datasetPresetMaintenance';
 
@@ -75,34 +76,91 @@ class CronWorker {
 export interface CronWorkerStartupDependencies {
   ensureJournalMode?: () => Promise<void>;
   createMaintenance?: () => () => Promise<void>;
+  createMaintenanceSession?: () =>
+    | DatasetPresetStartupMaintenanceSession
+    | Promise<DatasetPresetStartupMaintenanceSession>;
+  maintenanceYield?: () => Promise<void>;
+  scheduleMaintenanceContinuation?: (task: () => Promise<void>) => void;
   start?: () => CronWorker;
   warn?: (message: string) => void;
 }
 
-// Journal setup and recovery both finish before the interval can accept work.
+function yieldMaintenance(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve));
+}
+
+// Journal setup and one bounded recovery page finish before the interval can accept work.
 export async function startCronWorker(dependencies: CronWorkerStartupDependencies = {}): Promise<CronWorker> {
-  const createMaintenance =
-    dependencies.createMaintenance ??
-    (() =>
-      createDatasetPresetStartupMaintenance({
-        getDataRoot,
-        prisma,
-        now: () => new Date(),
-        info: message => console.log(message),
-        warn: message => console.warn(message),
-      }));
-  return startWorkerAfterMaintenance({
-    ensureJournalMode: dependencies.ensureJournalMode ?? ensureJournalMode,
-    maintenance: async () => createMaintenance()(),
-    start:
-      dependencies.start ??
-      (() => {
-        const cronWorker = new CronWorker();
-        console.log('Cron worker started with interval:', cronWorker.interval, 'ms');
-        return cronWorker;
-      }),
-    warn: dependencies.warn ?? (message => console.warn(message)),
-  });
+  const wiring = {
+    getDataRoot,
+    prisma,
+    now: () => new Date(),
+    info: (message: string) => console.log(message),
+    warn: (message: string) => console.warn(message),
+  };
+  const start =
+    dependencies.start ??
+    (() => {
+      const cronWorker = new CronWorker();
+      console.log('Cron worker started with interval:', cronWorker.interval, 'ms');
+      return cronWorker;
+    });
+  const warn = dependencies.warn ?? (message => console.warn(message));
+
+  // Preserve the direct/manual exhaustive hook for callers that explicitly
+  // inject it. Production uses the resumable session below.
+  if (dependencies.createMaintenance !== undefined && dependencies.createMaintenanceSession === undefined) {
+    const createMaintenance = dependencies.createMaintenance;
+    return startWorkerAfterMaintenance({
+      ensureJournalMode: dependencies.ensureJournalMode ?? ensureJournalMode,
+      maintenance: async () => createMaintenance()(),
+      start,
+      warn,
+    });
+  }
+
+  try {
+    await (dependencies.ensureJournalMode ?? ensureJournalMode)();
+  } catch {
+    warn('Could not check/convert database journal mode');
+  }
+
+  const createSession =
+    dependencies.createMaintenanceSession ?? createDatasetPresetStartupMaintenanceSessionFromWiring(wiring);
+  let session: DatasetPresetStartupMaintenanceSession | undefined;
+  let initialDone = true;
+  try {
+    session = await createSession();
+    initialDone = (await session.nextPage()).done;
+  } catch {
+    if (session !== undefined) await session.close().catch(() => undefined);
+    warn('Dataset preset startup maintenance failed (Error)');
+    session = undefined;
+  }
+
+  const worker = start();
+  if (session !== undefined && !initialDone) {
+    const activeSession = session;
+    const schedule =
+      dependencies.scheduleMaintenanceContinuation ??
+      (task => {
+        void task();
+      });
+    const yieldPage = dependencies.maintenanceYield ?? yieldMaintenance;
+    schedule(async () => {
+      try {
+        let done = false;
+        while (!done) {
+          await yieldPage();
+          done = (await activeSession.nextPage()).done;
+        }
+      } catch {
+        await activeSession.close().catch(() => undefined);
+        warn('Dataset preset startup maintenance continuation failed (Error)');
+      }
+    });
+  }
+  return worker;
 }
 
 if (require.main === module) void startCronWorker();

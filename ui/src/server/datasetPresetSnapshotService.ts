@@ -9,7 +9,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, createWriteStream, lstatSync, realpathSync, statSync } from 'node:fs';
 import { lstat, mkdir, open, opendir, readdir, realpath, rename, rm, stat } from 'node:fs/promises';
-import type { BigIntStats } from 'node:fs';
+import type { BigIntStats, Dir } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -109,6 +109,23 @@ export interface DatasetPresetSnapshotStore {
   quarantineVersion(relativeManifestPath: string): Promise<SnapshotQuarantine>;
   cleanupStaging(olderThan: Date): Promise<StagingCleanupResult>;
   findPublishedOrphans(authoritativeManifestPaths: readonly string[]): Promise<PublishedOrphanScanResult>;
+}
+
+export interface MaintenanceScanPage<T> {
+  done: boolean;
+  inspectedEntries: number;
+  result: T;
+}
+
+export interface DatasetPresetMaintenanceScan {
+  cleanupPage(maxEntries: number): Promise<MaintenanceScanPage<StagingCleanupResult>>;
+  beginOrphanScan(authoritativeManifestPaths: readonly string[]): void;
+  orphanPage(maxEntries: number): Promise<MaintenanceScanPage<PublishedOrphanScanResult>>;
+  close(): Promise<void>;
+}
+
+export interface DatasetPresetSnapshotMaintenanceStore extends DatasetPresetSnapshotStore {
+  createMaintenanceScan(olderThan: Date): DatasetPresetMaintenanceScan;
 }
 
 export interface StagingCleanupResult {
@@ -433,7 +450,7 @@ function validateExistingPathSynchronously(path: ParsedManifestPath): void {
 export function createDatasetPresetSnapshotStore(
   dataRoot: string,
   dependencies?: Partial<DatasetPresetSnapshotDependencies>,
-): DatasetPresetSnapshotStore {
+): DatasetPresetSnapshotMaintenanceStore {
   const configuredDataRoot = resolve(dataRoot);
   let canonicalDataRoot = configuredDataRoot;
   let managedRoot = join(canonicalDataRoot, 'dataset_presets');
@@ -568,6 +585,280 @@ export function createDatasetPresetSnapshotStore(
   async function removePinnedDirectory(pin: DirectoryPin, parentPin: DirectoryPin, label: string): Promise<void> {
     await movePinnedDirectoryToTombstone(pin, parentPin, label);
     await deletePinnedTombstone(pin, label);
+  }
+
+  function createMaintenanceScan(olderThan: Date): DatasetPresetMaintenanceScan {
+    if (!(olderThan instanceof Date) || Number.isNaN(olderThan.getTime())) {
+      throw new Error('Cleanup cutoff must be a Date');
+    }
+
+    let cleanupRoot: Dir | undefined;
+    let cleanupPreset: { directory: Dir; id: string; root: string; pin: DirectoryPin } | undefined;
+    let cleanupDone = false;
+    const cleanupResult: StagingCleanupResult = {
+      reportedRemoved: [],
+      totalRemoved: 0,
+      truncatedRemoved: 0,
+      skippedCandidates: 0,
+      reportedSkippedCandidates: [],
+    };
+
+    let orphanRoot: Dir | undefined;
+    let orphanPreset: { directory: Dir; id: string; root: string; pin: DirectoryPin } | undefined;
+    let orphanDone = false;
+    let authoritative: Set<string> | undefined;
+    const orphanResult: PublishedOrphanScanResult = {
+      reportedOrphans: [],
+      totalOrphans: 0,
+      truncatedOrphans: 0,
+      skippedCandidates: 0,
+      reportedSkippedCandidates: [],
+    };
+    let closed = false;
+
+    const closeDirectory = async (directory: Dir | undefined): Promise<void> => {
+      if (directory === undefined) return;
+      try {
+        await directory.close();
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ERR_DIR_CLOSED') throw error;
+      }
+    };
+    const checkBudget = (maxEntries: number): void => {
+      if (!Number.isSafeInteger(maxEntries) || maxEntries <= 0) {
+        throw new Error('Maintenance scan page size must be a positive safe integer');
+      }
+      if (closed) throw new Error('Maintenance scan is closed');
+    };
+    const cleanupSkip = (label: string): void => {
+      cleanupResult.skippedCandidates += 1;
+      const safe = safeMaintenanceLabel(label);
+      if (safe !== undefined) retainFirstSorted(cleanupResult.reportedSkippedCandidates, safe, 10);
+    };
+    const orphanSkip = (label: string): void => {
+      orphanResult.skippedCandidates += 1;
+      const safe = safeMaintenanceLabel(label);
+      if (safe !== undefined) retainFirstSorted(orphanResult.reportedSkippedCandidates, safe, 10);
+    };
+    const cleanupSnapshot = (): StagingCleanupResult => ({
+      reportedRemoved: [...cleanupResult.reportedRemoved],
+      totalRemoved: cleanupResult.totalRemoved,
+      truncatedRemoved: Math.max(0, cleanupResult.totalRemoved - cleanupResult.reportedRemoved.length),
+      skippedCandidates: cleanupResult.skippedCandidates,
+      reportedSkippedCandidates: [...cleanupResult.reportedSkippedCandidates],
+    });
+    const orphanSnapshot = (): PublishedOrphanScanResult => ({
+      reportedOrphans: [...orphanResult.reportedOrphans],
+      totalOrphans: orphanResult.totalOrphans,
+      truncatedOrphans: Math.max(0, orphanResult.totalOrphans - orphanResult.reportedOrphans.length),
+      skippedCandidates: orphanResult.skippedCandidates,
+      reportedSkippedCandidates: [...orphanResult.reportedSkippedCandidates],
+    });
+
+    return {
+      async cleanupPage(maxEntries: number): Promise<MaintenanceScanPage<StagingCleanupResult>> {
+        checkBudget(maxEntries);
+        if (cleanupDone) return { done: true, inspectedEntries: 0, result: cleanupSnapshot() };
+        await initializeManagedRoot();
+        requirePinnedRootsSync();
+        cleanupRoot ??= await opendir(managedRoot);
+        let inspectedEntries = 0;
+        while (inspectedEntries < maxEntries && !cleanupDone) {
+          if (cleanupPreset !== undefined) {
+            const child = await cleanupPreset.directory.read();
+            if (child === null) {
+              await closeDirectory(cleanupPreset.directory);
+              cleanupPreset = undefined;
+              continue;
+            }
+            inspectedEntries += 1;
+            if (!/^\.staging-.+/.test(child.name)) continue;
+            const relativeStagingPath = `${cleanupPreset.id}/${child.name}`;
+            if (child.isSymbolicLink()) {
+              cleanupSkip(relativeStagingPath);
+              continue;
+            }
+            if (!child.isDirectory()) continue;
+            const childPath = join(cleanupPreset.root, child.name);
+            try {
+              requirePinnedRootsSync();
+              validateDirectoryPinSync(cleanupPreset.pin, 'Preset root', managedRoot);
+              const info = await lstat(childPath, { bigint: true });
+              if (info.isSymbolicLink() || !info.isDirectory()) {
+                cleanupSkip(relativeStagingPath);
+                continue;
+              }
+              if (info.mtimeMs >= BigInt(olderThan.getTime())) continue;
+              const stagingPin = pinDirectorySync(childPath, 'Staging directory', cleanupPreset.root);
+              await removePinnedDirectory(stagingPin, cleanupPreset.pin, 'Staging directory');
+            } catch {
+              cleanupSkip(relativeStagingPath);
+              continue;
+            }
+            cleanupResult.totalRemoved += 1;
+            retainFirstSorted(
+              cleanupResult.reportedRemoved,
+              relativeStagingPath,
+              DATASET_PRESET_MAINTENANCE_MAX_REPORT,
+            );
+            continue;
+          }
+
+          if (cleanupRoot === undefined) throw new Error('Cleanup scan root closed unexpectedly');
+          const presetEntry = await cleanupRoot.read();
+          if (presetEntry === null) {
+            await closeDirectory(cleanupRoot);
+            cleanupRoot = undefined;
+            cleanupDone = true;
+            continue;
+          }
+          inspectedEntries += 1;
+          requirePinnedRootsSync();
+          if (presetEntry.name.toLowerCase().startsWith('.tombstone-')) continue;
+          if (presetEntry.isSymbolicLink()) {
+            cleanupSkip(presetEntry.name);
+            continue;
+          }
+          if (!presetEntry.isDirectory()) continue;
+          const presetRoot = join(managedRoot, presetEntry.name);
+          try {
+            const presetPin = pinDirectorySync(presetRoot, 'Preset root', managedRoot);
+            cleanupPreset = {
+              directory: await opendir(presetRoot),
+              id: presetEntry.name,
+              root: presetRoot,
+              pin: presetPin,
+            };
+          } catch {
+            cleanupSkip(presetEntry.name);
+          }
+        }
+        return { done: cleanupDone, inspectedEntries, result: cleanupSnapshot() };
+      },
+
+      beginOrphanScan(authoritativeManifestPaths: readonly string[]): void {
+        if (!cleanupDone) throw new Error('Cleanup scan must complete before orphan scan');
+        if (!Array.isArray(authoritativeManifestPaths)) throw new Error('Manifest paths must be an array');
+        if (authoritative !== undefined) throw new Error('Orphan scan has already started');
+        authoritative = new Set<string>();
+        for (const value of authoritativeManifestPaths) {
+          try {
+            const grammar = parseManifestGrammar(value);
+            authoritative.add(`${grammar.presetId}/v${grammar.version}/manifest.json`);
+          } catch {
+            // Malformed database values do not establish filesystem authority.
+          }
+        }
+      },
+
+      async orphanPage(maxEntries: number): Promise<MaintenanceScanPage<PublishedOrphanScanResult>> {
+        checkBudget(maxEntries);
+        if (authoritative === undefined) throw new Error('Authoritative manifest paths must be loaded first');
+        if (orphanDone) return { done: true, inspectedEntries: 0, result: orphanSnapshot() };
+        await initializeManagedRoot();
+        requirePinnedRootsSync();
+        orphanRoot ??= await opendir(managedRoot);
+        let inspectedEntries = 0;
+        while (inspectedEntries < maxEntries && !orphanDone) {
+          if (orphanPreset !== undefined) {
+            const child = await orphanPreset.directory.read();
+            if (child === null) {
+              await closeDirectory(orphanPreset.directory);
+              orphanPreset = undefined;
+              continue;
+            }
+            inspectedEntries += 1;
+            const match = /^v([1-9]\d*)$/.exec(child.name);
+            if (!match) continue;
+            const relativeVersionPath = `${orphanPreset.id}/${child.name}`;
+            if (child.isSymbolicLink() || !child.isDirectory()) {
+              orphanSkip(relativeVersionPath);
+              continue;
+            }
+            const version = Number(match[1]);
+            if (!Number.isSafeInteger(version)) {
+              orphanSkip(relativeVersionPath);
+              continue;
+            }
+            const versionRoot = join(orphanPreset.root, child.name);
+            try {
+              requirePinnedRootsSync();
+              validateDirectoryPinSync(orphanPreset.pin, 'Preset root', managedRoot);
+              await resolvedDependencies.beforeOrphanCandidateCheck?.(relativeVersionPath);
+              pinDirectorySync(versionRoot, 'Version root', orphanPreset.root);
+              const manifestInfo = await lstat(join(versionRoot, 'manifest.json'), { bigint: true });
+              if (manifestInfo.isSymbolicLink() || !manifestInfo.isFile()) {
+                orphanSkip(relativeVersionPath);
+                continue;
+              }
+              validateAccountBoundary(manifestInfo, 'Manifest');
+            } catch {
+              orphanSkip(relativeVersionPath);
+              continue;
+            }
+            const manifestPath = `${orphanPreset.id}/v${version}/manifest.json`;
+            if (!authoritative.has(manifestPath)) {
+              orphanResult.totalOrphans += 1;
+              retainFirstSorted(
+                orphanResult.reportedOrphans,
+                relativeVersionPath,
+                DATASET_PRESET_MAINTENANCE_MAX_REPORT,
+              );
+            }
+            continue;
+          }
+
+          if (orphanRoot === undefined) throw new Error('Orphan scan root closed unexpectedly');
+          const presetEntry = await orphanRoot.read();
+          if (presetEntry === null) {
+            await closeDirectory(orphanRoot);
+            orphanRoot = undefined;
+            orphanDone = true;
+            continue;
+          }
+          inspectedEntries += 1;
+          if (presetEntry.name.toLowerCase().startsWith('.tombstone-')) continue;
+          if (presetEntry.isSymbolicLink()) {
+            orphanSkip(presetEntry.name);
+            continue;
+          }
+          if (!presetEntry.isDirectory()) continue;
+          try {
+            const presetId = validatePresetId(presetEntry.name);
+            const presetRoot = join(managedRoot, presetId);
+            const presetPin = pinDirectorySync(presetRoot, 'Preset root', managedRoot);
+            orphanPreset = {
+              directory: await opendir(presetRoot),
+              id: presetId,
+              root: presetRoot,
+              pin: presetPin,
+            };
+          } catch {
+            orphanSkip(presetEntry.name);
+          }
+        }
+        return { done: orphanDone, inspectedEntries, result: orphanSnapshot() };
+      },
+
+      async close(): Promise<void> {
+        if (closed) return;
+        closed = true;
+        const directories = [cleanupPreset?.directory, cleanupRoot, orphanPreset?.directory, orphanRoot];
+        cleanupPreset = undefined;
+        cleanupRoot = undefined;
+        orphanPreset = undefined;
+        orphanRoot = undefined;
+        let firstError: unknown;
+        for (const directory of directories) {
+          try {
+            await closeDirectory(directory);
+          } catch (error) {
+            firstError ??= error;
+          }
+        }
+        if (firstError !== undefined) throw firstError;
+      },
+    };
   }
 
   async function readManifest(relativeManifestPath: string): Promise<DatasetPresetManifestV1> {
@@ -1184,6 +1475,7 @@ export function createDatasetPresetSnapshotStore(
     readManifest,
     verifyFast,
     verifyFull,
+    createMaintenanceScan,
     resolveMediaRoot(relativeManifestPath: string): string {
       requirePinnedRootsSync();
       const parsed = resolveManifestPath(managedRoot, parseManifestGrammar(relativeManifestPath));
