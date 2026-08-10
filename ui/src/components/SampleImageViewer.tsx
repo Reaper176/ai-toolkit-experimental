@@ -295,6 +295,8 @@ export default function SampleImageViewer({
 
   if (!mounted) return null;
 
+  if (!isOpen) return null;
+
   return createPortal(
     <Dialog open={isOpen} onClose={onCancel} className="relative z-10">
       <DialogBackdrop

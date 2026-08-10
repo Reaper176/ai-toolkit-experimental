@@ -1,5 +1,5 @@
 'use client';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import {
   modelArchs,
   ModelArch,
@@ -10,7 +10,7 @@ import {
   SampleTags,
 } from './options';
 import { defaultCompileOptions, defaultDatasetConfig } from './jobConfig';
-import { GroupedSelectOption, JobConfig, SelectOption } from '@/types';
+import { DatasetConfig, GroupedSelectOption, JobConfig, SelectOption } from '@/types';
 import { objectCopy, tagsToObj, objToTags } from '@/utils/basic';
 import {
   TextInput,
@@ -34,6 +34,7 @@ import { handleModelArchChange } from './utils';
 import { IoFlaskSharp } from 'react-icons/io5';
 import { isMac } from '@/helpers/basic';
 import { normalizeOptionalModelPath } from '@/helpers/animaModelPaths';
+import DatasetSourceControl from '@/components/DatasetSourceControl';
 
 type Props = {
   jobConfig: JobConfig;
@@ -46,7 +47,13 @@ type Props = {
   gpuList: any;
   datasetOptions: any;
   isLoading?: boolean;
+  datasetInstanceToken?: string;
 };
+
+interface DatasetBlockIdentity {
+  id: string;
+  dataset: DatasetConfig;
+}
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -61,7 +68,40 @@ export default function SimpleJob({
   gpuList,
   datasetOptions,
   isLoading,
+  datasetInstanceToken,
 }: Props) {
+  const datasetIdentityRef = useRef<{
+    token: string | undefined;
+    nextId: number;
+    entries: DatasetBlockIdentity[];
+  }>({ token: datasetInstanceToken, nextId: 1, entries: [] });
+  const identityState = datasetIdentityRef.current;
+  if (identityState.token !== datasetInstanceToken) {
+    identityState.token = datasetInstanceToken;
+    identityState.entries = [];
+  }
+  const currentDatasets = jobConfig.config.process[0].datasets;
+  const usedPrevious = new Set<number>();
+  const nextEntries: Array<DatasetBlockIdentity | undefined> = currentDatasets.map(dataset => {
+    const previousIndex = identityState.entries.findIndex(
+      (entry, index) => !usedPrevious.has(index) && entry.dataset === dataset,
+    );
+    if (previousIndex < 0) return undefined;
+    usedPrevious.add(previousIndex);
+    return { id: identityState.entries[previousIndex].id, dataset };
+  });
+  for (let index = 0; index < currentDatasets.length; index += 1) {
+    if (nextEntries[index]) continue;
+    const samePosition = identityState.entries[index];
+    if (samePosition && !usedPrevious.has(index)) {
+      usedPrevious.add(index);
+      nextEntries[index] = { id: samePosition.id, dataset: currentDatasets[index] };
+    } else {
+      nextEntries[index] = { id: `dataset-block-${identityState.nextId++}`, dataset: currentDatasets[index] };
+    }
+  }
+  identityState.entries = nextEntries as DatasetBlockIdentity[];
+  const datasetBlockIds = identityState.entries.map(entry => entry.id);
   const modelArch = useMemo(() => {
     return modelArchs.find(a => a.name === jobConfig.config.process[0].model.arch) as ModelArch;
   }, [jobConfig.config.process[0].model.arch]);
@@ -228,6 +268,8 @@ export default function SimpleJob({
       <form
         onSubmit={handleSubmit}
         className={`space-y-8 relative ${isLoading ? 'pointer-events-none opacity-50' : ''}`}
+        inert={isLoading ? true : undefined}
+        aria-busy={isLoading}
       >
         {isLoading && (
           <div className="absolute inset-0 z-50 flex items-center justify-center">
@@ -1138,7 +1180,7 @@ export default function SimpleJob({
           <Card title="Datasets">
             <>
               {jobConfig.config.process[0].datasets.map((dataset, i) => (
-                <div key={i} className="p-4 rounded-lg bg-gray-800 relative">
+                <div key={datasetBlockIds[i]} className="p-4 rounded-lg bg-gray-800 relative">
                   <div className="absolute top-2 right-2 flex gap-1">
                     <button
                       type="button"
@@ -1170,11 +1212,12 @@ export default function SimpleJob({
                   <h2 className="text-lg font-bold mb-4">Dataset {i + 1}</h2>
                   <div className={datasetStyleClass}>
                     <div>
-                      <SelectInput
-                        label="Target Dataset"
-                        value={dataset.folder_path}
-                        onChange={value => setJobConfig(value, `config.process[0].datasets[${i}].folder_path`)}
-                        options={datasetOptions}
+                      <DatasetSourceControl
+                        key={datasetBlockIds[i]}
+                        instanceToken={datasetBlockIds[i]}
+                        dataset={dataset}
+                        liveOptions={datasetOptions}
+                        onChange={next => setJobConfig(next, `config.process[0].datasets[${i}]`)}
                       />
                       {modelArch?.additionalSections?.includes('datasets.control_path') && (
                         <SelectInput

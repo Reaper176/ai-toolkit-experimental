@@ -908,6 +908,11 @@ class SliderConfig:
 
 ControlTypes = Literal['depth', 'line', 'pose', 'inpaint', 'mask', 'sapiens2_mask']
 
+def resolve_dataset_source_path(dataset_config):
+    if dataset_config.dataset_path is not None:
+        return dataset_config.dataset_path
+    return dataset_config.folder_path
+
 class DatasetConfig:
     """
     Dataset config for sd-datasets

@@ -1,3 +1,5 @@
+import type { DatasetPresetLoaderConfig } from './helpers/datasetPresetValidation';
+
 /**
  * GPU API response
  */
@@ -87,6 +89,7 @@ export interface SaveConfig {
 
 export interface DatasetConfig {
   folder_path: string;
+  dataset_path?: string | null;
   mask_path: string | null;
   mask_min_value: number;
   default_caption: string;
@@ -113,6 +116,27 @@ export interface DatasetConfig {
   control_path_2?: string | null;
   control_path_3?: string | null;
   auto_frame_count?: boolean;
+  dataset_preset?: {
+    version_id: string;
+    preset_id: string;
+    preset_name: string;
+    version: number;
+    manifest_sha256: string;
+  };
+}
+
+export interface JobDatasetPresetUsageView {
+  dataset_index: number;
+  preset_version_id: string;
+  preset_name: string;
+  preset_version: number;
+  manifest_sha256: string;
+  resolved_loader_config: DatasetPresetLoaderConfig;
+  source_dataset: string;
+  media_count: number;
+  total_bytes: string;
+  version_created_at: string;
+  note: string | null;
 }
 
 export interface EMAConfig {

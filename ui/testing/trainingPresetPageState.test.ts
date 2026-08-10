@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
 import { createTrainingPresetPageState, trainingPresetPageReducer } from '../src/app/jobs/new/trainingPresetPageState';
+import { canSaveTrainingJob, removeArchivedPresetSourcesFromClone } from '../src/helpers/jobDatasetPresetClient';
+import type { JobConfig } from '../src/types';
+
+const validJob = { config: { process: [{ datasets: [{ folder_path: '/live' }] }] } } as JobConfig;
 
 let edit = createTrainingPresetPageState('edit:job-1');
 assert.equal(edit.presetReady, false, 'edit presets stay disabled before hydration');
+assert.equal(canSaveTrainingJob(edit.presetReady, validJob), false, 'save is blocked during edit hydration');
 edit = trainingPresetPageReducer(edit, { type: 'external-load-succeeded', sourceKey: 'edit:job-1' });
 assert.equal(edit.presetReady, true, 'edit presets enable after hydration');
+assert.equal(canSaveTrainingJob(edit.presetReady, validJob), true, 'save is allowed after successful hydration');
 assert.equal(edit.generation, 1);
 
 let clone = createTrainingPresetPageState('clone:job-2');
@@ -16,6 +22,7 @@ clone = trainingPresetPageReducer(clone, {
   error: 'Unable to load training job for cloning.',
 });
 assert.equal(clone.presetReady, false, 'failed clone hydration remains disabled');
+assert.equal(canSaveTrainingJob(clone.presetReady, validJob), false, 'save remains blocked after hydration failure');
 assert.match(clone.loadError ?? '', /unable to load/i);
 const staleClone = trainingPresetPageReducer(clone, {
   type: 'external-load-succeeded',
@@ -46,4 +53,25 @@ assert.equal(successfulImport.loadError, null);
 const afterPresetApply = trainingPresetPageReducer(successfulImport, { type: 'preset-applied' });
 assert.equal(afterPresetApply, successfulImport, 'preset apply must not reset its own session generation');
 
-console.log('training preset page state tests passed');
+const archivedClone = {
+  config: { process: [{ datasets: [{ folder_path: '/managed', dataset_preset: { preset_id: 'archived' } }] }] },
+} as JobConfig;
+let cloneHydration = createTrainingPresetPageState('clone:archived');
+const cloneAvailability = removeArchivedPresetSourcesFromClone(archivedClone, async id => ({
+  id,
+  archived_at: '2026-08-03T00:00:00.000Z',
+}));
+assert.equal(cloneHydration.presetReady, false, 'clone stays blocked while preset availability is pending');
+void cloneAvailability
+  .then(sanitizedClone => {
+    cloneHydration = trainingPresetPageReducer(cloneHydration, {
+      type: 'external-load-succeeded', sourceKey: 'clone:archived',
+    });
+    assert.equal(sanitizedClone.config.process[0].datasets[0].folder_path, '', 'archived source clears before readiness');
+    assert.equal(canSaveTrainingJob(cloneHydration.presetReady, sanitizedClone), false, 'cleared source still blocks save');
+    console.log('training preset page state tests passed');
+  })
+  .catch(error => {
+    console.error(error);
+    process.exitCode = 1;
+  });

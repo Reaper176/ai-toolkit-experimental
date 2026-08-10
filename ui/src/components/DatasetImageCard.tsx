@@ -19,6 +19,10 @@ interface DatasetImageCardProps {
   observerRoot?: Element | null;
   rootMargin?: string;
   captionExt?: string;
+  selectionMode?: boolean;
+  selectionDisabled?: boolean;
+  selected?: boolean;
+  onSelectionChange?: (selected: boolean) => void;
 }
 
 const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
@@ -33,6 +37,10 @@ const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
   observerRoot = null,
   rootMargin = '200px 0px',
   captionExt = 'txt',
+  selectionMode = false,
+  selectionDisabled = false,
+  selected = false,
+  onSelectionChange,
 }) => {
   const [loaded, setLoaded] = useState<boolean>(false);
   const [showAudioPlayer, setShowAudioPlayer] = useState(true);
@@ -44,6 +52,10 @@ const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
   const isItAVideo = isVideo(imageUrl);
   const isItAudio = isAudio(imageUrl);
   const isItImage = !isItAVideo && !isItAudio;
+  const filename = imageUrl.replace(/^.*[\\/]/, '');
+  const toggleSelection = () => {
+    if (!selectionDisabled) onSelectionChange?.(!selected);
+  };
 
   // Track actual viewport visibility — Virtuoso keeps a buffer of cards mounted
   // outside the visible region, so we can't rely on mount/unmount alone.
@@ -190,6 +202,7 @@ const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
         <div
           className={classNames('absolute inset-0 rounded-t-lg shadow-md bg-gray-900', {
             'animate-pulse': isItImage && !loaded,
+            'ring-2 ring-inset ring-blue-400': selectionMode && selected,
           })}
         >
           {isItAVideo && (
@@ -224,17 +237,44 @@ const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
             <img
               src={blobUrl}
               alt={alt}
-              onClick={onImageClick}
+              onClick={selectionMode ? undefined : onImageClick}
               className={classNames('w-full h-full object-contain', {
-                'cursor-zoom-in': !!onImageClick,
+                'cursor-zoom-in': !!onImageClick && !selectionMode,
               })}
             />
           )}
           {children && <div className="absolute inset-0 flex items-center justify-center">{children}</div>}
-          <div className="absolute top-1 right-1 flex space-x-2 z-10">
+          {selectionMode && (
+            <>
+              <div
+                data-selection-media
+                aria-hidden="true"
+                className="absolute inset-0 z-10 cursor-pointer rounded-t-lg"
+                onClick={toggleSelection}
+              />
+              <label className="absolute top-2 left-2 z-20 flex cursor-pointer items-center rounded bg-gray-950/80 p-1.5 text-xs text-white focus-within:ring-2 focus-within:ring-blue-300">
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${filename}`}
+                  checked={selected}
+                  disabled={selectionDisabled}
+                  onClick={event => event.stopPropagation()}
+                  onChange={event => {
+                    event.stopPropagation();
+                    onSelectionChange?.(event.currentTarget.checked);
+                  }}
+                  className="size-4 accent-blue-500"
+                />
+              </label>
+            </>
+          )}
+          <div className="absolute top-1 right-1 flex space-x-2 z-20">
             <button
+              type="button"
+              aria-label={`Delete ${filename}`}
               className="bg-gray-800 rounded-full p-2"
-              onClick={() => {
+              onClick={event => {
+                event.stopPropagation();
                 openConfirm({
                   title: `Delete ${isItAVideo ? 'video' : 'image'}`,
                   message: `Are you sure you want to delete this ${isItAVideo ? 'video' : 'image'}? This action cannot be undone.`,

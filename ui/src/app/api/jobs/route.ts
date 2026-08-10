@@ -1,8 +1,33 @@
 import { NextResponse } from 'next/server';
+import type { Prisma } from '@prisma/client';
 import prisma from '@/server/prisma';
 import { isMac } from '@/helpers/basic';
 import { cached } from '@/server/apiCache';
 import { resolveGpuIds } from '@/server/jobGpu';
+import { createDatasetPresetSnapshotStore } from '@/server/datasetPresetSnapshotService';
+import { JobDatasetPresetError, saveJobWithDatasetUsages } from '@/server/jobDatasetPresetService';
+import {
+  createJobDatasetVersionPrismaStore,
+  createJobWritePrismaStore,
+  jobWithDatasetPresetUsagesInclude,
+  jobWithDatasetPresetUsagesResponse,
+} from '@/server/jobDatasetPresetPrismaStore';
+import { getDataRoot } from '@/server/settings';
+import type { JobConfig } from '@/types';
+
+const versions = createJobDatasetVersionPrismaStore(prisma);
+const jobs = createJobWritePrismaStore(prisma);
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function optionalString(body: Record<string, unknown>, key: 'job_ref' | 'job_type'): string | undefined {
+  if (!Object.prototype.hasOwnProperty.call(body, key)) return undefined;
+  const value = body[key];
+  if (typeof value !== 'string') throw new JobDatasetPresetError('Job request is invalid');
+  return value;
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -13,43 +38,33 @@ export async function GET(request: Request) {
 
   try {
     if (id) {
-      const job = await prisma.job.findUnique({
-        where: { id },
-      });
-      return NextResponse.json(job);
+      const job = await prisma.job.findUnique({ where: { id }, include: jobWithDatasetPresetUsagesInclude });
+      return NextResponse.json(jobWithDatasetPresetUsagesResponse(job));
     }
     if (job_ref) {
       const job = await prisma.job.findFirst({
         where: { job_ref },
         orderBy: { updated_at: 'desc' },
+        include: jobWithDatasetPresetUsagesInclude,
       });
-      return NextResponse.json(job);
+      return NextResponse.json(jobWithDatasetPresetUsagesResponse(job));
     }
 
-    const where: any = {};
-    if (job_type) {
-      where.job_type = job_type;
-    }
+    const where: Prisma.JobWhereInput = {};
+    if (job_type) where.job_type = job_type;
     if (only_active === 'true') {
       where.status = { in: ['running', 'queued', 'stopping'] };
-      const jobs = await cached(
+      const activeJobs = await cached(
         'jobs-active',
-        () =>
-          prisma.job.findMany({
-            where,
-            orderBy: { created_at: 'desc' },
-          }),
+        () => prisma.job.findMany({ where, orderBy: { created_at: 'desc' } }),
         5000,
         { job_type },
       );
-      return NextResponse.json({ jobs: jobs });
+      return NextResponse.json({ jobs: activeJobs });
     }
 
-    const jobs = await prisma.job.findMany({
-      where,
-      orderBy: { created_at: 'desc' },
-    });
-    return NextResponse.json({ jobs: jobs });
+    const allJobs = await prisma.job.findMany({ where, orderBy: { created_at: 'desc' } });
+    return NextResponse.json({ jobs: allJobs });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: 'Failed to fetch training data' }, { status: 500 });
@@ -58,62 +73,47 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { id, name, job_config } = body;
+    const bodyInput: unknown = await request.json();
+    if (!isPlainObject(bodyInput)) return NextResponse.json({ error: 'Invalid job request' }, { status: 400 });
+    const body = bodyInput;
+    const id = body.id === null || body.id === undefined ? null : body.id;
+    if (id !== null && (typeof id !== 'string' || id.trim().length === 0)) {
+      return NextResponse.json({ error: 'Invalid job request' }, { status: 400 });
+    }
+    if (typeof body.name !== 'string' || body.name.trim().length === 0) {
+      return NextResponse.json({ error: 'A job name is required' }, { status: 400 });
+    }
+    if (!Object.prototype.hasOwnProperty.call(body, 'job_config')) {
+      return NextResponse.json({ error: 'A job configuration is required' }, { status: 400 });
+    }
+    const clone = body.clone === undefined ? false : body.clone;
+    if (typeof clone !== 'boolean') return NextResponse.json({ error: 'Invalid job request' }, { status: 400 });
     const gpu_ids = resolveGpuIds(body.gpu_ids, isMac());
     if (gpu_ids === null) {
       return NextResponse.json({ error: 'A GPU selection is required' }, { status: 400 });
     }
 
-    const extra: any = {};
-    if ('job_ref' in body) {
-      extra['job_ref'] = body.job_ref;
-    }
-
-    if ('job_type' in body) {
-      extra['job_type'] = body.job_type;
-    }
-
-    if (id) {
-      // Update existing training
-      const training = await prisma.job.update({
-        where: { id },
-        data: {
-          name,
-          gpu_ids,
-          job_config: JSON.stringify(job_config),
-          ...extra,
-        },
-      });
-      return NextResponse.json(training);
-    } else {
-      // find the highest queue position and add 1000
-      const highestQueuePosition = await prisma.job.aggregate({
-        _max: {
-          queue_position: true,
-        },
-      });
-      const newQueuePosition = (highestQueuePosition._max.queue_position || 0) + 1000;
-
-      // Create new training
-      const training = await prisma.job.create({
-        data: {
-          name,
-          gpu_ids,
-          job_config: JSON.stringify(job_config),
-          queue_position: newQueuePosition,
-          ...extra,
-        },
-      });
-      return NextResponse.json(training);
-    }
-  } catch (error: any) {
-    if (error.code === 'P2002') {
-      // Handle unique constraint violation, 409=Conflict
+    const training = await saveJobWithDatasetUsages({
+      id,
+      clone,
+      name: body.name,
+      gpu_ids,
+      job_config: body.job_config as JobConfig,
+      job_ref: optionalString(body, 'job_ref'),
+      job_type: optionalString(body, 'job_type'),
+      jobs,
+      versions,
+      snapshots: createDatasetPresetSnapshotStore(await getDataRoot()),
+    });
+    return NextResponse.json(training);
+  } catch (error: unknown) {
+    if (error !== null && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
       return NextResponse.json({ error: 'Job name already exists' }, { status: 409 });
     }
+    if (error instanceof JobDatasetPresetError || error instanceof SyntaxError) {
+      return NextResponse.json({ error: 'Job dataset preset configuration is invalid' }, { status: 400 });
+    }
     console.error(error);
-    // Handle other errors
     return NextResponse.json({ error: 'Failed to save training data' }, { status: 500 });
   }
 }

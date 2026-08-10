@@ -3,11 +3,15 @@
     "compilerOptions": {
         "module": "commonjs",
         "target": "es2020",
-        "outDir": "dist/cron",
+        "lib": ["es2022", "dom"],
+        "outDir": "dist",
+        "rootDir": ".",
         "moduleResolution": "node",
         "types": [
-            "node"
+            "node",
+            "react"
         ],
+        "strict": true,
         "esModuleInterop": true,
         "allowSyntheticDefaultImports": true,
         "paths": {

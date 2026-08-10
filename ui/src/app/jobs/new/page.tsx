@@ -23,6 +23,12 @@ import { TrainingPresetControl } from '@/components/TrainingPresetControl';
 import { apiClient } from '@/utils/api';
 import { isMac } from '@/helpers/basic';
 import { createTrainingPresetPageState, trainingPresetPageReducer } from './trainingPresetPageState';
+import type { DatasetPresetDetail } from '@/hooks/useDatasetPresets';
+import {
+  buildTrainingJobSaveRequest,
+  canSaveTrainingJob,
+  removeArchivedPresetSourcesFromClone,
+} from '@/helpers/jobDatasetPresetClient';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -39,6 +45,7 @@ export default function TrainingForm() {
   );
   const presetReady = presetPageState.sourceKey === presetSourceKey && presetPageState.presetReady;
   const presetSessionGeneration = presetPageState.generation;
+  const [datasetSourceGeneration, bumpDatasetSourceGeneration] = useReducer((generation: number) => generation + 1, 0);
   const [gpuIDs, setGpuIDs] = useState<string | null>(null);
   const { settings, isSettingsLoaded } = useSettings();
   const { gpuList, isGPUInfoLoaded } = useGPUInfo();
@@ -156,11 +163,21 @@ export default function TrainingForm() {
     apiClient
       .get(`/api/jobs?id=${externalJobId}`, { signal: controller.signal })
       .then(res => res.data)
-      .then(data => {
+      .then(async data => {
         if (!active || controller.signal.aborted || replacementToken !== replacementTokenRef.current) return;
         console.log(cloneId ? 'Clone Training:' : 'Training:', data);
         setGpuIDs(data.gpu_ids);
-        const loadedJobConfig = migrateJobConfig(JSON.parse(data.job_config));
+        let loadedJobConfig = migrateJobConfig(JSON.parse(data.job_config));
+        if (cloneId) {
+          loadedJobConfig = await removeArchivedPresetSourcesFromClone(loadedJobConfig, async presetId => {
+            const response = await apiClient.get<DatasetPresetDetail>(
+              `/api/dataset-presets/${encodeURIComponent(presetId)}`,
+              { signal: controller.signal },
+            );
+            return response.data;
+          });
+        }
+        if (!active || controller.signal.aborted || replacementToken !== replacementTokenRef.current) return;
         if (cloneId) loadedJobConfig.config.name = `${loadedJobConfig.config.name}_copy`;
         setJobConfig(loadedJobConfig);
         dispatchPresetPage({ type: 'external-load-succeeded', sourceKey: presetSourceKey });
@@ -213,19 +230,25 @@ export default function TrainingForm() {
 
   const saveJob = async () => {
     if (status === 'saving') return;
+    if (!presetReady) return;
     if (nonMacGpuSelectionMissing) {
       alert('No trainable GPU was detected. Verify ROCm or NVIDIA GPU monitoring before creating a job.');
+      return;
+    }
+    if (!canSaveTrainingJob(presetReady, jobConfig)) {
+      alert('Choose a live folder or an active dataset preset for every dataset.');
       return;
     }
     setStatus('saving');
 
     apiClient
-      .post('/api/jobs', {
-        id: runId,
+      .post('/api/jobs', buildTrainingJobSaveRequest({
+        runId,
+        cloneId,
         name: jobConfig.config.name,
-        gpu_ids: gpuIDs,
-        job_config: jobConfig,
-      })
+        gpuIds: gpuIDs,
+        jobConfig,
+      }))
       .then(res => {
         setStatus('success');
         if (runId) {
@@ -272,6 +295,7 @@ export default function TrainingForm() {
           <>
             <div className="hidden sm:block">
               <SelectInput
+                disabled={!presetReady}
                 value={`${gpuIDs}`}
                 onChange={value => setGpuIDs(value)}
                 options={gpuList.map((gpu: any) => ({
@@ -297,6 +321,7 @@ export default function TrainingForm() {
           <>
             <div className="hidden sm:block">
               <SelectInput
+                disabled={!presetReady}
                 value={`${jobConfig?.config.process[0].type}`}
                 onChange={value => {
                   // undo current job type changes
@@ -331,7 +356,10 @@ export default function TrainingForm() {
             key={presetSessionGeneration}
             disabled={!presetReady}
             jobConfig={jobConfig}
-            onJobConfigChange={next => setJobConfig(next)}
+            onJobConfigChange={next => {
+              setJobConfig(next);
+              bumpDatasetSourceGeneration();
+            }}
             migrateJobConfig={migrateJobConfig}
           />
         </div>
@@ -341,6 +369,7 @@ export default function TrainingForm() {
           <Button
             className="text-gray-200 bg-gray-800 px-2 sm:px-3 py-1 rounded-md text-xs sm:text-base"
             onClick={() => setShowAdvancedView(!showAdvancedView)}
+            disabled={!presetReady}
           >
             <span className="sm:hidden">{showAdvancedView ? 'Simple' : 'Advanced'}</span>
             <span className="hidden sm:inline">{showAdvancedView ? 'Show Simple' : 'Show Advanced'}</span>
@@ -350,7 +379,7 @@ export default function TrainingForm() {
           <Button
             className="text-white bg-green-600 hover:bg-green-700 px-2 sm:px-3 py-1 rounded-md text-xs sm:text-base"
             onClick={() => saveJob()}
-            disabled={status === 'saving' || nonMacGpuSelectionMissing}
+            disabled={!presetReady || status === 'saving' || nonMacGpuSelectionMissing}
           >
             {status === 'saving' ? (
               'Saving...'
@@ -385,7 +414,11 @@ export default function TrainingForm() {
       )}
 
       {showAdvancedView ? (
-        <div className="pt-[48px] absolute top-0 left-0 w-full h-full overflow-auto">
+        <div
+          className={`pt-[48px] absolute top-0 left-0 w-full h-full overflow-auto ${!presetReady ? 'pointer-events-none opacity-50' : ''}`}
+          inert={!presetReady ? true : undefined}
+          aria-busy={!presetReady}
+        >
           <AdvancedConfigEditor
             config={jobConfig}
             setConfig={setJobConfig}
@@ -421,7 +454,8 @@ export default function TrainingForm() {
               setGpuIDs={setGpuIDs}
               gpuList={gpuList}
               datasetOptions={datasetOptions}
-              isLoading={!isSettingsLoaded || !isGPUInfoLoaded || datasetFetchStatus !== 'success'}
+              datasetInstanceToken={`${presetSourceKey}:${presetSessionGeneration}:${datasetSourceGeneration}`}
+              isLoading={!presetReady || !isSettingsLoaded || !isGPUInfoLoaded || datasetFetchStatus !== 'success'}
             />
           </ErrorBoundary>
 
