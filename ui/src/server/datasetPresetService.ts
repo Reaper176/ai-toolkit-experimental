@@ -165,6 +165,7 @@ export interface DatasetPresetService {
   rename(presetId: string, name: string): Promise<DatasetPresetDetail>;
   setArchived(presetId: string, archived: boolean): Promise<DatasetPresetDetail>;
   getVersion(versionId: string): Promise<DatasetPresetVersionDetail>;
+  verifyVersionDetail(versionId: string, full: boolean): Promise<DatasetPresetVersionDetail>;
   deleteVersion(versionId: string): Promise<void>;
   verifyVersion(versionId: string, full: boolean): Promise<DatasetPresetManifestV1>;
 }
@@ -620,9 +621,13 @@ export function createDatasetPresetService(dependencies: {
     },
 
     async verifyVersion(versionIdInput: string, full: boolean): Promise<DatasetPresetManifestV1> {
+      return (await service.verifyVersionDetail(versionIdInput, full)).manifest;
+    },
+
+    async verifyVersionDetail(versionIdInput: string, full: boolean): Promise<DatasetPresetVersionDetail> {
       const versionId = validateId(versionIdInput, 'Version id');
       if (typeof full !== 'boolean') throw new DatasetPresetValidationError('Full verification flag must be a boolean');
-      return (await getVerifiedVersion(await getVersionRow(versionId), full ? 'full' : 'fast')).manifest;
+      return getVerifiedVersion(await getVersionRow(versionId), full ? 'full' : 'fast');
     },
 
     async deleteVersion(versionIdInput: string): Promise<void> {

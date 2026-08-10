@@ -62,6 +62,7 @@ class MemoryStore implements DatasetPresetStore {
   listVersionsError: unknown;
   listActiveWithVersionsCalls = 0;
   listVersionsCalls = 0;
+  getVersionCalls = 0;
   beforeInsertReservedVersion?: () => void | Promise<void>;
 
   async listActive(): Promise<DatasetPresetRow[]> {
@@ -165,6 +166,7 @@ class MemoryStore implements DatasetPresetStore {
     return clone(row);
   }
   async getVersion(id: string): Promise<DatasetPresetVersionRow | null> {
+    this.getVersionCalls += 1;
     return clone(this.versions.find(row => row.id === id) ?? null);
   }
   async countVersionUsages(id: string): Promise<number> {
@@ -329,6 +331,26 @@ async function main(): Promise<void> {
   await service.verifyVersion(v2.id, true);
   assert.equal(snapshots.fastChecks, 2, 'base publication and explicit verification must both fast-check');
   assert.equal(snapshots.fullChecks, 1);
+
+  const verifiedDetailStore = new MemoryStore();
+  const verifiedDetailSnapshots = new FakeSnapshots();
+  const verifiedDetailService = createDatasetPresetService({
+    store: verifiedDetailStore,
+    snapshots: verifiedDetailSnapshots,
+    datasetsRoot: '/datasets',
+  });
+  const verifiedDetailPreset = await verifiedDetailService.createPreset({ ...publishInput, name: 'Verified detail' });
+  const verifiedDetailVersionId = verifiedDetailPreset.versions[0].id;
+  const readsBeforeVerifiedDetail = verifiedDetailStore.getVersionCalls;
+  const fullChecksBeforeVerifiedDetail = verifiedDetailSnapshots.fullChecks;
+  const verifiedDetail = await verifiedDetailService.verifyVersionDetail(verifiedDetailVersionId, true);
+  assert.equal(verifiedDetailStore.getVersionCalls - readsBeforeVerifiedDetail, 1);
+  assert.equal(verifiedDetailSnapshots.fullChecks - fullChecksBeforeVerifiedDetail, 1);
+  verifiedDetail.loader_config.num_repeats = 999;
+  verifiedDetail.manifest.loader_config.num_repeats = 999;
+  const verifiedDetailAgain = await verifiedDetailService.verifyVersionDetail(verifiedDetailVersionId, true);
+  assert.equal(verifiedDetailAgain.loader_config.num_repeats, 1);
+  assert.equal(verifiedDetailAgain.manifest.loader_config.num_repeats, 1);
   await service.setArchived(created.id, false);
 
   store.usages.set(v2.id, 1);

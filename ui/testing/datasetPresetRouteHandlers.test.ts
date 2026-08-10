@@ -14,6 +14,7 @@ import {
 } from '../src/server/datasetPresetService';
 import {
   MAX_JSON_BODY_BYTES,
+  createDatasetPresetRouteComposition,
   createDatasetPresetRouteHandlers,
   type DatasetPresetRouteLogger,
 } from '../src/server/datasetPresetRouteHandlers';
@@ -95,6 +96,7 @@ class FakeService implements DatasetPresetService {
     if (method === 'publishVersion') return structuredClone(version) as T;
     if (method === 'getVersion') return structuredClone(this.versionResult) as T;
     if (method === 'verifyVersion') return structuredClone(manifest) as T;
+    if (method === 'verifyVersionDetail') return structuredClone(this.versionResult) as T;
     return undefined as T;
   }
   async listActive() {
@@ -121,8 +123,56 @@ class FakeService implements DatasetPresetService {
   async verifyVersion(id: string, full: boolean) {
     return this.result<typeof manifest>('verifyVersion', id, full);
   }
+  async verifyVersionDetail(id: string, full: boolean) {
+    return this.result<DatasetPresetVersionDetail>('verifyVersionDetail', id, full);
+  }
   async deleteVersion(id: string) {
     this.result<void>('deleteVersion', id);
+  }
+}
+
+class SerializedPublishService extends FakeService {
+  activePublishes = 0;
+  maxActivePublishes = 0;
+  startedPublishes = 0;
+  private queue = Promise.resolve();
+  private firstPublishStartedResolve!: () => void;
+  private releaseFirstPublish!: () => void;
+  readonly firstPublishStarted: Promise<void>;
+  private readonly firstPublishGate: Promise<void>;
+
+  constructor() {
+    super();
+    this.firstPublishStarted = new Promise(resolve => {
+      this.firstPublishStartedResolve = resolve;
+    });
+    this.firstPublishGate = new Promise(resolve => {
+      this.releaseFirstPublish = resolve;
+    });
+  }
+
+  releaseFirst(): void {
+    this.releaseFirstPublish();
+  }
+
+  override async publishVersion(id: string, input: Parameters<DatasetPresetService['publishVersion']>[1]) {
+    const prior = this.queue;
+    let release!: () => void;
+    this.queue = new Promise(resolve => {
+      release = resolve;
+    });
+    await prior;
+    this.calls.push({ method: 'publishVersion', args: [id, input] });
+    this.startedPublishes += 1;
+    this.activePublishes += 1;
+    this.maxActivePublishes = Math.max(this.maxActivePublishes, this.activePublishes);
+    if (this.startedPublishes === 1) {
+      this.firstPublishStartedResolve();
+      await this.firstPublishGate;
+    }
+    this.activePublishes -= 1;
+    release();
+    return structuredClone(version);
   }
 }
 
@@ -168,6 +218,29 @@ function oversizedStream(): Request {
   return new Request('http://localhost/api/dataset-presets', { method: 'POST', body, duplex: 'half' } as RequestInit & {
     duplex: 'half';
   });
+}
+function cancellationRejectingOversizedStream(): Request {
+  const chunk = new Uint8Array(512 * 1024);
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(chunk);
+      controller.enqueue(chunk);
+      controller.enqueue(new Uint8Array(1));
+    },
+    cancel() {
+      return Promise.reject(new Error('stream cancellation failed'));
+    },
+  });
+  return new Request('http://localhost/api/dataset-presets', {
+    method: 'POST',
+    body,
+    duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+}
+function exactLimitJson(): string {
+  const encoder = new TextEncoder();
+  const base = JSON.stringify({ padding: '' });
+  return JSON.stringify({ padding: 'x'.repeat(MAX_JSON_BODY_BYTES - encoder.encode(base).byteLength) });
 }
 async function assertStatus(
   result: Promise<{ status: number; body: unknown }>,
@@ -215,11 +288,8 @@ async function main(): Promise<void> {
   const versionCallStart = service.calls.length;
   await assertStatus(handlers.version('version-1'), 200, versionDetail);
   assert.deepEqual(service.calls.slice(versionCallStart), [{ method: 'getVersion', args: ['version-1'] }]);
-  await assertStatus(handlers.verify('version-1'), 200, { valid: true, version: versionDetail, manifest });
-  assert.deepEqual(service.calls.slice(-2), [
-    { method: 'getVersion', args: ['version-1'] },
-    { method: 'verifyVersion', args: ['version-1', true] },
-  ]);
+  await assertStatus(handlers.verify('version-1'), 200, { valid: true, version: versionDetail });
+  assert.deepEqual(service.calls.at(-1), { method: 'verifyVersionDetail', args: ['version-1', true] });
 
   for (const body of [undefined, '', 'not-json', '[]', 'null'])
     await assertStatus(createDatasetPresetRouteHandlers(new FakeService(), () => undefined).create(request(body)), 400);
@@ -300,6 +370,105 @@ async function main(): Promise<void> {
     createDatasetPresetRouteHandlers(new FakeService(), () => undefined).create(oversizedStream()),
     413,
   );
+  await assertStatus(
+    createDatasetPresetRouteHandlers(new FakeService(), () => undefined).create(cancellationRejectingOversizedStream()),
+    413,
+  );
+  const exactLimitResponse = await createDatasetPresetRouteHandlers(new FakeService(), () => undefined).create(
+    request(exactLimitJson()),
+  );
+  assert.notEqual(exactLimitResponse.status, 413);
+  await assertStatus(
+    createDatasetPresetRouteHandlers(new FakeService(), () => undefined).create(
+      request(validCreate(), { 'content-length': 'not-a-number' }),
+    ),
+    201,
+  );
+
+  let buildCalls = 0;
+  const sharedService = new FakeService();
+  const composition = createDatasetPresetRouteComposition({
+    resolveRoots: async () => ({ dataRoot: '/managed-a', datasetsRoot: '/datasets-a' }),
+    buildService: async () => {
+      buildCalls += 1;
+      return sharedService;
+    },
+  });
+  const [firstHandlers, secondHandlers] = await Promise.all([
+    composition.createDefaultHandlers(),
+    composition.createDefaultHandlers(),
+  ]);
+  assert.equal(buildCalls, 1);
+  await firstHandlers.publish('preset-1', request(validPublish()));
+  await secondHandlers.publish('preset-1', request(validPublish()));
+  assert.equal(sharedService.calls.filter(call => call.method === 'publishVersion').length, 2);
+
+  const serializedServices: SerializedPublishService[] = [];
+  const serialComposition = createDatasetPresetRouteComposition({
+    resolveRoots: async () => ({ dataRoot: '/managed-serial', datasetsRoot: '/datasets-serial' }),
+    buildService: async () => {
+      const service = new SerializedPublishService();
+      serializedServices.push(service);
+      return service;
+    },
+  });
+  const [serialFirstHandlers, serialSecondHandlers] = await Promise.all([
+    serialComposition.createDefaultHandlers(),
+    serialComposition.createDefaultHandlers(),
+  ]);
+  assert.equal(serializedServices.length, 1);
+  const serialFirst = serialFirstHandlers.publish('preset-1', request(validPublish()));
+  await serializedServices[0].firstPublishStarted;
+  const serialSecond = serialSecondHandlers.publish('preset-1', request(validPublish()));
+  await Promise.resolve();
+  assert.equal(serializedServices[0].maxActivePublishes, 1);
+  assert.equal(serializedServices[0].startedPublishes, 1);
+  serializedServices[0].releaseFirst();
+  await Promise.all([serialFirst, serialSecond]);
+  assert.equal(serializedServices[0].maxActivePublishes, 1);
+  assert.equal(serializedServices[0].startedPublishes, 2);
+
+  let activeRoots = { dataRoot: '/managed-first', datasetsRoot: '/datasets-first' };
+  let rootScopedBuilds = 0;
+  const rootScopedComposition = createDatasetPresetRouteComposition({
+    resolveRoots: async () => activeRoots,
+    buildService: async () => {
+      rootScopedBuilds += 1;
+      return new FakeService();
+    },
+  });
+  await rootScopedComposition.createDefaultHandlers();
+  activeRoots = { dataRoot: '/managed-second', datasetsRoot: '/datasets-second' };
+  await rootScopedComposition.createDefaultHandlers();
+  assert.equal(rootScopedBuilds, 2);
+
+  let retryBuilds = 0;
+  const retryComposition = createDatasetPresetRouteComposition({
+    resolveRoots: async () => ({ dataRoot: '/managed-retry', datasetsRoot: '/datasets-retry' }),
+    buildService: async () => {
+      retryBuilds += 1;
+      if (retryBuilds === 1) throw new Error('first construction failed');
+      return new FakeService();
+    },
+  });
+  await assert.rejects(retryComposition.createDefaultHandlers());
+  await retryComposition.createDefaultHandlers();
+  assert.equal(retryBuilds, 2);
+
+  const setupError = new Error('/secret/root unavailable');
+  const setupLogs: Array<[string, unknown]> = [];
+  const failingComposition = createDatasetPresetRouteComposition({
+    resolveRoots: async () => {
+      throw setupError;
+    },
+    buildService: async () => new FakeService(),
+  });
+  const setupResult = await failingComposition.executeDefaultRoute(
+    async handlers => handlers.list(),
+    (operation, error) => setupLogs.push([operation, error]),
+  );
+  assert.deepEqual(setupResult, { status: 500, body: { error: 'Dataset preset operation failed' } });
+  assert.equal(setupLogs[0]?.[1], setupError);
 
   const errors: Array<[Error, number]> = [
     [new DatasetPresetValidationError('safe validation'), 400],
@@ -331,7 +500,13 @@ async function main(): Promise<void> {
   const routeFiles = [
     [
       'src/app/api/dataset-presets/route.ts',
-      ['export async function GET', 'export async function POST', 'handlers.list()', 'handlers.create(request)'],
+      [
+        'export async function GET',
+        'export async function POST',
+        'executeDefaultDatasetPresetRoute',
+        'handlers.list()',
+        'handlers.create(request)',
+      ],
     ],
     [
       'src/app/api/dataset-presets/[presetId]/route.ts',
@@ -339,6 +514,7 @@ async function main(): Promise<void> {
         'export async function GET',
         'export async function PATCH',
         'params: Promise<',
+        'executeDefaultDatasetPresetRoute',
         'handlers.detail',
         'handlers.update',
       ],
@@ -349,6 +525,7 @@ async function main(): Promise<void> {
         'export async function GET',
         'export async function POST',
         'params: Promise<',
+        'executeDefaultDatasetPresetRoute',
         'handlers.versions',
         'handlers.publish',
       ],
@@ -359,18 +536,20 @@ async function main(): Promise<void> {
         'export async function GET',
         'export async function DELETE',
         'params: Promise<',
+        'executeDefaultDatasetPresetRoute',
         'handlers.version',
         'handlers.removeVersion',
       ],
     ],
     [
       'src/app/api/dataset-preset-versions/[versionId]/verify/route.ts',
-      ['export async function POST', 'params: Promise<', 'handlers.verify'],
+      ['export async function POST', 'params: Promise<', 'executeDefaultDatasetPresetRoute', 'handlers.verify'],
     ],
   ] as const;
   for (const [file, expected] of routeFiles) {
     const source = readFileSync(join(process.cwd(), file), 'utf8');
     for (const token of expected) assert.match(source, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.doesNotMatch(source, /createDefaultDatasetPresetRouteHandlers/);
   }
   console.log('Dataset preset route handler tests passed');
 }

@@ -35,6 +35,21 @@ export interface DatasetPresetRouteHandlers {
 }
 
 export type DatasetPresetRouteLogger = (operation: string, error: unknown) => void;
+export interface DatasetPresetRouteRoots {
+  dataRoot: string;
+  datasetsRoot: string;
+}
+export interface DatasetPresetRouteCompositionDependencies {
+  resolveRoots(): Promise<DatasetPresetRouteRoots>;
+  buildService(roots: DatasetPresetRouteRoots): Promise<DatasetPresetService> | DatasetPresetService;
+}
+export interface DatasetPresetRouteComposition {
+  createDefaultHandlers(): Promise<DatasetPresetRouteHandlers>;
+  executeDefaultRoute(
+    invoke: (handlers: DatasetPresetRouteHandlers) => Promise<RouteResult>,
+    logger?: DatasetPresetRouteLogger,
+  ): Promise<RouteResult>;
+}
 
 class RequestBodyError extends Error {}
 class PayloadTooLargeError extends Error {}
@@ -98,7 +113,7 @@ async function readJson(request: Request): Promise<Record<string, unknown>> {
       if (part.done) break;
       length += part.value.byteLength;
       if (length > MAX_JSON_BODY_BYTES) {
-        await reader.cancel();
+        await reader.cancel().catch(() => undefined);
         throw new PayloadTooLargeError();
       }
       chunks.push(part.value);
@@ -244,20 +259,70 @@ export function createDatasetPresetRouteHandlers(
     verify: versionId =>
       run('verify', async () => {
         const id = boundedId(versionId, 'versionId');
-        const version = await service.getVersion(id);
-        const manifest = await service.verifyVersion(id, true);
-        return { status: 200, body: { valid: true, version, manifest } };
+        const version = await service.verifyVersionDetail(id, true);
+        return { status: 200, body: { valid: true, version } };
       }),
   };
 }
 
-export async function createDefaultDatasetPresetRouteHandlers(): Promise<DatasetPresetRouteHandlers> {
-  const [dataRoot, datasetsRoot] = await Promise.all([getDataRoot(), getDatasetsRoot()]);
-  return createDatasetPresetRouteHandlers(
+export function createDatasetPresetRouteComposition(
+  dependencies: DatasetPresetRouteCompositionDependencies,
+): DatasetPresetRouteComposition {
+  const services = new Map<string, Promise<DatasetPresetService>>();
+
+  async function serviceForCurrentRoots(): Promise<DatasetPresetService> {
+    const roots = await dependencies.resolveRoots();
+    const key = `${roots.dataRoot}\u0000${roots.datasetsRoot}`;
+    let pending = services.get(key);
+    if (!pending) {
+      pending = Promise.resolve().then(() => dependencies.buildService(roots));
+      services.set(key, pending);
+      void pending.catch(() => {
+        if (services.get(key) === pending) services.delete(key);
+      });
+    }
+    return pending;
+  }
+
+  async function createDefaultHandlers(): Promise<DatasetPresetRouteHandlers> {
+    return createDatasetPresetRouteHandlers(await serviceForCurrentRoots());
+  }
+
+  async function executeDefaultRoute(
+    invoke: (handlers: DatasetPresetRouteHandlers) => Promise<RouteResult>,
+    logger: DatasetPresetRouteLogger = defaultLogger,
+  ): Promise<RouteResult> {
+    try {
+      return await invoke(await createDefaultHandlers());
+    } catch (error) {
+      logger('initialize dataset preset route', error);
+      return { status: 500, body: { error: 'Dataset preset operation failed' } };
+    }
+  }
+
+  return { createDefaultHandlers, executeDefaultRoute };
+}
+
+const defaultRouteComposition = createDatasetPresetRouteComposition({
+  resolveRoots: async () => {
+    const [dataRoot, datasetsRoot] = await Promise.all([getDataRoot(), getDatasetsRoot()]);
+    return { dataRoot, datasetsRoot };
+  },
+  buildService: ({ dataRoot, datasetsRoot }) =>
     createDatasetPresetService({
       store: createDatasetPresetPrismaStore(prisma),
       snapshots: createDatasetPresetSnapshotStore(dataRoot),
       datasetsRoot,
     }),
-  );
+});
+
+export function createDefaultDatasetPresetRouteHandlers(): Promise<DatasetPresetRouteHandlers> {
+  return defaultRouteComposition.createDefaultHandlers();
+}
+
+export function executeDefaultDatasetPresetRoute(
+  invoke: (handlers: DatasetPresetRouteHandlers) => Promise<RouteResult>,
+  logger?: DatasetPresetRouteLogger,
+): Promise<RouteResult> {
+  return defaultRouteComposition.executeDefaultRoute(invoke, logger);
 }
