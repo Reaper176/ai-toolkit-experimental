@@ -7,6 +7,11 @@ import { FaChevronLeft } from 'react-icons/fa';
 import { VirtuosoGrid } from 'react-virtuoso';
 import DatasetImageCard from '@/components/DatasetImageCard';
 import DatasetSelectionToolbar from '@/components/DatasetSelectionToolbar';
+import DatasetPresetDialog, {
+  DEFAULT_DATASET_PRESET_LOADER_CONFIG,
+  type DatasetPresetDialogInitialValues,
+  type SavedDatasetPresetVersion,
+} from '@/components/DatasetPresetDialog';
 import DatasetImageViewer from '@/components/DatasetImageViewer';
 import { Button } from '@headlessui/react';
 import AddImagesModal, { openImagesModal, useOpenImagesModalOnDrag } from '@/components/AddImagesModal';
@@ -28,6 +33,11 @@ import {
   type DirtySelectionLeaveGuard,
   type SelectionAction,
 } from '@/helpers/datasetSelection';
+import useDatasetPresets, {
+  type DatasetPresetDetail,
+  type DatasetPresetSummary,
+  type DatasetPresetVersionDetail,
+} from '@/hooks/useDatasetPresets';
 
 interface DatasetImageEntry {
   img_path: string;
@@ -50,16 +60,23 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set());
   const [baseSelection, setBaseSelection] = useState<Set<string>>(() => new Set());
+  const [activePreset, setActivePreset] = useState<DatasetPresetSummary | null>(null);
+  const [activePresetDetail, setActivePresetDetail] = useState<DatasetPresetDetail | null>(null);
+  const [activeVersion, setActiveVersion] = useState<DatasetPresetVersionDetail | null>(null);
+  const [presetDialogOpen, setPresetDialogOpen] = useState(false);
+  const [selectionSaving, setSelectionSaving] = useState(false);
+  const { presets, error: presetError, refresh: refreshPresets, loadPreset, loadVersion } = useDatasetPresets();
   const scrollParentCallback = useCallback((el: HTMLDivElement | null) => setScrollParent(el), []);
   const isRefreshingRef = useRef(false);
   const baseSelectionRef = useRef(baseSelection);
   const leaveGuardRef = useRef<DirtySelectionLeaveGuard | null>(null);
   const discardSelectionRef = useRef<() => void>(() => undefined);
   const internalNavigationPendingRef = useRef(false);
+  const activeManifestPathsRef = useRef<Set<string>>(new Set());
 
   baseSelectionRef.current = baseSelection;
   const selectionDirty = selectionMode && !areSelectionsEqual(selectedPaths, baseSelection);
-  const selectionSaving = false;
+  activeManifestPathsRef.current = new Set(activeVersion?.manifest.files.map(file => file.source_path) ?? []);
 
   discardSelectionRef.current = () => {
     setSelectedPaths(new Set(baseSelectionRef.current));
@@ -99,8 +116,18 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
         }
         setImgList(nextImages);
         const availablePaths = nextImages.map(image => image.relative_path);
-        setSelectedPaths(current => reconcileSelection(current, availablePaths));
-        setBaseSelection(current => reconcileSelection(current, availablePaths));
+        setSelectedPaths(current =>
+          reconcileSelection(current, [
+            ...availablePaths,
+            ...[...current].filter(path => activeManifestPathsRef.current.has(path)),
+          ]),
+        );
+        setBaseSelection(current =>
+          reconcileSelection(current, [
+            ...availablePaths,
+            ...[...current].filter(path => activeManifestPathsRef.current.has(path)),
+          ]),
+        );
         setStatus('success');
       })
       .catch(error => {
@@ -114,6 +141,103 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   useOpenImagesModalOnDrag(datasetName, () => refreshImageList(datasetName));
 
   const imgPaths = useMemo(() => imgList.map(img => img.img_path), [imgList]);
+  const liveRelativePaths = useMemo(() => new Set(imgList.map(image => image.relative_path)), [imgList]);
+  const sourceMissingPaths = useMemo(
+    () =>
+      activeVersion?.manifest.files.map(file => file.source_path).filter(path => !liveRelativePaths.has(path)) ?? [],
+    [activeVersion, liveRelativePaths],
+  );
+  const retainedPaths = activeVersion
+    ? activeVersion.manifest.files
+        .map(file => file.source_path)
+        .filter(path => selectedPaths.has(path) && !liveRelativePaths.has(path))
+    : [];
+
+  useEffect(() => {
+    void refreshPresets().catch(() => undefined);
+  }, [refreshPresets]);
+
+  const applyLoadedVersion = useCallback((version: DatasetPresetVersionDetail) => {
+    const paths = new Set(version.manifest.files.map(file => file.source_path));
+    setActiveVersion(version);
+    setSelectedPaths(paths);
+    setBaseSelection(new Set(paths));
+    setCaptionExt(version.loader_config.caption_ext.replace(/^\./, ''));
+    setSelectionMode(true);
+  }, []);
+
+  const confirmSelectionReplacement = (replaceSelection: () => void) => {
+    if (!selectionDirty) {
+      replaceSelection();
+      return;
+    }
+    openConfirm({
+      title: 'Discard selection changes?',
+      message: 'Loading another preset or version will replace your unsaved selection.',
+      type: 'warning',
+      confirmText: 'Discard and load',
+      onConfirm: replaceSelection,
+    });
+  };
+
+  const loadPresetSelection = async (presetId: string) => {
+    if (!presetId) {
+      setActivePreset(null);
+      setActivePresetDetail(null);
+      setActiveVersion(null);
+      setBaseSelection(new Set());
+      setSelectedPaths(new Set());
+      return;
+    }
+    try {
+      const preset = presets.find(item => item.id === presetId) ?? null;
+      const detail = await loadPreset(presetId);
+      setActivePreset(preset ?? detail);
+      setActivePresetDetail(detail);
+      const latest = [...detail.versions].sort((left, right) => right.version - left.version)[0];
+      if (latest) applyLoadedVersion(await loadVersion(latest.id));
+    } catch (error) {
+      console.error('Unable to load dataset preset:', error);
+    }
+  };
+
+  const selectPreset = (presetId: string) => {
+    confirmSelectionReplacement(() => void loadPresetSelection(presetId));
+  };
+
+  const loadVersionSelection = async (versionId: string) => {
+    if (!versionId) return;
+    try {
+      applyLoadedVersion(await loadVersion(versionId));
+    } catch (error) {
+      console.error('Unable to load dataset preset version:', error);
+    }
+  };
+
+  const selectVersion = (versionId: string) => {
+    confirmSelectionReplacement(() => void loadVersionSelection(versionId));
+  };
+
+  const handlePresetSaved = async (saved: SavedDatasetPresetVersion) => {
+    await refreshPresets();
+    const [detail, version] = await Promise.all([loadPreset(saved.presetId), loadVersion(saved.version.id)]);
+    setActivePreset(detail);
+    setActivePresetDetail(detail);
+    applyLoadedVersion(version);
+  };
+
+  const dialogInitialValues = useMemo<DatasetPresetDialogInitialValues>(
+    () => ({
+      name: activePreset?.name ?? '',
+      note: activeVersion?.note ?? '',
+      captionExt: activeVersion?.loader_config.caption_ext ?? captionExt,
+      loaderConfig: activeVersion?.loader_config ?? {
+        ...DEFAULT_DATASET_PRESET_LOADER_CONFIG,
+        caption_ext: captionExt,
+      },
+    }),
+    [activePreset, activeVersion, captionExt],
+  );
 
   useEffect(() => {
     const guard = createDirtySelectionLeaveGuard(window, () => {
@@ -179,6 +303,9 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   }, [selectionDirty]);
 
   const enterSelectionMode = () => {
+    setActivePreset(null);
+    setActivePresetDetail(null);
+    setActiveVersion(null);
     setBaseSelection(new Set());
     setSelectedPaths(new Set());
     setSelectionMode(true);
@@ -200,7 +327,9 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   };
 
   const handleSelectionAction = (action: SelectionAction) => {
-    setSelectedPaths(applySelectionAction(selectedPaths, imgList.map(img => img.relative_path), action));
+    setSelectedPaths(
+      applySelectionAction(selectedPaths, [...imgList.map(img => img.relative_path), ...sourceMissingPaths], action),
+    );
   };
 
   const handlePageBack = () => {
@@ -321,12 +450,60 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
       <MainContent ref={scrollParentCallback}>
         {selectionMode && (
           <div className="sticky top-12 z-20 -mx-2 mb-4 sm:-mx-4">
+            <section
+              aria-label="Dataset preset version"
+              className="flex flex-wrap items-end gap-3 border-b border-gray-700 bg-gray-900 px-3 py-2 sm:px-4"
+            >
+              <label className="text-xs text-gray-300">
+                Preset
+                <select
+                  value={activePreset?.id ?? ''}
+                  onChange={event => void selectPreset(event.target.value)}
+                  disabled={selectionSaving}
+                  className="ml-2 rounded bg-gray-800 px-2 py-1 text-sm"
+                >
+                  <option value="">New preset</option>
+                  {presets.map(preset => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs text-gray-300">
+                Version
+                <select
+                  value={activeVersion?.id ?? ''}
+                  onChange={event => void selectVersion(event.target.value)}
+                  disabled={!activePresetDetail || selectionSaving}
+                  className="ml-2 rounded bg-gray-800 px-2 py-1 text-sm"
+                >
+                  <option value="">Select version</option>
+                  {activePresetDetail?.versions.map(version => (
+                    <option key={version.id} value={version.id}>
+                      v{version.version}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {activePreset && activeVersion && (
+                <p className="text-sm text-gray-200">
+                  {activePreset.name} / version {activeVersion.version}
+                </p>
+              )}
+              {presetError && (
+                <p role="alert" className="text-sm text-red-400">
+                  {presetError}
+                </p>
+              )}
+            </section>
             <DatasetSelectionToolbar
               selectedCount={selectedPaths.size}
-              totalCount={imgList.length}
+              totalCount={imgList.length + sourceMissingPaths.length}
               dirty={selectionDirty}
               saving={selectionSaving}
               onAction={handleSelectionAction}
+              onSave={() => setPresetDialogOpen(true)}
               onCancel={cancelSelectionMode}
             />
           </div>
@@ -367,11 +544,56 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
             computeItemKey={index => imgList[index]?.relative_path ?? index}
           />
         )}
+        {sourceMissingPaths.length > 0 && (
+          <section
+            aria-label="Source-missing preset images"
+            className="mt-4 rounded border border-amber-700 bg-amber-950/30 p-3"
+          >
+            <h2 className="text-sm font-semibold text-amber-200">Source-missing retained images</h2>
+            <ul className="mt-2 space-y-1">
+              {sourceMissingPaths.map(path => (
+                <li key={path} className="flex items-center gap-2 text-sm text-amber-100">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedPaths.has(path)}
+                      onChange={event =>
+                        setSelectedPaths(current => {
+                          const next = new Set(current);
+                          if (event.target.checked) next.add(path);
+                          else next.delete(path);
+                          return next;
+                        })
+                      }
+                      disabled={selectionSaving}
+                    />
+                    <span className="rounded bg-amber-900 px-1.5 py-0.5 text-xs">source-missing</span>
+                    {path}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {/* Spacer so the last cards stay accessible above the floating caption bar.
             Always keeps a baseline gap, plus the bar height when it is showing. */}
         <div style={{ height: `${captionBarHeight + 24}px` }} className="transition-[height] duration-300" />
       </MainContent>
       <AddImagesModal />
+      <DatasetPresetDialog
+        mode={activePreset && activeVersion ? 'version' : 'create'}
+        {...(activePreset && activeVersion
+          ? { presetId: activePreset.id, presetName: activePreset.name, baseVersionId: activeVersion.id }
+          : {})}
+        isOpen={presetDialogOpen}
+        sourceDataset={datasetName}
+        selectedPaths={[...selectedPaths]}
+        retainedPaths={retainedPaths}
+        initialValues={dialogInitialValues}
+        onClose={() => setPresetDialogOpen(false)}
+        onPendingChange={setSelectionSaving}
+        onSaved={handlePresetSaved}
+      />
       {isSettingsLoaded && (
         <CaptionMonitor
           datasetPath={`${pathJoin(settings.DATASETS_FOLDER, datasetName)}`}
