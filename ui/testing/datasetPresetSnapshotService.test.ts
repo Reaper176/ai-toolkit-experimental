@@ -93,6 +93,15 @@ async function main(): Promise<void> {
       );
       assert.equal(existsSync(join(validationDataRoot, 'dataset_presets')), false);
     }
+    const captionMismatchDataRoot = join(ownedRoot, 'validation-caption-mismatch');
+    await expectRejects(
+      () => createDatasetPresetSnapshotStore(captionMismatchDataRoot).stageVersion({
+        presetId: 'validation', version: 1, presetName: 'Validation', sourceDataset: 'my-images', sourceRoot,
+        selectedPaths: ['b.png'], captionExt: 'caption', loaderConfig, note: null,
+      }),
+      /caption|extension|match/i,
+    );
+    assert.equal(existsSync(join(captionMismatchDataRoot, 'dataset_presets')), false);
 
     let nextId = 0;
     const store = createDatasetPresetSnapshotStore(dataRoot, { randomId: () => `id-${++nextId}` });
@@ -204,6 +213,71 @@ async function main(): Promise<void> {
     );
     assert.equal(existsSync(join(dataRoot, 'dataset_presets/changing/.staging-changing')), false);
 
+    const swapSourceRoot = join(ownedRoot, 'swap-source');
+    mkdirSync(swapSourceRoot);
+    writeFileSync(join(swapSourceRoot, 'one.jpg'), 'one');
+    writeFileSync(join(swapSourceRoot, 'two.jpg'), 'trusted-two');
+    const outsideSwapFile = join(ownedRoot, 'outside-swap.jpg');
+    writeFileSync(outsideSwapFile, 'outside-secret');
+    let swappedSecond = false;
+    const swapStore = createDatasetPresetSnapshotStore(join(ownedRoot, 'swap-data'), {
+      randomId: () => 'swap',
+      beforeCopyComplete: sourcePath => {
+        if (!swappedSecond && sourcePath === join(swapSourceRoot, 'one.jpg')) {
+          renameSync(join(swapSourceRoot, 'two.jpg'), join(swapSourceRoot, 'two.original'));
+          symlinkSync(outsideSwapFile, join(swapSourceRoot, 'two.jpg'));
+          swappedSecond = true;
+        }
+      },
+    });
+    if (symlinksSupported) {
+      await expectRejects(
+        () => swapStore.stageVersion({
+          presetId: 'swap', version: 1, presetName: 'Swap', sourceDataset: 'my-images', sourceRoot: swapSourceRoot,
+          selectedPaths: ['one.jpg', 'two.jpg'], captionExt: 'txt', loaderConfig, note: null,
+        }),
+        /symlink|identity|outside|root/i,
+      );
+      assert.equal(existsSync(join(ownedRoot, 'swap-data/dataset_presets/swap/v1')), false);
+      unlinkSync(join(swapSourceRoot, 'two.jpg'));
+      renameSync(join(swapSourceRoot, 'two.original'), join(swapSourceRoot, 'two.jpg'));
+    }
+
+    const aggregateSource = join(sourceRoot, 'aggregate.jpg');
+    writeFileSync(aggregateSource, 'aggregate');
+    const aggregateDataRoot = join(ownedRoot, 'aggregate-data');
+    const aggregatePresetRoot = join(aggregateDataRoot, 'dataset_presets/aggregate');
+    const aggregateMovedRoot = join(aggregateDataRoot, 'dataset_presets/aggregate-real');
+    const aggregateOutsideRoot = join(ownedRoot, 'aggregate-outside');
+    mkdirSync(aggregateOutsideRoot);
+    writeFileSync(join(aggregateOutsideRoot, 'sentinel'), 'keep');
+    let aggregateSwapped = false;
+    const aggregateStore = createDatasetPresetSnapshotStore(aggregateDataRoot, {
+      randomId: () => 'aggregate',
+      beforeCopyComplete: sourcePath => {
+        if (!aggregateSwapped && sourcePath === aggregateSource) {
+          writeFileSync(aggregateSource, 'aggregate changed');
+          renameSync(aggregatePresetRoot, aggregateMovedRoot);
+          symlinkSync(aggregateOutsideRoot, aggregatePresetRoot, process.platform === 'win32' ? 'junction' : 'dir');
+          aggregateSwapped = true;
+        }
+      },
+    });
+    if (symlinksSupported) {
+      await assert.rejects(
+        () => aggregateStore.stageVersion({
+          presetId: 'aggregate', version: 1, presetName: 'Aggregate', sourceDataset: 'my-images', sourceRoot,
+          selectedPaths: ['aggregate.jpg'], captionExt: 'txt', loaderConfig, note: null,
+        }),
+        error => error instanceof AggregateError
+          && error.errors.some(item => /changed|copy/i.test(String(item)))
+          && error.errors.some(item => /identity|symlink|root|parent/i.test(String(item))),
+      );
+      assert.equal(readFileSync(join(aggregateOutsideRoot, 'sentinel'), 'utf8'), 'keep');
+      unlinkSync(aggregatePresetRoot);
+      renameSync(aggregateMovedRoot, aggregatePresetRoot);
+    }
+
     writeFileSync(join(sourceRoot, 'orphan.jpg'), 'orphan image');
     const outputCollisionV1 = await store.stageVersion({
       presetId: 'output-collision', version: 1, presetName: 'Collision', sourceDataset: 'my-images', sourceRoot,
@@ -242,6 +316,31 @@ async function main(): Promise<void> {
       'new.webp',
       'sub/a.jpg',
     ]);
+    if (symlinksSupported) {
+      const retainedNewMedia = join(retained.versionRoot, 'media/new.webp');
+      const retainedNewBackup = `${retainedNewMedia}.original`;
+      let retainedSwapDone = false;
+      const retainedSwapStore = createDatasetPresetSnapshotStore(dataRoot, {
+        randomId: () => 'retained-swap',
+        beforeCopyComplete: sourcePath => {
+          if (!retainedSwapDone && sourcePath.endsWith(join('media', 'sub/a.jpg'))) {
+            renameSync(retainedNewMedia, retainedNewBackup);
+            symlinkSync(outsideSwapFile, retainedNewMedia);
+            retainedSwapDone = true;
+          }
+        },
+      });
+      await expectRejects(
+        () => retainedSwapStore.stageVersion({
+          presetId: 'preset-1', version: 99, presetName: 'Faces', sourceDataset: 'my-images', sourceRoot,
+          selectedPaths: [], retainedPaths: ['sub/a.jpg', 'new.webp'], priorManifestPath: retained.manifestPath,
+          captionExt: 'txt', loaderConfig, note: null,
+        }),
+        /symlink|identity|outside|root/i,
+      );
+      unlinkSync(retainedNewMedia);
+      renameSync(retainedNewBackup, retainedNewMedia);
+    }
     await expectRejects(
       () => store.stageVersion({
         presetId: 'preset-1', version: 3, presetName: 'Faces', sourceDataset: 'my-images', sourceRoot,
@@ -277,6 +376,26 @@ async function main(): Promise<void> {
     await afterPublishRollback.rollback();
     await afterPublishRollback.rollback();
     assert.equal(existsSync(afterPublishRollback.versionRoot), false);
+
+    if (symlinksSupported) {
+      const secureRollback = await store.stageVersion({
+        presetId: 'secure-rollback', version: 1, presetName: 'Secure rollback', sourceDataset: 'my-images', sourceRoot,
+        selectedPaths: ['new.webp'], captionExt: 'txt', loaderConfig, note: null,
+      });
+      await secureRollback.publish();
+      const securePresetRoot = dirname(secureRollback.versionRoot);
+      const securePresetMoved = `${securePresetRoot}-real`;
+      const secureOutsidePreset = join(ownedRoot, 'secure-rollback-outside');
+      mkdirSync(join(secureOutsidePreset, 'v1'), { recursive: true });
+      writeFileSync(join(secureOutsidePreset, 'v1/sentinel'), 'keep');
+      renameSync(securePresetRoot, securePresetMoved);
+      symlinkSync(secureOutsidePreset, securePresetRoot, process.platform === 'win32' ? 'junction' : 'dir');
+      await expectRejects(() => secureRollback.rollback(), /identity|symlink|root|parent/i);
+      assert.equal(readFileSync(join(secureOutsidePreset, 'v1/sentinel'), 'utf8'), 'keep');
+      unlinkSync(securePresetRoot);
+      renameSync(securePresetMoved, securePresetRoot);
+      await secureRollback.rollback();
+    }
 
     const winner = await store.stageVersion({
       presetId: 'collision', version: 1, presetName: 'Collision', sourceDataset: 'my-images', sourceRoot,
@@ -314,6 +433,22 @@ async function main(): Promise<void> {
     writeFileSync(manifestFile, serializeManifest(verifyPublication.manifest).replace(/^\{/, '{ '));
     await expectRejects(() => store.verifyFast(verifyPublication.manifestPath), /canonical|checksum|manifest/i);
     writeFileSync(manifestFile, serializeManifest(verifyPublication.manifest));
+
+    const invalidUtf8Publication = await store.stageVersion({
+      presetId: 'invalid-manifest-utf8', version: 1, presetName: 'Replacement �', sourceDataset: 'my-images', sourceRoot,
+      selectedPaths: ['new.webp'], captionExt: 'txt', loaderConfig, note: null,
+    });
+    await invalidUtf8Publication.publish();
+    const invalidUtf8ManifestPath = join(invalidUtf8Publication.versionRoot, 'manifest.json');
+    const canonicalManifestBytes = readFileSync(invalidUtf8ManifestPath);
+    const replacementIndex = canonicalManifestBytes.indexOf(Buffer.from('�'));
+    assert.notEqual(replacementIndex, -1);
+    writeFileSync(invalidUtf8ManifestPath, Buffer.concat([
+      canonicalManifestBytes.subarray(0, replacementIndex),
+      Buffer.from([0xff]),
+      canonicalManifestBytes.subarray(replacementIndex + Buffer.byteLength('�')),
+    ]));
+    await expectRejects(() => store.readManifest(invalidUtf8Publication.manifestPath), /UTF-8|encoding|manifest/i);
 
     for (const invalidManifestPath of [manifestFile, '../manifest.json', 'preset-1/v1/../manifest.json']) {
       await expectRejects(() => store.readManifest(invalidManifestPath), /manifest|relative|path/i);
@@ -362,6 +497,27 @@ async function main(): Promise<void> {
     assert.equal(existsSync(quarantinePublication.versionRoot), false);
     await expectRejects(() => store.quarantineVersion('../outside/v1/manifest.json'), /manifest|relative|path/i);
 
+    if (symlinksSupported) {
+      const secureQuarantinePublication = await store.stageVersion({
+        presetId: 'secure-quarantine', version: 1, presetName: 'Secure quarantine', sourceDataset: 'my-images', sourceRoot,
+        selectedPaths: ['new.webp'], captionExt: 'txt', loaderConfig, note: null,
+      });
+      await secureQuarantinePublication.publish();
+      const secureQuarantine = await store.quarantineVersion(secureQuarantinePublication.manifestPath);
+      const secureQuarantinePreset = dirname(secureQuarantinePublication.versionRoot);
+      const secureQuarantineMoved = `${secureQuarantinePreset}-real`;
+      const secureQuarantineOutside = join(ownedRoot, 'secure-quarantine-outside');
+      mkdirSync(secureQuarantineOutside);
+      writeFileSync(join(secureQuarantineOutside, 'sentinel'), 'keep');
+      renameSync(secureQuarantinePreset, secureQuarantineMoved);
+      symlinkSync(secureQuarantineOutside, secureQuarantinePreset, process.platform === 'win32' ? 'junction' : 'dir');
+      await expectRejects(() => secureQuarantine.remove(), /identity|symlink|root|parent/i);
+      assert.equal(readFileSync(join(secureQuarantineOutside, 'sentinel'), 'utf8'), 'keep');
+      unlinkSync(secureQuarantinePreset);
+      renameSync(secureQuarantineMoved, secureQuarantinePreset);
+      await secureQuarantine.remove();
+    }
+
     const cleanupPresetRoot = join(dataRoot, 'dataset_presets/cleanup');
     mkdirSync(cleanupPresetRoot, { recursive: true });
     mkdirSync(join(cleanupPresetRoot, '.staging-old'));
@@ -376,6 +532,15 @@ async function main(): Promise<void> {
     assert.equal(lstatSync(join(cleanupPresetRoot, '.staging-new')).isDirectory(), true);
     assert.equal(lstatSync(join(cleanupPresetRoot, '.quarantine-v1-ignore')).isDirectory(), true);
     assert.equal(lstatSync(join(cleanupPresetRoot, 'v9')).isDirectory(), true);
+    if (symlinksSupported) {
+      const cleanupOutside = join(ownedRoot, 'cleanup-outside');
+      mkdirSync(join(cleanupOutside, '.staging-old'), { recursive: true });
+      writeFileSync(join(cleanupOutside, '.staging-old/sentinel'), 'keep');
+      symlinkSync(cleanupOutside, join(dataRoot, 'dataset_presets/cleanup-link'), process.platform === 'win32' ? 'junction' : 'dir');
+      await expectRejects(() => store.cleanupStaging(new Date()), /symlink|preset|parent|root/i);
+      assert.equal(readFileSync(join(cleanupOutside, '.staging-old/sentinel'), 'utf8'), 'keep');
+      unlinkSync(join(dataRoot, 'dataset_presets/cleanup-link'));
+    }
   } finally {
     if (existsSync(ownedRoot)) rmSync(ownedRoot, { recursive: true });
   }
