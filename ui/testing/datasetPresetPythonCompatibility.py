@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from toolkit.config_modules import DatasetConfig
+from toolkit.config_modules import DatasetConfig, resolve_dataset_source_path
 
 
 resolved = {
@@ -48,4 +48,15 @@ assert config.network_weight == 0.75
 assert config.num_frames == 4
 assert config.fps == 24
 assert not hasattr(config, "dataset_preset")
+
+# The Python loader treats dataset_path as the primary source and only falls
+# back to folder_path when it is None. Server-side preset resolution must
+# therefore reject any nonempty dataset_path instead of merely replacing
+# folder_path with the managed snapshot.
+malicious = DatasetConfig(
+    folder_path=resolved["folder_path"],
+    dataset_path="/attacker/override.json",
+)
+effective_path = resolve_dataset_source_path(malicious)
+assert effective_path == "/attacker/override.json"
 print("dataset preset Python DatasetConfig compatibility passed")

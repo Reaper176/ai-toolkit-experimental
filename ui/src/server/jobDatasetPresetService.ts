@@ -11,7 +11,7 @@ import {
 import type { DatasetPresetVersionRecord } from './datasetPresetService';
 import type { DatasetPresetSnapshotStore } from './datasetPresetSnapshotService';
 import type { DatasetConfig, JobConfig } from '../types';
-import { DATASET_PRESET_EXTERNAL_AUXILIARY_PATH_KEYS } from '../helpers/datasetPresetValidation';
+import { DATASET_PRESET_REPRODUCIBILITY_BREAKING_PATH_KEYS } from '../helpers/datasetPresetValidation';
 
 export interface ResolvedJobDatasets {
   jobConfig: JobConfig;
@@ -191,10 +191,16 @@ function hasExternalAuxiliaryValue(value: unknown): boolean {
   return true;
 }
 
-function rejectPresetExternalAuxiliaryPaths(dataset: DatasetConfig): void {
-  for (const key of DATASET_PRESET_EXTERNAL_AUXILIARY_PATH_KEYS) {
-    if (hasExternalAuxiliaryValue(dataset[key as keyof DatasetConfig])) {
-      throw new JobDatasetPresetError(`Dataset preset cannot use external auxiliary path field ${key}`);
+function hasExternalPathValue(key: string, value: unknown): boolean {
+  if (key !== 'dataset_path') return hasExternalAuxiliaryValue(value);
+  if (value === null || value === undefined) return false;
+  return typeof value !== 'string' || value.trim().length > 0;
+}
+
+function rejectPresetExternalPaths(dataset: DatasetConfig): void {
+  for (const key of DATASET_PRESET_REPRODUCIBILITY_BREAKING_PATH_KEYS) {
+    if (hasExternalPathValue(key, dataset[key as keyof DatasetConfig])) {
+      throw new JobDatasetPresetError(`Dataset preset cannot use external path field ${key}`);
     }
   }
 }
@@ -309,7 +315,7 @@ async function resolveJobDatasetPresetsInternal(input: {
     if (!isPlainObject(dataset.dataset_preset) || !nonblank(dataset.dataset_preset.version_id)) {
       throw new JobDatasetPresetError('Dataset preset reference is invalid');
     }
-    rejectPresetExternalAuxiliaryPaths(dataset);
+    rejectPresetExternalPaths(dataset);
     const versionId = dataset.dataset_preset.version_id.trim();
     const authoritative = await getVerified(versionId, dataset.dataset_preset);
     if (eligibility === 'save' && authoritative.preset.archived_at !== null) {

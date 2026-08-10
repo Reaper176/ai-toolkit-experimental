@@ -151,6 +151,7 @@ export interface DatasetPresetSnapshotDependencies {
   randomId(): string;
   beforeCopyComplete?: (sourcePath: string) => void | Promise<void>;
   beforeOrphanCandidateCheck?: (relativeVersionPath: string) => void | Promise<void>;
+  beforeMaintenanceTombstoneDelete?: (relativeStagingPath: string) => void | Promise<void>;
 }
 
 interface ParsedManifestPath {
@@ -458,6 +459,7 @@ export function createDatasetPresetSnapshotStore(
     randomId: dependencies?.randomId ?? randomUUID,
     beforeCopyComplete: dependencies?.beforeCopyComplete,
     beforeOrphanCandidateCheck: dependencies?.beforeOrphanCandidateCheck,
+    beforeMaintenanceTombstoneDelete: dependencies?.beforeMaintenanceTombstoneDelete,
   };
   let rootPin: RootPin | undefined;
 
@@ -595,6 +597,7 @@ export function createDatasetPresetSnapshotStore(
     let cleanupRoot: Dir | undefined;
     let cleanupPreset: { directory: Dir; id: string; root: string; pin: DirectoryPin } | undefined;
     let cleanupDone = false;
+    const pendingCleanupTombstones: Array<{ pin: DirectoryPin; stagingPath: string }> = [];
     const cleanupResult: StagingCleanupResult = {
       reportedRemoved: [],
       totalRemoved: 0,
@@ -658,9 +661,21 @@ export function createDatasetPresetSnapshotStore(
     return {
       async cleanupPage(maxEntries: number): Promise<MaintenanceScanPage<StagingCleanupResult>> {
         checkBudget(maxEntries);
-        if (cleanupDone) return { done: true, inspectedEntries: 0, result: cleanupSnapshot() };
+        if (cleanupDone && pendingCleanupTombstones.length === 0) {
+          return { done: true, inspectedEntries: 0, result: cleanupSnapshot() };
+        }
         await initializeManagedRoot();
         requirePinnedRootsSync();
+        while (pendingCleanupTombstones.length > 0) {
+          const pending = pendingCleanupTombstones.shift()!;
+          try {
+            await resolvedDependencies.beforeMaintenanceTombstoneDelete?.(pending.stagingPath);
+            await deletePinnedTombstone(pending.pin, 'Staging directory');
+          } catch {
+            cleanupSkip(pending.stagingPath);
+          }
+        }
+        if (cleanupDone) return { done: true, inspectedEntries: 0, result: cleanupSnapshot() };
         cleanupRoot ??= await opendir(managedRoot);
         let inspectedEntries = 0;
         while (inspectedEntries < maxEntries && !cleanupDone) {
@@ -690,7 +705,8 @@ export function createDatasetPresetSnapshotStore(
               }
               if (info.mtimeMs >= BigInt(olderThan.getTime())) continue;
               const stagingPin = pinDirectorySync(childPath, 'Staging directory', cleanupPreset.root);
-              await removePinnedDirectory(stagingPin, cleanupPreset.pin, 'Staging directory');
+              await movePinnedDirectoryToTombstone(stagingPin, cleanupPreset.pin, 'Staging directory');
+              pendingCleanupTombstones.push({ pin: stagingPin, stagingPath: relativeStagingPath });
             } catch {
               cleanupSkip(relativeStagingPath);
               continue;
@@ -733,7 +749,11 @@ export function createDatasetPresetSnapshotStore(
             cleanupSkip(presetEntry.name);
           }
         }
-        return { done: cleanupDone, inspectedEntries, result: cleanupSnapshot() };
+        return {
+          done: cleanupDone && pendingCleanupTombstones.length === 0,
+          inspectedEntries,
+          result: cleanupSnapshot(),
+        };
       },
 
       beginOrphanScan(authoritativeManifestPaths: readonly string[]): void {

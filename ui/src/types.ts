@@ -89,6 +89,7 @@ export interface SaveConfig {
 
 export interface DatasetConfig {
   folder_path: string;
+  dataset_path?: string | null;
   mask_path: string | null;
   mask_min_value: number;
   default_caption: string;

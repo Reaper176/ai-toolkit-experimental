@@ -18,7 +18,7 @@ import albumentations as A
 
 from toolkit import image_utils
 from toolkit.buckets import get_bucket_for_image_size, BucketResolution
-from toolkit.config_modules import DatasetConfig, preprocess_dataset_raw_config
+from toolkit.config_modules import DatasetConfig, preprocess_dataset_raw_config, resolve_dataset_source_path
 from toolkit.dataloader_mixins import CaptionMixin, BucketsMixin, LatentCachingMixin, Augments, CLIPCachingMixin, ControlCachingMixin, TextEmbeddingCachingMixin
 from toolkit.data_transfer_object.data_loader import FileItemDTO, DataLoaderBatchDTO
 from toolkit.print import print_acc
@@ -396,10 +396,7 @@ class AiToolkitDataset(LatentCachingMixin, ControlCachingMixin, CLIPCachingMixin
         self.is_video = dataset_config.num_frames > 1 or dataset_config.auto_frame_count
         self.is_audio_model = hasattr(sd, 'is_audio_model') and sd.is_audio_model if sd is not None else False
         super().__init__()
-        folder_path = dataset_config.folder_path
-        self.dataset_path = dataset_config.dataset_path
-        if self.dataset_path is None:
-            self.dataset_path = folder_path
+        self.dataset_path = resolve_dataset_source_path(dataset_config)
 
         self.is_caching_latents = dataset_config.cache_latents or dataset_config.cache_latents_to_disk
         self.is_caching_latents_to_memory = dataset_config.cache_latents

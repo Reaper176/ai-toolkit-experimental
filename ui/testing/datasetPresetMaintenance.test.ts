@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -286,6 +286,112 @@ async function main(): Promise<void> {
     assert.equal(pagedWarn.length, 0);
   } finally {
     rmSync(pagedRoot, { recursive: true, force: true });
+  }
+
+  const deferredRoot = mkdtempSync(join(tmpdir(), 'dataset-preset-maintenance-deferred-delete-'));
+  try {
+    const managedRoot = join(deferredRoot, 'dataset_presets');
+    const staging = join(managedRoot, 'large/.staging-old');
+    mkdirSync(staging, { recursive: true });
+    const preexistingTombstone = join(managedRoot, '.tombstone-preexisting');
+    mkdirSync(preexistingTombstone);
+    writeFileSync(join(preexistingTombstone, 'sentinel'), 'keep');
+    for (let index = 0; index < 200; index += 1) writeFileSync(join(staging, `content-${index}`), 'x');
+    const old = new Date('2026-08-01T00:00:00.000Z');
+    utimesSync(staging, old, old);
+    let releaseDelete!: () => void;
+    const deleteGate = new Promise<void>(resolve => { releaseDelete = resolve; });
+    let markDeleteEntered!: () => void;
+    const deleteEnteredSignal = new Promise<void>(resolve => { markDeleteEntered = resolve; });
+    let deleteEntered = false;
+    const filesystem = createDatasetPresetSnapshotStore(deferredRoot, {
+      beforeMaintenanceTombstoneDelete: async (label: string) => {
+        assert.equal(label, 'large/.staging-old');
+        deleteEntered = true;
+        markDeleteEntered();
+        await deleteGate;
+      },
+    });
+    const session = createDatasetPresetStartupMaintenanceSession({
+      now: () => now,
+      maxScanEntries: 8,
+      createScan: cutoff => filesystem.createMaintenanceScan(cutoff),
+      listManifestPaths: async () => [],
+      info: () => undefined,
+      warn: () => undefined,
+    });
+    let continuation: Promise<void> | undefined;
+    let starts = 0;
+    await startCronWorker({
+      ensureJournalMode: async () => undefined,
+      createMaintenanceSession: () => session,
+      maintenanceYield: async () => undefined,
+      scheduleMaintenanceContinuation: task => { continuation = task(); },
+      start: () => {
+        starts += 1;
+        return { interval: 0 } as never;
+      },
+    });
+    assert.equal(starts, 1, 'worker starts while recursive deletion is deferred');
+    assert.equal(existsSync(staging), false, 'initial page atomically removes the staging namespace');
+    await deleteEnteredSignal;
+    assert.equal(deleteEntered, true, 'post-start continuation reaches the recursive delete gate');
+    const ownedTombstones = readdirSync(managedRoot).filter(
+      name => name.startsWith('.tombstone-') && name !== '.tombstone-preexisting',
+    );
+    assert.equal(ownedTombstones.length, 1, 'the exact session-created tombstone remains while deletion is blocked');
+    assert.ok(continuation);
+    releaseDelete();
+    await continuation;
+    assert.deepEqual(
+      readdirSync(managedRoot).filter(name => name.startsWith('.tombstone-')),
+      ['.tombstone-preexisting'],
+    );
+    assert.equal(existsSync(join(preexistingTombstone, 'sentinel')), true, 'unowned root tombstones are never touched');
+  } finally {
+    rmSync(deferredRoot, { recursive: true, force: true });
+  }
+
+  const failedDeleteRoot = mkdtempSync(join(tmpdir(), 'dataset-preset-maintenance-failed-delete-'));
+  try {
+    const managedRoot = join(failedDeleteRoot, 'dataset_presets');
+    const staging = join(managedRoot, 'failed/.staging-old');
+    mkdirSync(staging, { recursive: true });
+    utimesSync(staging, new Date('2026-08-01T00:00:00.000Z'), new Date('2026-08-01T00:00:00.000Z'));
+    const warnings: string[] = [];
+    const filesystem = createDatasetPresetSnapshotStore(failedDeleteRoot, {
+      beforeMaintenanceTombstoneDelete: async () => { throw new Error('/private/root must not be logged'); },
+    });
+    const session = createDatasetPresetStartupMaintenanceSession({
+      now: () => now,
+      maxScanEntries: 8,
+      createScan: cutoff => filesystem.createMaintenanceScan(cutoff),
+      listManifestPaths: async () => [],
+      info: () => undefined,
+      warn: message => warnings.push(message),
+    });
+    let continuation: Promise<void> | undefined;
+    let starts = 0;
+    await startCronWorker({
+      ensureJournalMode: async () => undefined,
+      createMaintenanceSession: () => session,
+      maintenanceYield: async () => undefined,
+      scheduleMaintenanceContinuation: task => { continuation = task(); },
+      start: () => {
+        starts += 1;
+        return { interval: 0 } as never;
+      },
+      warn: message => warnings.push(message),
+    });
+    assert.ok(continuation);
+    await continuation;
+    assert.equal(starts, 1, 'a failed deferred deletion never stops the worker');
+    assert.equal(existsSync(staging), false);
+    assert.equal(readdirSync(managedRoot).filter(name => name.startsWith('.tombstone-')).length, 1);
+    assert.ok(warnings.some(message => message.includes('skipped 1')));
+    assert.ok(warnings.every(message => !message.includes('/private/root')));
+  } finally {
+    rmSync(failedDeleteRoot, { recursive: true, force: true });
   }
 
   const backgroundEvents: string[] = [];

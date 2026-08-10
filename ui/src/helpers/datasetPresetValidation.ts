@@ -57,10 +57,14 @@ export const DATASET_PRESET_EXTERNAL_AUXILIARY_PATH_KEYS = [
   'clip_image_path',
 ] as const;
 
-const EXTERNAL_PATH_KEYS = new Set([
-  'folder_path',
+export const DATASET_PRESET_REPRODUCIBILITY_BREAKING_PATH_KEYS = [
   'dataset_path',
   ...DATASET_PRESET_EXTERNAL_AUXILIARY_PATH_KEYS,
+] as const;
+
+const EXTERNAL_PATH_KEYS = new Set([
+  'folder_path',
+  ...DATASET_PRESET_REPRODUCIBILITY_BREAKING_PATH_KEYS,
 ]);
 const CAPTION_EXTENSION = /^\.?[A-Za-z0-9_-]{1,32}$/;
 
