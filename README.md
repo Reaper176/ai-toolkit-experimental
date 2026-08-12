@@ -87,7 +87,7 @@ The only requirement is **git** (on Windows the manager can even fetch a
 portable git for updates, but you need one installed to clone the repo first).
 
 ```bash
-git clone https://github.com/ostris/ai-toolkit.git
+git clone https://github.com/Reaper176/ai-toolkit-experimental.git
 cd ai-toolkit
 ```
 
@@ -128,7 +128,7 @@ Requirements:
 
 Linux:
 ```bash
-git clone https://github.com/ostris/ai-toolkit.git
+git clone https://github.com/Reaper176/ai-toolkit-experimental.git
 cd ai-toolkit
 python3 -m venv venv
 source venv/bin/activate
@@ -145,7 +145,7 @@ Windows:
 If you are having issues with Windows. I recommend using the easy install script at [https://github.com/Tavris1/AI-Toolkit-Easy-Install](https://github.com/Tavris1/AI-Toolkit-Easy-Install)
 
 ```bash
-git clone https://github.com/ostris/ai-toolkit.git
+git clone https://github.com/Reaper176/ai-toolkit-experimental.git
 cd ai-toolkit
 python -m venv venv
 .\venv\Scripts\activate
@@ -229,7 +229,7 @@ I have also created a short video showing how to get started using AI Toolkit wi
 ### 1. Setup
 #### ai-toolkit:
 ```
-git clone https://github.com/ostris/ai-toolkit.git
+git clone https://github.com/Reaper176/ai-toolkit-experimental.git
 cd ai-toolkit
 git submodule update --init --recursive
 python -m venv venv
