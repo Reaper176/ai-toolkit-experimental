@@ -167,6 +167,7 @@ export interface DatasetPresetSnapshotDependencies {
   beforeCopyComplete?: (sourcePath: string) => void | Promise<void>;
   beforeOrphanCandidateCheck?: (relativeVersionPath: string) => void | Promise<void>;
   beforeMaintenanceTombstoneDelete?: (relativeStagingPath: string) => void | Promise<void>;
+  beforeMaskDestinationOpen?: (sourcePath: string) => void | Promise<void>;
 }
 
 interface ParsedManifestPath {
@@ -475,6 +476,7 @@ export function createDatasetPresetSnapshotStore(
     beforeCopyComplete: dependencies?.beforeCopyComplete,
     beforeOrphanCandidateCheck: dependencies?.beforeOrphanCandidateCheck,
     beforeMaintenanceTombstoneDelete: dependencies?.beforeMaintenanceTombstoneDelete,
+    beforeMaskDestinationOpen: dependencies?.beforeMaskDestinationOpen,
   };
   let rootPin: RootPin | undefined;
 
@@ -1218,6 +1220,40 @@ export function createDatasetPresetSnapshotStore(
         validateDirectoryPinSync(directoryPin, 'Managed media directory', parsed.versionRoot);
       };
       if (mediaPin !== null) await walk(mediaPin, 'media');
+
+      const expectedMasks = new Set(
+        manifest.files.flatMap(file => file.mask_missing === false && file.mask_path ? [file.mask_path] : []),
+      );
+      const masksRoot = join(parsed.versionRoot, 'masks');
+      let masksPin: DirectoryPin | null = null;
+      try {
+        masksPin = pinDirectorySync(masksRoot, 'Managed masks root', parsed.versionRoot);
+      } catch (error) {
+        if (!isMissing(error)) throw error;
+      }
+      if (masksPin !== null) {
+        validateDirectoryPinSync(masksPin, 'Managed masks root', parsed.versionRoot);
+        const entries = await readdir(masksPin.path, { withFileTypes: true });
+        entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+        for (const entry of entries) {
+          const portablePath = `masks/${entry.name}`;
+          if (entry.isFile() && expectedMasks.has(portablePath)) continue;
+          recordMismatch({
+            kind: 'unexpected',
+            asset: 'mask',
+            path: portablePath,
+            expected: 'absent',
+            actual: entry.isSymbolicLink()
+              ? 'symlink'
+              : entry.isDirectory()
+                ? 'directory'
+                : entry.isFile()
+                  ? 'file'
+                  : 'special',
+          });
+        }
+        validateDirectoryPinSync(masksPin, 'Managed masks root', parsed.versionRoot);
+      }
     }
     validateDirectoryPinSync(versionPin, 'Version root', parsed.presetRoot);
     validateDirectoryPinSync(presetPin, 'Preset root', managedRoot);
@@ -1362,14 +1398,60 @@ export function createDatasetPresetSnapshotStore(
           return { mask_path: null, mask_bytes: null, mask_sha256: null, mask_missing: true };
         }
         const maskPath = `masks/${maskFilename(sourcePath)}`;
-        const destination = toSystemPath(stagingRoot, maskPath);
-        await mkdir(resolve(destination, '..'), { recursive: true, mode: 0o700 });
-        const handle = await open(destination, 'wx');
+        requirePinnedRootsSync();
+        validateDirectoryPinSync(presetPin, 'Preset root', managedRoot);
+        validateDirectoryPinSync(ownedPin, 'Owned staging directory', presetRoot);
+        const directoryFlags =
+          constants.O_RDONLY |
+          (typeof constants.O_DIRECTORY === 'number' ? constants.O_DIRECTORY : 0) |
+          (typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0);
+        const stagingHandle = await open(stagingRoot, directoryFlags);
         try {
-          await handle.writeFile(result.png);
-          await handle.sync();
+          const stagingInfo = await stagingHandle.stat({ bigint: true });
+          if (!stagingInfo.isDirectory() || stagingInfo.dev !== ownedPin.dev || stagingInfo.ino !== ownedPin.ino) {
+            throw new Error('Owned staging directory identity changed before mask write');
+          }
+          const descriptorRoot = process.platform === 'linux' ? `/proc/self/fd/${stagingHandle.fd}` : stagingRoot;
+          try {
+            await mkdir(join(descriptorRoot, 'masks'), { mode: 0o700 });
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+          }
+          const masksPath = join(stagingRoot, 'masks');
+          const masksPin = pinDirectorySync(masksPath, 'Owned masks directory', stagingRoot);
+          const masksHandle = await open(join(descriptorRoot, 'masks'), directoryFlags);
+          try {
+            const masksInfo = await masksHandle.stat({ bigint: true });
+            if (!masksInfo.isDirectory() || masksInfo.dev !== masksPin.dev || masksInfo.ino !== masksPin.ino) {
+              throw new Error('Owned masks directory identity changed before mask write');
+            }
+            await resolvedDependencies.beforeMaskDestinationOpen?.(sourcePath);
+            requirePinnedRootsSync();
+            validateDirectoryPinSync(presetPin, 'Preset root', managedRoot);
+            validateDirectoryPinSync(ownedPin, 'Owned staging directory', presetRoot);
+            validateDirectoryPinSync(masksPin, 'Owned masks directory', stagingRoot);
+            const destinationRoot = process.platform === 'linux' ? `/proc/self/fd/${masksHandle.fd}` : masksPath;
+            const handle = await open(
+              join(destinationRoot, maskFilename(sourcePath)),
+              constants.O_WRONLY |
+                constants.O_CREAT |
+                constants.O_EXCL |
+                (typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0),
+              0o600,
+            );
+            try {
+              await handle.writeFile(result.png);
+              await handle.sync();
+            } finally {
+              await handle.close();
+            }
+            validateDirectoryPinSync(masksPin, 'Owned masks directory', stagingRoot);
+            validateDirectoryPinSync(ownedPin, 'Owned staging directory', presetRoot);
+          } finally {
+            await masksHandle.close().catch(() => undefined);
+          }
         } finally {
-          await handle.close();
+          await stagingHandle.close().catch(() => undefined);
         }
         return {
           mask_path: maskPath,

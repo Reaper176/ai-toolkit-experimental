@@ -359,6 +359,61 @@ async function main(): Promise<void> {
     );
     await whitePublication.publish();
     assert.equal(existsSync(join(whitePublication.versionRoot, 'masks/white.png')), false);
+    mkdirSync(join(whitePublication.versionRoot, 'masks'));
+    writeFileSync(join(whitePublication.versionRoot, 'masks/extra.png'), 'extra');
+    await assert.rejects(() => store.verifyFull(whitePublication.manifestPath), error =>
+      error instanceof DatasetPresetSnapshotVerificationError && error.mismatches.some(mismatch =>
+        mismatch.kind === 'unexpected' && mismatch.asset === 'mask' && mismatch.path === 'masks/extra.png' && mismatch.actual === 'file'));
+    unlinkSync(join(whitePublication.versionRoot, 'masks/extra.png'));
+    let maskSymlinksSupported = true;
+    try {
+      symlinkSync(join(whitePublication.versionRoot, 'media/white.png'), join(whitePublication.versionRoot, 'masks/link.png'));
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EPERM' || code === 'EACCES' || code === 'ENOTSUP') maskSymlinksSupported = false;
+      else throw error;
+    }
+    if (maskSymlinksSupported) {
+      await assert.rejects(() => store.verifyFull(whitePublication.manifestPath), error =>
+        error instanceof DatasetPresetSnapshotVerificationError && error.mismatches.some(mismatch =>
+          mismatch.kind === 'unexpected' && mismatch.asset === 'mask' && mismatch.path === 'masks/link.png' && mismatch.actual === 'symlink'));
+      unlinkSync(join(whitePublication.versionRoot, 'masks/link.png'));
+
+      const raceOutside = join(ownedRoot, 'mask-race-outside');
+      mkdirSync(raceOutside);
+      writeFileSync(join(raceOutside, 'sentinel'), 'keep');
+      const stagingRaceData = join(ownedRoot, 'mask-staging-race-data');
+      const stagingRaceRoot = join(stagingRaceData, 'dataset_presets/race/.staging-staging-race');
+      const stagingRaceStore = createDatasetPresetSnapshotStore(stagingRaceData, { randomId: () => 'staging-race' });
+      const stagingRaceMasks = { ...maskService, async read() {
+        renameSync(stagingRaceRoot, `${stagingRaceRoot}-real`);
+        symlinkSync(raceOutside, stagingRaceRoot, process.platform === 'win32' ? 'junction' : 'dir');
+        return { exists: true, width: 1, height: 1, png: Buffer.from('mask') };
+      } };
+      await assert.rejects(() => stagingRaceStore.stageVersion({
+        presetId: 'race', version: 1, presetName: 'Race', sourceDataset: 'my-images', sourceRoot,
+        selectedPaths: ['b.png'], captionExt: 'txt', loaderConfig, note: null, maskService: stagingRaceMasks,
+      }), /identity|symlink|staging|root/i);
+      assert.equal(readFileSync(join(raceOutside, 'sentinel'), 'utf8'), 'keep');
+      assert.equal(existsSync(join(raceOutside, 'b.png')), false);
+
+      const childRaceData = join(ownedRoot, 'mask-child-race-data');
+      liveMasks.set('b.png', Buffer.from('child-race-mask'));
+      const childRaceRoot = join(childRaceData, 'dataset_presets/race/.staging-child-race');
+      const childRaceStore = createDatasetPresetSnapshotStore(childRaceData, {
+        randomId: () => 'child-race',
+        beforeMaskDestinationOpen: () => {
+          renameSync(join(childRaceRoot, 'masks'), join(childRaceRoot, 'masks-real'));
+          symlinkSync(raceOutside, join(childRaceRoot, 'masks'), process.platform === 'win32' ? 'junction' : 'dir');
+        },
+      });
+      await assert.rejects(() => childRaceStore.stageVersion({
+        presetId: 'race', version: 1, presetName: 'Race', sourceDataset: 'my-images', sourceRoot,
+        selectedPaths: ['b.png'], captionExt: 'txt', loaderConfig, note: null, maskService,
+      }), /identity|symlink|masks|root/i);
+      assert.equal(readFileSync(join(raceOutside, 'sentinel'), 'utf8'), 'keep');
+      assert.equal(existsSync(join(raceOutside, 'b.png')), false);
+    }
     const publication = await store.stageVersion({
       presetId: 'preset-1',
       version: 1,
