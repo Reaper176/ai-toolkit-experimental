@@ -274,11 +274,15 @@ async function main(): Promise<void> {
       ['b.png', Buffer.from('live-mask-b')],
       ['sub/a.jpg', Buffer.from('live-mask-a')],
     ]);
+    const sourceIdentity = (sourcePath: string) => {
+      const info = statSync(join(sourceRoot, sourcePath), { bigint: true });
+      return { dev: info.dev.toString(), ino: info.ino.toString() };
+    };
     const maskService = {
       async read(_dataset: string, sourcePath: string) {
         if (!liveMasks.has(sourcePath)) throw new Error('Source not found');
         const png = liveMasks.get(sourcePath) ?? null;
-        return { exists: png !== null, width: 1, height: 1, png };
+        return { exists: png !== null, width: 1, height: 1, png, source_identity: sourceIdentity(sourcePath) };
       },
       async save() {}, async delete() {}, async deleteByAbsoluteSource() {},
     };
@@ -388,7 +392,7 @@ async function main(): Promise<void> {
       const stagingRaceMasks = { ...maskService, async read() {
         renameSync(stagingRaceRoot, `${stagingRaceRoot}-real`);
         symlinkSync(raceOutside, stagingRaceRoot, process.platform === 'win32' ? 'junction' : 'dir');
-        return { exists: true, width: 1, height: 1, png: Buffer.from('mask') };
+        return { exists: true, width: 1, height: 1, png: Buffer.from('mask'), source_identity: sourceIdentity('b.png') };
       } };
       await assert.rejects(() => stagingRaceStore.stageVersion({
         presetId: 'race', version: 1, presetName: 'Race', sourceDataset: 'my-images', sourceRoot,
@@ -402,15 +406,16 @@ async function main(): Promise<void> {
       const identityRaceMasks = { ...maskService, async read() {
         renameSync(join(sourceRoot, 'b.png'), join(sourceRoot, 'b.original.png'));
         writeFileSync(join(sourceRoot, 'b.png'), Buffer.from('replacement-source'));
-        return { exists: true, width: 1, height: 1, png: Buffer.from('replacement-mask') };
+        const replacementIdentity = sourceIdentity('b.png');
+        unlinkSync(join(sourceRoot, 'b.png'));
+        renameSync(join(sourceRoot, 'b.original.png'), join(sourceRoot, 'b.png'));
+        return { exists: true, width: 1, height: 1, png: Buffer.from('replacement-mask'), source_identity: replacementIdentity };
       } };
       await assert.rejects(() => identityRaceStore.stageVersion({
         presetId: 'race', version: 1, presetName: 'Race', sourceDataset: 'my-images', sourceRoot,
         selectedPaths: ['b.png'], captionExt: 'txt', loaderConfig, note: null, maskService: identityRaceMasks,
       }), /source.*changed|identity/i);
       assert.equal(existsSync(join(identityRaceData, 'dataset_presets/race/v1')), false);
-      unlinkSync(join(sourceRoot, 'b.png'));
-      renameSync(join(sourceRoot, 'b.original.png'), join(sourceRoot, 'b.png'));
 
       const childRaceData = join(ownedRoot, 'mask-child-race-data');
       liveMasks.set('b.png', Buffer.from('child-race-mask'));
@@ -423,6 +428,23 @@ async function main(): Promise<void> {
         },
       });
       await assert.rejects(() => childRaceStore.stageVersion({
+        presetId: 'race', version: 1, presetName: 'Race', sourceDataset: 'my-images', sourceRoot,
+        selectedPaths: ['b.png'], captionExt: 'txt', loaderConfig, note: null, maskService,
+      }), /identity|symlink|masks|root/i);
+      assert.equal(readFileSync(join(raceOutside, 'sentinel'), 'utf8'), 'keep');
+      assert.equal(existsSync(join(raceOutside, 'b.png')), false);
+
+      const portableRaceData = join(ownedRoot, 'mask-portable-race-data');
+      const portableRaceRoot = join(portableRaceData, 'dataset_presets/race/.staging-portable-race');
+      const portableRaceStore = createDatasetPresetSnapshotStore(portableRaceData, {
+        randomId: () => 'portable-race',
+        maskFilesystemStrategy: 'portable',
+        beforePortableMaskRename: () => {
+          renameSync(join(portableRaceRoot, 'masks'), join(portableRaceRoot, 'masks-real'));
+          symlinkSync(raceOutside, join(portableRaceRoot, 'masks'), process.platform === 'win32' ? 'junction' : 'dir');
+        },
+      });
+      await assert.rejects(() => portableRaceStore.stageVersion({
         presetId: 'race', version: 1, presetName: 'Race', sourceDataset: 'my-images', sourceRoot,
         selectedPaths: ['b.png'], captionExt: 'txt', loaderConfig, note: null, maskService,
       }), /identity|symlink|masks|root/i);

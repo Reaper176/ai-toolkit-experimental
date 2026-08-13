@@ -10,7 +10,10 @@ export interface DatasetMaskReadResult {
   width: number;
   height: number;
   png: Buffer | null;
+  source_identity?: DatasetMaskSourceIdentity;
 }
+
+export interface DatasetMaskSourceIdentity { dev: string; ino: string }
 
 export interface DatasetMaskDependencies {
   datasetsRoot: string;
@@ -192,10 +195,15 @@ function createDescriptorDatasetMaskService(deps: DatasetMaskDependencies): Data
         throw error;
       }
       handles.push(source);
+      const sourceStat = await source.stat({ bigint: true });
       const bytes = await source.readFile();
       const dimensions = imageSize(bytes);
       if (!dimensions.width || !dimensions.height) throw new Error('Unsupported source image');
-      return { width: dimensions.width, height: dimensions.height };
+      return {
+        width: dimensions.width,
+        height: dimensions.height,
+        source_identity: { dev: sourceStat.dev.toString(), ino: sourceStat.ino.toString() },
+      };
     } finally {
       await closeAll(handles);
     }
@@ -257,7 +265,7 @@ function createDescriptorDatasetMaskService(deps: DatasetMaskDependencies): Data
           mask = await openFileAt(directory, maskFilename(sourcePath));
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-            return { exists: false, width: source.width, height: source.height, png: null };
+            return { exists: false, width: source.width, height: source.height, png: null, source_identity: source.source_identity };
           }
           throw error;
         }
@@ -267,7 +275,7 @@ function createDescriptorDatasetMaskService(deps: DatasetMaskDependencies): Data
         const bytes = await mask.readFile();
         const decoded = parsePng(bytes);
         if (decoded.width !== source.width || decoded.height !== source.height) throw new Error('Mask dimensions mismatch');
-        return { exists: true, width: source.width, height: source.height, png: bytes };
+        return { exists: true, width: source.width, height: source.height, png: bytes, source_identity: source.source_identity };
       } finally {
         await closeAll(handles);
       }
@@ -364,7 +372,7 @@ async function validatePortableDirectory(path: string, root: string): Promise<Fi
   return beforeIdentity;
 }
 
-async function readPortableFile(path: string, root: string): Promise<Buffer> {
+async function readPortableFile(path: string, root: string): Promise<{ bytes: Buffer; identity: DatasetMaskSourceIdentity }> {
   const before = await lstat(path);
   if (before.isSymbolicLink() || !before.isFile()) throw new Error('Refusing file symlink escape');
   const canonical = await realpath(path);
@@ -375,9 +383,10 @@ async function readPortableFile(path: string, root: string): Promise<Buffer> {
   const handle = await open(path, constants.O_RDONLY);
   try {
     if (!sameIdentity(expected, identityOf(await handle.stat()))) throw new Error('File changed while opening');
+    const opened = await handle.stat({ bigint: true });
     const bytes = await handle.readFile();
     if (!sameIdentity(expected, identityOf(await handle.stat()))) throw new Error('File changed while reading');
-    return bytes;
+    return { bytes, identity: { dev: opened.dev.toString(), ino: opened.ino.toString() } };
   } finally {
     await handle.close();
   }
@@ -408,10 +417,10 @@ function createPortableDatasetMaskService(deps: DatasetMaskDependencies): Datase
         await validatePortableDirectory(directory, root);
       }
       await deps.beforeSourceFileOpen?.();
-      const bytes = await readPortableFile(join(directory, segments[segments.length - 1]), root);
-      const dimensions = imageSize(bytes);
+      const source = await readPortableFile(join(directory, segments[segments.length - 1]), root);
+      const dimensions = imageSize(source.bytes);
       if (!dimensions.width || !dimensions.height) throw new Error('Unsupported source image');
-      return { root, width: dimensions.width, height: dimensions.height };
+      return { root, width: dimensions.width, height: dimensions.height, source_identity: source.identity };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('Source not found');
       throw error;
@@ -483,17 +492,17 @@ function createPortableDatasetMaskService(deps: DatasetMaskDependencies): Datase
       await deps.beforeMaskFileOpen?.();
       let bytes: Buffer;
       try {
-        bytes = await readPortableFile(destination, source.root);
+        bytes = (await readPortableFile(destination, source.root)).bytes;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          return { exists: false, width: source.width, height: source.height, png: null };
+          return { exists: false, width: source.width, height: source.height, png: null, source_identity: source.source_identity };
         }
         throw error;
       }
       if (bytes.length > deps.maxPngBytes) throw new Error('PNG exceeds maximum bytes');
       const decoded = parsePng(bytes);
       if (decoded.width !== source.width || decoded.height !== source.height) throw new Error('Mask dimensions mismatch');
-      return { exists: true, width: source.width, height: source.height, png: bytes };
+      return { exists: true, width: source.width, height: source.height, png: bytes, source_identity: source.source_identity };
     },
 
     async save(dataset, sourcePath, png) {

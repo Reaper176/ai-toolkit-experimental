@@ -168,6 +168,8 @@ export interface DatasetPresetSnapshotDependencies {
   beforeOrphanCandidateCheck?: (relativeVersionPath: string) => void | Promise<void>;
   beforeMaintenanceTombstoneDelete?: (relativeStagingPath: string) => void | Promise<void>;
   beforeMaskDestinationOpen?: (sourcePath: string) => void | Promise<void>;
+  beforePortableMaskRename?: (sourcePath: string) => void | Promise<void>;
+  maskFilesystemStrategy?: 'descriptor' | 'portable';
 }
 
 interface ParsedManifestPath {
@@ -484,6 +486,8 @@ export function createDatasetPresetSnapshotStore(
     beforeOrphanCandidateCheck: dependencies?.beforeOrphanCandidateCheck,
     beforeMaintenanceTombstoneDelete: dependencies?.beforeMaintenanceTombstoneDelete,
     beforeMaskDestinationOpen: dependencies?.beforeMaskDestinationOpen,
+    beforePortableMaskRename: dependencies?.beforePortableMaskRename,
+    maskFilesystemStrategy: dependencies?.maskFilesystemStrategy,
   };
   let rootPin: RootPin | undefined;
 
@@ -1403,26 +1407,14 @@ export function createDatasetPresetSnapshotStore(
       ): Promise<Pick<DatasetPresetManifestFile,
         'mask_path' | 'mask_bytes' | 'mask_sha256' | 'mask_missing'> | null> => {
         if (!input.maskService) return null;
-        let sourcePin: PinnedRegularFile | undefined;
-        if (expectedSource) {
-          sourcePin = await openPinnedRegularFile(toSystemPath(realSourceRoot, sourcePath), realSourceRoot);
-          const baseline = sourcePin.baseline;
-          if (
-            baseline.dev !== expectedSource.dev ||
-            baseline.ino !== expectedSource.ino ||
-            baseline.size !== expectedSource.size ||
-            baseline.mtimeNs !== expectedSource.mtimeNs
-          ) {
-            await sourcePin.handle.close().catch(() => undefined);
-            throw new Error(`Source identity changed before mask acquisition: ${sourcePath}`);
-          }
-        }
-        let result: Awaited<ReturnType<DatasetMaskService['read']>>;
-        try {
-          result = await input.maskService.read(input.sourceDataset, sourcePath);
-          if (sourcePin) await validatePinnedFile(sourcePin);
-        } finally {
-          await sourcePin?.handle.close().catch(() => undefined);
+        const result = await input.maskService.read(input.sourceDataset, sourcePath);
+        if (
+          expectedSource &&
+          (!result.source_identity ||
+            result.source_identity.dev !== expectedSource.dev.toString() ||
+            result.source_identity.ino !== expectedSource.ino.toString())
+        ) {
+          throw new Error(`Source identity changed during mask acquisition: ${sourcePath}`);
         }
         if (!result.exists || result.png === null) {
           return { mask_path: null, mask_bytes: null, mask_sha256: null, mask_missing: true };
@@ -1441,7 +1433,10 @@ export function createDatasetPresetSnapshotStore(
           if (!stagingInfo.isDirectory() || stagingInfo.dev !== ownedPin.dev || stagingInfo.ino !== ownedPin.ino) {
             throw new Error('Owned staging directory identity changed before mask write');
           }
-          const descriptorRoot = process.platform === 'linux' ? `/proc/self/fd/${stagingHandle.fd}` : stagingRoot;
+          const useDescriptor =
+            (resolvedDependencies.maskFilesystemStrategy ?? (process.platform === 'linux' ? 'descriptor' : 'portable')) ===
+            'descriptor';
+          const descriptorRoot = useDescriptor ? `/proc/self/fd/${stagingHandle.fd}` : stagingRoot;
           try {
             await mkdir(join(descriptorRoot, 'masks'), { mode: 0o700 });
           } catch (error) {
@@ -1460,20 +1455,32 @@ export function createDatasetPresetSnapshotStore(
             validateDirectoryPinSync(presetPin, 'Preset root', managedRoot);
             validateDirectoryPinSync(ownedPin, 'Owned staging directory', presetRoot);
             validateDirectoryPinSync(masksPin, 'Owned masks directory', stagingRoot);
-            const destinationRoot = process.platform === 'linux' ? `/proc/self/fd/${masksHandle.fd}` : masksPath;
-            const handle = await open(
-              join(destinationRoot, maskFilename(sourcePath)),
-              constants.O_WRONLY |
-                constants.O_CREAT |
-                constants.O_EXCL |
-                (typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0),
-              0o600,
-            );
+            const destinationRoot = useDescriptor ? `/proc/self/fd/${masksHandle.fd}` : masksPath;
+            const destination = join(destinationRoot, maskFilename(sourcePath));
+            const temporary = useDescriptor ? undefined : join(masksPath, `.${maskFilename(sourcePath)}.${randomUUID()}.tmp`);
+            const openedPath = temporary ?? destination;
+            const handle = await open(openedPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
+              (typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0), 0o600);
             try {
               await handle.writeFile(result.png);
               await handle.sync();
             } finally {
               await handle.close();
+            }
+            if (temporary) {
+              const temporaryInfo = await lstat(temporary, { bigint: true });
+              if (temporaryInfo.isSymbolicLink() || !temporaryInfo.isFile()) throw new Error('Portable mask temporary changed');
+              const canonicalTemporary = await realpath(temporary);
+              if (relative(await realpath(masksPath), canonicalTemporary).startsWith('..')) {
+                throw new Error('Portable mask temporary escaped masks directory');
+              }
+              await resolvedDependencies.beforePortableMaskRename?.(sourcePath);
+              validateDirectoryPinSync(masksPin, 'Owned masks directory', stagingRoot);
+              validateDirectoryPinSync(ownedPin, 'Owned staging directory', presetRoot);
+              await rename(temporary, destination);
+              validateDirectoryPinSync(masksPin, 'Owned masks directory', stagingRoot);
+              const destinationInfo = await lstat(destination, { bigint: true });
+              if (!sameIdentity(temporaryInfo, destinationInfo)) throw new Error('Portable mask destination identity changed');
             }
             validateDirectoryPinSync(masksPin, 'Owned masks directory', stagingRoot);
             validateDirectoryPinSync(ownedPin, 'Owned staging directory', presetRoot);
