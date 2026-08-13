@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, realpath, readdir, readFile, rename as fsRename, rm, type FileHandle } from 'node:fs/promises';
+import { lstat, mkdir, open, opendir, realpath, readdir, readFile, rename as fsRename, rm, type FileHandle } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { imageSize } from 'image-size';
@@ -114,6 +114,89 @@ export function assertUniqueMaskBasenames(paths: readonly string[]): void {
     if (seen.has(name)) throw new Error(`Duplicate mask basename: ${name}`);
     seen.add(name);
   }
+}
+
+export async function probeLiveMaskAvailability(sourceRoot: string, options: {
+  datasetsRoot?: string; maxDepth?: number; maxFiles?: number; maxEntries?: number; maxDirectories?: number;
+  maxMaskBytes?: number; maxDimension?: number;
+} = {}): Promise<string | null> {
+  if (!isAbsolute(sourceRoot)) throw new Error('Live dataset path must be absolute');
+  const canonicalSource = await realpath(sourceRoot);
+  if (canonicalSource !== resolve(sourceRoot)) throw new Error('Live dataset root cannot be a symlink');
+  if (options.datasetsRoot) {
+    const root = await realpath(options.datasetsRoot);
+    const child = relative(root, canonicalSource);
+    if (!child || child === '..' || child.startsWith(`..${sep}`) || isAbsolute(child)) {
+      throw new Error('Live dataset path escapes configured datasets root');
+    }
+  }
+  const sourceInfo = await lstat(canonicalSource);
+  if (!sourceInfo.isDirectory() || sourceInfo.isSymbolicLink()) throw new Error('Live dataset path is not a secure directory');
+  const maskRoot = join(dirname(canonicalSource), `${basename(canonicalSource)}_masks`);
+  let canonicalMasks: string;
+  try { canonicalMasks = await realpath(maskRoot); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+  if (canonicalMasks !== maskRoot) throw new Error('Live mask path is not a secure sibling directory');
+  const maskRootInfo = await lstat(canonicalMasks);
+  if (!maskRootInfo.isDirectory() || maskRootInfo.isSymbolicLink()) throw new Error('Live mask path is not secure');
+
+  const maxDepth = options.maxDepth ?? 8;
+  const maxFiles = options.maxFiles ?? 1_000;
+  const maxEntries = options.maxEntries ?? 2_000;
+  const maxDirectories = options.maxDirectories ?? 500;
+  let entries = 0;
+  let directories = 0;
+  const wanted = new Set<string>();
+  async function walk(directory: string, depth: number): Promise<void> {
+    if (depth > maxDepth) throw new Error('Live dataset nesting limit exceeded');
+    directories += 1;
+    if (directories > maxDirectories) throw new Error('Live dataset directory limit exceeded');
+    const directoryInfo = await lstat(directory);
+    if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink() || await realpath(directory) !== directory) {
+      throw new Error('Refusing changed live dataset directory');
+    }
+    for await (const entry of await opendir(directory)) {
+      entries += 1;
+      if (entries > maxEntries) throw new Error('Live dataset entry limit exceeded');
+      if (entry.isSymbolicLink()) throw new Error('Refusing symlink in live dataset');
+      if (entry.isDirectory()) await walk(join(directory, entry.name), depth + 1);
+      else if (entry.isFile() && SOURCE_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
+        if (wanted.size >= maxFiles) throw new Error('Live dataset file limit exceeded');
+        const key = maskFilename(entry.name).toLocaleLowerCase('en-US');
+        if (wanted.has(key)) throw new Error(`Duplicate mask basename: ${key}`);
+        wanted.add(key);
+      }
+    }
+  }
+  await walk(canonicalSource, 0);
+  const maxMaskBytes = options.maxMaskBytes ?? 1024 * 1024;
+  const maxDimension = options.maxDimension ?? 16_384;
+  for await (const entry of await opendir(canonicalMasks)) {
+    entries += 1;
+    if (entries > maxEntries) throw new Error('Live dataset entry limit exceeded');
+    if (!wanted.has(entry.name.toLocaleLowerCase('en-US'))) continue;
+    if (entry.isSymbolicLink() || !entry.isFile()) throw new Error('Matching mask is not a secure file');
+    const target = join(canonicalMasks, entry.name);
+    const info = await lstat(target);
+    if (!info.isFile() || info.isSymbolicLink() || info.size < 24 || info.size > maxMaskBytes) {
+      throw new Error('Matching mask exceeds status probe limits');
+    }
+    const handle = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const header = Buffer.alloc(24);
+      const { bytesRead } = await handle.read(header, 0, header.length, 0);
+      const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+      const width = header.readUInt32BE(16);
+      const height = header.readUInt32BE(20);
+      if (bytesRead !== 24 || !header.subarray(0, 8).equals(pngSignature) || header.readUInt32BE(8) !== 13 ||
+        header.toString('ascii', 12, 16) !== 'IHDR' ||
+        width < 1 || height < 1 || width > maxDimension || height > maxDimension) {
+        throw new Error('Matching mask PNG header is invalid');
+      }
+      return canonicalMasks;
+    } finally { await handle.close(); }
+  }
+  return null;
 }
 
 export async function resolveLiveMaskDirectory(sourceRoot: string, options: {
