@@ -397,6 +397,21 @@ async function main(): Promise<void> {
       assert.equal(readFileSync(join(raceOutside, 'sentinel'), 'utf8'), 'keep');
       assert.equal(existsSync(join(raceOutside, 'b.png')), false);
 
+      const identityRaceData = join(ownedRoot, 'mask-source-identity-race-data');
+      const identityRaceStore = createDatasetPresetSnapshotStore(identityRaceData, { randomId: () => 'identity-race' });
+      const identityRaceMasks = { ...maskService, async read() {
+        renameSync(join(sourceRoot, 'b.png'), join(sourceRoot, 'b.original.png'));
+        writeFileSync(join(sourceRoot, 'b.png'), Buffer.from('replacement-source'));
+        return { exists: true, width: 1, height: 1, png: Buffer.from('replacement-mask') };
+      } };
+      await assert.rejects(() => identityRaceStore.stageVersion({
+        presetId: 'race', version: 1, presetName: 'Race', sourceDataset: 'my-images', sourceRoot,
+        selectedPaths: ['b.png'], captionExt: 'txt', loaderConfig, note: null, maskService: identityRaceMasks,
+      }), /source.*changed|identity/i);
+      assert.equal(existsSync(join(identityRaceData, 'dataset_presets/race/v1')), false);
+      unlinkSync(join(sourceRoot, 'b.png'));
+      renameSync(join(sourceRoot, 'b.original.png'), join(sourceRoot, 'b.png'));
+
       const childRaceData = join(ownedRoot, 'mask-child-race-data');
       liveMasks.set('b.png', Buffer.from('child-race-mask'));
       const childRaceRoot = join(childRaceData, 'dataset_presets/race/.staging-child-race');

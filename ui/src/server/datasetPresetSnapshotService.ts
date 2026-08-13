@@ -187,6 +187,7 @@ interface CopyResult {
   bytes: number;
   sha256: string;
   content?: Buffer;
+  sourceIdentity: Pick<BigIntStats, 'dev' | 'ino' | 'size' | 'mtimeNs'>;
 }
 
 function boundedSize(value: bigint): number | string {
@@ -401,6 +402,12 @@ async function copyAndHashPinned(
     return {
       bytes,
       sha256: hash.digest('hex'),
+      sourceIdentity: {
+        dev: pinned.baseline.dev,
+        ino: pinned.baseline.ino,
+        size: pinned.baseline.size,
+        mtimeNs: pinned.baseline.mtimeNs,
+      },
       ...(captureContent ? { content: Buffer.concat(chunks) } : {}),
     };
   } catch (error) {
@@ -1390,10 +1397,33 @@ export function createDatasetPresetSnapshotStore(
     try {
       const files: DatasetPresetManifestFile[] = [];
 
-      const freezeLiveMask = async (sourcePath: string): Promise<Pick<DatasetPresetManifestFile,
+      const freezeLiveMask = async (
+        sourcePath: string,
+        expectedSource?: CopyResult['sourceIdentity'],
+      ): Promise<Pick<DatasetPresetManifestFile,
         'mask_path' | 'mask_bytes' | 'mask_sha256' | 'mask_missing'> | null> => {
         if (!input.maskService) return null;
-        const result = await input.maskService.read(input.sourceDataset, sourcePath);
+        let sourcePin: PinnedRegularFile | undefined;
+        if (expectedSource) {
+          sourcePin = await openPinnedRegularFile(toSystemPath(realSourceRoot, sourcePath), realSourceRoot);
+          const baseline = sourcePin.baseline;
+          if (
+            baseline.dev !== expectedSource.dev ||
+            baseline.ino !== expectedSource.ino ||
+            baseline.size !== expectedSource.size ||
+            baseline.mtimeNs !== expectedSource.mtimeNs
+          ) {
+            await sourcePin.handle.close().catch(() => undefined);
+            throw new Error(`Source identity changed before mask acquisition: ${sourcePath}`);
+          }
+        }
+        let result: Awaited<ReturnType<DatasetMaskService['read']>>;
+        try {
+          result = await input.maskService.read(input.sourceDataset, sourcePath);
+          if (sourcePin) await validatePinnedFile(sourcePin);
+        } finally {
+          await sourcePin?.handle.close().catch(() => undefined);
+        }
         if (!result.exists || result.png === null) {
           return { mask_path: null, mask_bytes: null, mask_sha256: null, mask_missing: true };
         }
@@ -1568,7 +1598,7 @@ export function createDatasetPresetSnapshotStore(
           captionBytes = caption.bytes;
           captionSha256 = caption.sha256;
         }
-        const mask = await freezeLiveMask(sourcePath);
+        const mask = await freezeLiveMask(sourcePath, media.sourceIdentity);
         files.push({
           source_path: sourcePath,
           managed_path: managedPath,
