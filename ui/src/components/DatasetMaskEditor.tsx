@@ -48,6 +48,7 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
   const previewGeneration = useRef(0);
   const previewPixels = useRef<ImageData | null>(null);
   const panning = useRef<Point | null>(null);
+  const handledLaunch = useRef<{ open: boolean; token?: number }>({ open: false });
   const image = selectedLiveImages[index];
   const dirty = !!mask && !!baseline.current && !masksEqual(mask, baseline.current);
   const readOnly = archivedReadOnly;
@@ -95,7 +96,9 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
 
   useEffect(() => { setIndex(current => clampMaskImageIndex(current, selectedLiveImages.length)); }, [selectedLiveImages.length]);
   useEffect(() => {
-    if (!open || !initialImagePath) return;
+    const previous = handledLaunch.current;
+    handledLaunch.current = { open, token: launchToken };
+    if (!open || (previous.open && previous.token === launchToken) || !initialImagePath) return;
     const requested = selectedLiveImages.findIndex(candidate => candidate.relative_path === initialImagePath);
     if (requested >= 0) setIndex(requested);
   }, [open, launchToken, initialImagePath, selectedLiveImages]);

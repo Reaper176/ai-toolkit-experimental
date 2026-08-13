@@ -120,6 +120,29 @@ async function run() {
   assert.equal(button(renderer, 'Save mask').props.disabled, true, 'successful save updates the clean baseline');
   await act(async () => renderer.unmount());
 
+  const LaunchHarness = ({ editorImages, token }: { editorImages: typeof images; token: number }) => <DatasetMaskEditor
+    datasetName="set"
+    selectedLiveImages={editorImages}
+    archivedReadOnly={false}
+    open
+    initialImagePath="b.png"
+    launchToken={token}
+    onClose={() => undefined}
+    onStatusRefresh={() => undefined}
+  />;
+  await act(async () => { renderer = TestRenderer.create(<LaunchHarness editorImages={images} token={1}/>, { createNodeMock: nodeMock }); });
+  await flush();
+  await act(async () => button(renderer, 'Previous').props.onClick());
+  await flush();
+  assert.equal(renderer.root.findByType('strong').children.join(''), 'a.png', 'navigation can move away from the launch target');
+  await act(async () => renderer.update(<LaunchHarness editorImages={images.map(image => ({ ...image }))} token={1}/>));
+  await flush();
+  assert.equal(renderer.root.findByType('strong').children.join(''), 'a.png', 'equivalent image-array churn does not replay the launch target');
+  await act(async () => renderer.update(<LaunchHarness editorImages={images.map(image => ({ ...image }))} token={2}/>));
+  await flush();
+  assert.equal(renderer.root.findByType('strong').children.join(''), 'b.png', 'a new launch token retargets against the latest image list');
+  await act(async () => renderer.unmount());
+
   requests.length = 0;
   (globalThis as any).fetch = recordFetch;
   await act(async () => { renderer = TestRenderer.create(<DatasetMaskEditor datasetName="set" selectedLiveImages={[images[0]]} archivedReadOnly open frozenMasks={{ 'a.png': '/immutable/version/mask.png' }} onClose={() => undefined} onStatusRefresh={() => refreshes++}/>, { createNodeMock: nodeMock }); });
