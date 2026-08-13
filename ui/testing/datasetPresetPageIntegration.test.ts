@@ -101,6 +101,14 @@ assert.match(
   'page owns the selected-only view filter',
 );
 assert.match(pageSource, /baseSelection/, 'page keeps a base selection for dirty checks');
+const selectionDirtySource = pageSource.match(/const\s+selectionDirty\s*=\s*[^;]+;/)?.[0];
+assert.ok(selectionDirtySource, 'selection dirty derivation is present');
+assert.match(
+  selectionDirtySource,
+  /selectionMode\s*&&\s*!areSelectionsEqual\(selectedPaths,\s*baseSelection\)/,
+  'dirty state compares the full selected paths with the base selection',
+);
+assert.doesNotMatch(selectionDirtySource, /visibleImages|visibleMissingPaths/, 'dirty state is independent of view filters');
 assert.match(
   pageSource,
   /activeVersion\.manifest\.files[\s\S]{0,220}selectedPaths\.has\(path\)/,
@@ -113,7 +121,32 @@ assert.match(
 );
 assert.match(
   pageSource,
+  /const\s+retainedPaths\s*=\s*activeVersion\s*\?[\s\S]*?activeVersion\.manifest\.files[\s\S]*?\.filter\(path\s*=>\s*selectedPaths\.has\(path\)\)[\s\S]*?:\s*\[\];/,
+  'retained paths derive from the full active manifest and selected-path set',
+);
+assert.match(
+  pageSource,
+  /const\s+newlySelectedPaths\s*=\s*\[\.\.\.selectedPaths\]\.filter\(path\s*=>\s*!activeManifestPaths\.has\(path\)\)/,
+  'newly selected paths derive from the full selected-path set and active manifest',
+);
+assert.match(
+  pageSource,
+  /<DatasetPresetDialog[\s\S]{0,700}selectedPaths=\{newlySelectedPaths\}\s+retainedPaths=\{retainedPaths\}/,
+  'preset saves receive the full newly selected and retained path derivations',
+);
+assert.match(
+  pageSource,
   /applySelectionAction\(selectedPaths,\s*\[\.\.\.imgList\.map\(img\s*=>\s*img\.relative_path\),\s*\.\.\.sourceMissingPaths\],\s*action\)/,
+  'bulk selection actions use every live and source-missing path',
+);
+const selectionActionSource = pageSource.match(
+  /const\s+handleSelectionAction\s*=\s*\([^)]*\)\s*=>\s*\{[\s\S]*?\n\s*\};/,
+)?.[0];
+assert.ok(selectionActionSource, 'selection action handler is present');
+assert.doesNotMatch(
+  selectionActionSource,
+  /visibleImages|visibleMissingPaths/,
+  'bulk selection actions are independent of view filters',
 );
 assert.match(pageSource, /selected=\{selectedPaths\.has\(img\.relative_path\)\}/);
 assert.match(pageSource, /onSelectionChange=\{selected\s*=>/, 'cards update page selection by relative path');
@@ -139,6 +172,16 @@ assert.match(
 );
 assert.match(
   pageSource,
+  /<DatasetSelectionToolbar[\s\S]{0,240}totalCount=\{imgList\.length\s*\+\s*sourceMissingPaths\.length\}/,
+  'selection toolbar total remains based on the full dataset',
+);
+assert.match(
+  pageSource,
+  /status\s*===\s*['"]success['"]\s*&&\s*visibleImages\.length\s*>\s*0\s*&&\s*scrollParent\s*&&\s*\(\s*<VirtuosoGrid/,
+  'virtualized grid render gate uses the visible image list',
+);
+assert.match(
+  pageSource,
   /<VirtuosoGrid[\s\S]{0,120}totalCount=\{visibleImages\.length\}/,
   'virtualized total uses visible images',
 );
@@ -160,8 +203,22 @@ assert.match(
 );
 assert.match(
   pageSource,
+  /visibleMissingPaths\.length\s*===\s*0\s*&&\s*\(\s*<p\s+role=["']status["'][^>]*>\s*No selected images to show\.\s*<\/p>/,
+  'selected-only empty state is announced with the exact accessible status message',
+);
+assert.match(
+  pageSource,
   /discardSelectionRef\.current\s*=\s*\(\)\s*=>\s*\{[\s\S]{0,180}setShowOnlySelected\(false\)[\s\S]{0,80}setSelectionMode\(false\)/,
   'closing selection mode resets the selected-only filter before leaving the mode',
+);
+const applyLoadedVersionSource = pageSource.match(
+  /const\s+applyLoadedVersion\s*=\s*useCallback\([\s\S]*?\n\s*\},\s*\[\]\);/,
+)?.[0];
+assert.ok(applyLoadedVersionSource, 'loaded-version callback is present');
+assert.doesNotMatch(
+  applyLoadedVersionSource,
+  /setShowOnlySelected/,
+  'loading a preset version preserves the selected-only view filter',
 );
 assert.match(pageSource, /beforeunload/, 'dirty selections warn before browser unload');
 assert.match(pageSource, /openConfirm\(/, 'dirty cancellation uses the accessible confirmation pattern');
