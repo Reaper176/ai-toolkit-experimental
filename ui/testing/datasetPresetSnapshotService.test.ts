@@ -278,11 +278,12 @@ async function main(): Promise<void> {
       const info = statSync(join(sourceRoot, sourcePath), { bigint: true });
       return { dev: info.dev.toString(), ino: info.ino.toString() };
     };
+    const sourceSha256 = (sourcePath: string) => createHash('sha256').update(readFileSync(join(sourceRoot, sourcePath))).digest('hex');
     const maskService = {
       async read(_dataset: string, sourcePath: string) {
         if (!liveMasks.has(sourcePath)) throw new Error('Source not found');
         const png = liveMasks.get(sourcePath) ?? null;
-        return { exists: png !== null, width: 1, height: 1, png, source_identity: sourceIdentity(sourcePath) };
+        return { exists: png !== null, width: 1, height: 1, png, source_identity: sourceIdentity(sourcePath), source_sha256: sourceSha256(sourcePath) };
       },
       async save() {}, async delete() {}, async deleteByAbsoluteSource() {},
     };
@@ -392,7 +393,7 @@ async function main(): Promise<void> {
       const stagingRaceMasks = { ...maskService, async read() {
         renameSync(stagingRaceRoot, `${stagingRaceRoot}-real`);
         symlinkSync(raceOutside, stagingRaceRoot, process.platform === 'win32' ? 'junction' : 'dir');
-        return { exists: true, width: 1, height: 1, png: Buffer.from('mask'), source_identity: sourceIdentity('b.png') };
+        return { exists: true, width: 1, height: 1, png: Buffer.from('mask'), source_identity: sourceIdentity('b.png'), source_sha256: sourceSha256('b.png') };
       } };
       await assert.rejects(() => stagingRaceStore.stageVersion({
         presetId: 'race', version: 1, presetName: 'Race', sourceDataset: 'my-images', sourceRoot,
@@ -409,7 +410,8 @@ async function main(): Promise<void> {
         const replacementIdentity = sourceIdentity('b.png');
         unlinkSync(join(sourceRoot, 'b.png'));
         renameSync(join(sourceRoot, 'b.original.png'), join(sourceRoot, 'b.png'));
-        return { exists: true, width: 1, height: 1, png: Buffer.from('replacement-mask'), source_identity: replacementIdentity };
+        return { exists: true, width: 1, height: 1, png: Buffer.from('replacement-mask'), source_identity: replacementIdentity,
+          source_sha256: createHash('sha256').update('replacement-source').digest('hex') };
       } };
       await assert.rejects(() => identityRaceStore.stageVersion({
         presetId: 'race', version: 1, presetName: 'Race', sourceDataset: 'my-images', sourceRoot,
@@ -417,11 +419,29 @@ async function main(): Promise<void> {
       }), /source.*changed|identity/i);
       assert.equal(existsSync(join(identityRaceData, 'dataset_presets/race/v1')), false);
 
+      const inPlaceRaceData = join(ownedRoot, 'mask-source-in-place-race-data');
+      const inPlaceRaceStore = createDatasetPresetSnapshotStore(inPlaceRaceData, { randomId: () => 'in-place-race' });
+      const originalSource = readFileSync(join(sourceRoot, 'b.png'));
+      const inPlaceRaceMasks = { ...maskService, async read() {
+        const identity = sourceIdentity('b.png');
+        writeFileSync(join(sourceRoot, 'b.png'), Buffer.from('same-inode-replacement'));
+        const digest = sourceSha256('b.png');
+        writeFileSync(join(sourceRoot, 'b.png'), originalSource);
+        return { exists: true, width: 1, height: 1, png: Buffer.from('replacement-mask'),
+          source_identity: identity, source_sha256: digest };
+      } };
+      await assert.rejects(() => inPlaceRaceStore.stageVersion({
+        presetId: 'race', version: 1, presetName: 'Race', sourceDataset: 'my-images', sourceRoot,
+        selectedPaths: ['b.png'], captionExt: 'txt', loaderConfig, note: null, maskService: inPlaceRaceMasks,
+      }), /source.*changed|identity/i);
+      assert.equal(existsSync(join(inPlaceRaceData, 'dataset_presets/race/v1')), false);
+
       const childRaceData = join(ownedRoot, 'mask-child-race-data');
       liveMasks.set('b.png', Buffer.from('child-race-mask'));
       const childRaceRoot = join(childRaceData, 'dataset_presets/race/.staging-child-race');
       const childRaceStore = createDatasetPresetSnapshotStore(childRaceData, {
         randomId: () => 'child-race',
+        maskFilesystemStrategy: 'portable',
         beforeMaskDestinationOpen: () => {
           renameSync(join(childRaceRoot, 'masks'), join(childRaceRoot, 'masks-real'));
           symlinkSync(raceOutside, join(childRaceRoot, 'masks'), process.platform === 'win32' ? 'junction' : 'dir');

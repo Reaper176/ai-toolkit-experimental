@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, realpath, rename as fsRename, rm, type FileHandle } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { imageSize } from 'image-size';
 import { PNG } from 'pngjs';
@@ -11,6 +11,7 @@ export interface DatasetMaskReadResult {
   height: number;
   png: Buffer | null;
   source_identity?: DatasetMaskSourceIdentity;
+  source_sha256?: string;
 }
 
 export interface DatasetMaskSourceIdentity { dev: string; ino: string }
@@ -197,12 +198,18 @@ function createDescriptorDatasetMaskService(deps: DatasetMaskDependencies): Data
       handles.push(source);
       const sourceStat = await source.stat({ bigint: true });
       const bytes = await source.readFile();
+      const afterSourceStat = await source.stat({ bigint: true });
+      if (sourceStat.dev !== afterSourceStat.dev || sourceStat.ino !== afterSourceStat.ino ||
+          sourceStat.size !== afterSourceStat.size || sourceStat.mtimeNs !== afterSourceStat.mtimeNs) {
+        throw new Error('Source changed while reading');
+      }
       const dimensions = imageSize(bytes);
       if (!dimensions.width || !dimensions.height) throw new Error('Unsupported source image');
       return {
         width: dimensions.width,
         height: dimensions.height,
         source_identity: { dev: sourceStat.dev.toString(), ino: sourceStat.ino.toString() },
+        source_sha256: createHash('sha256').update(bytes).digest('hex'),
       };
     } finally {
       await closeAll(handles);
@@ -265,7 +272,7 @@ function createDescriptorDatasetMaskService(deps: DatasetMaskDependencies): Data
           mask = await openFileAt(directory, maskFilename(sourcePath));
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-            return { exists: false, width: source.width, height: source.height, png: null, source_identity: source.source_identity };
+            return { exists: false, width: source.width, height: source.height, png: null, source_identity: source.source_identity, source_sha256: source.source_sha256 };
           }
           throw error;
         }
@@ -275,7 +282,7 @@ function createDescriptorDatasetMaskService(deps: DatasetMaskDependencies): Data
         const bytes = await mask.readFile();
         const decoded = parsePng(bytes);
         if (decoded.width !== source.width || decoded.height !== source.height) throw new Error('Mask dimensions mismatch');
-        return { exists: true, width: source.width, height: source.height, png: bytes, source_identity: source.source_identity };
+        return { exists: true, width: source.width, height: source.height, png: bytes, source_identity: source.source_identity, source_sha256: source.source_sha256 };
       } finally {
         await closeAll(handles);
       }
@@ -382,10 +389,16 @@ async function readPortableFile(path: string, root: string): Promise<{ bytes: Bu
   if (!sameIdentity(expected, identityOf(checked))) throw new Error('File changed during validation');
   const handle = await open(path, constants.O_RDONLY);
   try {
-    if (!sameIdentity(expected, identityOf(await handle.stat()))) throw new Error('File changed while opening');
+    const openedStats = await handle.stat();
+    if (!sameIdentity(expected, identityOf(openedStats)) || openedStats.size !== before.size || openedStats.mtimeMs !== before.mtimeMs) {
+      throw new Error('File changed while opening');
+    }
     const opened = await handle.stat({ bigint: true });
     const bytes = await handle.readFile();
-    if (!sameIdentity(expected, identityOf(await handle.stat()))) throw new Error('File changed while reading');
+    const after = await handle.stat();
+    if (!sameIdentity(expected, identityOf(after)) || after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
+      throw new Error('File changed while reading');
+    }
     return { bytes, identity: { dev: opened.dev.toString(), ino: opened.ino.toString() } };
   } finally {
     await handle.close();
@@ -420,7 +433,8 @@ function createPortableDatasetMaskService(deps: DatasetMaskDependencies): Datase
       const source = await readPortableFile(join(directory, segments[segments.length - 1]), root);
       const dimensions = imageSize(source.bytes);
       if (!dimensions.width || !dimensions.height) throw new Error('Unsupported source image');
-      return { root, width: dimensions.width, height: dimensions.height, source_identity: source.identity };
+      return { root, width: dimensions.width, height: dimensions.height, source_identity: source.identity,
+        source_sha256: createHash('sha256').update(source.bytes).digest('hex') };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('Source not found');
       throw error;
@@ -495,14 +509,14 @@ function createPortableDatasetMaskService(deps: DatasetMaskDependencies): Datase
         bytes = (await readPortableFile(destination, source.root)).bytes;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          return { exists: false, width: source.width, height: source.height, png: null, source_identity: source.source_identity };
+          return { exists: false, width: source.width, height: source.height, png: null, source_identity: source.source_identity, source_sha256: source.source_sha256 };
         }
         throw error;
       }
       if (bytes.length > deps.maxPngBytes) throw new Error('PNG exceeds maximum bytes');
       const decoded = parsePng(bytes);
       if (decoded.width !== source.width || decoded.height !== source.height) throw new Error('Mask dimensions mismatch');
-      return { exists: true, width: source.width, height: source.height, png: bytes, source_identity: source.source_identity };
+      return { exists: true, width: source.width, height: source.height, png: bytes, source_identity: source.source_identity, source_sha256: source.source_sha256 };
     },
 
     async save(dataset, sourcePath, png) {
