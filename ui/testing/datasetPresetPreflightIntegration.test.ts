@@ -62,7 +62,7 @@ async function main(): Promise<void> {
   assert.equal(versionReads, 0, 'jobs without presets are accepted without snapshot access');
 
   const absoluteRoot = '/managed/private/root/that-must-never-leak';
-  const missing = ['z.png', 'a.png', 'b.png', 'c.png', 'd.png', 'e.png', 'f.png'];
+  const missing = ['masks/safe.png', 'a.png', 'b.png', 'c.png', 'd.png', 'e.png', 'f.png'];
   const refs = [{ id: 'v2', name: 'My Images', version: 2 }];
   const authoritative = {
     preset: { id: 'preset-v2', name: 'My Images', archived_at: new Date() },
@@ -93,6 +93,7 @@ async function main(): Promise<void> {
   assert.equal(publicFailure.preset, 'My Images');
   assert.equal(publicFailure.version, 2);
   assert.deepEqual(publicFailure.missing, missing.slice(0, 5));
+  assert.equal(publicFailure.missing?.[0], 'masks/safe.png', 'tamper failure identifies the affected source basename');
   assert.doesNotMatch(publicFailure.message, new RegExp(absoluteRoot));
   assert.doesNotMatch(JSON.stringify(caught), new RegExp(absoluteRoot));
 

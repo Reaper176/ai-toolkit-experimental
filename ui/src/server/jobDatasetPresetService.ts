@@ -1,4 +1,5 @@
 import type { Job } from '@prisma/client';
+import { lstat, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 import {
   LOADER_CONFIG_KEYS,
@@ -323,10 +324,22 @@ async function resolveJobDatasetPresetsInternal(input: {
   for (let datasetIndex = 0; datasetIndex < datasets.length; datasetIndex += 1) {
     const dataset = datasets[datasetIndex];
     if (!Object.prototype.hasOwnProperty.call(dataset, 'dataset_preset')) {
-      if (nonblank(dataset.folder_path)) {
+      if (nonblank(dataset.mask_path)) {
+        try {
+          const canonicalMaskPath = await realpath(dataset.mask_path);
+          if (canonicalMaskPath !== dataset.mask_path) throw new Error('Explicit live mask path must be canonical');
+          const info = await lstat(canonicalMaskPath);
+          if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Explicit live mask path must be a directory');
+        } catch (error) {
+          throw new JobDatasetPresetError('Explicit live dataset mask path is invalid', { cause: error });
+        }
+      } else if (nonblank(dataset.folder_path)) {
         try {
           dataset.mask_path = await resolveLiveMaskDirectory(dataset.folder_path);
         } catch (error) {
+          if (error instanceof Error && /^Duplicate mask basename: [^/\\]+$/.test(error.message)) {
+            throw new JobDatasetPresetError(error.message, { cause: error });
+          }
           throw new JobDatasetPresetError('Live dataset mask files are invalid or ambiguous', { cause: error });
         }
       } else {

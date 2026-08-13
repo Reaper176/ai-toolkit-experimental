@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import React, { useEffect, useState } from 'react';
 import TestRenderer, { act, type ReactTestInstance } from 'react-test-renderer';
 import DatasetSourceControl from '../src/components/DatasetSourceControl';
-import { SelectInput } from '../src/components/formInputs';
+import { Checkbox, NumberInput, SelectInput } from '../src/components/formInputs';
 import type { DatasetConfig } from '../src/types';
 import type { DatasetPresetLoaderConfig } from '../src/helpers/datasetPresetValidation';
 import {
@@ -167,6 +167,14 @@ async function runActivePresetBehavior(): Promise<void> {
     await Promise.resolve();
   });
   assert.equal(select(renderer.root, 'Target Dataset').props.value, '/datasets/live', 'live mode owns target selector');
+  assert.ok(renderer.root.findAll(node => textOf(node).includes('Mask path: /masks/architecture-specific')).length > 0,
+    'resolved mask path is displayed read-only');
+  const maskMinimum = renderer.root.findByType(NumberInput);
+  await act(async () => maskMinimum.props.onChange(0.6));
+  assert.equal(current.mask_min_value, 0.6, 'mask minimum remains editable');
+  const invertMask = renderer.root.findByType(Checkbox);
+  await act(async () => invertMask.props.onChange(true));
+  assert.equal(current.invert_mask, true, 'mask inversion remains editable');
   await act(async () => {
     button(renderer.root, 'Live folder').props.onClick();
   });

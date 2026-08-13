@@ -127,9 +127,16 @@ export async function resolveLiveMaskDirectory(sourceRoot: string): Promise<stri
   }
   const sourceInfo = await lstat(canonicalSource);
   if (!sourceInfo.isDirectory() || sourceInfo.isSymbolicLink()) throw new Error('Live dataset path is not a secure directory');
-  const sources = (await readdir(canonicalSource, { withFileTypes: true }))
-    .filter(entry => entry.isFile() && SOURCE_EXTENSIONS.has(extname(entry.name).toLowerCase()))
-    .map(entry => entry.name);
+  const sources: string[] = [];
+  const walk = async (directory: string, prefix = ''): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isSymbolicLink()) throw new Error(`Refusing symlink in live dataset: ${relativePath}`);
+      if (entry.isDirectory()) await walk(join(directory, entry.name), relativePath);
+      else if (entry.isFile() && SOURCE_EXTENSIONS.has(extname(entry.name).toLowerCase())) sources.push(relativePath);
+    }
+  };
+  await walk(canonicalSource);
   assertUniqueMaskBasenames(sources);
   const maskRoot = join(dirname(canonicalSource), `${basename(canonicalSource)}_masks`);
   let canonicalMasks: string;
@@ -143,13 +150,13 @@ export async function resolveLiveMaskDirectory(sourceRoot: string): Promise<stri
   if (!maskInfo.isDirectory() || maskInfo.isSymbolicLink() || canonicalMasks !== maskRoot) {
     throw new Error('Live mask path is not a secure sibling directory');
   }
-  const sourceBasenames = new Set(sources.map(path => maskFilename(path)));
-  for (const entry of await readdir(canonicalMasks, { withFileTypes: true })) {
-    if (!entry.isFile() || !sourceBasenames.has(entry.name)) continue;
-    parsePng(await readFile(join(canonicalMasks, entry.name)));
-    return canonicalMasks;
+  const masks = createDatasetMaskService({ datasetsRoot: dirname(canonicalSource), maxPngBytes: 64 * 1024 * 1024 });
+  let matched = false;
+  for (const source of sources) {
+    const result = await masks.read(basename(canonicalSource), source);
+    if (result.exists) matched = true;
   }
-  return null;
+  return matched ? canonicalMasks : null;
 }
 
 function parsePng(bytes: Buffer): PNG {

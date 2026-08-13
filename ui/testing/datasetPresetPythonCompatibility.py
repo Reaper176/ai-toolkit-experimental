@@ -91,7 +91,7 @@ with tempfile.TemporaryDirectory() as temporary:
     second = media / "second.png"
     Image.new("RGB", (2, 2), "red").save(first)
     Image.new("RGB", (2, 2), "blue").save(second)
-    Image.new("L", (2, 2), 0).save(masks / "first.png")
+    Image.new("L", (2, 2), 64).save(masks / "first.png")
     masked_config = DatasetConfig(
         folder_path=str(media), mask_path=str(masks), mask_min_value=0.25, invert_mask=True
     )
@@ -101,6 +101,19 @@ with tempfile.TemporaryDirectory() as temporary:
     assert first_item.mask_path == str(masks / "first.png")
     assert first_item.mask_min_value == 0.25
     assert first_item.dataset_config.invert_mask is True
+    first_item.path = str(first)
+    first_item.scale_to_width = 2
+    first_item.scale_to_height = 2
+    first_item.crop_width = 2
+    first_item.crop_height = 2
+    first_item.crop_x = 0
+    first_item.crop_y = 0
+    first_item.flip_x = False
+    first_item.flip_y = False
+    first_item.aug_replay_spatial_transforms = None
+    first_item.load_mask_image()
+    expected = 0.25 + (1.0 - 64.0 / 255.0) * 0.75
+    assert abs(float(first_item.mask_tensor[0, 0, 0]) - expected) < 0.01
     assert second_item.has_mask_image is False
     assert second_item.mask_path is None
 print("dataset preset Python DatasetConfig compatibility passed")

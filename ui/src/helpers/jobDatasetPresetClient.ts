@@ -18,7 +18,7 @@ export function buildTrainingJobSaveRequest(input: TrainingJobSaveRequestInput) 
   const processes = input.jobConfig.config.process?.map(process => ({
     ...process,
     ...(process.datasets ? {
-      datasets: process.datasets.map(dataset => dataset.dataset_preset ? { ...dataset, mask_path: null } : dataset),
+      datasets: process.datasets.map(dataset => ({ ...dataset, mask_path: null })),
     } : {}),
   }));
   const jobConfig = processes
