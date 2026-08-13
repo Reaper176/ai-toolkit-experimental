@@ -168,7 +168,7 @@ export interface DatasetPresetSnapshotDependencies {
   beforeOrphanCandidateCheck?: (relativeVersionPath: string) => void | Promise<void>;
   beforeMaintenanceTombstoneDelete?: (relativeStagingPath: string) => void | Promise<void>;
   beforeMaskDestinationOpen?: (sourcePath: string) => void | Promise<void>;
-  beforePortableMaskRename?: (sourcePath: string) => void | Promise<void>;
+  beforePortableMaskPublication?: (sourcePath: string) => void | Promise<void>;
   maskFilesystemStrategy?: 'descriptor' | 'portable';
 }
 
@@ -486,7 +486,7 @@ export function createDatasetPresetSnapshotStore(
     beforeOrphanCandidateCheck: dependencies?.beforeOrphanCandidateCheck,
     beforeMaintenanceTombstoneDelete: dependencies?.beforeMaintenanceTombstoneDelete,
     beforeMaskDestinationOpen: dependencies?.beforeMaskDestinationOpen,
-    beforePortableMaskRename: dependencies?.beforePortableMaskRename,
+    beforePortableMaskPublication: dependencies?.beforePortableMaskPublication,
     maskFilesystemStrategy: dependencies?.maskFilesystemStrategy,
   };
   let rootPin: RootPin | undefined;
@@ -1437,7 +1437,11 @@ export function createDatasetPresetSnapshotStore(
           const useDescriptor =
             (resolvedDependencies.maskFilesystemStrategy ?? (process.platform === 'linux' ? 'descriptor' : 'portable')) ===
             'descriptor';
-          const descriptorRoot = useDescriptor ? `/proc/self/fd/${stagingHandle.fd}` : stagingRoot;
+          if (!useDescriptor) {
+            await resolvedDependencies.beforePortableMaskPublication?.(sourcePath);
+            throw new Error('Secure frozen mask publication is unsupported on this platform');
+          }
+          const descriptorRoot = `/proc/self/fd/${stagingHandle.fd}`;
           try {
             await mkdir(join(descriptorRoot, 'masks'), { mode: 0o700 });
           } catch (error) {
@@ -1456,37 +1460,14 @@ export function createDatasetPresetSnapshotStore(
             validateDirectoryPinSync(presetPin, 'Preset root', managedRoot);
             validateDirectoryPinSync(ownedPin, 'Owned staging directory', presetRoot);
             validateDirectoryPinSync(masksPin, 'Owned masks directory', stagingRoot);
-            const destinationRoot = useDescriptor ? `/proc/self/fd/${masksHandle.fd}` : masksPath;
-            const destination = join(destinationRoot, maskFilename(sourcePath));
-            const temporary = useDescriptor ? undefined : join(managedRoot, nextOwnedName('.mask-write-'));
-            const openedPath = temporary ?? destination;
+            const destination = join(`/proc/self/fd/${masksHandle.fd}`, maskFilename(sourcePath));
+            const handle = await open(destination, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
+              (typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0), 0o600);
             try {
-              requirePinnedRootsSync();
-              const handle = await open(openedPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL |
-                (typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0), 0o600);
-              try {
-                await handle.writeFile(result.png);
-                await handle.sync();
-              } finally {
-                await handle.close();
-              }
-              if (temporary) {
-                const temporaryInfo = await lstat(temporary, { bigint: true });
-                if (temporaryInfo.isSymbolicLink() || !temporaryInfo.isFile()) throw new Error('Portable mask temporary changed');
-                const canonicalTemporary = await realpath(temporary);
-                if (relative(managedRoot, canonicalTemporary).startsWith('..')) {
-                  throw new Error('Portable mask temporary escaped managed root');
-                }
-                await resolvedDependencies.beforePortableMaskRename?.(sourcePath);
-                validateDirectoryPinSync(masksPin, 'Owned masks directory', stagingRoot);
-                validateDirectoryPinSync(ownedPin, 'Owned staging directory', presetRoot);
-                await rename(temporary, destination);
-                validateDirectoryPinSync(masksPin, 'Owned masks directory', stagingRoot);
-                const destinationInfo = await lstat(destination, { bigint: true });
-                if (!sameIdentity(temporaryInfo, destinationInfo)) throw new Error('Portable mask destination identity changed');
-              }
+              await handle.writeFile(result.png);
+              await handle.sync();
             } finally {
-              if (temporary) await rm(temporary, { force: true }).catch(() => undefined);
+              await handle.close();
             }
             validateDirectoryPinSync(masksPin, 'Owned masks directory', stagingRoot);
             validateDirectoryPinSync(ownedPin, 'Owned staging directory', presetRoot);

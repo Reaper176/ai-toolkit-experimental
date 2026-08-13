@@ -441,7 +441,6 @@ async function main(): Promise<void> {
       const childRaceRoot = join(childRaceData, 'dataset_presets/race/.staging-child-race');
       const childRaceStore = createDatasetPresetSnapshotStore(childRaceData, {
         randomId: () => 'child-race',
-        maskFilesystemStrategy: 'portable',
         beforeMaskDestinationOpen: () => {
           renameSync(join(childRaceRoot, 'masks'), join(childRaceRoot, 'masks-real'));
           symlinkSync(raceOutside, join(childRaceRoot, 'masks'), process.platform === 'win32' ? 'junction' : 'dir');
@@ -459,15 +458,15 @@ async function main(): Promise<void> {
       const portableRaceStore = createDatasetPresetSnapshotStore(portableRaceData, {
         randomId: () => 'portable-race',
         maskFilesystemStrategy: 'portable',
-        beforePortableMaskRename: () => {
-          renameSync(join(portableRaceRoot, 'masks'), join(portableRaceRoot, 'masks-real'));
-          symlinkSync(raceOutside, join(portableRaceRoot, 'masks'), process.platform === 'win32' ? 'junction' : 'dir');
+        beforePortableMaskPublication: () => {
+          renameSync(portableRaceRoot, `${portableRaceRoot}-real`);
+          symlinkSync(raceOutside, portableRaceRoot, process.platform === 'win32' ? 'junction' : 'dir');
         },
       });
       await assert.rejects(() => portableRaceStore.stageVersion({
         presetId: 'race', version: 1, presetName: 'Race', sourceDataset: 'my-images', sourceRoot,
         selectedPaths: ['b.png'], captionExt: 'txt', loaderConfig, note: null, maskService,
-      }), /identity|symlink|masks|root/i);
+      }), /unsupported.*platform/i);
       assert.equal(readFileSync(join(raceOutside, 'sentinel'), 'utf8'), 'keep');
       assert.equal(existsSync(join(raceOutside, 'b.png')), false);
     }
