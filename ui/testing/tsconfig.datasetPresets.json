@@ -18,6 +18,7 @@
     "../src/server/datasetMaskRouteHandlers.ts",
     "../src/server/datasetMaskStatus.ts",
     "../src/server/datasetPresetFileService.ts",
+    "../src/app/api/dataset-preset-versions/[versionId]/files/route.ts",
     "../src/helpers/maskEditor.ts",
     "../src/helpers/datasetPresets.ts",
     "../src/helpers/datasetSelection.ts",
