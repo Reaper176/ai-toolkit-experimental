@@ -50,6 +50,36 @@ assert.deepEqual(
   'interpolated dabs contribute opacity only once per pixel',
 );
 
+const floatingAllocations: number[] = [];
+const float32Descriptor = Object.getOwnPropertyDescriptor(globalThis, 'Float32Array')!;
+const float64Descriptor = Object.getOwnPropertyDescriptor(globalThis, 'Float64Array')!;
+const observeAllocations = <T extends Float32ArrayConstructor | Float64ArrayConstructor>(constructor: T): T => new Proxy(
+  constructor,
+  {
+    construct(target, argumentsList) {
+      if (typeof argumentsList[0] === 'number') floatingAllocations.push(argumentsList[0]);
+      return Reflect.construct(target, argumentsList);
+    },
+  },
+);
+const largeMask = white(1_000_000);
+try {
+  Object.defineProperty(globalThis, 'Float32Array', { ...float32Descriptor, value: observeAllocations(Float32Array) });
+  Object.defineProperty(globalThis, 'Float64Array', { ...float64Descriptor, value: observeAllocations(Float64Array) });
+  const narrowStroke = paintStroke(largeMask, 1000, 1000, { x: 10, y: 10 }, { x: 20, y: 10 }, {
+    value: 0,
+    size: 3,
+    hardness: 1,
+    opacity: 0.5,
+  });
+  assert.equal(narrowStroke[10 * 1000 + 15], 128);
+  assert.equal(largeMask[10 * 1000 + 15], 255);
+} finally {
+  Object.defineProperty(globalThis, 'Float32Array', float32Descriptor);
+  Object.defineProperty(globalThis, 'Float64Array', float64Descriptor);
+}
+assert.ok(Math.max(0, ...floatingAllocations) < 1000, 'coverage allocation is restricted to the stroke bounds');
+
 const erased = paintStroke(new Uint8ClampedArray([0]), 1, 1, { x: 0, y: 0 }, { x: 0, y: 0 }, {
   value: 255,
   size: 1,

@@ -53,8 +53,8 @@ function validatePaint(mask: Uint8ClampedArray, width: number, height: number, b
 
 /**
  * Paints one geometric segment with at most one opacity contribution per pixel.
- * To apply opacity once across a multi-event pointer stroke, callers should
- * repaint its accumulated path from the buffer captured at stroke start.
+ * Opacity is applied per segment; callers may separately implement path-level
+ * accumulation when they need one contribution across multiple pointer events.
  */
 export function paintStroke(
   mask: Uint8ClampedArray,
@@ -71,8 +71,15 @@ export function paintStroke(
   requireFinite('to.y', to.y);
 
   const result = new Uint8ClampedArray(mask);
-  const coverage = new Float64Array(mask.length);
   const radius = brush.size / 2;
+  const coverageMinX = Math.max(0, Math.ceil(Math.min(from.x, to.x) - radius));
+  const coverageMaxX = Math.min(width - 1, Math.floor(Math.max(from.x, to.x) + radius));
+  const coverageMinY = Math.max(0, Math.ceil(Math.min(from.y, to.y) - radius));
+  const coverageMaxY = Math.min(height - 1, Math.floor(Math.max(from.y, to.y) + radius));
+  if (coverageMinX > coverageMaxX || coverageMinY > coverageMaxY) return result;
+  const coverageWidth = coverageMaxX - coverageMinX + 1;
+  const coverageHeight = coverageMaxY - coverageMinY + 1;
+  const coverage = new Float32Array(coverageWidth * coverageHeight);
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const distance = Math.hypot(dx, dy);
@@ -95,15 +102,19 @@ export function paintStroke(
         const falloff = pixelDistance <= solidRadius || solidRadius === radius
           ? 1
           : (radius - pixelDistance) / (radius - solidRadius);
-        const index = y * width + x;
-        coverage[index] = Math.max(coverage[index], falloff);
+        const coverageIndex = (y - coverageMinY) * coverageWidth + x - coverageMinX;
+        coverage[coverageIndex] = Math.max(coverage[coverageIndex], falloff);
       }
     }
   }
 
-  for (let index = 0; index < result.length; index += 1) {
-    const alpha = brush.opacity * coverage[index];
-    result[index] = Math.round(result[index] + (brush.value - result[index]) * alpha);
+  for (let y = coverageMinY; y <= coverageMaxY; y += 1) {
+    for (let x = coverageMinX; x <= coverageMaxX; x += 1) {
+      const index = y * width + x;
+      const coverageIndex = (y - coverageMinY) * coverageWidth + x - coverageMinX;
+      const alpha = brush.opacity * coverage[coverageIndex];
+      result[index] = Math.round(result[index] + (brush.value - result[index]) * alpha);
+    }
   }
   return result;
 }
