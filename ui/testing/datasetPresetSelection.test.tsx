@@ -467,6 +467,10 @@ async function run(): Promise<void> {
     const archivedMaskButton = toolbar.root.findByProps({ children: 'Edit masks' });
     assert.equal(archivedMaskButton.props.disabled, true, 'archived selection cannot launch live mask editing');
     assert.equal(maskEditorLaunches, 0);
+    await act(async () => toolbar.update(<DatasetSelectionToolbar selectedCount={1} totalCount={1} dirty={false} saving={false} readOnly canPreviewMasks showOnlySelected={false} onShowOnlySelectedChange={() => undefined} onAction={() => undefined} onEditMasks={() => maskEditorLaunches++} onCancel={() => undefined} />));
+    const previewButton = toolbar.root.findByProps({ children: 'Edit masks' });
+    assert.equal(previewButton.props.disabled, false, 'archived frozen data enables preview without enabling mutations');
+    click(previewButton); assert.equal(maskEditorLaunches, 1);
 
     let saves = 0;
     await act(async () => {

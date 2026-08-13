@@ -613,6 +613,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
               onAction={handleSelectionAction}
               onSave={archivedReadOnly ? undefined : () => setPresetDialogOpen(true)}
               onEditMasks={(!archivedReadOnly || archivedMaskPreviewAvailable) && selectedLiveImages.length > 0 ? () => setMaskEditorOpen(true) : undefined}
+              canPreviewMasks={archivedMaskPreviewAvailable}
               onCancel={cancelSelectionMode}
             />
             {archivedReadOnly && (
@@ -664,8 +665,8 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
                   observerRoot={scrollParent}
                   captionExt={captionExt}
                   maskState={archivedReadOnly && frozenMasks[img.relative_path] ? 'read-only' : 'missing'}
-                  maskDatasetName={datasetName}
-                  maskSourcePath={img.relative_path}
+                  maskDatasetName={archivedReadOnly ? undefined : datasetName}
+                  maskSourcePath={archivedReadOnly ? undefined : img.relative_path}
                   maskStatusRefreshKey={maskStatusRefreshKey}
                 />
               );

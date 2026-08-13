@@ -122,6 +122,8 @@ assert.match(
 assert.match(pageSource, /baseSelection/, 'page keeps a base selection for dirty checks');
 assert.match(pageSource, /<DatasetMaskEditor/, 'page renders the focused mask editor');
 assert.match(pageSource, /frozenMaskUrlsFromManifest\(activeVersion\.id,\s*activeVersion\.manifest\.files\)/, 'page derives immutable archived preview URLs from optional manifest fields');
+assert.match(pageSource, /maskDatasetName=\{archivedReadOnly\s*\?\s*undefined\s*:\s*datasetName\}/, 'archived cards cannot poll live mask state');
+assert.match(pageSource, /maskSourcePath=\{archivedReadOnly\s*\?\s*undefined\s*:\s*img\.relative_path\}/, 'archived cards omit the live mask source');
 assert.match(pageSource, /\(!archivedReadOnly\s*\|\|\s*archivedMaskPreviewAvailable\)/, 'archived editor launch requires immutable frozen mask data');
 assert.match(pageSource, /const\s+maskEditorImages\s*=\s*archivedReadOnly\s*\?\s*selectedLiveImages\.filter[\s\S]{0,120}:\s*selectedLiveImages/, 'live editor keeps full selected ordering while archived preview includes frozen files only');
 assert.match(pageSource, /selectedLiveImages=\{maskEditorImages\}/, 'editor receives the correct ordered live or frozen-preview images');
