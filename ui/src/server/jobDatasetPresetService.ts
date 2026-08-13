@@ -324,6 +324,9 @@ async function resolveJobDatasetPresetsInternal(input: {
   for (let datasetIndex = 0; datasetIndex < datasets.length; datasetIndex += 1) {
     const dataset = datasets[datasetIndex];
     if (!Object.prototype.hasOwnProperty.call(dataset, 'dataset_preset')) {
+      if (eligibility === 'save' && hasExternalAuxiliaryValue(dataset.mask_path)) {
+        throw new JobDatasetPresetError('Live dataset mask_path cannot be supplied by a save request');
+      }
       if (nonblank(dataset.mask_path)) {
         try {
           const canonicalMaskPath = await realpath(dataset.mask_path);

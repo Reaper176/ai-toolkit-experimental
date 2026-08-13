@@ -29,6 +29,12 @@ function optionalString(body: Record<string, unknown>, key: 'job_ref' | 'job_typ
   return value;
 }
 
+function hasClientMaskPath(jobConfig: unknown): boolean {
+  if (!isPlainObject(jobConfig) || !isPlainObject(jobConfig.config) || !Array.isArray(jobConfig.config.process)) return false;
+  return jobConfig.config.process.some(process => isPlainObject(process) && Array.isArray(process.datasets) &&
+    process.datasets.some(dataset => isPlainObject(dataset) && dataset.mask_path !== null && dataset.mask_path !== undefined && dataset.mask_path !== ''));
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
@@ -85,6 +91,9 @@ export async function POST(request: Request) {
     }
     if (!Object.prototype.hasOwnProperty.call(body, 'job_config')) {
       return NextResponse.json({ error: 'A job configuration is required' }, { status: 400 });
+    }
+    if (hasClientMaskPath(body.job_config)) {
+      return NextResponse.json({ error: 'Job dataset preset configuration is invalid' }, { status: 400 });
     }
     const clone = body.clone === undefined ? false : body.clone;
     if (typeof clone !== 'boolean') return NextResponse.json({ error: 'Invalid job request' }, { status: 400 });

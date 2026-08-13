@@ -6,6 +6,7 @@ import { PNG } from 'pngjs';
 import { manifestSha256, validateManifest, type DatasetPresetLoaderConfig, type DatasetPresetManifestV1 } from '../src/helpers/datasetPresets';
 import {
   preflightJobDatasetPresets,
+  prepareJobDatasetPresetsForTraining,
   resolveJobDatasetPresets,
   saveJobWithDatasetUsages,
   type JobDatasetVersionStore,
@@ -232,8 +233,13 @@ async function runExternalAuxiliaryPathTests(): Promise<void> {
     const explicit = dataset();
     explicit.folder_path = images;
     explicit.mask_path = masks;
-    const explicitResolved = await resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([explicit]), versions: f.versions, snapshots: f.snapshots });
-    assert.equal(explicitResolved.jobConfig.config.process[0].datasets[0].mask_path, masks, 'trusted persisted explicit live mask path is preserved');
+    const explicitResolved = await prepareJobDatasetPresetsForTraining(job([explicit]), { versions: f.versions, snapshots: f.snapshots });
+    assert.equal(explicitResolved.config.process[0].datasets[0].mask_path, masks, 'trusted persisted explicit live mask path is preserved');
+    await assert.rejects(
+      resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([explicit]), versions: f.versions, snapshots: f.snapshots }),
+      /save request/i,
+      'server save resolution rejects canonical browser-supplied live mask paths',
+    );
 
     const nested = join(images, 'nested');
     await mkdir(nested);

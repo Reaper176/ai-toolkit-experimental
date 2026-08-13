@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { mkdir, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { PNG } from 'pngjs';
 import {
   JobDatasetPresetError,
   prepareJobDatasetPresetsForTraining,
@@ -12,8 +16,8 @@ import {
   prepareAndQueueJob,
   QueueRevisionConflictError,
 } from '../src/server/jobStartOrchestration';
-import { manifestSha256, type DatasetPresetManifestV1 } from '../src/helpers/datasetPresets';
-import type { DatasetPresetSnapshotStore } from '../src/server/datasetPresetSnapshotService';
+import { manifestSha256, serializeManifest, type DatasetPresetManifestV1 } from '../src/helpers/datasetPresets';
+import { createDatasetPresetSnapshotStore, type DatasetPresetSnapshotStore } from '../src/server/datasetPresetSnapshotService';
 import type { JobConfig } from '../src/types';
 
 const loader = {
@@ -136,6 +140,49 @@ async function main(): Promise<void> {
     version_id: 'v2', preset_id: 'preset-v2', preset_name: 'My Images', version: 2,
     manifest_sha256: manifestSha256(manifest),
   });
+
+  const realRoot = await mkdtemp(join(tmpdir(), 'preset-preflight-mask-'));
+  try {
+    const versionRoot = join(realRoot, 'dataset_presets', 'preset-real', 'v1');
+    await mkdir(join(versionRoot, 'media'), { recursive: true });
+    await mkdir(join(versionRoot, 'masks'));
+    const mediaBytes = PNG.sync.write(new PNG({ width: 1, height: 1 }));
+    const maskBytes = PNG.sync.write(new PNG({ width: 1, height: 1 }));
+    await writeFile(join(versionRoot, 'media', 'safe.png'), mediaBytes);
+    await writeFile(join(versionRoot, 'masks', 'safe.png'), maskBytes);
+    const realManifest: DatasetPresetManifestV1 = {
+      schema_version: 1, preset_id: 'preset-real', version: 1, preset_name: 'Real Masks',
+      source_dataset: 'source', created_at: '2026-08-10T00:00:00.000Z', note: null,
+      loader_config: loader, media_count: 1, total_bytes: mediaBytes.length + maskBytes.length,
+      files: [{ source_path: 'safe.png', managed_path: 'media/safe.png', media_bytes: mediaBytes.length,
+        media_sha256: createHash('sha256').update(mediaBytes).digest('hex'), caption_ext: 'txt', caption_text: null,
+        caption_bytes: null, caption_sha256: null, caption_missing: true, mask_path: 'masks/safe.png',
+        mask_bytes: maskBytes.length, mask_sha256: createHash('sha256').update(maskBytes).digest('hex'), mask_missing: false }],
+    };
+    await writeFile(join(versionRoot, 'manifest.json'), serializeManifest(realManifest));
+    const realVersion = { preset: { id: 'preset-real', name: 'Real Masks', archived_at: null }, version: {
+      id: 'real-v1', preset_id: 'preset-real', version: 1, source_dataset: 'source', manifest_path: 'preset-real/v1/manifest.json',
+      manifest_sha256: manifestSha256(realManifest), loader_config: loader, note: null, media_count: 1,
+      total_bytes: String(realManifest.total_bytes), created_at: realManifest.created_at,
+    } };
+    await unlink(join(versionRoot, 'masks', 'safe.png'));
+    await assert.rejects(
+      preflightJobDatasetPresets(config([{ id: 'real-v1', name: 'Real Masks', version: 1 }]), {
+        versions: { async getVersionForResolution() { return realVersion; } },
+        snapshots: createDatasetPresetSnapshotStore(realRoot),
+      }),
+      error => {
+        const failure = error as JobDatasetPresetError & { preset?: string; version?: number; missing?: string[] };
+        assert.equal(failure.preset, 'Real Masks');
+        assert.equal(failure.version, 1);
+        assert.ok(failure.missing?.includes('masks/safe.png'));
+        assert.doesNotMatch(JSON.stringify(failure), new RegExp(realRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+        return true;
+      },
+    );
+  } finally {
+    await rm(realRoot, { recursive: true, force: true });
+  }
 
   const queueEvents: string[] = [];
   const queueAttemptA = {
