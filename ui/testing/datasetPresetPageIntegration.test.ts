@@ -95,6 +95,11 @@ assert.match(
   'invalid server response paths are skipped and logged',
 );
 assert.match(pageSource, /useState<Set<string>>/, 'selection remains owned by the page, not virtualized cards');
+assert.match(
+  pageSource,
+  /const\s*\[showOnlySelected,\s*setShowOnlySelected\]\s*=\s*useState\(false\)/,
+  'page owns the selected-only view filter',
+);
 assert.match(pageSource, /baseSelection/, 'page keeps a base selection for dirty checks');
 assert.match(
   pageSource,
@@ -114,8 +119,49 @@ assert.match(pageSource, /selected=\{selectedPaths\.has\(img\.relative_path\)\}/
 assert.match(pageSource, /onSelectionChange=\{selected\s*=>/, 'cards update page selection by relative path');
 assert.match(
   pageSource,
-  /computeItemKey=\{index\s*=>\s*imgList\[index\]\?\.relative_path/,
-  'virtualized keys use stable relative paths',
+  /const\s+visibleImages\s*=\s*useMemo\([\s\S]{0,160}filterDatasetImagesBySelection\(imgList,\s*selectedPaths,\s*showOnlySelected\)[\s\S]{0,120}\[imgList,\s*selectedPaths,\s*showOnlySelected\]/,
+  'visible image derivation uses the full image list, selection, and controlled filter state',
+);
+assert.match(
+  pageSource,
+  /const\s+visibleMissingPaths\s*=\s*useMemo\([\s\S]{0,160}filterPathsBySelection\(sourceMissingPaths,\s*selectedPaths,\s*showOnlySelected\)[\s\S]{0,120}\[sourceMissingPaths,\s*selectedPaths,\s*showOnlySelected\]/,
+  'visible missing-path derivation uses the full missing list, selection, and controlled filter state',
+);
+assert.match(
+  pageSource,
+  /<MainContent\s+ref=\{scrollParentCallback\}\s+className=\{selectionMode\s*\?\s*['"]!pt-12['"]\s*:\s*undefined\}/,
+  'selection mode deterministically removes the layout gap with an important padding override',
+);
+assert.match(
+  pageSource,
+  /<DatasetSelectionToolbar[\s\S]{0,500}showOnlySelected=\{showOnlySelected\}[\s\S]{0,160}onShowOnlySelectedChange=\{setShowOnlySelected\}/,
+  'selection toolbar receives the controlled selected-only state',
+);
+assert.match(
+  pageSource,
+  /<VirtuosoGrid[\s\S]{0,120}totalCount=\{visibleImages\.length\}/,
+  'virtualized total uses visible images',
+);
+assert.match(
+  pageSource,
+  /itemContent=\{index\s*=>\s*\{\s*const\s+img\s*=\s*visibleImages\[index\]/,
+  'virtualized item lookup uses visible images',
+);
+assert.match(
+  pageSource,
+  /computeItemKey=\{index\s*=>\s*visibleImages\[index\]\?\.relative_path/,
+  'virtualized keys use visible stable relative paths',
+);
+assert.match(pageSource, /<DatasetSourceMissingList\s+paths=\{visibleMissingPaths\}/, 'missing list uses visible paths');
+assert.match(
+  pageSource,
+  /selectionMode\s*&&\s*showOnlySelected\s*&&\s*status\s*===\s*['"]success['"]\s*&&\s*imgList\.length\s*>\s*0\s*&&\s*visibleImages\.length\s*===\s*0\s*&&\s*visibleMissingPaths\.length\s*===\s*0/,
+  'selected-only empty state is limited to a nonempty successfully loaded dataset',
+);
+assert.match(
+  pageSource,
+  /discardSelectionRef\.current\s*=\s*\(\)\s*=>\s*\{[\s\S]{0,180}setShowOnlySelected\(false\)[\s\S]{0,80}setSelectionMode\(false\)/,
+  'closing selection mode resets the selected-only filter before leaving the mode',
 );
 assert.match(pageSource, /beforeunload/, 'dirty selections warn before browser unload');
 assert.match(pageSource, /openConfirm\(/, 'dirty cancellation uses the accessible confirmation pattern');

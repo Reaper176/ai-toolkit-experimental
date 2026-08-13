@@ -29,6 +29,8 @@ import {
   applySelectionAction,
   areSelectionsEqual,
   createDirtySelectionLeaveGuard,
+  filterDatasetImagesBySelection,
+  filterPathsBySelection,
   getInterceptableInternalNavigationHref,
   normalizeRelativeMediaPath,
   reconcileSelection,
@@ -61,6 +63,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   const [scrollParent, setScrollParent] = useState<HTMLDivElement | null>(null);
   const [captionBarHeight, setCaptionBarHeight] = useState(0);
   const [selectionMode, setSelectionMode] = useState(false);
+  const [showOnlySelected, setShowOnlySelected] = useState(false);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set());
   const [baseSelection, setBaseSelection] = useState<Set<string>>(() => new Set());
   const [activePreset, setActivePreset] = useState<DatasetPresetSummary | null>(null);
@@ -90,6 +93,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
 
   discardSelectionRef.current = () => {
     setSelectedPaths(new Set(baseSelectionRef.current));
+    setShowOnlySelected(false);
     setSelectionMode(false);
   };
 
@@ -156,6 +160,14 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
     () =>
       activeVersion?.manifest.files.map(file => file.source_path).filter(path => !liveRelativePaths.has(path)) ?? [],
     [activeVersion, liveRelativePaths],
+  );
+  const visibleImages = useMemo(
+    () => filterDatasetImagesBySelection(imgList, selectedPaths, showOnlySelected),
+    [imgList, selectedPaths, showOnlySelected],
+  );
+  const visibleMissingPaths = useMemo(
+    () => filterPathsBySelection(sourceMissingPaths, selectedPaths, showOnlySelected),
+    [sourceMissingPaths, selectedPaths, showOnlySelected],
   );
   const activeManifestPaths = useMemo(
     () => new Set(activeVersion?.manifest.files.map(file => file.source_path) ?? []),
@@ -520,7 +532,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
           </Button>
         </div>
       </TopBar>
-      <MainContent ref={scrollParentCallback}>
+      <MainContent ref={scrollParentCallback} className={selectionMode ? '!pt-12' : undefined}>
         {selectionMode && (
           <div className="sticky top-12 z-20 -mx-2 mb-4 sm:-mx-4">
             <section
@@ -589,6 +601,8 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
             <DatasetSelectionToolbar
               selectedCount={selectedPaths.size}
               totalCount={imgList.length + sourceMissingPaths.length}
+              showOnlySelected={showOnlySelected}
+              onShowOnlySelectedChange={setShowOnlySelected}
               dirty={selectionDirty}
               saving={selectionSaving || lifecyclePending}
               readOnly={archivedReadOnly}
@@ -604,14 +618,24 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
           </div>
         )}
         {PageInfoContent}
-        {status === 'success' && imgList.length > 0 && scrollParent && (
+        {selectionMode &&
+          showOnlySelected &&
+          status === 'success' &&
+          imgList.length > 0 &&
+          visibleImages.length === 0 &&
+          visibleMissingPaths.length === 0 && (
+            <p role="status" className="py-10 text-center text-sm text-gray-400">
+              No selected images to show.
+            </p>
+          )}
+        {status === 'success' && visibleImages.length > 0 && scrollParent && (
           <VirtuosoGrid
-            totalCount={imgList.length}
+            totalCount={visibleImages.length}
             customScrollParent={scrollParent}
             overscan={400}
             listClassName="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"
             itemContent={index => {
-              const img = imgList[index];
+              const img = visibleImages[index];
               if (!img) return null;
               return (
                 <DatasetImageCard
@@ -638,11 +662,11 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
                 />
               );
             }}
-            computeItemKey={index => imgList[index]?.relative_path ?? index}
+            computeItemKey={index => visibleImages[index]?.relative_path ?? index}
           />
         )}
         <DatasetSourceMissingList
-          paths={sourceMissingPaths}
+          paths={visibleMissingPaths}
           selectedPaths={selectedPaths}
           selectionMode={selectionMode}
           saving={selectionSaving || lifecyclePending || archivedReadOnly}
