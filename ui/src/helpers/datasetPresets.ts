@@ -77,6 +77,8 @@ const EXTERNAL_PATH_KEYS = new Set([
   'clip_image_path',
 ]);
 const SHA256 = /^[a-f0-9]{64}$/;
+type LegacyLoaderFields = { maskMinValue: boolean; invertMask: boolean };
+const legacyLoaderFields = new WeakMap<object, LegacyLoaderFields>();
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -288,7 +290,12 @@ function validateManifestFields(untrusted: unknown): DatasetPresetManifestV1 {
     throw new Error(`Dataset preset manifest.note must be at most ${DATASET_PRESET_NOTE_MAX} characters`);
   }
   const createdAt = requireCanonicalUtcMillisecondTimestamp(value.created_at, 'Dataset preset manifest.created_at');
-  return {
+  const loaderInput = requirePlainObject(value.loader_config, 'Dataset preset manifest.loader_config');
+  const legacyFields = legacyLoaderFields.get(value) ?? {
+    maskMinValue: !Object.prototype.hasOwnProperty.call(loaderInput, 'mask_min_value'),
+    invertMask: !Object.prototype.hasOwnProperty.call(loaderInput, 'invert_mask'),
+  };
+  const manifest: DatasetPresetManifestV1 = {
     schema_version: DATASET_PRESET_SCHEMA_VERSION,
     preset_id: requireText(value.preset_id, 'Dataset preset manifest.preset_id'),
     version: requirePositiveInteger(value.version, 'Dataset preset manifest.version'),
@@ -301,6 +308,8 @@ function validateManifestFields(untrusted: unknown): DatasetPresetManifestV1 {
     total_bytes: totalBytes,
     files,
   };
+  if (legacyFields.maskMinValue || legacyFields.invertMask) legacyLoaderFields.set(manifest, legacyFields);
+  return manifest;
 }
 
 export function buildDatasetPresetManifest(
@@ -338,7 +347,13 @@ export function validateManifest(untrusted: unknown): DatasetPresetManifestV1 {
 }
 
 export function serializeManifest(untrusted: unknown): string {
-  return `${JSON.stringify(validateManifest(untrusted), null, 2)}\n`;
+  const manifest = validateManifest(untrusted);
+  const legacyFields = legacyLoaderFields.get(manifest);
+  if (legacyFields) {
+    if (legacyFields.maskMinValue) delete (manifest.loader_config as Partial<DatasetPresetLoaderConfig>).mask_min_value;
+    if (legacyFields.invertMask) delete (manifest.loader_config as Partial<DatasetPresetLoaderConfig>).invert_mask;
+  }
+  return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 
 export function manifestSha256(untrusted: unknown): string {

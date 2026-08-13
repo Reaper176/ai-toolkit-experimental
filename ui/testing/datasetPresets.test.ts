@@ -83,6 +83,13 @@ assert.deepEqual(
   { ...loaderConfig, mask_min_value: 0.1, invert_mask: false },
   'legacy loader configs receive stable mask defaults',
 );
+const legacyManifestObject = structuredClone(manifest) as unknown as { loader_config: Record<string, unknown> };
+delete legacyManifestObject.loader_config.mask_min_value;
+delete legacyManifestObject.loader_config.invert_mask;
+const legacyManifestText = `${JSON.stringify(legacyManifestObject, null, 2)}\n`;
+assert.equal(serializeManifest(validateManifest(JSON.parse(legacyManifestText))), legacyManifestText);
+assert.equal(manifestSha256(validateManifest(JSON.parse(legacyManifestText))), manifestSha256(JSON.parse(legacyManifestText)));
+assert.notEqual(manifestSha256(manifest), manifestSha256(JSON.parse(legacyManifestText)), 'explicit mask fields remain checksum-significant');
 for (const maskMinValue of [-0.01, 1.01, Number.NaN, Number.POSITIVE_INFINITY]) {
   expectThrows(() => validateLoaderConfig({ ...loaderConfig, mask_min_value: maskMinValue }), /mask_min_value/i);
 }

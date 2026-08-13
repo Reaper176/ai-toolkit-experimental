@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { manifestSha256, type DatasetPresetLoaderConfig, type DatasetPresetManifestV1 } from '../src/helpers/datasetPresets';
+import { manifestSha256, validateManifest, type DatasetPresetLoaderConfig, type DatasetPresetManifestV1 } from '../src/helpers/datasetPresets';
 import {
   preflightJobDatasetPresets,
   resolveJobDatasetPresets,
@@ -119,6 +119,30 @@ async function runResolutionTests(): Promise<void> {
   resolved.usages[0].resolved_loader_config.resolution[0] = 99;
   assert.equal(resolved.usages[2].resolved_loader_config.resolution[0], 512, 'duplicate usages do not alias');
   assert.equal(input.config.process[0].datasets[0].resolution[0], 512, 'outputs do not alias input');
+}
+
+async function runLegacyChecksumCompatibility(): Promise<void> {
+  const f = fixtures([{ id: 'legacy' }]);
+  const record = f.records.get('legacy')!;
+  const stored = f.manifests.get(record.version.manifest_path)! as unknown as { loader_config: Record<string, unknown> };
+  delete stored.loader_config.mask_min_value;
+  delete stored.loader_config.invert_mask;
+  record.version.manifest_sha256 = manifestSha256(stored);
+  record.version.loader_config = structuredClone(stored.loader_config) as never;
+  const originalVerify = f.snapshots.verifyFast.bind(f.snapshots);
+  f.snapshots.verifyFast = async path => {
+    const raw = await originalVerify(path);
+    return validateManifest(raw);
+  };
+  const resolved = await resolveJobDatasetPresets({
+    jobId: null,
+    clone: false,
+    jobConfig: job([dataset('legacy')]),
+    versions: f.versions,
+    snapshots: f.snapshots,
+  });
+  assert.equal(resolved.usages[0].manifest_sha256, record.version.manifest_sha256);
+  assert.equal(resolved.usages[0].resolved_loader_config.mask_min_value, 0);
 }
 
 async function runExternalAuxiliaryPathTests(): Promise<void> {
@@ -364,6 +388,7 @@ async function runPreflightTests(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  await runLegacyChecksumCompatibility();
   await runResolutionTests();
   await runExternalAuxiliaryPathTests();
   await runArchiveAndFailureTests();

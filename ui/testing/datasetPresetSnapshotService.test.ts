@@ -842,6 +842,15 @@ async function main(): Promise<void> {
     });
     await verifyPublication.publish();
     const verifyMedia = join(verifyPublication.versionRoot, 'media/b.png');
+    const verifyManifestFile = join(verifyPublication.versionRoot, 'manifest.json');
+    const legacyStoredManifest = JSON.parse(readFileSync(verifyManifestFile, 'utf8')) as { loader_config: Record<string, unknown> };
+    delete legacyStoredManifest.loader_config.mask_min_value;
+    delete legacyStoredManifest.loader_config.invert_mask;
+    writeFileSync(verifyManifestFile, `${JSON.stringify(legacyStoredManifest, null, 2)}\n`);
+    const verifiedLegacyManifest = await store.verifyFast(verifyPublication.manifestPath);
+    assert.equal(verifiedLegacyManifest.loader_config.mask_min_value, 0.1, 'legacy verification exposes mask threshold default');
+    assert.equal(verifiedLegacyManifest.loader_config.invert_mask, false, 'legacy verification exposes invert-mask default');
+    writeFileSync(verifyManifestFile, serializeManifest(verifyPublication.manifest));
     writeFileSync(verifyMedia, Buffer.from([9, 9, 9]));
     assert.equal((await store.verifyFast(verifyPublication.manifestPath)).media_count, 1);
     await assert.rejects(
