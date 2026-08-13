@@ -73,6 +73,9 @@ function mapped(error: unknown, operation: string, logger: (operation: string, e
   const message = error instanceof Error ? error.message : '';
   if (message === 'bad request' || /^(Invalid|Unsupported)/.test(message)) return json(400, 'Invalid dataset or source path');
   if (message === 'conflict' || message.startsWith('Duplicate mask basename')) return json(409, 'Source basename is ambiguous');
+  if (/^Source exceeds maximum bytes|^File exceeds maximum bytes/.test(message)) return json(413, 'Source image is too large');
+  if (message === 'Source pixel limit exceeded') return json(413, 'Source image has too many pixels');
+  if (message === 'Source dimension limit exceeded') return json(422, 'Source image dimensions are unsupported');
   if (message === 'too large' || /maximum bytes/.test(message)) return json(413, 'PNG body is too large');
   if (message === 'Source not found') return json(404, 'Source image not found');
   if (message === 'Invalid PNG' || message === 'Mask dimensions mismatch') return json(422, 'Invalid mask PNG');

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -208,6 +208,31 @@ async function main(): Promise<void> {
     const dimensionLimited = createDatasetMaskService({ datasetsRoot, maxPngBytes: 1024, maxSourceWidth: 32 });
     await assert.rejects(dimensionLimited.read('limits', 'wide.png'), /source.*dimension/i);
 
+    for (const filesystemStrategy of ['descriptor', 'portable'] as const) {
+      writeFileSync(join(datasetsRoot, 'limits/growing.png'), grayPng(2, 2, 0));
+      const sourceGrowth = createDatasetMaskService({
+        datasetsRoot,
+        filesystemStrategy,
+        maxPngBytes: 1024,
+        maxSourceBytes: 256,
+        afterSourceStat: () => appendFileSync(join(datasetsRoot, 'limits/growing.png'), Buffer.alloc(512)),
+      });
+      await assert.rejects(sourceGrowth.read('limits', 'growing.png'), /maximum bytes|changed/i);
+
+      writeFileSync(join(datasetsRoot, 'limits/growing.png'), grayPng(2, 2, 0));
+      const maskGrowth = createDatasetMaskService({
+        datasetsRoot,
+        filesystemStrategy,
+        maxPngBytes: 256,
+        maxSourceBytes: 1024,
+        afterMaskStat: () => appendFileSync(join(datasetsRoot, 'limits_masks/growing.png'), Buffer.alloc(512)),
+      });
+      await createDatasetMaskService({ datasetsRoot, filesystemStrategy, maxPngBytes: 1024 }).save(
+        'limits', 'growing.png', grayPng(2, 2, 0),
+      );
+      await assert.rejects(maskGrowth.read('limits', 'growing.png'), /maximum bytes|changed/i);
+    }
+
     mkdirSync(join(datasetsRoot, 'walk/a/b/c'), { recursive: true });
     writeFileSync(join(datasetsRoot, 'walk/a/b/c/deep.jpg'), grayPng(1, 1, 0));
     await assert.rejects(
@@ -215,10 +240,15 @@ async function main(): Promise<void> {
       /depth|nesting/i,
     );
     for (let index = 0; index < 12; index += 1) writeFileSync(join(datasetsRoot, `walk/nonimage-${index}.txt`), 'x');
+    let streamedEntries = 0;
     await assert.rejects(
-      assertDatasetMaskSourceUnambiguous(datasetsRoot, 'walk', 'a/b/c/deep.jpg', { maxEntries: 10 }),
+      assertDatasetMaskSourceUnambiguous(datasetsRoot, 'walk', 'a/b/c/deep.jpg', {
+        maxEntries: 10,
+        onEntry: () => { streamedEntries += 1; },
+      }),
       /entry limit/i,
     );
+    assert.equal(streamedEntries, 11, 'streaming traversal stops at maxEntries + 1');
     symlinkSync(outside, join(datasetsRoot, 'walk/linked'));
     await assert.rejects(
       assertDatasetMaskSourceUnambiguous(datasetsRoot, 'walk', 'a/b/c/deep.jpg'),

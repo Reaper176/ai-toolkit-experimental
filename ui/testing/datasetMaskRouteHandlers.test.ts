@@ -84,6 +84,18 @@ async function main(): Promise<void> {
   response = await duplicates.get('photos', request('GET'));
   assert.equal(response.status, 409);
 
+  for (const [message, status, body] of [
+    ['Source exceeds maximum bytes', 413, { error: 'Source image is too large' }],
+    ['Source pixel limit exceeded', 413, { error: 'Source image has too many pixels' }],
+    ['Source dimension limit exceeded', 422, { error: 'Source image dimensions are unsupported' }],
+  ] as const) {
+    masks.failure = new Error(message);
+    response = await handlers.get('photos', request('GET'));
+    assert.equal(response.status, status);
+    assert.deepEqual(await response.json(), body);
+  }
+  masks.failure = undefined;
+
   const order: string[] = [];
   const imageMasks = new FakeMasks();
   imageMasks.deleteByAbsoluteSource = async source => {

@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, opendir, realpath, readdir, readFile, rename as fsRename, rm, type FileHandle } from 'node:fs/promises';
+import { lstat, mkdir, open, opendir, realpath, readFile, rename as fsRename, rm, type FileHandle } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { imageSize } from 'image-size';
@@ -32,6 +32,8 @@ export interface DatasetMaskDependencies {
   maxMaskHeight?: number;
   maxMaskPixels?: number;
   decodePng?: (bytes: Buffer) => PNG;
+  afterSourceStat?: () => void | Promise<void>;
+  afterMaskStat?: () => void | Promise<void>;
 }
 
 export interface DatasetMaskService {
@@ -130,6 +132,7 @@ export interface DatasetSourceWalkLimits {
   maxDirectories?: number;
   maxFiles?: number;
   filesystemStrategy?: 'descriptor' | 'portable';
+  onEntry?: () => void;
 }
 
 export async function assertDatasetMaskSourceUnambiguous(
@@ -167,7 +170,8 @@ export async function assertDatasetMaskSourceUnambiguous(
     if (depth > maxDepth) throw new Error('Dataset nesting depth limit exceeded');
     directories += 1;
     if (directories > maxDirectories) throw new Error('Dataset directory limit exceeded');
-    for (const entry of await readdir(descriptorPath(directory), { withFileTypes: true })) {
+    for await (const entry of await opendir(descriptorPath(directory))) {
+      limits.onEntry?.();
       entries += 1;
       if (entries > maxEntries) throw new Error('Dataset entry limit exceeded');
       if (entry.isSymbolicLink()) throw new Error('Refusing symlink in dataset traversal');
@@ -185,7 +189,8 @@ export async function assertDatasetMaskSourceUnambiguous(
     if (before.isSymbolicLink() || !before.isDirectory() || await realpath(directory) !== directory) {
       throw new Error('Refusing symlink in dataset traversal');
     }
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
+    for await (const entry of await opendir(directory)) {
+      limits.onEntry?.();
       entries += 1;
       if (entries > maxEntries) throw new Error('Dataset entry limit exceeded');
       if (entry.isSymbolicLink()) throw new Error('Refusing symlink in dataset traversal');
@@ -345,7 +350,7 @@ export async function resolveLiveMaskDirectory(sourceRoot: string, options: {
     inspectedDirectories += 1;
     if (inspectedDirectories > maxDirectories) throw new Error('Live dataset directory limit exceeded');
     const before = await lstat(directory);
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
+    for await (const entry of await opendir(directory)) {
       const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
       inspectedEntries += 1;
       if (inspectedEntries > maxEntries) throw new Error('Live dataset entry limit exceeded');
@@ -365,7 +370,7 @@ export async function resolveLiveMaskDirectory(sourceRoot: string, options: {
     if (depth > maxDepth) throw new Error('Live dataset nesting limit exceeded');
     inspectedDirectories += 1;
     if (inspectedDirectories > maxDirectories) throw new Error('Live dataset directory limit exceeded');
-    for (const entry of await readdir(descriptorPath(directory), { withFileTypes: true })) {
+    for await (const entry of await opendir(descriptorPath(directory))) {
       const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
       inspectedEntries += 1;
       if (inspectedEntries > maxEntries) throw new Error('Live dataset entry limit exceeded');
@@ -421,6 +426,20 @@ function validateSourceDimensions(width: number, height: number, deps: DatasetMa
     throw new Error('Source dimension limit exceeded');
   }
   if (width * height > (deps.maxSourcePixels ?? 250_000_000)) throw new Error('Source pixel limit exceeded');
+}
+
+async function readHandleBounded(handle: FileHandle, maximum: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  while (total <= maximum) {
+    const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, maximum + 1 - total));
+    const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+    if (bytesRead === 0) break;
+    total += bytesRead;
+    chunks.push(chunk.subarray(0, bytesRead));
+  }
+  if (total > maximum) throw new Error('File exceeds maximum bytes while reading');
+  return Buffer.concat(chunks, total);
 }
 
 function grayscalePng(image: PNG): { bytes: Buffer; allWhite: boolean } {
@@ -497,7 +516,8 @@ function createDescriptorDatasetMaskService(deps: DatasetMaskDependencies): Data
       handles.push(source);
       const sourceStat = await source.stat({ bigint: true });
       if (sourceStat.size > BigInt(deps.maxSourceBytes ?? 512 * 1024 * 1024)) throw new Error('Source exceeds maximum bytes');
-      const bytes = await source.readFile();
+      await deps.afterSourceStat?.();
+      const bytes = await readHandleBounded(source, deps.maxSourceBytes ?? 512 * 1024 * 1024);
       const afterSourceStat = await source.stat({ bigint: true });
       if (sourceStat.dev !== afterSourceStat.dev || sourceStat.ino !== afterSourceStat.ino ||
           sourceStat.size !== afterSourceStat.size || sourceStat.mtimeNs !== afterSourceStat.mtimeNs) {
@@ -580,7 +600,8 @@ function createDescriptorDatasetMaskService(deps: DatasetMaskDependencies): Data
         handles.push(mask);
         const stat = await mask.stat();
         if (stat.size > deps.maxPngBytes) throw new Error('PNG exceeds maximum bytes');
-        const bytes = await mask.readFile();
+        await deps.afterMaskStat?.();
+        const bytes = await readHandleBounded(mask, deps.maxPngBytes);
         const decoded = parsePng(bytes, deps);
         if (decoded.width !== source.width || decoded.height !== source.height) throw new Error('Mask dimensions mismatch');
         return { exists: true, width: source.width, height: source.height, png: bytes, source_identity: source.source_identity, source_sha256: source.source_sha256 };
@@ -680,7 +701,7 @@ async function validatePortableDirectory(path: string, root: string): Promise<Fi
   return beforeIdentity;
 }
 
-async function readPortableFile(path: string, root: string, maxBytes = Number.MAX_SAFE_INTEGER): Promise<{ bytes: Buffer; identity: DatasetMaskSourceIdentity }> {
+async function readPortableFile(path: string, root: string, maxBytes = Number.MAX_SAFE_INTEGER, afterStat?: () => void | Promise<void>): Promise<{ bytes: Buffer; identity: DatasetMaskSourceIdentity }> {
   const before = await lstat(path);
   if (before.isSymbolicLink() || !before.isFile()) throw new Error('Refusing file symlink escape');
   const canonical = await realpath(path);
@@ -696,7 +717,8 @@ async function readPortableFile(path: string, root: string, maxBytes = Number.MA
       throw new Error('File changed while opening');
     }
     const opened = await handle.stat({ bigint: true });
-    const bytes = await handle.readFile();
+    await afterStat?.();
+    const bytes = await readHandleBounded(handle, maxBytes);
     const after = await handle.stat();
     if (!sameIdentity(expected, identityOf(after)) || after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
       throw new Error('File changed while reading');
@@ -732,7 +754,7 @@ function createPortableDatasetMaskService(deps: DatasetMaskDependencies): Datase
         await validatePortableDirectory(directory, root);
       }
       await deps.beforeSourceFileOpen?.();
-      const source = await readPortableFile(join(directory, segments[segments.length - 1]), root, deps.maxSourceBytes ?? 512 * 1024 * 1024);
+      const source = await readPortableFile(join(directory, segments[segments.length - 1]), root, deps.maxSourceBytes ?? 512 * 1024 * 1024, deps.afterSourceStat);
       const dimensions = imageSize(source.bytes);
       if (!dimensions.width || !dimensions.height) throw new Error('Unsupported source image');
       validateSourceDimensions(dimensions.width, dimensions.height, deps);
@@ -809,7 +831,7 @@ function createPortableDatasetMaskService(deps: DatasetMaskDependencies): Datase
       await deps.beforeMaskFileOpen?.();
       let bytes: Buffer;
       try {
-        bytes = (await readPortableFile(destination, source.root)).bytes;
+        bytes = (await readPortableFile(destination, source.root, deps.maxPngBytes, deps.afterMaskStat)).bytes;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
           return { exists: false, width: source.width, height: source.height, png: null, source_identity: source.source_identity, source_sha256: source.source_sha256 };
