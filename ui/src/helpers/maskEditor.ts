@@ -180,7 +180,16 @@ export function frozenMaskUrlsFromManifest(versionId: string, files: readonly un
     if (!untrusted || typeof untrusted !== 'object') continue;
     const file = untrusted as Record<string, unknown>;
     if (typeof file.source_path !== 'string') continue;
-    if (file.mask_missing === true || typeof file.mask_path !== 'string') continue;
+    if (
+      file.mask_missing !== false ||
+      typeof file.mask_path !== 'string' ||
+      !/^masks\/[^/\\]+\.png$/.test(file.mask_path) ||
+      typeof file.mask_bytes !== 'number' ||
+      !Number.isSafeInteger(file.mask_bytes) ||
+      file.mask_bytes <= 0 ||
+      typeof file.mask_sha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(file.mask_sha256)
+    ) continue;
     result[file.source_path] = `/api/dataset-preset-versions/${encodeURIComponent(versionId)}/files?path=${encodeURIComponent(file.mask_path)}`;
   }
   return result;

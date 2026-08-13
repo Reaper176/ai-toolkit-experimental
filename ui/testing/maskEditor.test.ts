@@ -165,7 +165,7 @@ assert.equal(oldMaskRequest.isCurrent(), false, 'a new image invalidates its pre
 assert.equal(currentMaskRequest.isCurrent(), true);
 maskRequests.cancel();
 assert.equal(currentMaskRequest.isCurrent(), false, 'closing the editor invalidates pending async work');
-assert.deepEqual(frozenMaskUrlsFromManifest('version 1', [{ source_path: 'a.png', mask_path: 'masks/a.png', mask_missing: false }, { source_path: 'b.png', mask_path: null, mask_missing: true }]), {
+assert.deepEqual(frozenMaskUrlsFromManifest('version 1', [{ source_path: 'a.png', mask_path: 'masks/a.png', mask_bytes: 1, mask_sha256: 'a'.repeat(64), mask_missing: false }, { source_path: 'b.png', mask_path: null, mask_bytes: null, mask_sha256: null, mask_missing: true }]), {
   'a.png': '/api/dataset-preset-versions/version%201/files?path=masks%2Fa.png',
 });
 assert.deepEqual([...history.undo()], [200]);

@@ -20,6 +20,8 @@ export const LOADER_CONFIG_KEYS = [
   'do_audio',
   'audio_normalize',
   'audio_preserve_pitch',
+  'mask_min_value',
+  'invert_mask',
   'controls',
 ] as const;
 
@@ -43,6 +45,8 @@ export interface DatasetPresetLoaderConfig {
   do_audio: boolean;
   audio_normalize: boolean;
   audio_preserve_pitch: boolean;
+  mask_min_value: number;
+  invert_mask: boolean;
   controls: string[];
 }
 
@@ -86,6 +90,7 @@ function requireExactKeys(value: Record<string, unknown>, keys: readonly string[
     if (!allowed.has(key)) throw new Error(`${path} contains unknown key ${key}`);
   }
   for (const key of keys) {
+    if ((key === 'mask_min_value' || key === 'invert_mask') && !Object.prototype.hasOwnProperty.call(value, key)) continue;
     if (!Object.prototype.hasOwnProperty.call(value, key)) throw new Error(`${path}.${key} is required`);
   }
 }
@@ -147,6 +152,10 @@ export function validateLoaderConfig(untrusted: unknown): DatasetPresetLoaderCon
   );
   if (!Array.isArray(value.controls)) throw new Error('Loader config.controls must be an array');
   const controls = value.controls.map((item, index) => requireText(item, `Loader config.controls[${index}]`));
+  const maskMinValue = requireFiniteNumber(value.mask_min_value ?? 0.1, 'Loader config.mask_min_value');
+  if (maskMinValue < 0 || maskMinValue > 1) {
+    throw new Error('Loader config.mask_min_value must be between 0 and 1');
+  }
   return {
     caption_ext: captionExt,
     default_caption: defaultCaption,
@@ -167,6 +176,8 @@ export function validateLoaderConfig(untrusted: unknown): DatasetPresetLoaderCon
     do_audio: requireBoolean(value.do_audio, 'Loader config.do_audio'),
     audio_normalize: requireBoolean(value.audio_normalize, 'Loader config.audio_normalize'),
     audio_preserve_pitch: requireBoolean(value.audio_preserve_pitch, 'Loader config.audio_preserve_pitch'),
+    mask_min_value: maskMinValue,
+    invert_mask: requireBoolean(value.invert_mask ?? false, 'Loader config.invert_mask'),
     controls,
   };
 }

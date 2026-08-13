@@ -46,6 +46,8 @@ const loaderOne: DatasetPresetLoaderConfig = {
   do_audio: false,
   audio_normalize: false,
   audio_preserve_pitch: false,
+  mask_min_value: 0.1,
+  invert_mask: false,
   controls: ['depth'],
 };
 const loaderTwo: DatasetPresetLoaderConfig = {
@@ -201,7 +203,7 @@ async function runActivePresetBehavior(): Promise<void> {
     assert.deepEqual((current as unknown as Record<string, unknown>)[key], value, `saved loader key ${key} is applied`);
   }
   assert.equal(current.mask_path, initialDataset.mask_path, 'mask architecture field is untouched');
-  assert.equal(current.mask_min_value, initialDataset.mask_min_value, 'mask threshold architecture field is untouched');
+  assert.equal(current.mask_min_value, loaderOne.mask_min_value, 'saved mask threshold is applied');
   assert.equal(current.control_path, initialDataset.control_path, 'control path architecture field is untouched');
   assert.equal(current.folder_path, '', 'selecting a preset does not forge a managed path in the browser');
 

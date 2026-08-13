@@ -26,7 +26,7 @@ const loader: DatasetPresetLoaderConfig = {
   num_repeats: 1, resolution: [512], is_reg: false, network_weight: 1,
   cache_latents_to_disk: false, flip_x: false, flip_y: false, num_frames: 1,
   shrink_video_to_frames: true, fps: 24, auto_frame_count: false, do_i2v: false,
-  do_audio: false, audio_normalize: false, audio_preserve_pitch: false, controls: [],
+  do_audio: false, audio_normalize: false, audio_preserve_pitch: false, mask_min_value: 0.1, invert_mask: false, controls: [],
 };
 
 function assertSafe(directory: string): void {
@@ -131,7 +131,7 @@ async function main(): Promise<void> {
     const response = jobWithDatasetPresetUsagesResponse(included)!;
     assert.deepEqual(response.dataset_preset_usages.map(usage => usage.dataset_index), [0, 2], 'single job usages are ordered');
     assert.deepEqual(response.dataset_preset_usages.map(usage => usage.preset_version_id), ['v2', 'v1']);
-    assert.deepEqual(response.dataset_preset_usages[0].resolved_loader_config, loader);
+    assert.deepEqual(response.dataset_preset_usages[0].resolved_loader_config, { ...loader, mask_min_value: 0 });
     const compact = await client.job.findMany();
     assert.equal(Object.prototype.hasOwnProperty.call(compact[0], 'dataset_preset_usages'), false, 'list rows remain compact');
 

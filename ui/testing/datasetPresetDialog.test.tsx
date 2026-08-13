@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import React from 'react';
 import TestRenderer, { act, type ReactTestInstance } from 'react-test-renderer';
 import DatasetPresetDialog, { DEFAULT_DATASET_PRESET_LOADER_CONFIG } from '../src/components/DatasetPresetDialog';
-import { CreatableSelectInput } from '../src/components/formInputs';
+import { Checkbox, CreatableSelectInput, NumberInput } from '../src/components/formInputs';
 
 const dialogPath = resolve(process.cwd(), 'src/components/DatasetPresetDialog.tsx');
 const hookPath = resolve(process.cwd(), 'src/hooks/useDatasetPresets.tsx');
@@ -109,6 +109,8 @@ const accessibleLabels = [
   'Caption extension',
   'Default caption',
   'Caption dropout rate',
+  'Mask minimum value',
+  'Invert mask',
   'Shuffle tokens',
   'Number of repeats',
   'Resolution',
@@ -270,6 +272,9 @@ async function testDialogBehavior(): Promise<void> {
   assert.deepEqual(createPayload.selected_paths, ['folder/a.png']);
   assert.equal(createPayload.caption_ext, 'txt');
   assert.deepEqual(createPayload.loader_config, DEFAULT_DATASET_PRESET_LOADER_CONFIG);
+  assert.equal(createPayload.loader_config.mask_min_value, 0.1);
+  assert.equal(createPayload.loader_config.invert_mask, false);
+  assert.equal('mask_path' in createPayload.loader_config, false, 'client requests omit server-managed mask_path');
   assert.equal(createPayload.note, 'first version');
   resolveFetch!(
     new Response(
@@ -298,6 +303,10 @@ async function testDialogBehavior(): Promise<void> {
   await act(async () => {
     syncedDialogRenderer!.update(<DatasetPresetDialog {...syncedDialogProps} initialValues={customInitialValues} />);
   });
+  await act(async () => {
+    syncedDialogRenderer!.root.findAllByType(NumberInput).find(input => input.props.label === 'Mask minimum value')!.props.onChange(0.4);
+    syncedDialogRenderer!.root.findAllByType(Checkbox).find(input => input.props.label === 'Invert mask')!.props.onChange(true);
+  });
   let syncedPayload: Record<string, unknown> | undefined;
   globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
     syncedPayload = JSON.parse(String(init?.body));
@@ -319,6 +328,9 @@ async function testDialogBehavior(): Promise<void> {
     '.cap',
     'controlled custom caption value remains synchronized in loader config',
   );
+  assert.equal((syncedPayload?.loader_config as { mask_min_value?: number }).mask_min_value, 0.4);
+  assert.equal((syncedPayload?.loader_config as { invert_mask?: boolean }).invert_mask, true);
+  assert.equal('mask_path' in (syncedPayload?.loader_config as object), false, 'edited requests omit mask_path');
 
   fetchCalls = [];
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {

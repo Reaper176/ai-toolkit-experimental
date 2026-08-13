@@ -36,6 +36,10 @@ export interface DatasetPresetManifestFile {
   caption_bytes: number | null;
   caption_sha256: string | null;
   caption_missing: boolean;
+  mask_path?: string | null;
+  mask_bytes?: number | null;
+  mask_sha256?: string | null;
+  mask_missing?: boolean;
 }
 
 export interface DatasetPresetManifestV1 {
@@ -88,8 +92,10 @@ function requirePlainObject(value: unknown, path: string): Record<string, unknow
 function requireExactKeys(value: Record<string, unknown>, keys: readonly string[], path: string): void {
   const allowed = new Set(keys);
   for (const key of Object.keys(value)) {
-    if (EXTERNAL_PATH_KEYS.has(key)) throw new Error(`${path}.${key} is an external path and is not allowed`);
-    if (!allowed.has(key)) throw new Error(`${path} contains unknown key ${key}`);
+    if (!allowed.has(key)) {
+      if (EXTERNAL_PATH_KEYS.has(key)) throw new Error(`${path}.${key} is an external path and is not allowed`);
+      throw new Error(`${path} contains unknown key ${key}`);
+    }
   }
   for (const key of keys) {
     if (!Object.prototype.hasOwnProperty.call(value, key)) throw new Error(`${path}.${key} is required`);
@@ -154,9 +160,7 @@ function sortFiles(files: DatasetPresetManifestFile[]): DatasetPresetManifestFil
 
 function validateFile(untrusted: unknown, path: string): DatasetPresetManifestFile {
   const value = requirePlainObject(untrusted, path);
-  requireExactKeys(
-    value,
-    [
+  const requiredKeys = [
       'source_path',
       'managed_path',
       'media_bytes',
@@ -166,9 +170,13 @@ function validateFile(untrusted: unknown, path: string): DatasetPresetManifestFi
       'caption_bytes',
       'caption_sha256',
       'caption_missing',
-    ],
-    path,
-  );
+  ] as const;
+  const maskKeys = ['mask_path', 'mask_bytes', 'mask_sha256', 'mask_missing'] as const;
+  const maskKeyCount = maskKeys.filter(key => Object.prototype.hasOwnProperty.call(value, key)).length;
+  requireExactKeys(value, [...requiredKeys, ...(maskKeyCount ? maskKeys : [])], path);
+  if (maskKeyCount !== 0 && maskKeyCount !== maskKeys.length) {
+    throw new Error(`${path} mask fields must all be present together`);
+  }
   const captionMissing = requireBoolean(value.caption_missing, `${path}.caption_missing`);
   const captionText = value.caption_text;
   const captionBytes = value.caption_bytes;
@@ -182,7 +190,7 @@ function validateFile(untrusted: unknown, path: string): DatasetPresetManifestFi
     requireNonnegativeSafeInteger(captionBytes, `${path}.caption_bytes`);
     requireSha256(captionSha256, `${path}.caption_sha256`);
   }
-  return {
+  const result: DatasetPresetManifestFile = {
     source_path: normalizeRelativeMediaPath(value.source_path),
     managed_path: normalizeRelativeMediaPath(value.managed_path),
     media_bytes: requireNonnegativeSafeInteger(value.media_bytes, `${path}.media_bytes`),
@@ -193,6 +201,28 @@ function validateFile(untrusted: unknown, path: string): DatasetPresetManifestFi
     caption_sha256: captionMissing ? null : (captionSha256 as string),
     caption_missing: captionMissing,
   };
+  if (maskKeyCount) {
+    const maskMissing = requireBoolean(value.mask_missing, `${path}.mask_missing`);
+    if (maskMissing) {
+      if (value.mask_path !== null || value.mask_bytes !== null || value.mask_sha256 !== null) {
+        throw new Error(`${path} missing mask fields must be null`);
+      }
+      Object.assign(result, { mask_path: null, mask_bytes: null, mask_sha256: null, mask_missing: true });
+    } else {
+      if (typeof value.mask_path !== 'string' || !/^masks\/[^/\\]+\.png$/.test(value.mask_path)) {
+        throw new Error(`${path}.mask_path must be masks/<basename>.png`);
+      }
+      const maskBytes = requireNonnegativeSafeInteger(value.mask_bytes, `${path}.mask_bytes`);
+      if (maskBytes === 0) throw new Error(`${path}.mask_bytes must be positive when mask is present`);
+      Object.assign(result, {
+        mask_path: value.mask_path,
+        mask_bytes: maskBytes,
+        mask_sha256: requireSha256(value.mask_sha256, `${path}.mask_sha256`),
+        mask_missing: false,
+      });
+    }
+  }
+  return result;
 }
 
 function validateManifestFields(untrusted: unknown): DatasetPresetManifestV1 {
@@ -234,7 +264,10 @@ function validateManifestFields(untrusted: unknown): DatasetPresetManifestV1 {
   }
   const mediaCount = requirePositiveInteger(value.media_count, 'Dataset preset manifest.media_count');
   const totalBytes = requireNonnegativeSafeInteger(value.total_bytes, 'Dataset preset manifest.total_bytes');
-  const derivedBytes = files.reduce((total, file) => total + file.media_bytes + (file.caption_bytes ?? 0), 0);
+  const derivedBytes = files.reduce(
+    (total, file) => total + file.media_bytes + (file.caption_bytes ?? 0) + (file.mask_bytes ?? 0),
+    0,
+  );
   if (!Number.isSafeInteger(derivedBytes)) throw new Error('Dataset preset manifest total bytes exceed safe integer range');
   if (mediaCount !== files.length) throw new Error('Dataset preset manifest.media_count must match files');
   if (totalBytes !== derivedBytes) throw new Error('Dataset preset manifest.total_bytes must match files');
@@ -282,7 +315,10 @@ export function buildDatasetPresetManifest(
     note: value.note,
     loader_config: value.loader_config,
     media_count: files.length,
-    total_bytes: files.reduce((total, file) => total + file.media_bytes + (file.caption_bytes ?? 0), 0),
+    total_bytes: files.reduce(
+      (total, file) => total + file.media_bytes + (file.caption_bytes ?? 0) + (file.mask_bytes ?? 0),
+      0,
+    ),
     files,
   });
 }

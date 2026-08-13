@@ -36,6 +36,8 @@ const loaderConfig = {
   do_audio: false,
   audio_normalize: false,
   audio_preserve_pitch: false,
+  mask_min_value: 0.25,
+  invert_mask: true,
   controls: [],
 };
 
@@ -76,6 +78,15 @@ assert.deepEqual(validateManifest(manifest), manifest);
 assert.notEqual(validateManifest(manifest), manifest);
 assert.equal(manifestSha256(manifest), manifestSha256(manifest));
 assert.match(manifestSha256(manifest), /^[a-f0-9]{64}$/);
+assert.deepEqual(
+  validateLoaderConfig(Object.fromEntries(Object.entries(loaderConfig).filter(([key]) => !['mask_min_value', 'invert_mask'].includes(key)))),
+  { ...loaderConfig, mask_min_value: 0.1, invert_mask: false },
+  'legacy loader configs receive stable mask defaults',
+);
+for (const maskMinValue of [-0.01, 1.01, Number.NaN, Number.POSITIVE_INFINITY]) {
+  expectThrows(() => validateLoaderConfig({ ...loaderConfig, mask_min_value: maskMinValue }), /mask_min_value/i);
+}
+expectThrows(() => validateLoaderConfig({ ...loaderConfig, invert_mask: 'false' }), /invert_mask/i);
 assert.equal(
   serializeManifest(manifest),
   `{
@@ -110,6 +121,8 @@ assert.equal(
     "do_audio": false,
     "audio_normalize": false,
     "audio_preserve_pitch": false,
+    "mask_min_value": 0.25,
+    "invert_mask": true,
     "controls": []
   },
   "media_count": 1,
@@ -130,7 +143,7 @@ assert.equal(
 }
 `,
 );
-assert.equal(manifestSha256(manifest), '335bd50b8e3ed60c2a2f2ed600b22ef3b279cfe232ebb927a86aa3716b88c89c');
+assert.equal(manifestSha256(manifest), '463b4c9c54c0b6793fa91522d582834bb7514292094a99bc0a6d9e1628dbca58');
 
 const { schema_version: _schemaVersion, media_count: _mediaCount, total_bytes: _totalBytes, ...manifestInput } = manifest;
 expectThrows(() => buildDatasetPresetManifest({ ...manifestInput, files: [] }), /files|media_count/i);
@@ -212,6 +225,43 @@ const secondFile = {
   caption_sha256: null,
   caption_missing: true,
 };
+
+const maskedManifest = buildDatasetPresetManifest({
+  ...manifestInput,
+  files: [{
+    ...manifest.files[0],
+    mask_path: 'masks/a.png',
+    mask_bytes: 12,
+    mask_sha256: 'd'.repeat(64),
+    mask_missing: false,
+  }],
+});
+assert.equal(maskedManifest.files[0].mask_path, 'masks/a.png');
+assert.equal(maskedManifest.total_bytes, 21, 'manifest byte totals include frozen masks');
+assert.deepEqual(validateManifest(manifest), manifest, 'legacy manifests without mask metadata remain valid');
+const missingMaskManifest = buildDatasetPresetManifest({
+  ...manifestInput,
+  files: [{
+    ...manifest.files[0],
+    mask_path: null,
+    mask_bytes: null,
+    mask_sha256: null,
+    mask_missing: true,
+  }],
+});
+assert.equal(missingMaskManifest.files[0].mask_missing, true);
+for (const invalidFile of [
+  { ...manifest.files[0], mask_path: 'masks/a.png' },
+  { ...manifest.files[0], mask_path: '../masks/a.png', mask_bytes: 1, mask_sha256: 'd'.repeat(64), mask_missing: false },
+  { ...manifest.files[0], mask_path: 'masks/sub/a.png', mask_bytes: 1, mask_sha256: 'd'.repeat(64), mask_missing: false },
+  { ...manifest.files[0], mask_path: 'masks/a.jpg', mask_bytes: 1, mask_sha256: 'd'.repeat(64), mask_missing: false },
+  { ...manifest.files[0], mask_path: 'masks/a.png', mask_bytes: 0, mask_sha256: 'd'.repeat(64), mask_missing: false },
+  { ...manifest.files[0], mask_path: 'masks/a.png', mask_bytes: 1, mask_sha256: 'D'.repeat(64), mask_missing: false },
+  { ...manifest.files[0], mask_path: null, mask_bytes: 1, mask_sha256: null, mask_missing: true },
+  { ...manifest.files[0], mask_path: null, mask_bytes: null, mask_sha256: null, mask_missing: 'true' },
+]) {
+  expectThrows(() => buildDatasetPresetManifest({ ...manifestInput, files: [invalidFile as never] }), /mask/i);
+}
 const sortedFiles = buildDatasetPresetManifest({ ...manifestInput, files: [manifest.files[0], secondFile] });
 const unsortedFiles = buildDatasetPresetManifest({ ...manifestInput, files: [secondFile, manifest.files[0]] });
 assert.equal(serializeManifest(sortedFiles), serializeManifest(unsortedFiles));

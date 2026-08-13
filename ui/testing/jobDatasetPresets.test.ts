@@ -20,7 +20,7 @@ const loader: DatasetPresetLoaderConfig = {
   num_repeats: 2, resolution: [512, 768], is_reg: false, network_weight: 1,
   cache_latents_to_disk: true, flip_x: false, flip_y: true, num_frames: 1,
   shrink_video_to_frames: false, fps: 24, auto_frame_count: false, do_i2v: false,
-  do_audio: false, audio_normalize: false, audio_preserve_pitch: false, controls: [],
+  do_audio: false, audio_normalize: false, audio_preserve_pitch: false, mask_min_value: 0.1, invert_mask: false, controls: [],
 };
 
 function dataset(versionId?: string): DatasetConfig {
@@ -113,7 +113,7 @@ async function runResolutionTests(): Promise<void> {
     version_id: 'v1', preset_id: 'p-v1', preset_name: 'Preset v1', version: 1,
     manifest_sha256: f.records.get('v1')!.version.manifest_sha256,
   });
-  assert.deepEqual(resolved.usages[0].resolved_loader_config, { ...loader, caption_dropout_rate: 0.42 },
+  assert.deepEqual(resolved.usages[0].resolved_loader_config, { ...loader, caption_dropout_rate: 0.42, mask_min_value: 0 },
     'usage contains the final user-edited allowlisted settings only');
   assert.equal('browser_only' in resolved.usages[0].resolved_loader_config, false);
   resolved.usages[0].resolved_loader_config.resolution[0] = 99;

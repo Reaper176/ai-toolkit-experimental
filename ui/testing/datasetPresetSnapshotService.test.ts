@@ -44,6 +44,8 @@ const loaderConfig = {
   do_audio: false,
   audio_normalize: false,
   audio_preserve_pitch: false,
+  mask_min_value: 0.1,
+  invert_mask: false,
   controls: [],
 };
 

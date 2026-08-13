@@ -21,7 +21,7 @@ const loader = {
   num_repeats: 1, resolution: [512], is_reg: false, network_weight: 1,
   cache_latents_to_disk: false, flip_x: false, flip_y: false, num_frames: 1,
   shrink_video_to_frames: false, fps: 24, auto_frame_count: false, do_i2v: false,
-  do_audio: false, audio_normalize: false, audio_preserve_pitch: false, controls: [],
+  do_audio: false, audio_normalize: false, audio_preserve_pitch: false, mask_min_value: 0.1, invert_mask: false, controls: [],
 };
 
 function config(references: Array<{ id: string; name: string; version: number }>): JobConfig {

@@ -93,6 +93,7 @@ export interface DatasetConfig {
   dataset_path?: string | null;
   mask_path: string | null;
   mask_min_value: number;
+  invert_mask?: boolean;
   default_caption: string;
   caption_ext: string;
   caption_dropout_rate: number;

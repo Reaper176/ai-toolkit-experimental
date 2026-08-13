@@ -36,6 +36,8 @@ export const DEFAULT_DATASET_PRESET_LOADER_CONFIG: DatasetPresetLoaderConfig = {
   do_audio: false,
   audio_normalize: false,
   audio_preserve_pitch: false,
+  mask_min_value: 0.1,
+  invert_mask: false,
   controls: [],
 };
 
@@ -72,6 +74,8 @@ type FormState = {
   captionExt: string;
   defaultCaption: string;
   captionDropoutRate: number | null;
+  maskMinValue: number | null;
+  invertMask: boolean;
   shuffleTokens: boolean;
   numRepeats: number | null;
   resolution: string;
@@ -91,7 +95,7 @@ type FormState = {
   controls: string;
 };
 
-type NumericField = 'captionDropoutRate' | 'numRepeats' | 'networkWeight' | 'numFrames' | 'fps';
+type NumericField = 'captionDropoutRate' | 'maskMinValue' | 'numRepeats' | 'networkWeight' | 'numFrames' | 'fps';
 
 function initialForm(values: DatasetPresetDialogInitialValues): FormState {
   const loader = values.loaderConfig;
@@ -101,6 +105,8 @@ function initialForm(values: DatasetPresetDialogInitialValues): FormState {
     captionExt: values.captionExt,
     defaultCaption: loader.default_caption,
     captionDropoutRate: loader.caption_dropout_rate,
+    maskMinValue: loader.mask_min_value,
+    invertMask: loader.invert_mask,
     shuffleTokens: loader.shuffle_tokens,
     numRepeats: loader.num_repeats,
     resolution: loader.resolution.join(', '),
@@ -160,6 +166,8 @@ function validateForm(
     caption_ext: form.captionExt,
     default_caption: form.defaultCaption,
     caption_dropout_rate: emptyNumericFields.has('captionDropoutRate') ? null : form.captionDropoutRate,
+    mask_min_value: emptyNumericFields.has('maskMinValue') ? null : form.maskMinValue,
+    invert_mask: form.invertMask,
     shuffle_tokens: form.shuffleTokens,
     num_repeats: emptyNumericFields.has('numRepeats') ? null : form.numRepeats,
     resolution,
@@ -190,6 +198,8 @@ function validateForm(
       ['caption_ext', 'captionExt'],
       ['default_caption', 'defaultCaption'],
       ['caption_dropout_rate', 'captionDropoutRate'],
+      ['mask_min_value', 'maskMinValue'],
+      ['invert_mask', 'invertMask'],
       ['shuffle_tokens', 'shuffleTokens'],
       ['num_repeats', 'numRepeats'],
       ['resolution', 'resolution'],
@@ -422,6 +432,17 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
           </div>
           <div>
             <NumberInput
+              label="Mask minimum value"
+              value={form.maskMinValue}
+              onChange={value => setField('maskMinValue', value)}
+              onValuePresenceChange={hasValue => setNumericPresence('maskMinValue', hasValue)}
+              disabled={formDisabled}
+              {...errorProps('maskMinValue')}
+            />
+            <FieldError field="maskMinValue" />
+          </div>
+          <div>
+            <NumberInput
               label="Number of repeats"
               value={form.numRepeats}
               onChange={value => setField('numRepeats', value)}
@@ -486,6 +507,12 @@ export default function DatasetPresetDialog(props: DatasetPresetDialogProps) {
           </div>
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <Checkbox
+            label="Invert mask"
+            checked={form.invertMask}
+            onChange={value => setField('invertMask', value)}
+            disabled={formDisabled}
+          />
           <Checkbox
             label="Shuffle tokens"
             checked={form.shuffleTokens}
