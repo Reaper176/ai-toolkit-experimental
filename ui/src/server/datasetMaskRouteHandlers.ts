@@ -136,9 +136,17 @@ export function createImageDeleteHandler(deps: ImageDeleteDependencies) {
       if (!/\.(jpg|jpeg|png|bmp|gif|tiff|webp|mp4|mp3|wav|flac|ogg)$/i.test(imgPath)) return json(400, 'Not an image');
       if (!(await deps.exists(imgPath))) return Response.json({ success: true });
       await deps.unlink(imgPath);
-      if (within(roots.datasetsRoot, imgPath)) await deps.masks.deleteByAbsoluteSource(imgPath);
+      let maskCleanupError: unknown;
+      if (within(roots.datasetsRoot, imgPath)) {
+        try {
+          await deps.masks.deleteByAbsoluteSource(imgPath);
+        } catch (error) {
+          maskCleanupError = error;
+        }
+      }
       const captionPath = imgPath.replace(/\.[^/.]+$/, '') + '.txt';
       if (await deps.exists(captionPath)) await deps.unlink(captionPath);
+      if (maskCleanupError !== undefined) throw maskCleanupError;
       return Response.json({ success: true });
     } catch {
       return json(500, 'Failed to create dataset');

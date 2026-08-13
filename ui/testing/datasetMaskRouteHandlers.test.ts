@@ -117,6 +117,28 @@ async function main(): Promise<void> {
   assert.equal(response.status, 500);
   assert.deepEqual(order, ['unlink:/datasets/photos/portrait.jpg']);
 
+  order.length = 0;
+  const failingMasks = new FakeMasks();
+  failingMasks.deleteByAbsoluteSource = async source => {
+    order.push(`mask:${source}`);
+    throw new Error('mask cleanup failed');
+  };
+  const failedMaskCleanup = createImageDeleteHandler({
+    masks: failingMasks,
+    resolveRoots: async () => ({ datasetsRoot: '/datasets', trainingRoot: '/training' }),
+    exists: async () => true,
+    unlink: async path => { order.push(`unlink:${path}`); },
+  });
+  response = await failedMaskCleanup(new Request('http://localhost/api/img/delete', {
+    method: 'POST', body: JSON.stringify({ imgPath: '/datasets/photos/portrait.jpg' }),
+  }));
+  assert.equal(response.status, 500);
+  assert.deepEqual(order, [
+    'unlink:/datasets/photos/portrait.jpg',
+    'mask:/datasets/photos/portrait.jpg',
+    'unlink:/datasets/photos/portrait.txt',
+  ]);
+
   console.log('dataset mask route handler tests passed');
 }
 
