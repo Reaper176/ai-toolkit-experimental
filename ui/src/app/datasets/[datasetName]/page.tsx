@@ -701,7 +701,6 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
           onClose={() => setMaskEditorOpen(false)}
           onStatusRefresh={() => setMaskStatusRefreshKey(value => value + 1)}
           frozenMasks={frozenMasks}
-          key={maskStatusRefreshKey}
         />}
       </MainContent>
       <AddImagesModal />

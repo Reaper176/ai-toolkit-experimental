@@ -38,11 +38,12 @@ const flush = async () => { await act(async () => { await Promise.resolve(); awa
 async function run() {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   let saveResolve: ((response: Response) => void) | undefined;
-  (globalThis as any).fetch = (url: string, init?: RequestInit) => {
+  const recordFetch = (url: string, init?: RequestInit) => {
     requests.push({ url, init });
     if (init?.method) return new Promise<Response>(resolve => { saveResolve = resolve; });
     return Promise.resolve(new Response(null, { status: 204 }));
   };
+  (globalThis as any).fetch = recordFetch;
   let closes = 0; let refreshes = 0;
   let renderer!: TestRenderer.ReactTestRenderer;
   await act(async () => { renderer = TestRenderer.create(<DatasetMaskEditor datasetName="set" selectedLiveImages={images} archivedReadOnly={false} open onClose={() => closes++} onStatusRefresh={() => refreshes++}/>, { createNodeMock: nodeMock }); });
@@ -90,7 +91,37 @@ async function run() {
   await act(async () => renderer.unmount());
   assert.equal(restoredFocus, 1, 'modal restores prior focus');
 
+  let stableRefreshes = 0;
+  (globalThis as any).fetch = (_url: string, init?: RequestInit) => Promise.resolve(new Response(null, { status: init?.method ? 200 : 204 }));
+  function ParentLikeHarness() {
+    const [badgeRefreshKey, setBadgeRefreshKey] = React.useState(0);
+    return <><span data-refresh-key={badgeRefreshKey}/><DatasetMaskEditor
+      datasetName="set"
+      selectedLiveImages={images}
+      archivedReadOnly={false}
+      open
+      initialImagePath="b.png"
+      launchToken={1}
+      onClose={() => undefined}
+      onStatusRefresh={() => { stableRefreshes += 1; setBadgeRefreshKey(value => value + 1); }}
+    /></>;
+  }
+  await act(async () => { renderer = TestRenderer.create(<ParentLikeHarness/>, { createNodeMock: nodeMock }); });
+  await flush();
+  assert.equal(renderer.root.findByType('strong').children.join(''), 'b.png', 'launch path focuses the second image');
+  assert.equal(renderer.root.findByType('header').findAllByType('span')[0].children.join(''), '2 / 2');
+  await act(async () => button(renderer, 'Invert').props.onClick());
+  await act(async () => button(renderer, 'Save mask').props.onClick());
+  await flush();
+  assert.equal(stableRefreshes, 1, 'successful save refreshes mask status once');
+  assert.equal(renderer.root.findByProps({ 'data-refresh-key': 1 }).props['data-refresh-key'], 1, 'parent-like badge refresh rerenders');
+  assert.equal(renderer.root.findByType('strong').children.join(''), 'b.png', 'badge refresh preserves the current image');
+  assert.equal(renderer.root.findByType('header').findAllByType('span')[0].children.join(''), '2 / 2', 'badge refresh preserves the image counter');
+  assert.equal(button(renderer, 'Save mask').props.disabled, true, 'successful save updates the clean baseline');
+  await act(async () => renderer.unmount());
+
   requests.length = 0;
+  (globalThis as any).fetch = recordFetch;
   await act(async () => { renderer = TestRenderer.create(<DatasetMaskEditor datasetName="set" selectedLiveImages={[images[0]]} archivedReadOnly open frozenMasks={{ 'a.png': '/immutable/version/mask.png' }} onClose={() => undefined} onStatusRefresh={() => refreshes++}/>, { createNodeMock: nodeMock }); });
   await flush();
   assert.equal(requests[0].url, '/immutable/version/mask.png');

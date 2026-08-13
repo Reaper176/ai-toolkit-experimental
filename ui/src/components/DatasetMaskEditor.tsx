@@ -13,6 +13,8 @@ export interface DatasetMaskEditorProps {
   selectedLiveImages: readonly MaskEditorImage[];
   archivedReadOnly: boolean;
   open: boolean;
+  initialImagePath?: string;
+  launchToken?: number;
   onClose(): void;
   onStatusRefresh(): void;
   frozenMasks?: Readonly<Record<string, string>>;
@@ -21,7 +23,7 @@ export interface DatasetMaskEditorProps {
 const endpoint = (dataset: string, source: string) => `/api/datasets/${encodeURIComponent(dataset)}/masks?source=${encodeURIComponent(source)}`;
 
 export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
-  const { datasetName, selectedLiveImages, archivedReadOnly, open, onClose, onStatusRefresh, frozenMasks } = props;
+  const { datasetName, selectedLiveImages, archivedReadOnly, open, initialImagePath, launchToken, onClose, onStatusRefresh, frozenMasks } = props;
   const [index, setIndex] = useState(0);
   const [mask, setMask] = useState<Uint8ClampedArray>();
   const [size, setSize] = useState({ width: 1, height: 1 });
@@ -92,6 +94,11 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
   }, []);
 
   useEffect(() => { setIndex(current => clampMaskImageIndex(current, selectedLiveImages.length)); }, [selectedLiveImages.length]);
+  useEffect(() => {
+    if (!open || !initialImagePath) return;
+    const requested = selectedLiveImages.findIndex(candidate => candidate.relative_path === initialImagePath);
+    if (requested >= 0) setIndex(requested);
+  }, [open, launchToken, initialImagePath, selectedLiveImages]);
   useEffect(() => {
     cancelPreview();
     const token = request.current.begin();
