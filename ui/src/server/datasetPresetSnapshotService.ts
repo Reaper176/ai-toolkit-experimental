@@ -107,7 +107,7 @@ export class DatasetPresetSnapshotVerificationError extends Error {
     this.name = 'DatasetPresetSnapshotVerificationError';
     this.mismatches = mismatches.slice(0, 5).map(mismatch => ({ ...mismatch }));
     this.missingPaths = this.mismatches
-      .filter(mismatch => mismatch.kind === 'missing' || mismatch.kind === 'mask_missing')
+      .filter(mismatch => ['missing', 'mask_missing', 'mask_size', 'mask_sha256'].includes(mismatch.kind))
       .map(mismatch => mismatch.path);
   }
 }

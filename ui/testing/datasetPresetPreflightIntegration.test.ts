@@ -180,6 +180,27 @@ async function main(): Promise<void> {
         return true;
       },
     );
+    const assertMaskTamperBlocked = async (tamperedBytes: Buffer, label: string) => {
+      await writeFile(join(versionRoot, 'masks', 'safe.png'), tamperedBytes);
+      await assert.rejects(
+        preflightJobDatasetPresets(config([{ id: 'real-v1', name: 'Real Masks', version: 1 }]), {
+          versions: { async getVersionForResolution() { return realVersion; } },
+          snapshots: createDatasetPresetSnapshotStore(realRoot),
+        }),
+        error => {
+          const failure = error as JobDatasetPresetError & { preset?: string; version?: number; missing?: string[] };
+          assert.equal(failure.preset, 'Real Masks', `${label} reports preset`);
+          assert.equal(failure.version, 1, `${label} reports version`);
+          assert.ok(failure.missing?.includes('masks/safe.png'), `${label} reports affected source mask`);
+          assert.doesNotMatch(JSON.stringify(failure), new RegExp(realRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+          return true;
+        },
+      );
+    };
+    await assertMaskTamperBlocked(Buffer.concat([maskBytes, Buffer.from([0])]), 'size tamper');
+    const sameSizeTamper = Buffer.from(maskBytes);
+    sameSizeTamper[sameSizeTamper.length - 1] ^= 1;
+    await assertMaskTamperBlocked(sameSizeTamper, 'same-size SHA tamper');
   } finally {
     await rm(realRoot, { recursive: true, force: true });
   }
