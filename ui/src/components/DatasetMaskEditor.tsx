@@ -42,7 +42,8 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
   const request = useRef(createMaskRequestGate());
   const painting = useRef<Point | null>(null);
   const working = useRef<Uint8ClampedArray | null>(null);
-  const previewFrame = useRef(false);
+  const previewFrame = useRef<number | null>(null);
+  const previewGeneration = useRef(0);
   const previewPixels = useRef<ImageData | null>(null);
   const panning = useRef<Point | null>(null);
   const image = selectedLiveImages[index];
@@ -71,10 +72,19 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
   }, []);
   const schedulePreview = useCallback((bytes: Uint8ClampedArray, width: number, height: number) => {
     working.current = bytes;
-    if (previewFrame.current) return;
-    previewFrame.current = true;
-    requestAnimationFrame(() => { previewFrame.current = false; if (working.current) drawMask(working.current, width, height, true); });
+    if (previewFrame.current !== null) return;
+    const generation = previewGeneration.current; let fired = false;
+    const id = requestAnimationFrame(() => {
+      fired = true; previewFrame.current = null;
+      if (generation === previewGeneration.current && painting.current && working.current) drawMask(working.current, width, height, true);
+    });
+    if (!fired) previewFrame.current = id;
   }, [drawMask]);
+  const cancelPreview = useCallback(() => {
+    previewGeneration.current += 1;
+    if (previewFrame.current !== null) cancelAnimationFrame(previewFrame.current);
+    previewFrame.current = null;
+  }, []);
 
   const fit = useCallback((nextSize: Readonly<{ width: number; height: number }>) => {
     const bounds = viewport.current?.getBoundingClientRect();
@@ -83,6 +93,7 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
 
   useEffect(() => { setIndex(current => clampMaskImageIndex(current, selectedLiveImages.length)); }, [selectedLiveImages.length]);
   useEffect(() => {
+    cancelPreview();
     const token = request.current.begin();
     setMask(undefined); baseline.current = null; original.current = null; history.current = null;
     painting.current = null; setError('');
@@ -119,8 +130,8 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
     };
     source.onerror = () => { if (token.isCurrent()) { setLoading(false); setError('Unable to load source image'); } };
     source.src = `/api/img/${encodeURIComponent(image.img_path)}`;
-    return () => request.current.cancel();
-  }, [datasetName, drawMask, fit, frozenMasks, image, open, readOnly]);
+    return () => { cancelPreview(); request.current.cancel(); };
+  }, [cancelPreview, datasetName, drawMask, fit, frozenMasks, image, open, readOnly]);
 
   const confirmDirty = () => !dirty || window.confirm('Discard unsaved mask edits?');
   const navigate = (next: number) => { const bounded = clampMaskImageIndex(next, selectedLiveImages.length); if (bounded !== index && confirmDirty()) setIndex(bounded); };
@@ -146,7 +157,7 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
   };
   const imagePoint = (event: React.PointerEvent) => { const rect = viewport.current!.getBoundingClientRect(); return screenToImage({ x: event.clientX - rect.left, y: event.clientY - rect.top }, view); };
   const stroke = (to: Point) => { if (!working.current || !painting.current) return; paintStrokeInPlace(working.current, size.width, size.height, painting.current, to, brush); painting.current = to; schedulePreview(working.current, size.width, size.height); };
-  const finishPaint = () => { if (painting.current && working.current) { history.current?.push(working.current); setMask(new Uint8ClampedArray(working.current)); drawMask(working.current, size.width, size.height); } painting.current = null; };
+  const finishPaint = () => { const wasPainting = painting.current !== null; painting.current = null; cancelPreview(); if (wasPainting && working.current) { history.current?.push(working.current); setMask(new Uint8ClampedArray(working.current)); drawMask(working.current, size.width, size.height); } };
   const runShortcut = useCallback((action: ReturnType<typeof maskEditorShortcut>) => {
     if (saving && action !== 'zoom-in' && action !== 'zoom-out' && action !== 'fit') return;
     if (action === 'save') void save();

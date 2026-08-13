@@ -5,6 +5,7 @@ import DatasetMaskEditor from '../src/components/DatasetMaskEditor';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 (globalThis as any).requestAnimationFrame = (callback: () => void) => { callback(); return 1; };
+(globalThis as any).cancelAnimationFrame = () => undefined;
 (globalThis as any).URL.createObjectURL = () => 'blob:mask';
 let revoked = 0;
 (globalThis as any).URL.revokeObjectURL = () => { revoked += 1; };
@@ -100,6 +101,20 @@ async function run() {
   (globalThis as any).fetch = () => Promise.resolve(new Response(new Blob(['mask'], { type: 'image/png' }), { status: 200 }));
   await act(async () => { renderer = TestRenderer.create(<DatasetMaskEditor datasetName="set" selectedLiveImages={[images[0]]} archivedReadOnly={false} open onClose={() => undefined} onStatusRefresh={() => undefined}/>, { createNodeMock: nodeMock }); });
   await flush(); assert.equal(revoked, 1, 'decoded mask blob URLs are always revoked'); await act(async () => renderer.unmount());
+
+  const queued = new Map<number, () => void>(); let nextFrame = 10; const cancelled: number[] = [];
+  (globalThis as any).requestAnimationFrame = (callback: () => void) => { const id = nextFrame++; queued.set(id, callback); return id; };
+  (globalThis as any).cancelAnimationFrame = (id: number) => { cancelled.push(id); queued.delete(id); };
+  (globalThis as any).fetch = () => Promise.resolve(new Response(null, { status: 204 }));
+  await act(async () => { renderer = TestRenderer.create(<DatasetMaskEditor datasetName="set" selectedLiveImages={[images[0]]} archivedReadOnly={false} open onClose={() => undefined} onStatusRefresh={() => undefined}/>, { createNodeMock: nodeMock }); });
+  await flush(); act(() => { for (const callback of [...queued.values()]) callback(); queued.clear(); });
+  const deferredOverlay = renderer.root.findAllByType('canvas')[1];
+  act(() => deferredOverlay.props.onPointerDown({ button: 0, shiftKey: false, stopPropagation() {}, currentTarget: { setPointerCapture() {} }, pointerId: 5, clientX: 0, clientY: 0 }));
+  const pendingInteractive = [...queued.keys()][0];
+  act(() => deferredOverlay.props.onPointerUp());
+  assert.ok(cancelled.includes(pendingInteractive), 'stroke completion cancels the queued interactive preview before full-quality draw');
+  assert.equal(queued.has(pendingInteractive), false, 'stale low-resolution callback cannot overwrite final quality');
+  await act(async () => renderer.unmount());
   console.log('dataset mask editor mounted behavior tests passed');
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });
