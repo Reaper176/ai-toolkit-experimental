@@ -165,11 +165,37 @@ async function main(): Promise<void> {
       manifest_sha256: manifestSha256(realManifest), loader_config: loader, note: null, media_count: 1,
       total_bytes: String(realManifest.total_bytes), created_at: realManifest.created_at,
     } };
-    await unlink(join(versionRoot, 'masks', 'safe.png'));
-    await assert.rejects(
-      preflightJobDatasetPresets(config([{ id: 'real-v1', name: 'Real Masks', version: 1 }]), {
+    const storedMaskedConfig = config([{ id: 'real-v1', name: 'Real Masks', version: 1 }]);
+    storedMaskedConfig.config.process[0].datasets![0].folder_path = join(versionRoot, 'media');
+    storedMaskedConfig.config.process[0].datasets![0].mask_path = join(versionRoot, 'masks');
+    let maskedQueueMutation = false;
+    await prepareAndQueueJob({
+      id: 'masked-job', job_config: JSON.stringify(storedMaskedConfig),
+      updated_at: new Date('2026-08-10T00:00:00.100Z'), name: 'masked-job', gpu_ids: '0',
+      queue_position: 100, status: 'stopped', stop: false, return_to_queue: false,
+    }, {
+      prepare: value => prepareJobDatasetPresetsForTraining(value, {
         versions: { async getVersionForResolution() { return realVersion; } },
         snapshots: createDatasetPresetSnapshotStore(realRoot),
+      }),
+      async mutateQueue() { maskedQueueMutation = true; },
+    });
+    assert.equal(maskedQueueMutation, true,
+      'a persisted masked preset job reaches queue mutation after authoritative preflight');
+
+    await unlink(join(versionRoot, 'masks', 'safe.png'));
+    let tamperedQueueMutation = false;
+    await assert.rejects(
+      prepareAndQueueJob({
+        id: 'masked-job', job_config: JSON.stringify(storedMaskedConfig),
+        updated_at: new Date('2026-08-10T00:00:00.100Z'), name: 'masked-job', gpu_ids: '0',
+        queue_position: 100, status: 'stopped', stop: false, return_to_queue: false,
+      }, {
+        prepare: value => prepareJobDatasetPresetsForTraining(value, {
+          versions: { async getVersionForResolution() { return realVersion; } },
+          snapshots: createDatasetPresetSnapshotStore(realRoot),
+        }),
+        async mutateQueue() { tamperedQueueMutation = true; },
       }),
       error => {
         const failure = error as JobDatasetPresetError & { preset?: string; version?: number; missing?: string[] };
@@ -180,6 +206,7 @@ async function main(): Promise<void> {
         return true;
       },
     );
+    assert.equal(tamperedQueueMutation, false, 'mask integrity failure never reaches queue mutation');
     const assertMaskTamperBlocked = async (tamperedBytes: Buffer, label: string) => {
       await writeFile(join(versionRoot, 'masks', 'safe.png'), tamperedBytes);
       await assert.rejects(
