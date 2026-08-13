@@ -6,6 +6,7 @@ import { apiClient } from '@/utils/api';
 import AudioPlayer from './AudioPlayer';
 import { isVideo, isAudio } from '@/utils/basic';
 import useCaptionBatch, { setCachedCaption } from '@/hooks/useCaptionBatch';
+import DatasetMaskBadge, { type DatasetMaskState } from './DatasetMaskBadge';
 
 interface DatasetImageCardProps {
   imageUrl: string;
@@ -23,6 +24,10 @@ interface DatasetImageCardProps {
   selectionDisabled?: boolean;
   selected?: boolean;
   onSelectionChange?: (selected: boolean) => void;
+  maskState?: DatasetMaskState;
+  maskDatasetName?: string;
+  maskSourcePath?: string;
+  maskStatusRefreshKey?: number;
 }
 
 const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
@@ -41,6 +46,10 @@ const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
   selectionDisabled = false,
   selected = false,
   onSelectionChange,
+  maskState = 'missing',
+  maskDatasetName,
+  maskSourcePath,
+  maskStatusRefreshKey = 0,
 }) => {
   const [loaded, setLoaded] = useState<boolean>(false);
   const [showAudioPlayer, setShowAudioPlayer] = useState(true);
@@ -48,6 +57,7 @@ const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [streamVideo, setStreamVideo] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
+  const [liveMaskState, setLiveMaskState] = useState<DatasetMaskState>(maskState);
   const cardRef = useRef<HTMLDivElement>(null);
 
   const isItAVideo = isVideo(imageUrl);
@@ -56,6 +66,15 @@ const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
   const toggleSelection = () => {
     if (!selectionDisabled) onSelectionChange?.(!selected);
   };
+  useEffect(() => {
+    if (maskState === 'read-only') { setLiveMaskState('read-only'); return; }
+    if (!maskDatasetName || !maskSourcePath) { setLiveMaskState(maskState); return; }
+    const controller = new AbortController();
+    fetch(`/api/datasets/${encodeURIComponent(maskDatasetName)}/masks?source=${encodeURIComponent(maskSourcePath)}`, { signal: controller.signal })
+      .then(response => setLiveMaskState(response.status === 200 ? 'mask' : 'missing'))
+      .catch(error => { if (error?.name !== 'AbortError') setLiveMaskState('missing'); });
+    return () => controller.abort();
+  }, [maskDatasetName, maskSourcePath, maskState, maskStatusRefreshKey]);
 
   // Track actual viewport visibility — Virtuoso keeps a buffer of cards mounted
   // outside the visible region, so we can't rely on mount/unmount alone.
@@ -296,6 +315,7 @@ const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
             </>
           )}
           <div className="absolute top-1 right-1 flex space-x-2 z-20">
+            <DatasetMaskBadge state={liveMaskState} />
             <button
               type="button"
               aria-label={`Delete ${filename}`}

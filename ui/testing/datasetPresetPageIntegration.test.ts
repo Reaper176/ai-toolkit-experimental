@@ -5,6 +5,7 @@ import ts from 'typescript';
 
 const pageSource = readFileSync(resolve(process.cwd(), 'src/app/datasets/[datasetName]/page.tsx'), 'utf8');
 const cardSource = readFileSync(resolve(process.cwd(), 'src/components/DatasetImageCard.tsx'), 'utf8');
+const maskEditorSource = readFileSync(resolve(process.cwd(), 'src/components/DatasetMaskEditor.tsx'), 'utf8');
 const runnerSource = readFileSync(resolve(process.cwd(), 'testing/runDatasetPresetTests.mjs'), 'utf8');
 const simpleJobSource = readFileSync(resolve(process.cwd(), 'src/app/jobs/new/SimpleJob.tsx'), 'utf8');
 const jobPageSource = readFileSync(resolve(process.cwd(), 'src/app/jobs/new/page.tsx'), 'utf8');
@@ -119,6 +120,13 @@ assert.match(
   'page owns the selected-only view filter',
 );
 assert.match(pageSource, /baseSelection/, 'page keeps a base selection for dirty checks');
+assert.match(pageSource, /<DatasetMaskEditor/, 'page renders the focused mask editor');
+assert.match(pageSource, /selectedLiveImages=\{selectedLiveImages\}/, 'editor navigation receives the full selected live ordering');
+assert.match(pageSource, /datasetName=\{datasetName\}/, 'editor receives the dataset name');
+assert.match(maskEditorSource, /paintStroke/, 'mask editor uses the shared painting engine');
+assert.match(maskEditorSource, /createMaskHistory/, 'mask editor uses bounded undo and redo history');
+assert.match(maskEditorSource, /image\/png/, 'mask saves are serialized as PNG');
+assert.match(cardSource, /DatasetMaskBadge/, 'image cards expose mask status badges');
 const selectionDirtySource = pageSource.match(/const\s+selectionDirty\s*=\s*[^;]+;/)?.[0];
 assert.ok(selectionDirtySource, 'selection dirty derivation is present');
 assert.match(
