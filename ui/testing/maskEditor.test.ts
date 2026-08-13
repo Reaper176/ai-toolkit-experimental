@@ -3,6 +3,7 @@ import {
   createMaskHistory,
   isAllWhite,
   paintStroke,
+  paintStrokeInPlace,
   screenToImage,
   createWhiteMask,
   fitMaskView,
@@ -111,6 +112,7 @@ const continuous = paintStroke(source, 7, 1, { x: 0, y: 0 }, { x: 6, y: 0 }, {
 assert.deepEqual([...continuous], [0, 0, 0, 0, 0, 0, 0]);
 assert.deepEqual([...source], [255, 255, 255, 255, 255, 255, 255]);
 assert.notEqual(continuous, source);
+const inPlace = white(3); assert.equal(paintStrokeInPlace(inPlace, 3, 1, { x: 1, y: 0 }, { x: 1, y: 0 }, { value: 0, size: 1, hardness: 1, opacity: 1 }), inPlace); assert.deepEqual([...inPlace], [255, 0, 255]);
 
 assert.throws(
   () => paintStroke(white(3), 2, 2, { x: 0, y: 0 }, { x: 0, y: 0 }, { value: 0, size: 1, hardness: 1, opacity: 1 }),
@@ -147,6 +149,8 @@ assert.equal(maskEditorShortcut({ key: '0', ctrlKey: false, metaKey: false, shif
 assert.equal(maskEditorShortcut({ key: 'z', ctrlKey: true, metaKey: false, shiftKey: true }), 'redo');
 assert.deepEqual(canvasBackingSize({ width: 320, height: 200 }, 2), { width: 640, height: 400 });
 assert.deepEqual(canvasBackingSize({ width: 320, height: 200 }, 0), { width: 320, height: 200 });
+const boundedBacking = canvasBackingSize({ width: 20000, height: 10000 }, 4);
+assert.ok(boundedBacking.width <= 4096 && boundedBacking.height <= 4096 && boundedBacking.width * boundedBacking.height <= 4_194_304);
 const maskRequests = createMaskRequestGate();
 const oldMaskRequest = maskRequests.begin();
 const currentMaskRequest = maskRequests.begin();

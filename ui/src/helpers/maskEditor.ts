@@ -66,13 +66,20 @@ export function paintStroke(
   to: Point,
   brush: MaskBrush,
 ): Uint8ClampedArray {
+  return paintStrokeResult(mask, width, height, from, to, brush, new Uint8ClampedArray(mask));
+}
+
+export function paintStrokeInPlace(mask: Uint8ClampedArray, width: number, height: number, from: Point, to: Point, brush: MaskBrush): Uint8ClampedArray {
+  return paintStrokeResult(mask, width, height, from, to, brush, mask);
+}
+
+function paintStrokeResult(mask: Uint8ClampedArray, width: number, height: number, from: Point, to: Point, brush: MaskBrush, result: Uint8ClampedArray): Uint8ClampedArray {
   validatePaint(mask, width, height, brush);
   requireFinite('from.x', from.x);
   requireFinite('from.y', from.y);
   requireFinite('to.x', to.x);
   requireFinite('to.y', to.y);
 
-  const result = new Uint8ClampedArray(mask);
   const radius = brush.size / 2;
   const coverageMinX = Math.max(0, Math.ceil(Math.min(from.x, to.x) - radius));
   const coverageMaxX = Math.min(width - 1, Math.floor(Math.max(from.x, to.x) + radius));
@@ -157,9 +164,12 @@ export function panMaskView(view: MaskView, dx: number, dy: number): MaskView {
   return { ...view, offsetX: view.offsetX + dx, offsetY: view.offsetY + dy };
 }
 
-export function canvasBackingSize(size: Readonly<{ width: number; height: number }>, devicePixelRatio: number): { width: number; height: number } {
+export function canvasBackingSize(size: Readonly<{ width: number; height: number }>, devicePixelRatio: number, maxDimension = 4096, maxPixels = 4_194_304): { width: number; height: number } {
   const ratio = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
-  return { width: Math.max(1, Math.round(size.width * ratio)), height: Math.max(1, Math.round(size.height * ratio)) };
+  let width = Math.max(1, Math.round(size.width * ratio)); let height = Math.max(1, Math.round(size.height * ratio));
+  const scale = Math.min(1, maxDimension / width, maxDimension / height, Math.sqrt(maxPixels / (width * height)));
+  width = Math.max(1, Math.floor(width * scale)); height = Math.max(1, Math.floor(height * scale));
+  return { width, height };
 }
 
 export function createMaskRequestGate(): { begin(): { isCurrent(): boolean }; cancel(): void } {

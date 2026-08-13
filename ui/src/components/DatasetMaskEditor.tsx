@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   canvasBackingSize, clampMaskImageIndex, createMaskHistory, createMaskRequestGate, createWhiteMask, fitMaskView, invertMask, maskEditorShortcut,
-  masksEqual, maskSaveMethod, paintStroke, panMaskView, screenToImage,
+  masksEqual, maskSaveMethod, paintStrokeInPlace, panMaskView, screenToImage,
   type MaskHistory, type MaskView, type Point,
 } from '@/helpers/maskEditor';
 
@@ -37,8 +37,12 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
   const sourceCanvas = useRef<HTMLCanvasElement>(null);
   const overlayCanvas = useRef<HTMLCanvasElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
+  const dialog = useRef<HTMLDivElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
   const request = useRef(createMaskRequestGate());
   const painting = useRef<Point | null>(null);
+  const working = useRef<Uint8ClampedArray | null>(null);
+  const previewFrame = useRef(false);
   const panning = useRef<Point | null>(null);
   const image = selectedLiveImages[index];
   const dirty = !!mask && !!baseline.current && !masksEqual(mask, baseline.current);
@@ -47,15 +51,25 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
   const drawMask = useCallback((bytes: Uint8ClampedArray, width: number, height: number) => {
     const canvas = overlayCanvas.current;
     if (!canvas) return;
-    const ratio = window.devicePixelRatio || 1; const backing = canvasBackingSize({ width, height }, ratio);
+    const bounds = viewport.current?.getBoundingClientRect();
+    const display = bounds ? { width: Math.max(1, Math.min(bounds.width, width)), height: Math.max(1, Math.min(bounds.height, height)) } : { width, height };
+    const ratio = window.devicePixelRatio || 1; const backing = canvasBackingSize(display, ratio);
     canvas.width = backing.width; canvas.height = backing.height;
     const context = canvas.getContext('2d');
     if (!context) return;
-    const scratch = document.createElement('canvas'); scratch.width = width; scratch.height = height;
-    const scratchContext = scratch.getContext('2d')!; const pixels = scratchContext.createImageData(width, height);
-    bytes.forEach((value, pixel) => { const at = pixel * 4; pixels.data[at] = value; pixels.data[at + 1] = value; pixels.data[at + 2] = value; pixels.data[at + 3] = 255; });
-    scratchContext.putImageData(pixels, 0, 0); context.imageSmoothingEnabled = false; context.drawImage(scratch, 0, 0, backing.width, backing.height);
+    const pixels = context.createImageData(backing.width, backing.height);
+    for (let y = 0; y < backing.height; y += 1) for (let x = 0; x < backing.width; x += 1) {
+      const value = bytes[Math.min(height - 1, Math.floor(y * height / backing.height)) * width + Math.min(width - 1, Math.floor(x * width / backing.width))];
+      const at = (y * backing.width + x) * 4; pixels.data[at] = value; pixels.data[at + 1] = value; pixels.data[at + 2] = value; pixels.data[at + 3] = 255;
+    }
+    context.putImageData(pixels, 0, 0);
   }, []);
+  const schedulePreview = useCallback((bytes: Uint8ClampedArray, width: number, height: number) => {
+    working.current = bytes;
+    if (previewFrame.current) return;
+    previewFrame.current = true;
+    requestAnimationFrame(() => { previewFrame.current = false; if (working.current) drawMask(working.current, width, height); });
+  }, [drawMask]);
 
   const fit = useCallback((nextSize: Readonly<{ width: number; height: number }>) => {
     const bounds = viewport.current?.getBoundingClientRect();
@@ -83,16 +97,18 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
         let bytes = createWhiteMask(width, height);
         if (response.status !== 204) {
           if (!response.ok) throw new Error(`Unable to load mask (HTTP ${response.status})`);
-          const loaded = new Image(); loaded.src = URL.createObjectURL(await response.blob()); await loaded.decode();
-          if (!token.isCurrent()) return;
-          const offscreen = document.createElement('canvas'); offscreen.width = width; offscreen.height = height;
-          const context = offscreen.getContext('2d')!; context.drawImage(loaded, 0, 0, width, height);
-          const rgba = context.getImageData(0, 0, width, height).data;
-          bytes = Uint8ClampedArray.from({ length: width * height }, (_, pixel) => rgba[pixel * 4]); URL.revokeObjectURL(loaded.src);
+          const loaded = new Image(); const objectUrl = URL.createObjectURL(await response.blob());
+          try {
+            loaded.src = objectUrl; await loaded.decode(); if (!token.isCurrent()) return;
+            const offscreen = document.createElement('canvas'); offscreen.width = width; offscreen.height = height;
+            const context = offscreen.getContext('2d')!; context.drawImage(loaded, 0, 0, width, height);
+            const rgba = context.getImageData(0, 0, width, height).data;
+            bytes = Uint8ClampedArray.from({ length: width * height }, (_, pixel) => rgba[pixel * 4]);
+          } finally { URL.revokeObjectURL(objectUrl); }
         }
         if (!token.isCurrent()) return;
         baseline.current = new Uint8ClampedArray(bytes); original.current = new Uint8ClampedArray(bytes);
-        history.current = createMaskHistory(bytes); setMask(bytes); drawMask(bytes, width, height); setLoading(false);
+        history.current = createMaskHistory(bytes); working.current = bytes; setMask(bytes); drawMask(bytes, width, height); setLoading(false);
         requestAnimationFrame(() => fit({ width, height }));
       } catch (cause) { if (token.isCurrent()) { setMask(undefined); history.current = null; setLoading(false); setError(cause instanceof Error ? cause.message : 'Unable to load mask'); } }
     };
@@ -103,7 +119,7 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
 
   const confirmDirty = () => !dirty || window.confirm('Discard unsaved mask edits?');
   const navigate = (next: number) => { const bounded = clampMaskImageIndex(next, selectedLiveImages.length); if (bounded !== index && confirmDirty()) setIndex(bounded); };
-  const apply = (bytes: Uint8ClampedArray, push = false) => { setMask(bytes); drawMask(bytes, size.width, size.height); if (push) history.current?.push(bytes); };
+  const apply = (bytes: Uint8ClampedArray, push = false) => { working.current = bytes; setMask(bytes); drawMask(bytes, size.width, size.height); if (push) history.current?.push(bytes); };
   const save = async () => {
     if (!mask || !image || readOnly || loading || saving) return;
     const token = request.current.begin(); const savingImage = image.relative_path; setError('');
@@ -124,7 +140,8 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
     finally { if (token.isCurrent()) setSaving(false); }
   };
   const imagePoint = (event: React.PointerEvent) => { const rect = viewport.current!.getBoundingClientRect(); return screenToImage({ x: event.clientX - rect.left, y: event.clientY - rect.top }, view); };
-  const stroke = (to: Point) => { if (!mask || !painting.current) return; const next = paintStroke(mask, size.width, size.height, painting.current, to, brush); painting.current = to; apply(next); };
+  const stroke = (to: Point) => { if (!working.current || !painting.current) return; paintStrokeInPlace(working.current, size.width, size.height, painting.current, to, brush); painting.current = to; schedulePreview(working.current, size.width, size.height); };
+  const finishPaint = () => { if (painting.current && working.current) { history.current?.push(working.current); setMask(new Uint8ClampedArray(working.current)); } painting.current = null; };
   const runShortcut = useCallback((action: ReturnType<typeof maskEditorShortcut>) => {
     if (saving && action !== 'zoom-in' && action !== 'zoom-out' && action !== 'fit') return;
     if (action === 'save') void save();
@@ -148,9 +165,15 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
     };
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key);
   }, [open, runShortcut]);
+  useEffect(() => {
+    if (!open) return;
+    previousFocus.current = document.activeElement as HTMLElement | null;
+    requestAnimationFrame(() => dialog.current?.querySelector?.<HTMLElement>('button:not([disabled]), input:not([disabled])')?.focus());
+    return () => previousFocus.current?.focus?.();
+  }, [open]);
   if (!open || !image || (readOnly && !frozenMasks?.[image.relative_path])) return null;
   const transform = `translate(${view.offsetX}px, ${view.offsetY}px) scale(${view.zoom})`;
-  return <div role="dialog" aria-modal="true" aria-label="Dataset mask editor" className="fixed inset-0 z-50 flex flex-col bg-gray-950/95 p-4 text-white">
+  return <div ref={dialog} role="dialog" aria-modal="true" aria-label="Dataset mask editor" className="fixed inset-0 z-50 flex flex-col bg-gray-950/95 p-4 text-white" onKeyDown={event => { if (event.key !== 'Tab') return; const items = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled])')]; if (!items.length) return; const at = items.indexOf(document.activeElement as HTMLElement); const next = event.shiftKey ? (at <= 0 ? items.length - 1 : at - 1) : (at === items.length - 1 ? 0 : at + 1); if (at <= 0 && event.shiftKey || at === items.length - 1 && !event.shiftKey) { event.preventDefault(); items[next].focus(); } }}>
     <header className="flex flex-wrap items-center gap-2"><strong>{image.relative_path}</strong><span>{index + 1} / {selectedLiveImages.length}</span><button disabled={index === 0 || loading || saving} onClick={() => navigate(index - 1)}>Previous</button><button disabled={index === selectedLiveImages.length - 1 || loading || saving} onClick={() => navigate(index + 1)}>Next</button><button disabled={saving} className="ml-auto" onClick={() => confirmDirty() && onClose()}>Close</button></header>
     <div className="flex flex-wrap gap-3 py-3">
       <button disabled={readOnly || loading || saving} aria-pressed={brush.value < 255} onClick={() => setBrush({ ...brush, value: 0 })}>Paint</button><button disabled={readOnly || loading || saving} aria-pressed={brush.value === 255} onClick={() => setBrush({ ...brush, value: 255 })}>Eraser</button>
@@ -160,8 +183,8 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
       <button onClick={() => original.current && apply(new Uint8ClampedArray(original.current), true)} disabled={!mask || readOnly || loading || saving}>Reset original</button><button onClick={() => apply(createWhiteMask(size.width, size.height), true)} disabled={!mask || readOnly || loading || saving}>Clear white</button><button onClick={() => mask && apply(invertMask(mask), true)} disabled={!mask || readOnly || loading || saving}>Invert</button>
       <button onClick={() => runShortcut('zoom-in')}>Zoom in</button><button onClick={() => runShortcut('zoom-out')}>Zoom out</button><button onClick={() => fit(size)}>Fit</button><button disabled={!dirty || readOnly || loading || saving} onClick={() => void save()}>Save mask</button>
     </div>{loading && <p role="status">Loading mask…</p>}{readOnly && <p>Archived frozen mask preview is read-only.</p>}{error && <p role="alert" className="text-red-400">{error}</p>}
-    <div ref={viewport} className="relative flex-1 overflow-hidden bg-black" onPointerDown={event => { if (event.button === 1 || event.shiftKey) panning.current = { x: event.clientX, y: event.clientY }; }} onPointerMove={event => { if (!panning.current) return; setView(current => panMaskView(current, event.clientX - panning.current!.x, event.clientY - panning.current!.y)); panning.current = { x: event.clientX, y: event.clientY }; }} onPointerUp={() => { panning.current = null; }}>
-      <div className="absolute origin-top-left" style={{ width: size.width, height: size.height, transform }}><canvas ref={sourceCanvas} className="absolute inset-0" style={{ width: size.width, height: size.height }}/><canvas ref={overlayCanvas} className="absolute inset-0 touch-none" style={{ width: size.width, height: size.height, opacity: overlayOpacity }} onPointerDown={event => { if (readOnly || loading || saving || event.shiftKey || event.button === 1) return; event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); const start = imagePoint(event); painting.current = start; stroke(start); }} onPointerMove={event => { if (painting.current) stroke(imagePoint(event)); }} onPointerUp={() => { if (mask && painting.current) history.current?.push(mask); painting.current = null; }}/></div>
+    <div ref={viewport} className="relative flex-1 overflow-hidden bg-black" onPointerDown={event => { if (event.button === 1 || event.shiftKey) { event.currentTarget.setPointerCapture(event.pointerId); panning.current = { x: event.clientX, y: event.clientY }; } }} onPointerMove={event => { if (!panning.current) return; setView(current => panMaskView(current, event.clientX - panning.current!.x, event.clientY - panning.current!.y)); panning.current = { x: event.clientX, y: event.clientY }; }} onPointerUp={() => { panning.current = null; }} onPointerCancel={() => { panning.current = null; }} onLostPointerCapture={() => { panning.current = null; }}>
+      <div className="absolute origin-top-left" style={{ width: size.width, height: size.height, transform }}><canvas ref={sourceCanvas} className="absolute inset-0" style={{ width: size.width, height: size.height }}/><canvas ref={overlayCanvas} className="absolute inset-0 touch-none" style={{ width: size.width, height: size.height, opacity: overlayOpacity }} onPointerDown={event => { if (readOnly || loading || saving || event.shiftKey || event.button === 1) return; event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); const start = imagePoint(event); painting.current = start; stroke(start); }} onPointerMove={event => { if (painting.current) stroke(imagePoint(event)); }} onPointerUp={finishPaint} onPointerCancel={finishPaint} onLostPointerCapture={finishPaint}/></div>
     </div>
   </div>;
 }
