@@ -1,7 +1,7 @@
 import { basename, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { constants } from 'node:fs';
 import { lstat, open, realpath, unlink } from 'node:fs/promises';
-import type { DatasetMaskReadResult, DatasetMaskService } from './datasetMaskService';
+import { DatasetMaskError, type DatasetMaskReadResult, type DatasetMaskService } from './datasetMaskService';
 
 export const MAX_MASK_PNG_BYTES = 16 * 1024 * 1024;
 
@@ -65,18 +65,32 @@ async function boundedBody(request: Request, maximum: number): Promise<Buffer> {
   return Buffer.concat(chunks.map(part => Buffer.from(part)), length);
 }
 
+class DatasetMaskUploadError extends Error {}
+
 function json(status: number, error: string): Response {
   return Response.json({ error }, { status });
 }
 
 function mapped(error: unknown, operation: string, logger: (operation: string, error: unknown) => void): Response {
   const message = error instanceof Error ? error.message : '';
-  if (message === 'bad request' || /^(Invalid|Unsupported)/.test(message)) return json(400, 'Invalid dataset or source path');
-  if (message === 'conflict' || message.startsWith('Duplicate mask basename')) return json(409, 'Source basename is ambiguous');
-  if (/^Source exceeds maximum bytes|^File exceeds maximum bytes/.test(message)) return json(413, 'Source image is too large');
-  if (message === 'Source pixel limit exceeded') return json(413, 'Source image has too many pixels');
-  if (message === 'Source dimension limit exceeded') return json(422, 'Source image dimensions are unsupported');
-  if (message === 'too large' || /maximum bytes/.test(message)) return json(413, 'PNG body is too large');
+  if (error instanceof DatasetMaskUploadError) return json(413, 'PNG upload body is too large');
+  if (error instanceof DatasetMaskError) {
+    switch (error.code) {
+      case 'INVALID_PATH': return json(400, 'Invalid dataset or source path');
+      case 'SOURCE_NOT_FOUND': return json(404, 'Source image not found');
+      case 'SOURCE_BYTES': return json(413, 'Source image is too large');
+      case 'SOURCE_PIXELS': return json(413, 'Source image has too many pixels');
+      case 'SOURCE_DIMENSIONS': return json(422, 'Source image dimensions are unsupported');
+      case 'MASK_BYTES': return json(413, 'Mask PNG is too large');
+      case 'MASK_DIMENSIONS': case 'MASK_PIXELS': case 'INVALID_MASK_PNG': return json(422, 'Invalid mask PNG');
+      case 'DUPLICATE_BASENAME': return json(409, 'Source basename is ambiguous');
+      case 'TRAVERSAL_LIMIT': return json(413, 'Dataset traversal limit exceeded');
+      case 'SECURITY': return json(400, 'Unsafe dataset path');
+    }
+  }
+  if (message === 'bad request') return json(400, 'Invalid dataset or source path');
+  if (message === 'conflict') return json(409, 'Source basename is ambiguous');
+  if (message === 'too large') return json(413, 'PNG upload body is too large');
   if (message === 'Source not found') return json(404, 'Source image not found');
   if (message === 'Invalid PNG' || message === 'Mask dimensions mismatch') return json(422, 'Invalid mask PNG');
   logger(operation, error);
@@ -110,7 +124,10 @@ export function createDatasetMaskRouteHandlers(deps: MaskHandlerDependencies) {
         return json(415, 'Content-Type must be image/png');
       }
       const target = await context(dataset, request);
-      await deps.masks.save(target.dataset, target.source, await boundedBody(request, maximum));
+      let body: Buffer;
+      try { body = await boundedBody(request, maximum); }
+      catch (error) { if ((error as Error).message === 'too large') throw new DatasetMaskUploadError(); throw error; }
+      await deps.masks.save(target.dataset, target.source, body);
       return new Response(null, { status: 204 });
     }),
     delete: (dataset: string, request: Request) => run('delete', async () => {

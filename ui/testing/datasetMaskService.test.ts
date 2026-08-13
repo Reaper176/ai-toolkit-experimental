@@ -8,6 +8,7 @@ import {
   assertUniqueMaskBasenames,
   assertDatasetMaskSourceUnambiguous,
   createDatasetMaskService,
+  DatasetMaskError,
   maskDatasetName,
   maskFilename,
 } from '../src/server/datasetMaskService';
@@ -217,7 +218,11 @@ async function main(): Promise<void> {
         maxSourceBytes: 256,
         afterSourceStat: () => appendFileSync(join(datasetsRoot, 'limits/growing.png'), Buffer.alloc(512)),
       });
-      await assert.rejects(sourceGrowth.read('limits', 'growing.png'), /maximum bytes|changed/i);
+      await assert.rejects(sourceGrowth.read('limits', 'growing.png'), error => {
+        assert.ok(error instanceof DatasetMaskError);
+        assert.equal(error.code, 'SOURCE_BYTES');
+        return true;
+      });
 
       writeFileSync(join(datasetsRoot, 'limits/growing.png'), grayPng(2, 2, 0));
       const maskGrowth = createDatasetMaskService({
@@ -230,7 +235,11 @@ async function main(): Promise<void> {
       await createDatasetMaskService({ datasetsRoot, filesystemStrategy, maxPngBytes: 1024 }).save(
         'limits', 'growing.png', grayPng(2, 2, 0),
       );
-      await assert.rejects(maskGrowth.read('limits', 'growing.png'), /maximum bytes|changed/i);
+      await assert.rejects(maskGrowth.read('limits', 'growing.png'), error => {
+        assert.ok(error instanceof DatasetMaskError);
+        assert.equal(error.code, 'MASK_BYTES');
+        return true;
+      });
     }
 
     mkdirSync(join(datasetsRoot, 'walk/a/b/c'), { recursive: true });

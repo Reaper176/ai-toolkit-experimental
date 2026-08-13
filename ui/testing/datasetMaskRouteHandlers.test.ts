@@ -8,6 +8,7 @@ import {
   createImageDeleteHandler,
   type DatasetMaskRouteService,
 } from '../src/server/datasetMaskRouteHandlers';
+import { DatasetMaskError } from '../src/server/datasetMaskService';
 
 class FakeMasks implements DatasetMaskRouteService {
   calls: Array<{ method: string; args: unknown[] }> = [];
@@ -84,12 +85,15 @@ async function main(): Promise<void> {
   response = await duplicates.get('photos', request('GET'));
   assert.equal(response.status, 409);
 
-  for (const [message, status, body] of [
-    ['Source exceeds maximum bytes', 413, { error: 'Source image is too large' }],
-    ['Source pixel limit exceeded', 413, { error: 'Source image has too many pixels' }],
-    ['Source dimension limit exceeded', 422, { error: 'Source image dimensions are unsupported' }],
+  for (const [code, message, status, body] of [
+    ['SOURCE_BYTES', 'same message', 413, { error: 'Source image is too large' }],
+    ['SOURCE_PIXELS', 'same message', 413, { error: 'Source image has too many pixels' }],
+    ['SOURCE_DIMENSIONS', 'same message', 422, { error: 'Source image dimensions are unsupported' }],
+    ['MASK_BYTES', 'same message', 413, { error: 'Mask PNG is too large' }],
+    ['MASK_DIMENSIONS', 'same message', 422, { error: 'Invalid mask PNG' }],
+    ['MASK_PIXELS', 'same message', 422, { error: 'Invalid mask PNG' }],
   ] as const) {
-    masks.failure = new Error(message);
+    masks.failure = new DatasetMaskError(code, message);
     response = await handlers.get('photos', request('GET'));
     assert.equal(response.status, status);
     assert.deepEqual(await response.json(), body);
