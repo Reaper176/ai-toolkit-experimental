@@ -15,6 +15,20 @@ const lifecycleSource = readFileSync(
 assert.doesNotMatch(lifecycleSource, /role=["']menu(?:item)?["']/, 'management disclosure does not claim unsupported menu keyboard behavior');
 const page = ts.createSourceFile('page.tsx', pageSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 
+function getVariableInitializerSource(name: string): string {
+  let initializer: ts.Expression | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
+      initializer = node.initializer;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(page);
+  assert.ok(initializer, `${name} initializer is present`);
+  return initializer.getText(page);
+}
+
 assert.match(runnerSource, /datasetPresetSelection\.test\.js/, 'selection test must be required by the runner');
 assert.match(
   runnerSource,
@@ -219,6 +233,18 @@ assert.doesNotMatch(
   applyLoadedVersionSource,
   /setShowOnlySelected/,
   'loading a preset version preserves the selected-only view filter',
+);
+const loadPresetSelectionSource = getVariableInitializerSource('loadPresetSelection');
+assert.doesNotMatch(
+  loadPresetSelectionSource,
+  /setShowOnlySelected/,
+  'loading a preset preserves the selected-only view filter',
+);
+const loadVersionSelectionSource = getVariableInitializerSource('loadVersionSelection');
+assert.doesNotMatch(
+  loadVersionSelectionSource,
+  /setShowOnlySelected/,
+  'loading an explicit version preserves the selected-only view filter',
 );
 assert.match(pageSource, /beforeunload/, 'dirty selections warn before browser unload');
 assert.match(pageSource, /openConfirm\(/, 'dirty cancellation uses the accessible confirmation pattern');
