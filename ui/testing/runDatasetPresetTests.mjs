@@ -10,6 +10,7 @@ const uiRoot = resolve(testingDirectory, '..');
 const tsc = join(uiRoot, 'node_modules', 'typescript', 'bin', 'tsc');
 const testFiles = [
   'datasetMaskService.test.js',
+  'datasetMaskRouteHandlers.test.js',
   'datasetPresets.test.js',
   'datasetPresetSnapshotService.test.js',
   'datasetPresetService.test.js',

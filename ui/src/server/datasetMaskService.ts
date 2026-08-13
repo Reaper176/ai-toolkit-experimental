@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, realpath, rename as fsRename, rm, type FileHandle } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { imageSize } from 'image-size';
 import { PNG } from 'pngjs';
 
@@ -25,6 +25,8 @@ export interface DatasetMaskDependencies {
 export interface DatasetMaskService {
   read(dataset: string, sourcePath: string): Promise<DatasetMaskReadResult>;
   save(dataset: string, sourcePath: string, png: Buffer): Promise<void>;
+  delete(dataset: string, sourcePath: string): Promise<void>;
+  deleteByAbsoluteSource(sourcePath: string): Promise<void>;
 }
 
 const SOURCE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
@@ -75,6 +77,19 @@ function sourceSegments(sourcePath: string): string[] {
     throw new Error('Invalid source path segment');
   }
   return segments;
+}
+
+async function absoluteSourceParts(datasetsRoot: string, sourcePath: string): Promise<{ dataset: string; source: string }> {
+  if (!isAbsolute(sourcePath)) throw new Error('Invalid absolute source path');
+  const root = resolve(datasetsRoot);
+  const child = relative(root, sourcePath);
+  if (child === '..' || child.startsWith(`..${sep}`) || isAbsolute(child)) throw new Error('Path escapes datasets root');
+  const parts = child.split(sep);
+  if (parts.length < 2) throw new Error('Invalid absolute source path');
+  assertSingleSegment(parts[0], 'dataset');
+  const source = parts.slice(1).join('/');
+  sourceSegments(source);
+  return { dataset: parts[0], source };
 }
 
 export function maskDatasetName(dataset: string): string {
@@ -205,6 +220,28 @@ function createDescriptorDatasetMaskService(deps: DatasetMaskDependencies): Data
     await directory.sync();
   }
 
+  async function deleteMask(dataset: string, sourcePath: string): Promise<void> {
+    assertSingleSegment(dataset, 'dataset');
+    sourceSegments(sourcePath);
+    const handles: FileHandle[] = [];
+    try {
+      const root = await openRoot();
+      handles.push(root);
+      let directory: FileHandle;
+      try {
+        directory = await openChildDirectory(root, maskDatasetName(dataset), 'Mask directory missing');
+      } catch (error) {
+        if ((error as Error).message === 'Mask directory missing') return;
+        throw error;
+      }
+      handles.push(directory);
+      await rm(descriptorPath(directory, maskFilename(sourcePath)), { force: true });
+      await syncDirectory(directory);
+    } finally {
+      await closeAll(handles);
+    }
+  }
+
   return {
     async read(dataset, sourcePath) {
       const source = await readSource(dataset, sourcePath);
@@ -285,6 +322,14 @@ function createDescriptorDatasetMaskService(deps: DatasetMaskDependencies): Data
         if (temporary) await rm(temporary, { force: true }).catch(() => undefined);
         await closeAll(handles);
       }
+    },
+    async delete(dataset, sourcePath) {
+      await readSource(dataset, sourcePath);
+      await deleteMask(dataset, sourcePath);
+    },
+    async deleteByAbsoluteSource(sourcePath) {
+      const target = await absoluteSourceParts(deps.datasetsRoot, sourcePath);
+      await deleteMask(target.dataset, target.source);
     },
   };
 }
@@ -405,6 +450,31 @@ function createPortableDatasetMaskService(deps: DatasetMaskDependencies): Datase
     }
   }
 
+  async function deleteMask(dataset: string, sourcePath: string): Promise<void> {
+    assertSingleSegment(dataset, 'dataset');
+    sourceSegments(sourcePath);
+    const root = await rootPath();
+    const path = join(root, maskDatasetName(dataset));
+    let directory: { path: string; identity: FileIdentity };
+    try {
+      directory = { path, identity: await validatePortableDirectory(path, root) };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw error;
+    }
+    const destination = join(path, maskFilename(sourcePath));
+    try {
+      const current = await lstat(destination);
+      if (current.isSymbolicLink() || !current.isFile()) throw new Error('Refusing mask symlink escape');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw error;
+    }
+    await assertDirectoryUnchanged(directory, root);
+    await rm(destination);
+    await syncPortableDirectory(directory, root);
+  }
+
   return {
     async read(dataset, sourcePath) {
       const source = await sourceDetails(dataset, sourcePath);
@@ -472,6 +542,14 @@ function createPortableDatasetMaskService(deps: DatasetMaskDependencies): Datase
         if (handle) await handle.close().catch(() => undefined);
         if (temporary) await rm(temporary, { force: true }).catch(() => undefined);
       }
+    },
+    async delete(dataset, sourcePath) {
+      await sourceDetails(dataset, sourcePath);
+      await deleteMask(dataset, sourcePath);
+    },
+    async deleteByAbsoluteSource(sourcePath) {
+      const target = await absoluteSourceParts(deps.datasetsRoot, sourcePath);
+      await deleteMask(target.dataset, target.source);
     },
   };
 }
