@@ -199,6 +199,17 @@ export function frozenMaskUrlsFromManifest(versionId: string, files: readonly un
   return result;
 }
 
+export function archivedMaskEditorImages(versionId: string, files: readonly unknown[]): Array<{ img_path: string; relative_path: string; frozenImageUrl: string }> {
+  const masks = frozenMaskUrlsFromManifest(versionId, files);
+  return files.flatMap(untrusted => {
+    if (!untrusted || typeof untrusted !== 'object') return [];
+    const file = untrusted as Record<string, unknown>;
+    if (typeof file.source_path !== 'string' || typeof file.managed_path !== 'string' || !masks[file.source_path]) return [];
+    const frozenImageUrl = `/api/dataset-preset-versions/${encodeURIComponent(versionId)}/files?path=${encodeURIComponent(file.managed_path)}`;
+    return [{ img_path: frozenImageUrl, relative_path: file.source_path, frozenImageUrl }];
+  });
+}
+
 export function maskEditorShortcut(event: Readonly<{ key: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }>): MaskEditorShortcut {
   const command = event.ctrlKey || event.metaKey;
   const key = event.key.toLowerCase();

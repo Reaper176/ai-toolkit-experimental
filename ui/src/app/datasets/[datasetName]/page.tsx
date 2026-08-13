@@ -46,7 +46,7 @@ import useDatasetPresets, {
   type DatasetPresetSummary,
   type DatasetPresetVersionDetail,
 } from '@/hooks/useDatasetPresets';
-import { frozenMaskUrlsFromManifest } from '@/helpers/maskEditor';
+import { archivedMaskEditorImages, frozenMaskUrlsFromManifest } from '@/helpers/maskEditor';
 
 interface DatasetImageEntry {
   img_path: string;
@@ -97,7 +97,8 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   const selectedLiveImages = useMemo(() => imgList.filter(image => selectedPaths.has(image.relative_path)), [imgList, selectedPaths]);
   const frozenMasks = useMemo(() => activeVersion ? frozenMaskUrlsFromManifest(activeVersion.id, activeVersion.manifest.files) : {}, [activeVersion]);
   const archivedMaskPreviewAvailable = archivedReadOnly && selectedLiveImages.some(image => !!frozenMasks[image.relative_path]);
-  const maskEditorImages = archivedReadOnly ? selectedLiveImages.filter(image => !!frozenMasks[image.relative_path]) : selectedLiveImages;
+  const archivedEditorImages = useMemo(() => activeVersion ? archivedMaskEditorImages(activeVersion.id, activeVersion.manifest.files).filter(image => selectedPaths.has(image.relative_path)) : [], [activeVersion, selectedPaths]);
+  const maskEditorImages = archivedReadOnly ? archivedEditorImages : selectedLiveImages;
   const selectionInteractionLocked = selectionSaving || lifecyclePending || archivedReadOnly;
   activeManifestPathsRef.current = new Set(activeVersion?.manifest.files.map(file => file.source_path) ?? []);
 

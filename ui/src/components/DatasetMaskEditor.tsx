@@ -7,7 +7,7 @@ import {
   type MaskHistory, type MaskView, type Point,
 } from '@/helpers/maskEditor';
 
-export interface MaskEditorImage { img_path: string; relative_path: string }
+export interface MaskEditorImage { img_path: string; relative_path: string; frozenImageUrl?: string }
 export interface DatasetMaskEditorProps {
   datasetName: string;
   selectedLiveImages: readonly MaskEditorImage[];
@@ -129,7 +129,7 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
       } catch (cause) { if (token.isCurrent()) { setMask(undefined); history.current = null; setLoading(false); setError(cause instanceof Error ? cause.message : 'Unable to load mask'); } }
     };
     source.onerror = () => { if (token.isCurrent()) { setLoading(false); setError('Unable to load source image'); } };
-    source.src = `/api/img/${encodeURIComponent(image.img_path)}`;
+    source.src = readOnly && image.frozenImageUrl ? image.frozenImageUrl : `/api/img/${encodeURIComponent(image.img_path)}`;
     return () => { cancelPreview(); request.current.cancel(); };
   }, [cancelPreview, datasetName, drawMask, fit, frozenMasks, image, open, readOnly]);
 

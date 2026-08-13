@@ -10,7 +10,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ vers
     const path = new URL(request.url).searchParams.get('path');
     if (!path) return Response.json({ error: 'Frozen mask path is required' }, { status: 400 });
     const bytes = await readFrozenPresetMask(await getDataRoot(), version.manifest_path, path);
-    return new Response(bytes, { headers: { 'content-type': 'image/png', 'cache-control': 'private, immutable' } });
+    const type = /\.jpe?g$/i.test(path) ? 'image/jpeg' : /\.webp$/i.test(path) ? 'image/webp' : /\.gif$/i.test(path) ? 'image/gif' : 'image/png';
+    return new Response(bytes, { headers: { 'content-type': type, 'cache-control': 'private, immutable' } });
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     if (message.startsWith('Invalid') || message.includes('escaped')) return Response.json({ error: 'Invalid frozen mask path' }, { status: 400 });

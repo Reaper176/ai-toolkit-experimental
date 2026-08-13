@@ -16,6 +16,7 @@ import {
   canvasBackingSize,
   createMaskRequestGate,
   frozenMaskUrlsFromManifest,
+  archivedMaskEditorImages,
 } from '../src/helpers/maskEditor';
 
 assert.deepEqual(screenToImage({ x: 34, y: 26 }, { zoom: 2, offsetX: 10, offsetY: 6 }), { x: 12, y: 10 });
@@ -172,6 +173,7 @@ assert.deepEqual(frozenMaskUrlsFromManifest('v', [
   { source_path: 'sub/a.jpg', mask_path: 'masks/b.png', mask_bytes: 1, mask_sha256: 'a'.repeat(64), mask_missing: false },
   { source_path: 'sub/A.jpg', mask_path: 'masks/a.png', mask_bytes: 1, mask_sha256: 'a'.repeat(64), mask_missing: false },
 ]), {}, 'archived mask paths must match source basenames case-sensitively');
+assert.deepEqual(archivedMaskEditorImages('v 1', [{ source_path: 'missing.png', managed_path: 'media/missing.png', mask_path: 'masks/missing.png', mask_bytes: 1, mask_sha256: 'a'.repeat(64), mask_missing: false }]), [{ img_path: '/api/dataset-preset-versions/v%201/files?path=media%2Fmissing.png', relative_path: 'missing.png', frozenImageUrl: '/api/dataset-preset-versions/v%201/files?path=media%2Fmissing.png' }]);
 assert.deepEqual([...history.undo()], [200]);
 assert.deepEqual([...history.undo()], [200]);
 assert.equal(history.canUndo(), false);

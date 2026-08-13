@@ -125,7 +125,7 @@ assert.match(pageSource, /frozenMaskUrlsFromManifest\(activeVersion\.id,\s*activ
 assert.match(pageSource, /maskDatasetName=\{archivedReadOnly\s*\?\s*undefined\s*:\s*datasetName\}/, 'archived cards cannot poll live mask state');
 assert.match(pageSource, /maskSourcePath=\{archivedReadOnly\s*\?\s*undefined\s*:\s*img\.relative_path\}/, 'archived cards omit the live mask source');
 assert.match(pageSource, /\(!archivedReadOnly\s*\|\|\s*archivedMaskPreviewAvailable\)/, 'archived editor launch requires immutable frozen mask data');
-assert.match(pageSource, /const\s+maskEditorImages\s*=\s*archivedReadOnly\s*\?\s*selectedLiveImages\.filter[\s\S]{0,120}:\s*selectedLiveImages/, 'live editor keeps full selected ordering while archived preview includes frozen files only');
+assert.match(pageSource, /const\s+maskEditorImages\s*=\s*archivedReadOnly\s*\?\s*archivedEditorImages\s*:\s*selectedLiveImages/, 'live editor keeps full selected ordering while archived preview derives from immutable manifest files');
 assert.match(pageSource, /selectedLiveImages=\{maskEditorImages\}/, 'editor receives the correct ordered live or frozen-preview images');
 assert.match(pageSource, /datasetName=\{datasetName\}/, 'editor receives the dataset name');
 assert.match(maskEditorSource, /paintStroke/, 'mask editor uses the shared painting engine');
