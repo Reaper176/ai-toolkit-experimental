@@ -52,6 +52,24 @@ export function applySelectionAction(
   throw new Error(`Unknown selection action: ${String(action)}`);
 }
 
+export function filterDatasetImagesBySelection<T extends { relative_path: string }>(
+  images: T[],
+  selectedPaths: ReadonlySet<string>,
+  showOnlySelected: boolean,
+): T[] {
+  if (!showOnlySelected) return images;
+  return images.filter(image => selectedPaths.has(image.relative_path));
+}
+
+export function filterPathsBySelection(
+  paths: string[],
+  selectedPaths: ReadonlySet<string>,
+  showOnlySelected: boolean,
+): string[] {
+  if (!showOnlySelected) return paths;
+  return paths.filter(path => selectedPaths.has(path));
+}
+
 export function areSelectionsEqual(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
   if (left.size !== right.size) return false;
   for (const path of left) {

@@ -10,6 +10,8 @@ import { createLatestDatasetPresetRequestGate } from '../src/hooks/useDatasetPre
 import {
   areSelectionsEqual,
   createDirtySelectionLeaveGuard,
+  filterDatasetImagesBySelection,
+  filterPathsBySelection,
   getInterceptableInternalNavigationHref,
   normalizeRelativeMediaPath,
   reconcileSelection,
@@ -147,6 +149,18 @@ async function run(): Promise<void> {
   try {
     assert.equal(areSelectionsEqual(new Set(['a', 'b']), new Set(['b', 'a'])), true);
     assert.equal(areSelectionsEqual(new Set(['a']), new Set(['b'])), false);
+    const images = [
+      { img_path: '/dataset/a.png', relative_path: 'a.png' },
+      { img_path: '/dataset/b.png', relative_path: 'b.png' },
+      { img_path: '/dataset/c.png', relative_path: 'c.png' },
+    ];
+    const selected = new Set(['b.png', 'missing.png']);
+    assert.equal(filterDatasetImagesBySelection(images, selected, false), images);
+    assert.deepEqual(filterDatasetImagesBySelection(images, selected, true), [images[1]]);
+    const missingPaths = ['missing.png', 'unselected-missing.png'];
+    assert.equal(filterPathsBySelection(missingPaths, selected, false), missingPaths);
+    assert.deepEqual(filterPathsBySelection(missingPaths, selected, true), ['missing.png']);
+    assert.deepEqual(filterDatasetImagesBySelection(images, new Set(), true), []);
     assert.deepEqual(reconcileSelection(new Set(['a', 'missing']), ['a', 'b']), new Set(['a']));
     assert.equal(normalizeRelativeMediaPath('nested\\portrait.jpg'), 'nested/portrait.jpg');
     const requestGate = createLatestDatasetPresetRequestGate();
