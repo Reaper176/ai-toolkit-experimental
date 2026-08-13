@@ -621,7 +621,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
         {selectionMode &&
           showOnlySelected &&
           status === 'success' &&
-          imgList.length > 0 &&
+          imgList.length + sourceMissingPaths.length > 0 &&
           visibleImages.length === 0 &&
           visibleMissingPaths.length === 0 && (
             <p role="status" className="py-10 text-center text-sm text-gray-400">
