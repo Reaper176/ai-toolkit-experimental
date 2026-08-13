@@ -23,6 +23,7 @@ import { apiClient } from '@/utils/api';
 import useSettings from '@/hooks/useSettings';
 import { pathJoin } from '@/utils/basic';
 import AutoCaptionButton from '@/components/AutoCaptionButton';
+import DatasetActionBar from '@/components/DatasetActionBar';
 import CaptionMonitor from '@/components/CaptionMonitor';
 import { CreatableSelectInput } from '@/components/formInputs';
 import { openConfirm } from '@/components/ConfirmModal';
@@ -175,9 +176,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
     [activeVersion],
   );
   const retainedPaths = activeVersion
-    ? activeVersion.manifest.files
-        .map(file => file.source_path)
-        .filter(path => selectedPaths.has(path))
+    ? activeVersion.manifest.files.map(file => file.source_path).filter(path => selectedPaths.has(path))
     : [];
   const newlySelectedPaths = [...selectedPaths].filter(path => !activeManifestPaths.has(path));
 
@@ -521,11 +520,17 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
             <span className="sm:hidden">+ Add</span>
             <span className="hidden sm:inline">Add Images</span>
           </Button>
+          <DatasetActionBar datasetName={datasetName} />
         </div>
       </TopBar>
-      <MainContent ref={scrollParentCallback} className={selectionMode ? '!pt-12' : undefined}>
+      <MainContent
+        ref={scrollParentCallback}
+        belowTopBar
+        className="transition-[bottom] duration-300"
+        style={{ bottom: `${captionBarHeight}px` }}
+      >
         {selectionMode && (
-          <div className="sticky top-12 z-20 -mx-2 mb-4 sm:-mx-4">
+          <div className="sticky top-0 z-20 -mx-2 mb-4 sm:-mx-4">
             <section
               aria-label="Dataset preset version"
               className="flex flex-wrap items-end gap-3 border-b border-gray-700 bg-gray-900 px-3 py-2 sm:px-4"
@@ -661,7 +666,8 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
           selectionMode={selectionMode}
           saving={selectionSaving || lifecyclePending || archivedReadOnly}
           onSelectionChange={(path, selected) =>
-            !selectionInteractionLocked && setSelectedPaths(current => {
+            !selectionInteractionLocked &&
+            setSelectedPaths(current => {
               const next = new Set(current);
               if (selected) next.add(path);
               else next.delete(path);
@@ -669,9 +675,9 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
             })
           }
         />
-        {/* Spacer so the last cards stay accessible above the floating caption bar.
-            Always keeps a baseline gap, plus the bar height when it is showing. */}
-        <div style={{ height: `${captionBarHeight + 24}px` }} className="transition-[height] duration-300" />
+        {/* Baseline gap below the last row of cards. The caption bar itself is handled by
+            shrinking MainContent's bottom to the bar height, so no dynamic spacer is needed. */}
+        <div className="h-6" />
       </MainContent>
       <AddImagesModal />
       <DatasetPresetDialog

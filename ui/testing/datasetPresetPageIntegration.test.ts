@@ -12,7 +12,11 @@ const lifecycleSource = readFileSync(
   resolve(process.cwd(), 'src/components/DatasetPresetLifecycleControls.tsx'),
   'utf8',
 );
-assert.doesNotMatch(lifecycleSource, /role=["']menu(?:item)?["']/, 'management disclosure does not claim unsupported menu keyboard behavior');
+assert.doesNotMatch(
+  lifecycleSource,
+  /role=["']menu(?:item)?["']/,
+  'management disclosure does not claim unsupported menu keyboard behavior',
+);
 const page = ts.createSourceFile('page.tsx', pageSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 
 function getVariableInitializerSource(name: string): string {
@@ -122,7 +126,11 @@ assert.match(
   /selectionMode\s*&&\s*!areSelectionsEqual\(selectedPaths,\s*baseSelection\)/,
   'dirty state compares the full selected paths with the base selection',
 );
-assert.doesNotMatch(selectionDirtySource, /visibleImages|visibleMissingPaths/, 'dirty state is independent of view filters');
+assert.doesNotMatch(
+  selectionDirtySource,
+  /visibleImages|visibleMissingPaths/,
+  'dirty state is independent of view filters',
+);
 assert.match(
   pageSource,
   /activeVersion\.manifest\.files[\s\S]{0,220}selectedPaths\.has\(path\)/,
@@ -176,8 +184,8 @@ assert.match(
 );
 assert.match(
   pageSource,
-  /<MainContent\s+ref=\{scrollParentCallback\}\s+className=\{selectionMode\s*\?\s*['"]!pt-12['"]\s*:\s*undefined\}/,
-  'selection mode deterministically removes the layout gap with an important padding override',
+  /<MainContent\s+ref=\{scrollParentCallback\}\s+belowTopBar\s+className=['"]transition-\[bottom\] duration-300['"]\s+style=\{\{ bottom: `\$\{captionBarHeight\}px` \}\}/,
+  'dataset content starts below the top bar and shrinks above the measured caption bar',
 );
 assert.match(
   pageSource,
@@ -209,7 +217,11 @@ assert.match(
   /computeItemKey=\{index\s*=>\s*visibleImages\[index\]\?\.relative_path/,
   'virtualized keys use visible stable relative paths',
 );
-assert.match(pageSource, /<DatasetSourceMissingList\s+paths=\{visibleMissingPaths\}/, 'missing list uses visible paths');
+assert.match(
+  pageSource,
+  /<DatasetSourceMissingList\s+paths=\{visibleMissingPaths\}/,
+  'missing list uses visible paths',
+);
 assert.match(
   pageSource,
   /<DatasetReviewEmptyState[\s\S]{0,400}liveCount=\{imgList\.length\}[\s\S]{0,120}missingCount=\{sourceMissingPaths\.length\}[\s\S]{0,240}visibleLiveCount=\{visibleImages\.length\}[\s\S]{0,120}visibleMissingCount=\{visibleMissingPaths\.length\}/,
@@ -260,7 +272,7 @@ assert.match(
   /<MainContent[^>]*>[\s\S]*DatasetSelectionToolbar/,
   'selection toolbar stays inside the scrollable page content',
 );
-assert.match(pageSource, /sticky top-12 z-20/, 'selection toolbar sticks below the absolute top bar');
+assert.match(pageSource, /sticky top-0 z-20/, 'selection toolbar sticks to the top of below-top-bar content');
 assert.match(
   pageSource,
   /getInterceptableInternalNavigationHref/,
@@ -329,9 +341,21 @@ assert.match(
 );
 assert.match(pageSource, /onPendingChange=\{setLifecyclePending\}/, 'lifecycle controls coordinate page busy state');
 assert.match(pageSource, /selectionDirty=\{selectionDirty\}/, 'delete eligibility receives current draft state');
-assert.match(pageSource, /selectionDisabled=\{selectionInteractionLocked\}/, 'mounted cards lock selection during lifecycle work');
-assert.match(pageSource, /saving=\{selectionSaving\s*\|\|\s*lifecyclePending\}/, 'toolbar and source-missing controls lock during lifecycle work');
-assert.match(pageSource, /if \(selectionDirtyRef\.current\) return/, 'delete success never replaces a newly dirty draft');
+assert.match(
+  pageSource,
+  /selectionDisabled=\{selectionInteractionLocked\}/,
+  'mounted cards lock selection during lifecycle work',
+);
+assert.match(
+  pageSource,
+  /saving=\{selectionSaving\s*\|\|\s*lifecyclePending\}/,
+  'toolbar and source-missing controls lock during lifecycle work',
+);
+assert.match(
+  pageSource,
+  /if \(selectionDirtyRef\.current\) return/,
+  'delete success never replaces a newly dirty draft',
+);
 assert.match(pageSource, /readOnly=\{archivedReadOnly\}/, 'archived preset selection is read-only');
 assert.match(pageSource, /Archived presets are read-only/, 'archived publication restriction has a clear reason');
 

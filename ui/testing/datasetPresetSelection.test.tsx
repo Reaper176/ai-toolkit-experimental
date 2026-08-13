@@ -588,7 +588,11 @@ async function run(): Promise<void> {
     const originalLocalStorage = testGlobal.localStorage;
     const originalCreateObjectUrl = URL.createObjectURL;
     const originalRevokeObjectUrl = URL.revokeObjectURL;
-    globalThis.fetch = (async () => ({ ok: true, blob: async () => new Blob(['image']) })) as unknown as typeof fetch;
+    globalThis.fetch = (async () => ({
+      ok: true,
+      headers: { get: (name: string) => (name.toLowerCase() === 'content-type' ? 'image/jpeg' : null) },
+      blob: async () => new Blob(['image']),
+    })) as unknown as typeof fetch;
     testGlobal.window = globalThis;
     testGlobal.localStorage = { getItem: () => null, removeItem: () => undefined };
     URL.createObjectURL = () => 'blob:test-image';

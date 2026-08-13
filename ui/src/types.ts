@@ -334,6 +334,7 @@ export interface CaptionProcessConfig {
     included_categories?: string[];
     use_underscores?: boolean;
     escape_parentheses?: boolean;
+    batch_size?: number;
   };
 }
 
