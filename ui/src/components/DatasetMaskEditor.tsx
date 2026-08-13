@@ -43,21 +43,26 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
   const painting = useRef<Point | null>(null);
   const working = useRef<Uint8ClampedArray | null>(null);
   const previewFrame = useRef(false);
+  const previewPixels = useRef<ImageData | null>(null);
   const panning = useRef<Point | null>(null);
   const image = selectedLiveImages[index];
   const dirty = !!mask && !!baseline.current && !masksEqual(mask, baseline.current);
   const readOnly = archivedReadOnly;
 
-  const drawMask = useCallback((bytes: Uint8ClampedArray, width: number, height: number) => {
+  const drawMask = useCallback((bytes: Uint8ClampedArray, width: number, height: number, interactive = false) => {
     const canvas = overlayCanvas.current;
     if (!canvas) return;
     const bounds = viewport.current?.getBoundingClientRect();
     const display = bounds ? { width: Math.max(1, Math.min(bounds.width, width)), height: Math.max(1, Math.min(bounds.height, height)) } : { width, height };
-    const ratio = window.devicePixelRatio || 1; const backing = canvasBackingSize(display, ratio);
+    const ratio = window.devicePixelRatio || 1;
+    const backing = interactive ? canvasBackingSize(display, ratio, 1024, 524_288) : canvasBackingSize(display, ratio);
     canvas.width = backing.width; canvas.height = backing.height;
     const context = canvas.getContext('2d');
     if (!context) return;
-    const pixels = context.createImageData(backing.width, backing.height);
+    let pixels = previewPixels.current;
+    if (!pixels || pixels.width !== backing.width || pixels.height !== backing.height) {
+      pixels = context.createImageData(backing.width, backing.height); previewPixels.current = pixels;
+    }
     for (let y = 0; y < backing.height; y += 1) for (let x = 0; x < backing.width; x += 1) {
       const value = bytes[Math.min(height - 1, Math.floor(y * height / backing.height)) * width + Math.min(width - 1, Math.floor(x * width / backing.width))];
       const at = (y * backing.width + x) * 4; pixels.data[at] = value; pixels.data[at + 1] = value; pixels.data[at + 2] = value; pixels.data[at + 3] = 255;
@@ -68,7 +73,7 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
     working.current = bytes;
     if (previewFrame.current) return;
     previewFrame.current = true;
-    requestAnimationFrame(() => { previewFrame.current = false; if (working.current) drawMask(working.current, width, height); });
+    requestAnimationFrame(() => { previewFrame.current = false; if (working.current) drawMask(working.current, width, height, true); });
   }, [drawMask]);
 
   const fit = useCallback((nextSize: Readonly<{ width: number; height: number }>) => {
@@ -141,7 +146,7 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
   };
   const imagePoint = (event: React.PointerEvent) => { const rect = viewport.current!.getBoundingClientRect(); return screenToImage({ x: event.clientX - rect.left, y: event.clientY - rect.top }, view); };
   const stroke = (to: Point) => { if (!working.current || !painting.current) return; paintStrokeInPlace(working.current, size.width, size.height, painting.current, to, brush); painting.current = to; schedulePreview(working.current, size.width, size.height); };
-  const finishPaint = () => { if (painting.current && working.current) { history.current?.push(working.current); setMask(new Uint8ClampedArray(working.current)); } painting.current = null; };
+  const finishPaint = () => { if (painting.current && working.current) { history.current?.push(working.current); setMask(new Uint8ClampedArray(working.current)); drawMask(working.current, size.width, size.height); } painting.current = null; };
   const runShortcut = useCallback((action: ReturnType<typeof maskEditorShortcut>) => {
     if (saving && action !== 'zoom-in' && action !== 'zoom-out' && action !== 'fit') return;
     if (action === 'save') void save();

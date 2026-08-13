@@ -86,9 +86,7 @@ function paintStrokeResult(mask: Uint8ClampedArray, width: number, height: numbe
   const coverageMinY = Math.max(0, Math.ceil(Math.min(from.y, to.y) - radius));
   const coverageMaxY = Math.min(height - 1, Math.floor(Math.max(from.y, to.y) + radius));
   if (coverageMinX > coverageMaxX || coverageMinY > coverageMaxY) return result;
-  const coverageWidth = coverageMaxX - coverageMinX + 1;
-  const coverageHeight = coverageMaxY - coverageMinY + 1;
-  const coverage = new Float32Array(coverageWidth * coverageHeight);
+  const coverage = new Map<number, number>();
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const distance = Math.hypot(dx, dy);
@@ -111,19 +109,15 @@ function paintStrokeResult(mask: Uint8ClampedArray, width: number, height: numbe
         const falloff = pixelDistance <= solidRadius || solidRadius === radius
           ? 1
           : (radius - pixelDistance) / (radius - solidRadius);
-        const coverageIndex = (y - coverageMinY) * coverageWidth + x - coverageMinX;
-        coverage[coverageIndex] = Math.max(coverage[coverageIndex], falloff);
+        const index = y * width + x;
+        coverage.set(index, Math.max(coverage.get(index) ?? 0, falloff));
       }
     }
   }
 
-  for (let y = coverageMinY; y <= coverageMaxY; y += 1) {
-    for (let x = coverageMinX; x <= coverageMaxX; x += 1) {
-      const index = y * width + x;
-      const coverageIndex = (y - coverageMinY) * coverageWidth + x - coverageMinX;
-      const alpha = brush.opacity * coverage[coverageIndex];
-      result[index] = Math.round(result[index] + (brush.value - result[index]) * alpha);
-    }
+  for (const [index, amount] of coverage) {
+    const alpha = brush.opacity * amount;
+    result[index] = Math.round(result[index] + (brush.value - result[index]) * alpha);
   }
   return result;
 }

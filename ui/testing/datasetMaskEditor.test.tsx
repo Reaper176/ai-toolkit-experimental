@@ -16,8 +16,9 @@ class LoadedImage {
 }
 (globalThis as any).Image = LoadedImage;
 
+let imageDataAllocations = 0;
 const context = {
-  createImageData: (width: number, height: number) => ({ data: new Uint8ClampedArray(width * height * 4) }),
+  createImageData: (width: number, height: number) => { imageDataAllocations += 1; return { width, height, data: new Uint8ClampedArray(width * height * 4) }; },
   putImageData() {}, drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray([255,255,255,255,255,255,255,255]) }),
   imageSmoothingEnabled: true,
 };
@@ -73,10 +74,13 @@ async function run() {
   act(() => overlay.props.onPointerDown({ button: 1, shiftKey: false, stopPropagation: () => { stopped = true; }, currentTarget: { setPointerCapture() {} }, pointerId: 1, clientX: 1, clientY: 1 }));
   assert.equal(stopped, false, 'middle button bubbles to the viewport pan handler');
   const beforeMoveCanvases = createdCanvases;
+  const beforePreviewAllocations = imageDataAllocations;
   act(() => overlay.props.onPointerDown({ button: 0, shiftKey: false, stopPropagation() {}, currentTarget: { setPointerCapture() {} }, pointerId: 2, clientX: 0, clientY: 0 }));
   act(() => overlay.props.onPointerMove({ clientX: 1, clientY: 0 }));
+  act(() => overlay.props.onPointerMove({ clientX: 1.5, clientY: 0 }));
   act(() => overlay.props.onPointerCancel());
   assert.equal(createdCanvases, beforeMoveCanvases, 'pointer movement creates no source-resolution scratch canvases');
+  assert.ok(imageDataAllocations - beforePreviewAllocations <= 1, 'repeated pointer previews reuse their capped RGBA buffer');
   assert.equal(button(renderer, 'Save mask').props.disabled, false, 'pointer cancellation finalizes the stroke');
   const focusables = [{ focus() { (globalThis as any).document.activeElement = focusables[0]; } }, { focus() { (globalThis as any).document.activeElement = focusables[1]; } }];
   (globalThis as any).document.activeElement = focusables[1]; let tabPrevented = false;

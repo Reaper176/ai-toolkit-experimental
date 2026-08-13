@@ -91,6 +91,13 @@ try {
   Object.defineProperty(globalThis, 'Float64Array', float64Descriptor);
 }
 assert.ok(Math.max(0, ...floatingAllocations) < 1000, 'coverage allocation is restricted to the stroke bounds');
+floatingAllocations.length = 0;
+const diagonal4k = white(4096 * 4096);
+try {
+  Object.defineProperty(globalThis, 'Float32Array', { ...float32Descriptor, value: observeAllocations(Float32Array) });
+  paintStrokeInPlace(diagonal4k, 4096, 4096, { x: 0, y: 0 }, { x: 4095, y: 4095 }, { value: 0, size: 3, hardness: 1, opacity: .5 });
+} finally { Object.defineProperty(globalThis, 'Float32Array', float32Descriptor); }
+assert.ok(Math.max(0, ...floatingAllocations) < 1000, 'narrow 4K diagonal never allocates its full segment bounding box');
 
 const erased = paintStroke(new Uint8ClampedArray([0]), 1, 1, { x: 0, y: 0 }, { x: 0, y: 0 }, {
   value: 255,
