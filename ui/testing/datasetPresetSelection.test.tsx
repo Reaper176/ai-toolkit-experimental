@@ -167,9 +167,17 @@ async function run(): Promise<void> {
   console.error = () => undefined;
   try {
     for (const [state, label] of [['mask', 'Mask available'], ['missing', 'No mask'], ['read-only', 'Mask editing unavailable — archived preset']] as const) {
+      const activations: string[] = [];
       let badge!: TestRenderer.ReactTestRenderer;
-      act(() => { badge = TestRenderer.create(<DatasetMaskBadge state={state} />); });
-      assert.equal(badge.root.findByType('span').props['aria-label'], label);
+      act(() => { badge = TestRenderer.create(<DatasetMaskBadge state={state} mode={state === 'read-only' ? 'preview' : 'edit'} imagePath="folder/a.png" onActivate={(path: string) => { activations.push(path); }} />); });
+      const badgeButton = badge.root.findByType('button');
+      assert.equal(badgeButton.children.join(''), label);
+      assert.equal(badgeButton.props['aria-label'], state === 'read-only' ? 'Preview frozen mask for folder/a.png' : 'Edit mask for folder/a.png');
+      let bubbled = 0;
+      act(() => badgeButton.props.onClick({ stopPropagation: () => bubbled++ }));
+      assert.deepEqual(activations, ['folder/a.png']);
+      assert.equal(bubbled, 1, 'badge activation stops card click propagation');
+      assert.equal(badgeButton.props.onKeyDown, undefined, 'native button owns Enter and Space behavior');
       act(() => badge.unmount());
     }
     assert.equal(areSelectionsEqual(new Set(['a', 'b']), new Set(['b', 'a'])), true);
@@ -418,6 +426,23 @@ async function run(): Promise<void> {
     const missingCheckbox = missingList.root.findByType('input');
     await act(async () => missingCheckbox.props.onChange({ target: { checked: false } }));
     assert.equal(missingChanges, 1, 'missing entries are editable only in selection mode');
+    let missingMaskPath = '';
+    await act(async () => {
+      missingList.update(
+        <DatasetSourceMissingList
+          paths={['gone.png']}
+          selectedPaths={new Set(['gone.png'])}
+          selectionMode
+          saving
+          frozenMaskPaths={new Set(['gone.png'])}
+          onMaskOpen={(path: string) => { missingMaskPath = path; }}
+          onSelectionChange={() => missingChanges++}
+        />,
+      );
+    });
+    const missingMaskBadge = missingList.root.findByProps({ 'aria-label': 'Preview frozen mask for gone.png' });
+    act(() => missingMaskBadge.props.onClick({ stopPropagation() {} }));
+    assert.equal(missingMaskPath, 'gone.png', 'source-missing archived entries can launch their frozen mask');
     await act(async () => missingList.unmount());
 
     const actions: string[] = [];
@@ -571,6 +596,27 @@ async function run(): Promise<void> {
     act(() => click(deleteButton));
     assert.equal(deleteConfirmations, 1, 'delete remains a separate top-right control');
     assert.deepEqual(selectionChanges, [true, true], 'delete never changes selection');
+    let openedMask = '';
+    await act(async () => {
+      card.update(
+        <DatasetImageCard
+          imageUrl="photos/portrait.jpg"
+          alt="portrait.jpg"
+          isAutoCaptioning={false}
+          selectionMode
+          selected
+          maskState="mask"
+          maskSourcePath="portrait.jpg"
+          onMaskOpen={(path: string) => { openedMask = path; }}
+          onSelectionChange={(selected: boolean) => selectionChanges.push(selected)}
+          onImageClick={() => viewerCalls++}
+        />,
+      );
+    });
+    const liveMaskBadge = card.root.findByProps({ 'aria-label': 'Edit mask for portrait.jpg' });
+    act(() => liveMaskBadge.props.onClick({ stopPropagation() {} }));
+    assert.equal(openedMask, 'portrait.jpg');
+    assert.equal(viewerCalls, 0, 'mask badge does not open the viewer');
     await act(async () => {
       card.update(
         <DatasetImageCard

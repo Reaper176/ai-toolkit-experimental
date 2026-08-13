@@ -78,6 +78,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   const [lifecyclePending, setLifecyclePending] = useState(false);
   const [presetLoadError, setPresetLoadError] = useState<string | null>(null);
   const [maskEditorOpen, setMaskEditorOpen] = useState(false);
+  const [maskEditorLaunch, setMaskEditorLaunch] = useState<{ path: string | undefined; token: number }>({ path: undefined, token: 0 });
   const [maskStatusRefreshKey, setMaskStatusRefreshKey] = useState(0);
   const { presets, error: presetError, refresh: refreshPresets, loadPreset, loadVersion } = useDatasetPresets();
   const scrollParentCallback = useCallback((el: HTMLDivElement | null) => setScrollParent(el), []);
@@ -99,6 +100,15 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   const archivedEditorImages = useMemo(() => activeVersion ? archivedMaskEditorImages(activeVersion.id, activeVersion.manifest.files).filter(image => selectedPaths.has(image.relative_path)) : [], [activeVersion, selectedPaths]);
   const archivedMaskPreviewAvailable = archivedReadOnly && archivedEditorImages.length > 0;
   const maskEditorImages = archivedReadOnly ? archivedEditorImages : selectedLiveImages;
+  const openMaskEditorAt = (path: string) => {
+    setMaskEditorLaunch(current => ({ path, token: current.token + 1 }));
+    setMaskEditorOpen(true);
+  };
+  const openMaskEditor = () => {
+    const path = maskEditorImages[0]?.relative_path;
+    if (!path) return;
+    openMaskEditorAt(path);
+  };
   const selectionInteractionLocked = selectionSaving || lifecyclePending || archivedReadOnly;
   activeManifestPathsRef.current = new Set(activeVersion?.manifest.files.map(file => file.source_path) ?? []);
 
@@ -613,7 +623,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
               readOnly={archivedReadOnly}
               onAction={handleSelectionAction}
               onSave={archivedReadOnly ? undefined : () => setPresetDialogOpen(true)}
-              onEditMasks={(!archivedReadOnly ? selectedLiveImages.length > 0 : archivedMaskPreviewAvailable) ? () => setMaskEditorOpen(true) : undefined}
+              onEditMasks={(!archivedReadOnly ? selectedLiveImages.length > 0 : archivedMaskPreviewAvailable) ? openMaskEditor : undefined}
               canPreviewMasks={archivedMaskPreviewAvailable}
               onCancel={cancelSelectionMode}
             />
@@ -668,7 +678,9 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
                   maskState={archivedReadOnly && frozenMasks[img.relative_path] ? 'read-only' : 'missing'}
                   maskDatasetName={archivedReadOnly ? undefined : datasetName}
                   maskSourcePath={archivedReadOnly ? undefined : img.relative_path}
+                  maskImagePath={archivedReadOnly ? img.relative_path : undefined}
                   maskStatusRefreshKey={maskStatusRefreshKey}
+                  onMaskOpen={!archivedReadOnly || frozenMasks[img.relative_path] ? openMaskEditorAt : undefined}
                 />
               );
             }}
@@ -680,6 +692,8 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
           selectedPaths={selectedPaths}
           selectionMode={selectionMode}
           saving={selectionSaving || lifecyclePending || archivedReadOnly}
+          frozenMaskPaths={new Set(Object.keys(frozenMasks))}
+          onMaskOpen={archivedReadOnly ? openMaskEditorAt : undefined}
           onSelectionChange={(path, selected) =>
             !selectionInteractionLocked &&
             setSelectedPaths(current => {
@@ -698,6 +712,8 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
           selectedLiveImages={maskEditorImages}
           archivedReadOnly={archivedReadOnly}
           open={maskEditorOpen}
+          initialImagePath={maskEditorLaunch.path}
+          launchToken={maskEditorLaunch.token}
           onClose={() => setMaskEditorOpen(false)}
           onStatusRefresh={() => setMaskStatusRefreshKey(value => value + 1)}
           frozenMasks={frozenMasks}

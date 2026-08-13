@@ -1,10 +1,14 @@
 'use client';
 
+import DatasetMaskBadge from './DatasetMaskBadge';
+
 export interface DatasetSourceMissingListProps {
   paths: readonly string[];
   selectedPaths: ReadonlySet<string>;
   selectionMode: boolean;
   saving: boolean;
+  frozenMaskPaths?: ReadonlySet<string>;
+  onMaskOpen?: (path: string) => void;
   onSelectionChange(path: string, selected: boolean): void;
 }
 
@@ -13,6 +17,8 @@ export default function DatasetSourceMissingList({
   selectedPaths,
   selectionMode,
   saving,
+  frozenMaskPaths,
+  onMaskOpen,
   onSelectionChange,
 }: DatasetSourceMissingListProps) {
   if (paths.length === 0) return null;
@@ -41,6 +47,9 @@ export default function DatasetSourceMissingList({
                 <span className="rounded bg-amber-900 px-1.5 py-0.5 text-xs">source-missing</span>
                 {path}
               </span>
+            )}
+            {frozenMaskPaths?.has(path) && onMaskOpen && (
+              <DatasetMaskBadge state="read-only" mode="preview" imagePath={path} onActivate={onMaskOpen} />
             )}
           </li>
         ))}

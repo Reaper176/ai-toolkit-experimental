@@ -27,7 +27,9 @@ interface DatasetImageCardProps {
   maskState?: DatasetMaskState;
   maskDatasetName?: string;
   maskSourcePath?: string;
+  maskImagePath?: string;
   maskStatusRefreshKey?: number;
+  onMaskOpen?: (relativePath: string) => void;
 }
 
 const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
@@ -49,7 +51,9 @@ const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
   maskState = 'missing',
   maskDatasetName,
   maskSourcePath,
+  maskImagePath,
   maskStatusRefreshKey = 0,
+  onMaskOpen = () => {},
 }) => {
   const [loaded, setLoaded] = useState<boolean>(false);
   const [showAudioPlayer, setShowAudioPlayer] = useState(true);
@@ -315,7 +319,12 @@ const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
             </>
           )}
           <div className="absolute top-1 right-1 flex space-x-2 z-20">
-            <DatasetMaskBadge state={liveMaskState} />
+            <DatasetMaskBadge
+              state={liveMaskState}
+              mode={liveMaskState === 'read-only' ? 'preview' : 'edit'}
+              imagePath={maskImagePath ?? maskSourcePath ?? imageUrl}
+              onActivate={onMaskOpen}
+            />
             <button
               type="button"
               aria-label={`Delete ${filename}`}

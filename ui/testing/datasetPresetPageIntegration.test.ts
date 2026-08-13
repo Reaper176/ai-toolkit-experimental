@@ -134,6 +134,12 @@ assert.match(maskEditorSource, /paintStroke/, 'mask editor uses the shared paint
 assert.match(maskEditorSource, /createMaskHistory/, 'mask editor uses bounded undo and redo history');
 assert.match(maskEditorSource, /image\/png/, 'mask saves are serialized as PNG');
 assert.match(cardSource, /DatasetMaskBadge/, 'image cards expose mask status badges');
+assert.match(pageSource, /maskEditorLaunch[\s\S]{0,160}path:\s*undefined,\s*token:\s*0/, 'page owns a path and token for targeted mask launches');
+assert.match(pageSource, /onMaskOpen=\{!archivedReadOnly\s*\|\|\s*frozenMasks\[img\.relative_path\]\s*\?\s*openMaskEditorAt\s*:\s*undefined\}/, 'live cards and immutable archived-mask cards launch the editor at their own path');
+assert.match(pageSource, /initialImagePath=\{maskEditorLaunch\.path\}/, 'editor receives the targeted path');
+assert.match(pageSource, /launchToken=\{maskEditorLaunch\.token\}/, 'editor receives a retriggerable launch token');
+assert.match(pageSource, /setMaskEditorLaunch\(current\s*=>\s*\(\{\s*path,[^}]*token:\s*current\.token\s*\+\s*1/, 'repeated badge launches increment the token');
+assert.match(pageSource, /frozenMaskPaths=/, 'source-missing archived entries receive frozen mask status');
 const selectionDirtySource = pageSource.match(/const\s+selectionDirty\s*=\s*[^;]+;/)?.[0];
 assert.ok(selectionDirtySource, 'selection dirty derivation is present');
 assert.match(
