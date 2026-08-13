@@ -1,4 +1,6 @@
 export type Point = Readonly<{ x: number; y: number }>;
+export type MaskView = Readonly<{ zoom: number; offsetX: number; offsetY: number }>;
+export type MaskEditorShortcut = 'save' | 'undo' | 'redo' | 'close' | 'previous' | 'next' | 'paint' | 'erase' | 'zoom-in' | 'zoom-out' | 'fit' | null;
 
 export type MaskBrush = Readonly<{
   value: number;
@@ -121,6 +123,59 @@ export function paintStroke(
 
 export function isAllWhite(mask: Uint8ClampedArray): boolean {
   return mask.every(value => value === 255);
+}
+
+export function createWhiteMask(width: number, height: number): Uint8ClampedArray {
+  if (!Number.isSafeInteger(width) || width <= 0 || !Number.isSafeInteger(height) || height <= 0) throw new RangeError('mask dimensions must be positive integers');
+  return new Uint8ClampedArray(width * height).fill(255);
+}
+
+export function masksEqual(left: Uint8ClampedArray, right: Uint8ClampedArray): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+export function invertMask(mask: Uint8ClampedArray): Uint8ClampedArray {
+  return Uint8ClampedArray.from(mask, value => 255 - value);
+}
+
+export function maskSaveMethod(mask: Uint8ClampedArray): 'PUT' | 'DELETE' {
+  return isAllWhite(mask) ? 'DELETE' : 'PUT';
+}
+
+export function clampMaskImageIndex(index: number, count: number): number {
+  if (count <= 0) return -1;
+  return Math.max(0, Math.min(count - 1, index));
+}
+
+export function fitMaskView(source: Readonly<{ width: number; height: number }>, viewport: Readonly<{ width: number; height: number }>): MaskView {
+  if (source.width <= 0 || source.height <= 0 || viewport.width <= 0 || viewport.height <= 0) return { zoom: 1, offsetX: 0, offsetY: 0 };
+  const zoom = Math.min(viewport.width / source.width, viewport.height / source.height);
+  return { zoom, offsetX: (viewport.width - source.width * zoom) / 2, offsetY: (viewport.height - source.height * zoom) / 2 };
+}
+
+export function panMaskView(view: MaskView, dx: number, dy: number): MaskView {
+  return { ...view, offsetX: view.offsetX + dx, offsetY: view.offsetY + dy };
+}
+
+export function canvasBackingSize(size: Readonly<{ width: number; height: number }>, devicePixelRatio: number): { width: number; height: number } {
+  const ratio = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
+  return { width: Math.max(1, Math.round(size.width * ratio)), height: Math.max(1, Math.round(size.height * ratio)) };
+}
+
+export function maskEditorShortcut(event: Readonly<{ key: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }>): MaskEditorShortcut {
+  const command = event.ctrlKey || event.metaKey;
+  const key = event.key.toLowerCase();
+  if (command && key === 's') return 'save';
+  if (command && key === 'z') return event.shiftKey ? 'redo' : 'undo';
+  if (event.key === 'Escape') return 'close';
+  if (event.key === 'ArrowLeft') return 'previous';
+  if (event.key === 'ArrowRight') return 'next';
+  if (key === 'b') return 'paint';
+  if (key === 'e') return 'erase';
+  if (key === '+' || key === '=') return 'zoom-in';
+  if (key === '-') return 'zoom-out';
+  if (key === '0') return 'fit';
+  return null;
 }
 
 export function createMaskHistory(initial: Uint8ClampedArray, limit = 20): MaskHistory {
