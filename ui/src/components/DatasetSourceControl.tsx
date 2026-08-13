@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { SelectInput } from '@/components/formInputs';
+import { Checkbox, NumberInput, SelectInput } from '@/components/formInputs';
 import useDatasetPresets, {
   createLatestDatasetPresetRequestGate,
   type DatasetPresetDetail,
@@ -279,6 +279,23 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange, i
           {(localError || error) && <p className="text-xs text-red-400" role="alert">{localError ?? error}</p>}
         </>
       )}
+      <div className="space-y-2 rounded border border-gray-700 p-2" aria-label="Dataset mask settings">
+        <p className="text-xs text-gray-400">
+          Mask path: {dataset.mask_path || (dataset.dataset_preset ? 'Resolved by server when saved' : 'No matching masks resolved')}
+        </p>
+        <NumberInput
+          label="Mask minimum value"
+          value={dataset.mask_min_value}
+          min={0}
+          max={1}
+          onChange={value => value !== null && emitChange({ ...dataset, mask_min_value: value })}
+        />
+        <Checkbox
+          label="Invert mask"
+          checked={dataset.invert_mask ?? false}
+          onChange={value => emitChange({ ...dataset, invert_mask: value })}
+        />
+      </div>
     </div>
   );
 }

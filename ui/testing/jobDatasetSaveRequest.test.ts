@@ -4,6 +4,15 @@ import type { JobConfig } from '../src/types';
 
 const config = { config: { name: 'training' } } as JobConfig;
 
+const presetConfig = { config: { process: [{ datasets: [{
+  folder_path: '/browser/stale', mask_path: '/browser/attack',
+  dataset_preset: { version_id: 'v1', preset_id: 'p1', preset_name: 'Preset', version: 1, manifest_sha256: 'a'.repeat(64) },
+}]}] } } as unknown as JobConfig;
+const presetRequest = buildTrainingJobSaveRequest({ runId: null, cloneId: null, name: 'preset', gpuIds: '0', jobConfig: presetConfig });
+assert.equal(presetRequest.job_config.config.process[0].datasets[0].mask_path, null,
+  'client never submits a browser-derived mask path for preset resolution');
+assert.equal(presetConfig.config.process[0].datasets[0].mask_path, '/browser/attack', 'request building does not mutate UI state');
+
 assert.deepEqual(
   buildTrainingJobSaveRequest({ runId: null, cloneId: null, name: 'new', gpuIds: '0', jobConfig: config }),
   { id: null, clone: false, name: 'new', gpu_ids: '0', job_config: config },

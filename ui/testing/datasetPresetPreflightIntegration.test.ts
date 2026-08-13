@@ -45,7 +45,7 @@ function snapshotStore(overrides: Partial<DatasetPresetSnapshotStore> = {}): Dat
     stageVersion: unavailable,
     readManifest: unavailable,
     verifyFast: unavailable,
-    verifyFull: unavailable,
+    verifyFull: overrides.verifyFast ?? unavailable,
     resolveMediaRoot: () => '/managed/private/root/preset/v1/media',
     quarantineVersion: unavailable,
     cleanupStaging: unavailable,

@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { PNG } from 'pngjs';
 import { manifestSha256, validateManifest, type DatasetPresetLoaderConfig, type DatasetPresetManifestV1 } from '../src/helpers/datasetPresets';
 import {
   preflightJobDatasetPresets,
@@ -89,6 +93,11 @@ function fixtures(entries: Array<{ id: string; archived?: boolean; presetId?: st
       if (!value) throw new Error(`/private/root/${path} is corrupt`);
       return structuredClone(value);
     },
+    async verifyFull(path: string) {
+      const value = manifests.get(path);
+      if (!value) throw new Error(`/private/root/${path} is corrupt`);
+      return structuredClone(value);
+    },
     resolveMediaRoot(path: string) {
       if (!manifests.has(path)) throw new Error(`/private/root/${path} missing`);
       return `/managed/${path.replace('/manifest.json', '/media')}`;
@@ -99,6 +108,13 @@ function fixtures(entries: Array<{ id: string; archived?: boolean; presetId?: st
 
 async function runResolutionTests(): Promise<void> {
   const f = fixtures([{ id: 'v1' }, { id: 'v2', presetId: 'p2', version: 4 }]);
+  const masked = f.manifests.get(f.records.get('v1')!.version.manifest_path)!;
+  Object.assign(masked.files[0], {
+    mask_path: 'masks/a.png', mask_bytes: 2, mask_sha256: 'b'.repeat(64), mask_missing: false,
+  });
+  masked.total_bytes = 5;
+  f.records.get('v1')!.version.manifest_sha256 = manifestSha256(masked);
+  f.records.get('v1')!.version.total_bytes = '5';
   const input = job([dataset('v1'), dataset(), dataset('v2'), dataset('v1')]);
   input.config.process[0].datasets[0].caption_dropout_rate = 0.42;
   (input.config.process[0].datasets[0] as DatasetConfig & { browser_only?: string }).browser_only = 'discard me';
@@ -106,6 +122,8 @@ async function runResolutionTests(): Promise<void> {
     versions: f.versions, snapshots: f.snapshots });
   assert.equal(input.config.process[0].datasets[0].folder_path, '/browser/attack', 'input is not mutated');
   assert.equal(resolved.jobConfig.config.process[0].datasets[0].folder_path, '/managed/p-v1/v1/media');
+  assert.equal(resolved.jobConfig.config.process[0].datasets[0].mask_path, '/managed/p-v1/v1/masks');
+  assert.equal(resolved.jobConfig.config.process[0].datasets[2].mask_path, null, 'maskless versions resolve no mask directory');
   assert.equal(resolved.jobConfig.config.process[0].datasets[1].folder_path, '/live/images');
   assert.deepEqual(resolved.usages.map(item => item.dataset_index), [0, 2, 3]);
   assert.deepEqual(resolved.usages.map(item => item.preset_version_id), ['v1', 'v2', 'v1']);
@@ -191,11 +209,29 @@ async function runExternalAuxiliaryPathTests(): Promise<void> {
   live.dataset_path = '/external/live-dataset.json';
   live.mask_path = '/external/live-mask';
   const resolved = await resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([live]), versions: f.versions, snapshots: f.snapshots });
-  assert.equal(resolved.jobConfig.config.process[0].datasets[0].mask_path, '/external/live-mask');
+  assert.equal(resolved.jobConfig.config.process[0].datasets[0].mask_path, null, 'client absolute live mask paths are ignored');
   assert.equal(
     (resolved.jobConfig.config.process[0].datasets[0] as DatasetConfig & Record<string, unknown>).dataset_path,
     '/external/live-dataset.json',
   );
+
+  const root = await mkdtemp(join(tmpdir(), 'job-live-masks-'));
+  try {
+    const images = join(root, 'training');
+    const masks = join(root, 'training_masks');
+    await mkdir(images);
+    await mkdir(masks);
+    await writeFile(join(images, 'one.png'), PNG.sync.write(new PNG({ width: 1, height: 1 })));
+    await writeFile(join(images, 'two.png'), PNG.sync.write(new PNG({ width: 1, height: 1 })));
+    await writeFile(join(masks, 'one.png'), PNG.sync.write(new PNG({ width: 1, height: 1 })));
+    const matching = dataset();
+    matching.folder_path = images;
+    matching.mask_path = '/attacker/path';
+    const liveResolved = await resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([matching]), versions: f.versions, snapshots: f.snapshots });
+    assert.equal(liveResolved.jobConfig.config.process[0].datasets[0].mask_path, masks);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 }
 
 async function runArchiveAndFailureTests(): Promise<void> {

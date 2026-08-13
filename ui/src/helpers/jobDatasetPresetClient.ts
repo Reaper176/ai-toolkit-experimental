@@ -15,12 +15,21 @@ export interface TrainingJobSaveRequestInput {
 
 export function buildTrainingJobSaveRequest(input: TrainingJobSaveRequestInput) {
   const clone = Boolean(input.cloneId);
+  const processes = input.jobConfig.config.process?.map(process => ({
+    ...process,
+    ...(process.datasets ? {
+      datasets: process.datasets.map(dataset => dataset.dataset_preset ? { ...dataset, mask_path: null } : dataset),
+    } : {}),
+  }));
+  const jobConfig = processes
+    ? { ...input.jobConfig, config: { ...input.jobConfig.config, process: processes } }
+    : input.jobConfig;
   return {
     id: clone ? null : input.runId,
     clone,
     name: input.name,
     gpu_ids: input.gpuIds,
-    job_config: input.jobConfig,
+    job_config: jobConfig,
   };
 }
 

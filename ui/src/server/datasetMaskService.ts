@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, realpath, rename as fsRename, rm, type FileHandle } from 'node:fs/promises';
+import { lstat, mkdir, open, realpath, readdir, readFile, rename as fsRename, rm, type FileHandle } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { imageSize } from 'image-size';
@@ -114,6 +114,42 @@ export function assertUniqueMaskBasenames(paths: readonly string[]): void {
     if (seen.has(name)) throw new Error(`Duplicate mask basename: ${name}`);
     seen.add(name);
   }
+}
+
+export async function resolveLiveMaskDirectory(sourceRoot: string): Promise<string | null> {
+  if (!isAbsolute(sourceRoot)) throw new Error('Live dataset path must be absolute');
+  let canonicalSource: string;
+  try {
+    canonicalSource = await realpath(sourceRoot);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+  const sourceInfo = await lstat(canonicalSource);
+  if (!sourceInfo.isDirectory() || sourceInfo.isSymbolicLink()) throw new Error('Live dataset path is not a secure directory');
+  const sources = (await readdir(canonicalSource, { withFileTypes: true }))
+    .filter(entry => entry.isFile() && SOURCE_EXTENSIONS.has(extname(entry.name).toLowerCase()))
+    .map(entry => entry.name);
+  assertUniqueMaskBasenames(sources);
+  const maskRoot = join(dirname(canonicalSource), `${basename(canonicalSource)}_masks`);
+  let canonicalMasks: string;
+  try {
+    canonicalMasks = await realpath(maskRoot);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+  const maskInfo = await lstat(canonicalMasks);
+  if (!maskInfo.isDirectory() || maskInfo.isSymbolicLink() || canonicalMasks !== maskRoot) {
+    throw new Error('Live mask path is not a secure sibling directory');
+  }
+  const sourceBasenames = new Set(sources.map(path => maskFilename(path)));
+  for (const entry of await readdir(canonicalMasks, { withFileTypes: true })) {
+    if (!entry.isFile() || !sourceBasenames.has(entry.name)) continue;
+    parsePng(await readFile(join(canonicalMasks, entry.name)));
+    return canonicalMasks;
+  }
+  return null;
 }
 
 function parsePng(bytes: Buffer): PNG {

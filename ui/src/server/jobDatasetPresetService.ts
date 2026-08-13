@@ -1,5 +1,5 @@
 import type { Job } from '@prisma/client';
-import { isAbsolute } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import {
   LOADER_CONFIG_KEYS,
   manifestSha256,
@@ -12,6 +12,7 @@ import type { DatasetPresetVersionRecord } from './datasetPresetService';
 import type { DatasetPresetSnapshotStore } from './datasetPresetSnapshotService';
 import type { DatasetConfig, JobConfig } from '../types';
 import { DATASET_PRESET_REPRODUCIBILITY_BREAKING_PATH_KEYS } from '../helpers/datasetPresetValidation';
+import { resolveLiveMaskDirectory } from './datasetMaskService';
 
 export interface ResolvedJobDatasets {
   jobConfig: JobConfig;
@@ -220,7 +221,7 @@ function loaderSettings(dataset: DatasetConfig): DatasetPresetLoaderConfig {
 function canonicalVersionAgreement(
   authoritative: NonNullable<Awaited<ReturnType<JobDatasetVersionStore['getVersionForResolution']>>>,
   manifestInput: unknown,
-): void {
+): ReturnType<typeof validateManifest> {
   try {
     const { preset, version } = authoritative;
     const manifest = validateManifest(manifestInput);
@@ -238,6 +239,7 @@ function canonicalVersionAgreement(
       manifest.media_count !== version.media_count ||
       String(manifest.total_bytes) !== version.total_bytes
     ) throw new Error('manifest mismatch');
+    return manifest;
   } catch (error) {
     throw new JobDatasetPresetError('Dataset preset version is unavailable or inconsistent', { cause: error });
   }
@@ -254,7 +256,11 @@ async function resolveJobDatasetPresetsInternal(input: {
   if (input.jobId !== null && !nonblank(input.jobId)) throw new JobDatasetPresetError('Job identity is invalid');
   if (typeof input.clone !== 'boolean') throw new JobDatasetPresetError('Clone flag is invalid');
   const usages: ResolvedJobDatasets['usages'] = [];
-  const verified = new Map<string, Promise<NonNullable<Awaited<ReturnType<JobDatasetVersionStore['getVersionForResolution']>>>>>();
+  type VerifiedVersion = {
+    authoritative: NonNullable<Awaited<ReturnType<JobDatasetVersionStore['getVersionForResolution']>>>;
+    manifest: ReturnType<typeof validateManifest>;
+  };
+  const verified = new Map<string, Promise<VerifiedVersion>>();
 
   async function getVerified(versionId: string, reference: Record<string, unknown>) {
     let pending = verified.get(versionId);
@@ -280,7 +286,9 @@ async function resolveJobDatasetPresetsInternal(input: {
         }
         let manifest;
         try {
-          manifest = await input.snapshots.verifyFast(authoritative.version.manifest_path);
+          manifest = eligibility === 'integrity-only'
+            ? await input.snapshots.verifyFull(authoritative.version.manifest_path)
+            : await input.snapshots.verifyFast(authoritative.version.manifest_path);
         } catch (error) {
           if (eligibility === 'integrity-only') {
             throw new JobDatasetPresetPreflightError({
@@ -292,8 +300,9 @@ async function resolveJobDatasetPresetsInternal(input: {
           }
           throw new JobDatasetPresetError('Dataset preset snapshot is unavailable', { cause: error });
         }
+        let canonicalManifest;
         try {
-          canonicalVersionAgreement(authoritative, manifest);
+          canonicalManifest = canonicalVersionAgreement(authoritative, manifest);
         } catch (error) {
           if (eligibility === 'integrity-only') {
             throw new JobDatasetPresetPreflightError({
@@ -304,7 +313,7 @@ async function resolveJobDatasetPresetsInternal(input: {
           }
           throw error;
         }
-        return authoritative;
+        return { authoritative, manifest: canonicalManifest };
       })();
       verified.set(versionId, pending);
     }
@@ -313,13 +322,24 @@ async function resolveJobDatasetPresetsInternal(input: {
 
   for (let datasetIndex = 0; datasetIndex < datasets.length; datasetIndex += 1) {
     const dataset = datasets[datasetIndex];
-    if (!Object.prototype.hasOwnProperty.call(dataset, 'dataset_preset')) continue;
+    if (!Object.prototype.hasOwnProperty.call(dataset, 'dataset_preset')) {
+      if (nonblank(dataset.folder_path)) {
+        try {
+          dataset.mask_path = await resolveLiveMaskDirectory(dataset.folder_path);
+        } catch (error) {
+          throw new JobDatasetPresetError('Live dataset mask files are invalid or ambiguous', { cause: error });
+        }
+      } else {
+        dataset.mask_path = null;
+      }
+      continue;
+    }
     if (!isPlainObject(dataset.dataset_preset) || !nonblank(dataset.dataset_preset.version_id)) {
       throw new JobDatasetPresetError('Dataset preset reference is invalid');
     }
     rejectPresetExternalPaths(dataset);
     const versionId = dataset.dataset_preset.version_id.trim();
-    const authoritative = await getVerified(versionId, dataset.dataset_preset);
+    const { authoritative, manifest } = await getVerified(versionId, dataset.dataset_preset);
     if (eligibility === 'save' && authoritative.preset.archived_at !== null) {
       let sameHistoricalUsage = false;
       if (!input.clone && input.jobId !== null) {
@@ -356,6 +376,9 @@ async function resolveJobDatasetPresetsInternal(input: {
       throw new JobDatasetPresetError('Dataset preset snapshot is unavailable');
     }
     dataset.folder_path = mediaRoot;
+    dataset.mask_path = manifest.files.some(file => file.mask_missing === false)
+      ? join(dirname(mediaRoot), 'masks')
+      : null;
     dataset.dataset_preset = {
       version_id: authoritative.version.id,
       preset_id: authoritative.preset.id,
