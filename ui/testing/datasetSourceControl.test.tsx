@@ -812,6 +812,7 @@ async function runLiveMaskStatusBehavior(): Promise<void> {
     if (url.includes('folder_path=%2Fdatasets%2Ffirst')) return first.promise;
     if (url.includes('folder_path=%2Fdatasets%2Fsecond')) return response({ has_masks: false });
     if (url.includes('folder_path=%2Fdatasets%2Fmasked')) return response({ has_masks: true });
+    if (url.includes('folder_path=%2Fdatasets%2Ffailed')) throw new Error('probe failed');
     throw new Error(`Unexpected URL ${url}`);
   }) as typeof fetch;
   let current: DatasetConfig = { ...initialDataset, folder_path: '/datasets/first', mask_path: null };
@@ -830,6 +831,11 @@ async function runLiveMaskStatusBehavior(): Promise<void> {
   assert.equal(current.resolved_mask_available, false, 'a stale positive response cannot overwrite the latest live folder status');
   await act(async () => { replace({ ...current, folder_path: '/datasets/masked' }); await Promise.resolve(); await Promise.resolve(); });
   assert.equal(current.resolved_mask_available, true, 'a live folder with sibling masks enables mask-aware controls');
+  await act(async () => { select(renderer.root, 'Target Dataset').props.onChange('/datasets/failed'); });
+  assert.equal(current.resolved_mask_available, undefined,
+    'changing live folders clears the prior mask result before the asynchronous probe settles');
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  assert.notEqual(current.resolved_mask_available, true, 'a failed probe cannot retain stale mask availability');
   await act(async () => renderer.unmount());
 }
 

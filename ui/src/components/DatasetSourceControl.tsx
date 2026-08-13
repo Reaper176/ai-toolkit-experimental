@@ -280,7 +280,12 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange, i
       </div>
 
       {mode === 'live' ? (
-        <SelectInput label="Target Dataset" value={dataset.folder_path} onChange={value => emitChange({ ...dataset, folder_path: value })} options={liveOptions} />
+        <SelectInput
+          label="Target Dataset"
+          value={dataset.folder_path}
+          onChange={value => emitChange({ ...dataset, folder_path: value, resolved_mask_available: undefined })}
+          options={liveOptions}
+        />
       ) : (
         <>
           <SelectInput
