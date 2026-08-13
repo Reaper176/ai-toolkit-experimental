@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
@@ -19,6 +19,7 @@ import {
   DATASET_PRESET_EXTERNAL_AUXILIARY_PATH_KEYS,
   DATASET_PRESET_REPRODUCIBILITY_BREAKING_PATH_KEYS,
 } from '../src/helpers/datasetPresetValidation';
+import { resolveLiveMaskDirectory } from '../src/server/datasetMaskService';
 
 const loader: DatasetPresetLoaderConfig = {
   caption_ext: 'txt', default_caption: '', caption_dropout_rate: 0.1, shuffle_tokens: true,
@@ -257,6 +258,33 @@ async function runExternalAuxiliaryPathTests(): Promise<void> {
     for (const invalidRoot of ['/', root]) {
       const invalid = dataset(); invalid.folder_path = invalidRoot;
       await assert.rejects(resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([invalid]), versions: f.versions, snapshots: f.snapshots, datasetsRoot: root }), /invalid|ambiguous|escape/i);
+    }
+    await assert.rejects(resolveLiveMaskDirectory(images, { datasetsRoot: root, maxDepth: 0 }), /nesting limit/i);
+    await writeFile(join(images, 'ignored-1.bin'), Buffer.from('x'));
+    await writeFile(join(images, 'ignored-2.bin'), Buffer.from('x'));
+    await assert.rejects(resolveLiveMaskDirectory(images, { datasetsRoot: root, maxEntries: 1 }), /entry limit/i,
+      'non-image entries consume the traversal budget');
+    await assert.rejects(resolveLiveMaskDirectory(images, { datasetsRoot: root, maxDirectories: 1 }), /directory limit/i,
+      'empty and media directories consume the directory budget');
+    if (process.platform === 'linux') {
+      const held = join(images, 'nested-held');
+      const outside = await mkdtemp(join(tmpdir(), 'outside-live-swap-'));
+      await writeFile(join(outside, 'escaped.png'), PNG.sync.write(new PNG({ width: 1, height: 1 })));
+      let swapped = false;
+      try {
+        await assert.rejects(resolveLiveMaskDirectory(images, {
+          datasetsRoot: root, filesystemStrategy: 'descriptor',
+          async beforeChildDirectoryOpen(path) {
+            if (path !== 'nested' || swapped) return;
+            swapped = true;
+            await rename(nested, held);
+            await symlink(outside, nested, 'dir');
+          },
+        }), /refusing changed child directory/i);
+      } finally {
+        if (swapped) { await unlink(nested).catch(() => undefined); await rename(held, nested).catch(() => undefined); }
+        await rm(outside, { recursive: true, force: true });
+      }
     }
   } finally {
     await rm(root, { recursive: true, force: true });

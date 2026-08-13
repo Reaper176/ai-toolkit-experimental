@@ -117,11 +117,15 @@ export function assertUniqueMaskBasenames(paths: readonly string[]): void {
 }
 
 export async function resolveLiveMaskDirectory(sourceRoot: string, options: {
-  datasetsRoot?: string; maxDepth?: number; maxFiles?: number;
+  datasetsRoot?: string; maxDepth?: number; maxFiles?: number; maxEntries?: number; maxDirectories?: number;
+  filesystemStrategy?: 'descriptor' | 'portable';
+  beforeChildDirectoryOpen?: (relativePath: string) => void | Promise<void>;
 } = {}): Promise<string | null> {
   if (!isAbsolute(sourceRoot)) throw new Error('Live dataset path must be absolute');
   const maxDepth = options.maxDepth ?? 32;
   const maxFiles = options.maxFiles ?? 10_000;
+  const maxEntries = options.maxEntries ?? 50_000;
+  const maxDirectories = options.maxDirectories ?? 10_000;
   let canonicalSource: string;
   try {
     canonicalSource = await realpath(sourceRoot);
@@ -151,17 +155,32 @@ export async function resolveLiveMaskDirectory(sourceRoot: string, options: {
   if (!maskInfo.isDirectory() || maskInfo.isSymbolicLink() || canonicalMasks !== maskRoot) {
     throw new Error('Live mask path is not a secure sibling directory');
   }
-  const sources: string[] = [];
-  const walk = async (directory: string, prefix = '', depth = 0): Promise<void> => {
+  const sources = new Map<string, string>();
+  let inspectedEntries = 0;
+  let inspectedDirectories = 0;
+  const recordEntry = (entryName: string, relativePath: string): void => {
+    inspectedEntries += 1;
+    if (inspectedEntries > maxEntries) throw new Error('Live dataset entry limit exceeded');
+    if (!SOURCE_EXTENSIONS.has(extname(entryName).toLowerCase())) return;
+    if (sources.size >= maxFiles) throw new Error('Live dataset file limit exceeded');
+    const maskName = maskFilename(relativePath).toLocaleLowerCase('en-US');
+    if (sources.has(maskName)) throw new Error(`Duplicate mask basename: ${maskName}`);
+    sources.set(maskName, relativePath);
+  };
+  const walkPortable = async (directory: string, prefix = '', depth = 0): Promise<void> => {
     if (depth > maxDepth) throw new Error('Live dataset nesting limit exceeded');
+    inspectedDirectories += 1;
+    if (inspectedDirectories > maxDirectories) throw new Error('Live dataset directory limit exceeded');
     const before = await lstat(directory);
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      inspectedEntries += 1;
+      if (inspectedEntries > maxEntries) throw new Error('Live dataset entry limit exceeded');
       if (entry.isSymbolicLink()) throw new Error(`Refusing symlink in live dataset: ${relativePath}`);
-      if (entry.isDirectory()) await walk(join(directory, entry.name), relativePath, depth + 1);
-      else if (entry.isFile() && SOURCE_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
-        if (sources.length >= maxFiles) throw new Error('Live dataset file limit exceeded');
-        sources.push(relativePath);
+      if (entry.isDirectory()) await walkPortable(join(directory, entry.name), relativePath, depth + 1);
+      else if (entry.isFile()) {
+        inspectedEntries -= 1;
+        recordEntry(entry.name, relativePath);
       }
     }
     const after = await lstat(directory);
@@ -169,11 +188,37 @@ export async function resolveLiveMaskDirectory(sourceRoot: string, options: {
       throw new Error('Live dataset changed during enumeration');
     }
   };
-  await walk(canonicalSource);
-  assertUniqueMaskBasenames(sources);
+  const walkDescriptor = async (directory: FileHandle, prefix = '', depth = 0): Promise<void> => {
+    if (depth > maxDepth) throw new Error('Live dataset nesting limit exceeded');
+    inspectedDirectories += 1;
+    if (inspectedDirectories > maxDirectories) throw new Error('Live dataset directory limit exceeded');
+    for (const entry of await readdir(descriptorPath(directory), { withFileTypes: true })) {
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      inspectedEntries += 1;
+      if (inspectedEntries > maxEntries) throw new Error('Live dataset entry limit exceeded');
+      if (entry.isSymbolicLink()) throw new Error(`Refusing symlink in live dataset: ${relativePath}`);
+      if (entry.isDirectory()) {
+        await options.beforeChildDirectoryOpen?.(relativePath);
+        let child: FileHandle;
+        try { child = await openDirectory(descriptorPath(directory, entry.name)); }
+        catch { throw new Error(`Refusing changed child directory: ${relativePath}`); }
+        try { await walkDescriptor(child, relativePath, depth + 1); }
+        finally { await child.close().catch(() => undefined); }
+      } else if (entry.isFile()) {
+        inspectedEntries -= 1;
+        recordEntry(entry.name, relativePath);
+      }
+    }
+  };
+  if ((options.filesystemStrategy ?? (process.platform === 'linux' ? 'descriptor' : 'portable')) === 'descriptor') {
+    const root = await openDirectory(canonicalSource);
+    try { await walkDescriptor(root); } finally { await root.close().catch(() => undefined); }
+  } else {
+    await walkPortable(canonicalSource);
+  }
   const masks = createDatasetMaskService({ datasetsRoot: dirname(canonicalSource), maxPngBytes: 64 * 1024 * 1024 });
   let matched = false;
-  for (const source of sources) {
+  for (const source of sources.values()) {
     const result = await masks.read(basename(canonicalSource), source);
     if (result.exists) matched = true;
   }
