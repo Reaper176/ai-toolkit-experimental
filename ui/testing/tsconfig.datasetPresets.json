@@ -14,6 +14,7 @@
     "target": "es2020"
   },
   "include": [
+    "../src/server/datasetMaskService.ts",
     "../src/helpers/datasetPresets.ts",
     "../src/helpers/datasetSelection.ts",
     "../src/components/DatasetImageCard.tsx",
@@ -32,6 +33,7 @@
     "../src/components/DatasetPresetLifecycleControls.tsx",
     "../src/hooks/useJob.tsx",
     "datasetPreset*.test.ts",
+    "datasetMaskService.test.ts",
     "datasetPreset*.test.tsx",
     "datasetProvenance.test.tsx",
     "datasetSourceControl.test.tsx",
