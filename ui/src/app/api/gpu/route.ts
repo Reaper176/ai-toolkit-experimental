@@ -4,7 +4,7 @@ import { promisify } from 'util';
 import os from 'os';
 import { cached } from '@/server/apiCache';
 import { loadMacstats } from '@/server/macstats';
-import { parseRocmSmiJson } from '@/server/rocmGpu';
+import { parseRocmSmiJson, ROCM_SMI_ARGS } from '@/server/rocmGpu';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -121,7 +121,7 @@ async function getGpuInfo() {
             },
             power: { draw: macGpu.powerDraw, limit: 0 },
             clocks: { graphics: 0, memory: 0 },
-            fan: { speed: macGpu.fanSpeed },
+            fan: { speed: macGpu.fanSpeed, unit: 'RPM' as const },
           },
         ],
       };
@@ -196,11 +196,11 @@ export async function GET() {
 }
 
 async function getRocmGpuStats() {
-  const { stdout } = await execFileAsync(
-    'rocm-smi',
-    ['--showproductname', '--showuse', '--showmeminfo', 'vram', '--showtemp', '--showpower', '--json'],
-    { encoding: 'utf-8', timeout: 5000, maxBuffer: 1024 * 1024 },
-  );
+  const { stdout } = await execFileAsync('rocm-smi', ROCM_SMI_ARGS, {
+    encoding: 'utf-8',
+    timeout: 5000,
+    maxBuffer: 1024 * 1024,
+  });
   return parseRocmSmiJson(stdout);
 }
 
@@ -277,6 +277,7 @@ async function getGpuStats(isWindows: boolean) {
         },
         fan: {
           speed: parseInt(fanSpeed) || 0, // Some GPUs might not report fan speed, default to 0
+          unit: '%' as const,
         },
       };
     });

@@ -2,6 +2,17 @@ import type { GpuInfo } from '../types';
 
 const MIN_TRAINABLE_VRAM_BYTES = 2 * 1024 ** 3;
 
+export const ROCM_SMI_ARGS = [
+  '--showproductname',
+  '--showuse',
+  '--showmeminfo',
+  'vram',
+  '--showtemp',
+  '--showpower',
+  '--showmetrics',
+  '--json',
+];
+
 type RocmCard = Record<string, unknown>;
 
 function numberValue(card: RocmCard, key: string, fallback = 0): number {
@@ -71,8 +82,14 @@ export function parseRocmSmiJson(output: string): GpuInfo[] {
         used,
       },
       power: { draw: powerDraw, limit: 0 },
-      clocks: { graphics: 0, memory: 0 },
-      fan: { speed: 0 },
+      clocks: {
+        graphics: numberValue(card, 'current_gfxclk (MHz)'),
+        memory: numberValue(card, 'current_uclk (MHz)'),
+      },
+      fan: {
+        speed: numberValue(card, 'current_fan_speed (rpm)'),
+        unit: 'RPM',
+      },
     });
   }
 

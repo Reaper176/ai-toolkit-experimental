@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { parseRocmSmiJson } from '../src/server/rocmGpu';
+import { parseRocmSmiJson, ROCM_SMI_ARGS } from '../src/server/rocmGpu';
+
+assert.ok(ROCM_SMI_ARGS.includes('--showmetrics'), 'ROCm query requests clock and fan metrics');
 
 const TWO_CARD_OUTPUT = JSON.stringify({
   card0: {
@@ -10,6 +12,9 @@ const TWO_CARD_OUTPUT = JSON.stringify({
     'VRAM Total Memory (B)': '25753026560',
     'VRAM Total Used Memory (B)': '5476655104',
     'Card Series': 'AMD Radeon RX 7900 XTX',
+    'current_gfxclk (MHz)': '1295',
+    'current_uclk (MHz)': '1249',
+    'current_fan_speed (rpm)': '875',
   },
   card1: {
     'Temperature (Sensor edge) (C)': '40.0',
@@ -32,8 +37,8 @@ assert.deepEqual(gpu, {
   utilization: { gpu: 27, memory: 21 },
   memory: { total: 24560, free: 19337, used: 5223 },
   power: { draw: 92, limit: 0 },
-  clocks: { graphics: 0, memory: 0 },
-  fan: { speed: 0 },
+  clocks: { graphics: 1295, memory: 1249 },
+  fan: { speed: 875, unit: 'RPM' },
 });
 
 const SPARSE_CARD_OUTPUT = JSON.stringify({
@@ -66,6 +71,8 @@ assert.deepEqual(
 const [cardZero, cardTwo] = sparseCards;
 assert.equal(cardZero.temperature, 0);
 assert.equal(cardZero.power.draw, 0);
+assert.deepEqual(cardZero.clocks, { graphics: 0, memory: 0 });
+assert.deepEqual(cardZero.fan, { speed: 0, unit: 'RPM' });
 assert.equal(cardTwo.power.draw, 32.142);
 
 const MALFORMED_LOW_MEMORY_OUTPUT = JSON.stringify({

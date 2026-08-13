@@ -27,6 +27,7 @@ export interface GpuClocks {
 
 export interface GpuFan {
   speed: number;
+  unit?: '%' | 'RPM';
 }
 
 export interface GpuInfo {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { GpuInfo } from '@/types';
 import { Thermometer, Zap, Clock, HardDrive, Fan, Cpu } from 'lucide-react';
+import { formatGpuFan } from '@/helpers/gpu';
 
 interface GPUWidgetProps {
   gpu: GpuInfo;
@@ -43,7 +44,7 @@ export default function GPUWidget({ gpu }: GPUWidgetProps) {
               <Fan className="w-4 h-4 text-blue-600 dark:text-blue-400" />
               <div>
                 <p className="text-xs text-gray-400">Fan Speed</p>
-                <p className="text-sm font-medium text-blue-600 dark:text-blue-400">{gpu.fan.speed}%</p>
+                <p className="text-sm font-medium text-blue-600 dark:text-blue-400">{formatGpuFan(gpu.fan)}</p>
               </div>
             </div>
           </div>
