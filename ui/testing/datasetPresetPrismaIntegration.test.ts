@@ -442,6 +442,21 @@ async function main(): Promise<void> {
       base_version_id: smokeV1.id, caption_ext: 'txt', loader_config: loaderConfig, note: 'smoke v2',
     });
     assert.equal(smokeV2.version, 2);
+    const beforeDuplicate = await client.datasetPreset.findUniqueOrThrow({ where: { id: smokePreset.id } });
+    await assert.rejects(smokeService.createPreset({
+      name: 'duplicate-create', source_dataset: 'my-images', selected_paths: ['a.png', 'sub/a.jpg'],
+      caption_ext: 'txt', loader_config: loaderConfig, note: null,
+    }), /duplicate mask basename/i);
+    assert.equal(await store.findPresetByNameKey('duplicate-create'), null, 'deterministic create rejection creates no preset row');
+    await assert.rejects(smokeService.publishVersion(smokePreset.id, {
+      source_dataset: 'my-images', selected_paths: ['sub/a.png'], retained_paths: ['a.png'],
+      base_version_id: smokeV1.id, caption_ext: 'txt', loader_config: loaderConfig, note: null,
+    }), /duplicate mask basename/i);
+    const afterDuplicate = await client.datasetPreset.findUniqueOrThrow({ where: { id: smokePreset.id } });
+    assert.equal(afterDuplicate.next_version, beforeDuplicate.next_version, 'deterministic rejection does not consume a version');
+    assert.equal((await store.listVersions(smokePreset.id)).length, 2, 'deterministic rejection creates no version row');
+    assert.equal(existsSync(join(smokeDataRoot, `dataset_presets/${smokePreset.id}/v${beforeDuplicate.next_version}`)), false,
+      'deterministic rejection creates no snapshot');
 
     const versions = createJobDatasetVersionPrismaStore(client as never);
     const jobs = createJobWritePrismaStore(client as never);

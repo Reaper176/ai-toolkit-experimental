@@ -13,6 +13,7 @@ import {
 import {
   DatasetPresetSnapshotConflictError,
   DatasetPresetSnapshotVerificationError,
+  preflightDatasetPresetSnapshotPaths,
   type DatasetPresetVerificationMismatch,
   type DatasetPresetSnapshotStore,
   type StagedPublication,
@@ -635,6 +636,11 @@ export function createDatasetPresetService(dependencies: {
         throw new DatasetPresetValidationError('A new dataset preset must contain at least one selected file');
       }
       try {
+        preflightDatasetPresetSnapshotPaths(valid.selectedPaths);
+      } catch (error) {
+        throw new DatasetPresetValidationError(`Invalid dataset preset input: ${detail(error)}`, error);
+      }
+      try {
         if (await store.findPresetByNameKey(normalized.nameKey)) {
           throw new DatasetPresetConflictError(`A dataset preset named "${normalized.name}" already exists`);
         }
@@ -681,6 +687,11 @@ export function createDatasetPresetService(dependencies: {
         }
         if (valid.selectedPaths.length + retainedPaths.length === 0)
           throw new Error('A snapshot must contain at least one file');
+      } catch (error) {
+        throw new DatasetPresetValidationError(`Invalid dataset preset input: ${detail(error)}`, error);
+      }
+      try {
+        preflightDatasetPresetSnapshotPaths(valid.selectedPaths, retainedPaths);
       } catch (error) {
         throw new DatasetPresetValidationError(`Invalid dataset preset input: ${detail(error)}`, error);
       }

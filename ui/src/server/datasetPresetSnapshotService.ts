@@ -46,6 +46,16 @@ export interface StageVersionInput {
   maskService?: DatasetMaskService;
 }
 
+export function preflightDatasetPresetSnapshotPaths(
+  selectedPaths: readonly string[],
+  retainedPaths: readonly string[] = [],
+): void {
+  assertUniqueMaskBasenames([
+    ...selectedPaths.map(normalizeRelativeMediaPath),
+    ...retainedPaths.map(normalizeRelativeMediaPath),
+  ]);
+}
+
 export interface StagedPublication {
   versionRoot: string;
   manifestPath: string;
@@ -1248,7 +1258,7 @@ export function createDatasetPresetSnapshotStore(
     const selectedPaths = input.selectedPaths.map(normalizeRelativeMediaPath);
     const retainedPaths = (input.retainedPaths ?? []).map(normalizeRelativeMediaPath);
     if (selectedPaths.length + retainedPaths.length === 0) throw new Error('A snapshot must contain at least one file');
-    assertUniqueMaskBasenames([...selectedPaths, ...retainedPaths]);
+    preflightDatasetPresetSnapshotPaths(selectedPaths, retainedPaths);
     const selectedKeys = new Set<string>();
     for (const path of selectedPaths) {
       const key = path.toLowerCase();

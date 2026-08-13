@@ -18,12 +18,14 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { PNG } from 'pngjs';
 import { DATASET_PRESET_NOTE_MAX, normalizeRelativeMediaPath, serializeManifest } from '../src/helpers/datasetPresets';
 import {
   DatasetPresetSnapshotConflictError,
   DatasetPresetSnapshotVerificationError,
   createDatasetPresetSnapshotStore,
 } from '../src/server/datasetPresetSnapshotService';
+import { createDatasetMaskService } from '../src/server/datasetMaskService';
 
 const loaderConfig = {
   caption_ext: 'txt',
@@ -335,6 +337,28 @@ async function main(): Promise<void> {
       selectedPaths: ['b.png', 'sub/b.jpg'], captionExt: 'txt', loaderConfig, note: null, maskService,
     }), /duplicate mask basename/i);
     assert.equal(existsSync(join(dataRoot, 'dataset_presets/duplicate-mask')), false);
+
+    const whiteDatasetsRoot = join(ownedRoot, 'white-datasets');
+    const whiteSourceRoot = join(whiteDatasetsRoot, 'my-images');
+    mkdirSync(whiteSourceRoot, { recursive: true });
+    const whiteImage = new PNG({ width: 1, height: 1 });
+    whiteImage.data.fill(255);
+    const whitePng = PNG.sync.write(whiteImage);
+    writeFileSync(join(whiteSourceRoot, 'white.png'), whitePng);
+    const realMasks = createDatasetMaskService({ datasetsRoot: whiteDatasetsRoot, maxPngBytes: 1024 * 1024 });
+    await realMasks.save('my-images', 'white.png', whitePng);
+    const whitePublication = await store.stageVersion({
+      presetId: 'white-mask', version: 1, presetName: 'White', sourceDataset: 'my-images',
+      datasetsRoot: whiteDatasetsRoot, sourceRoot: whiteSourceRoot, selectedPaths: ['white.png'],
+      captionExt: 'txt', loaderConfig, note: null, maskService: realMasks,
+    });
+    assert.deepEqual(
+      (({ mask_path, mask_bytes, mask_sha256, mask_missing }) => ({ mask_path, mask_bytes, mask_sha256, mask_missing }))
+        (whitePublication.manifest.files[0]),
+      { mask_path: null, mask_bytes: null, mask_sha256: null, mask_missing: true },
+    );
+    await whitePublication.publish();
+    assert.equal(existsSync(join(whitePublication.versionRoot, 'masks/white.png')), false);
     const publication = await store.stageVersion({
       presetId: 'preset-1',
       version: 1,
