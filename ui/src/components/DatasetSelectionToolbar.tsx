@@ -6,6 +6,8 @@ export interface DatasetSelectionToolbarProps {
   dirty: boolean;
   saving: boolean;
   readOnly?: boolean;
+  showOnlySelected: boolean;
+  onShowOnlySelectedChange(showOnlySelected: boolean): void;
   onAction(action: SelectionAction): void;
   onSave?: () => void;
   onCancel(): void;
@@ -17,6 +19,8 @@ export function DatasetSelectionToolbar({
   dirty,
   saving,
   readOnly = false,
+  showOnlySelected,
+  onShowOnlySelectedChange,
   onAction,
   onSave,
   onCancel,
@@ -31,6 +35,16 @@ export function DatasetSelectionToolbar({
         <p role="status" aria-live="polite" className="mr-1 text-sm text-gray-200">
           {selectedCount} of {totalCount} enabled{dirty ? ' — unsaved selection changes' : ''}
         </p>
+        <label className="mr-1 inline-flex cursor-pointer items-center gap-2 text-sm text-gray-200">
+          <input
+            type="checkbox"
+            aria-label="Show only selected"
+            checked={showOnlySelected}
+            onChange={event => onShowOnlySelectedChange(event.currentTarget.checked)}
+            className="h-4 w-4 rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500"
+          />
+          <span>Show only selected</span>
+        </label>
         <div className="flex flex-wrap gap-2">
           <button type="button" className={buttonClass} disabled={mutationsDisabled} onClick={() => onAction('all')}>
             Select all

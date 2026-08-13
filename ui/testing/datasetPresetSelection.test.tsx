@@ -344,6 +344,7 @@ async function run(): Promise<void> {
     await act(async () => missingList.unmount());
 
     const actions: string[] = [];
+    const filterChanges: boolean[] = [];
     let cancelled = 0;
     let toolbar!: TestRenderer.ReactTestRenderer;
     await act(async () => {
@@ -353,6 +354,8 @@ async function run(): Promise<void> {
           totalCount={5}
           dirty
           saving={false}
+          showOnlySelected={false}
+          onShowOnlySelectedChange={showOnlySelected => filterChanges.push(showOnlySelected)}
           onAction={action => actions.push(action)}
           onCancel={() => cancelled++}
         />,
@@ -361,6 +364,13 @@ async function run(): Promise<void> {
     const status = toolbar.root.findByProps({ role: 'status' });
     assert.match(status.children.join(''), /2 of 5 enabled/);
     assert.match(status.children.join(''), /unsaved/i);
+    const selectedOnlyCheckbox = toolbar.root.findByProps({
+      type: 'checkbox',
+      'aria-label': 'Show only selected',
+    });
+    assert.equal(selectedOnlyCheckbox.props.checked, false);
+    act(() => selectedOnlyCheckbox.props.onChange({ currentTarget: { checked: true } }));
+    assert.deepEqual(filterChanges, [true]);
     click(toolbar.root.findByProps({ children: 'Select all' }));
     click(toolbar.root.findByProps({ children: 'Select none' }));
     click(toolbar.root.findByProps({ children: 'Invert selection' }));
@@ -377,6 +387,8 @@ async function run(): Promise<void> {
           totalCount={5}
           dirty={false}
           saving={false}
+          showOnlySelected={false}
+          onShowOnlySelectedChange={() => undefined}
           onAction={action => actions.push(action)}
           onSave={() => saves++}
           onCancel={() => cancelled++}
@@ -394,6 +406,8 @@ async function run(): Promise<void> {
           totalCount={5}
           dirty={false}
           saving={false}
+          showOnlySelected={false}
+          onShowOnlySelectedChange={() => undefined}
           onAction={action => actions.push(action)}
           onSave={() => saves++}
           onCancel={() => cancelled++}
@@ -412,6 +426,8 @@ async function run(): Promise<void> {
           totalCount={5}
           dirty={false}
           saving
+          showOnlySelected={false}
+          onShowOnlySelectedChange={() => undefined}
           onAction={action => actions.push(action)}
           onSave={() => saves++}
           onCancel={() => cancelled++}
@@ -425,6 +441,11 @@ async function run(): Promise<void> {
         `${label} disables while saving`,
       );
     }
+    assert.equal(
+      toolbar.root.findByProps({ type: 'checkbox', 'aria-label': 'Show only selected' }).props.disabled,
+      undefined,
+      'selected-only view filtering remains available while saving',
+    );
     await act(async () => toolbar.unmount());
 
     const selectionChanges: boolean[] = [];
