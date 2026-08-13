@@ -96,8 +96,8 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   const archivedReadOnly = activePreset !== null && activePreset.archived_at !== null;
   const selectedLiveImages = useMemo(() => imgList.filter(image => selectedPaths.has(image.relative_path)), [imgList, selectedPaths]);
   const frozenMasks = useMemo(() => activeVersion ? frozenMaskUrlsFromManifest(activeVersion.id, activeVersion.manifest.files) : {}, [activeVersion]);
-  const archivedMaskPreviewAvailable = archivedReadOnly && selectedLiveImages.some(image => !!frozenMasks[image.relative_path]);
   const archivedEditorImages = useMemo(() => activeVersion ? archivedMaskEditorImages(activeVersion.id, activeVersion.manifest.files).filter(image => selectedPaths.has(image.relative_path)) : [], [activeVersion, selectedPaths]);
+  const archivedMaskPreviewAvailable = archivedReadOnly && archivedEditorImages.length > 0;
   const maskEditorImages = archivedReadOnly ? archivedEditorImages : selectedLiveImages;
   const selectionInteractionLocked = selectionSaving || lifecyclePending || archivedReadOnly;
   activeManifestPathsRef.current = new Set(activeVersion?.manifest.files.map(file => file.source_path) ?? []);
@@ -613,7 +613,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
               readOnly={archivedReadOnly}
               onAction={handleSelectionAction}
               onSave={archivedReadOnly ? undefined : () => setPresetDialogOpen(true)}
-              onEditMasks={(!archivedReadOnly || archivedMaskPreviewAvailable) && selectedLiveImages.length > 0 ? () => setMaskEditorOpen(true) : undefined}
+              onEditMasks={(!archivedReadOnly ? selectedLiveImages.length > 0 : archivedMaskPreviewAvailable) ? () => setMaskEditorOpen(true) : undefined}
               canPreviewMasks={archivedMaskPreviewAvailable}
               onCancel={cancelSelectionMode}
             />
