@@ -53,7 +53,7 @@ const DatasetImageCard: React.FC<DatasetImageCardProps> = ({
   maskSourcePath,
   maskImagePath,
   maskStatusRefreshKey = 0,
-  onMaskOpen = () => {},
+  onMaskOpen,
 }) => {
   const [loaded, setLoaded] = useState<boolean>(false);
   const [showAudioPlayer, setShowAudioPlayer] = useState(true);

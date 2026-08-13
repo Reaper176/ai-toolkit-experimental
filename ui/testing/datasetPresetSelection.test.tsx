@@ -180,6 +180,15 @@ async function run(): Promise<void> {
       assert.equal(badgeButton.props.onKeyDown, undefined, 'native button owns Enter and Space behavior');
       act(() => badge.unmount());
     }
+    let statusBadge!: TestRenderer.ReactTestRenderer;
+    act(() => { statusBadge = TestRenderer.create(<DatasetMaskBadge state="missing" mode="preview" imagePath="archived.png" />); });
+    assert.equal(statusBadge.root.findAllByType('button').length, 0, 'a badge without an action is not a button');
+    const statusOnly = statusBadge.root.findByType('span');
+    assert.equal(statusOnly.children.join(''), 'No mask');
+    assert.equal(statusOnly.props.role, undefined);
+    assert.equal(statusOnly.props.tabIndex, undefined);
+    assert.equal(statusOnly.props['aria-label'], undefined, 'status-only badge does not announce an unavailable action');
+    act(() => statusBadge.unmount());
     assert.equal(areSelectionsEqual(new Set(['a', 'b']), new Set(['b', 'a'])), true);
     assert.equal(areSelectionsEqual(new Set(['a']), new Set(['b'])), false);
     const images = [
@@ -617,6 +626,23 @@ async function run(): Promise<void> {
     act(() => liveMaskBadge.props.onClick({ stopPropagation() {} }));
     assert.equal(openedMask, 'portrait.jpg');
     assert.equal(viewerCalls, 0, 'mask badge does not open the viewer');
+    await act(async () => {
+      card.update(
+        <DatasetImageCard
+          imageUrl="photos/portrait.jpg"
+          alt="portrait.jpg"
+          isAutoCaptioning={false}
+          selectionMode
+          selected
+          maskState="missing"
+          maskImagePath="portrait.jpg"
+          onSelectionChange={(selected: boolean) => selectionChanges.push(selected)}
+        />,
+      );
+    });
+    assert.equal(card.root.findAllByProps({ 'aria-label': 'Preview frozen mask for portrait.jpg' }).length, 0, 'archived card without a validated frozen mask exposes status only');
+    assert.equal(card.root.findAllByType('button').filter(instance => instance.children.join('') === 'No mask').length, 0);
+    assert.equal(card.root.findAllByType('span').some(instance => instance.children.join('') === 'No mask'), true);
     await act(async () => {
       card.update(
         <DatasetImageCard
