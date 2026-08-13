@@ -24,6 +24,14 @@ export interface DatasetMaskDependencies {
   beforeMaskFileOpen?: () => void | Promise<void>;
   beforeTemporaryOpen?: () => void | Promise<void>;
   filesystemStrategy?: 'descriptor' | 'portable';
+  maxSourceBytes?: number;
+  maxSourceWidth?: number;
+  maxSourceHeight?: number;
+  maxSourcePixels?: number;
+  maxMaskWidth?: number;
+  maxMaskHeight?: number;
+  maxMaskPixels?: number;
+  decodePng?: (bytes: Buffer) => PNG;
 }
 
 export interface DatasetMaskService {
@@ -113,6 +121,87 @@ export function assertUniqueMaskBasenames(paths: readonly string[]): void {
     const name = maskFilename(path).toLocaleLowerCase('en-US');
     if (seen.has(name)) throw new Error(`Duplicate mask basename: ${name}`);
     seen.add(name);
+  }
+}
+
+export interface DatasetSourceWalkLimits {
+  maxDepth?: number;
+  maxEntries?: number;
+  maxDirectories?: number;
+  maxFiles?: number;
+  filesystemStrategy?: 'descriptor' | 'portable';
+}
+
+export async function assertDatasetMaskSourceUnambiguous(
+  datasetsRoot: string,
+  dataset: string,
+  sourcePath: string,
+  limits: DatasetSourceWalkLimits = {},
+): Promise<void> {
+  assertSingleSegment(dataset, 'dataset');
+  sourceSegments(sourcePath);
+  const root = await realpath(datasetsRoot);
+  const datasetRoot = join(root, dataset);
+  const canonicalDataset = await realpath(datasetRoot);
+  if (canonicalDataset !== datasetRoot) throw new Error('Dataset root cannot be a symlink');
+  const wanted = maskFilename(sourcePath).toLocaleLowerCase('en-US');
+  const maxDepth = limits.maxDepth ?? 32;
+  const maxEntries = limits.maxEntries ?? 50_000;
+  const maxDirectories = limits.maxDirectories ?? 10_000;
+  const maxFiles = limits.maxFiles ?? 10_000;
+  // Traversal is deliberately sequential: concurrency is strictly bounded at one,
+  // so adversarial fan-out cannot create an unbounded promise or descriptor set.
+  let entries = 0;
+  let directories = 0;
+  let files = 0;
+  let matches = 0;
+  function countFile(name: string): void {
+    if (!SOURCE_EXTENSIONS.has(extname(name).toLowerCase())) return;
+    files += 1;
+    if (files > maxFiles) throw new Error('Dataset file limit exceeded');
+    if (maskFilename(name).toLocaleLowerCase('en-US') === wanted && ++matches > 1) {
+      throw new Error(`Duplicate mask basename: ${wanted}`);
+    }
+  }
+  async function walkDescriptor(directory: FileHandle, depth: number): Promise<void> {
+    if (depth > maxDepth) throw new Error('Dataset nesting depth limit exceeded');
+    directories += 1;
+    if (directories > maxDirectories) throw new Error('Dataset directory limit exceeded');
+    for (const entry of await readdir(descriptorPath(directory), { withFileTypes: true })) {
+      entries += 1;
+      if (entries > maxEntries) throw new Error('Dataset entry limit exceeded');
+      if (entry.isSymbolicLink()) throw new Error('Refusing symlink in dataset traversal');
+      if (entry.isDirectory()) {
+        const child = await openDirectory(descriptorPath(directory, entry.name));
+        try { await walkDescriptor(child, depth + 1); } finally { await child.close(); }
+      } else if (entry.isFile()) countFile(entry.name);
+    }
+  }
+  async function walkPortable(directory: string, depth: number): Promise<void> {
+    if (depth > maxDepth) throw new Error('Dataset nesting depth limit exceeded');
+    directories += 1;
+    if (directories > maxDirectories) throw new Error('Dataset directory limit exceeded');
+    const before = await lstat(directory);
+    if (before.isSymbolicLink() || !before.isDirectory() || await realpath(directory) !== directory) {
+      throw new Error('Refusing symlink in dataset traversal');
+    }
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      entries += 1;
+      if (entries > maxEntries) throw new Error('Dataset entry limit exceeded');
+      if (entry.isSymbolicLink()) throw new Error('Refusing symlink in dataset traversal');
+      if (entry.isDirectory()) await walkPortable(join(directory, entry.name), depth + 1);
+      else if (entry.isFile()) countFile(entry.name);
+    }
+    const after = await lstat(directory);
+    if (before.dev !== after.dev || before.ino !== after.ino || before.mtimeMs !== after.mtimeMs) {
+      throw new Error('Dataset changed during traversal');
+    }
+  }
+  if ((limits.filesystemStrategy ?? (process.platform === 'linux' ? 'descriptor' : 'portable')) === 'descriptor') {
+    const rootHandle = await openDirectory(canonicalDataset);
+    try { await walkDescriptor(rootHandle, 0); } finally { await rootHandle.close(); }
+  } else {
+    await walkPortable(canonicalDataset, 0);
   }
 }
 
@@ -310,12 +399,28 @@ export async function resolveLiveMaskDirectory(sourceRoot: string, options: {
   return null;
 }
 
-function parsePng(bytes: Buffer): PNG {
+function parsePng(bytes: Buffer, deps: DatasetMaskDependencies): PNG {
+  if (bytes.length < 33 || !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
+      bytes.readUInt32BE(8) !== 13 || bytes.toString('ascii', 12, 16) !== 'IHDR') throw new Error('Invalid PNG');
+  const width = bytes.readUInt32BE(16);
+  const height = bytes.readUInt32BE(20);
+  const maxWidth = deps.maxMaskWidth ?? 16_384;
+  const maxHeight = deps.maxMaskHeight ?? 16_384;
+  const maxPixels = deps.maxMaskPixels ?? 100_000_000;
+  if (!width || !height || width > maxWidth || height > maxHeight) throw new Error('Mask dimension limit exceeded');
+  if (width * height > maxPixels) throw new Error('Mask pixel limit exceeded');
   try {
-    return PNG.sync.read(bytes);
+    return deps.decodePng ? deps.decodePng(bytes) : PNG.sync.read(bytes, { checkCRC: true });
   } catch {
     throw new Error('Invalid PNG');
   }
+}
+
+function validateSourceDimensions(width: number, height: number, deps: DatasetMaskDependencies): void {
+  if (width > (deps.maxSourceWidth ?? 32_768) || height > (deps.maxSourceHeight ?? 32_768)) {
+    throw new Error('Source dimension limit exceeded');
+  }
+  if (width * height > (deps.maxSourcePixels ?? 250_000_000)) throw new Error('Source pixel limit exceeded');
 }
 
 function grayscalePng(image: PNG): { bytes: Buffer; allWhite: boolean } {
@@ -391,6 +496,7 @@ function createDescriptorDatasetMaskService(deps: DatasetMaskDependencies): Data
       }
       handles.push(source);
       const sourceStat = await source.stat({ bigint: true });
+      if (sourceStat.size > BigInt(deps.maxSourceBytes ?? 512 * 1024 * 1024)) throw new Error('Source exceeds maximum bytes');
       const bytes = await source.readFile();
       const afterSourceStat = await source.stat({ bigint: true });
       if (sourceStat.dev !== afterSourceStat.dev || sourceStat.ino !== afterSourceStat.ino ||
@@ -399,6 +505,7 @@ function createDescriptorDatasetMaskService(deps: DatasetMaskDependencies): Data
       }
       const dimensions = imageSize(bytes);
       if (!dimensions.width || !dimensions.height) throw new Error('Unsupported source image');
+      validateSourceDimensions(dimensions.width, dimensions.height, deps);
       return {
         width: dimensions.width,
         height: dimensions.height,
@@ -474,7 +581,7 @@ function createDescriptorDatasetMaskService(deps: DatasetMaskDependencies): Data
         const stat = await mask.stat();
         if (stat.size > deps.maxPngBytes) throw new Error('PNG exceeds maximum bytes');
         const bytes = await mask.readFile();
-        const decoded = parsePng(bytes);
+        const decoded = parsePng(bytes, deps);
         if (decoded.width !== source.width || decoded.height !== source.height) throw new Error('Mask dimensions mismatch');
         return { exists: true, width: source.width, height: source.height, png: bytes, source_identity: source.source_identity, source_sha256: source.source_sha256 };
       } finally {
@@ -485,7 +592,7 @@ function createDescriptorDatasetMaskService(deps: DatasetMaskDependencies): Data
     async save(dataset, sourcePath, png) {
       const source = await readSource(dataset, sourcePath);
       if (png.length > deps.maxPngBytes) throw new Error('PNG exceeds maximum bytes');
-      const decoded = parsePng(png);
+      const decoded = parsePng(png, deps);
       if (decoded.width !== source.width || decoded.height !== source.height) throw new Error('Mask dimensions mismatch');
       const encoded = grayscalePng(decoded);
       if (encoded.bytes.length > deps.maxPngBytes) throw new Error('Encoded PNG exceeds maximum bytes');
@@ -573,7 +680,7 @@ async function validatePortableDirectory(path: string, root: string): Promise<Fi
   return beforeIdentity;
 }
 
-async function readPortableFile(path: string, root: string): Promise<{ bytes: Buffer; identity: DatasetMaskSourceIdentity }> {
+async function readPortableFile(path: string, root: string, maxBytes = Number.MAX_SAFE_INTEGER): Promise<{ bytes: Buffer; identity: DatasetMaskSourceIdentity }> {
   const before = await lstat(path);
   if (before.isSymbolicLink() || !before.isFile()) throw new Error('Refusing file symlink escape');
   const canonical = await realpath(path);
@@ -584,6 +691,7 @@ async function readPortableFile(path: string, root: string): Promise<{ bytes: Bu
   const handle = await open(path, constants.O_RDONLY);
   try {
     const openedStats = await handle.stat();
+    if (openedStats.size > maxBytes) throw new Error('Source exceeds maximum bytes');
     if (!sameIdentity(expected, identityOf(openedStats)) || openedStats.size !== before.size || openedStats.mtimeMs !== before.mtimeMs) {
       throw new Error('File changed while opening');
     }
@@ -624,9 +732,10 @@ function createPortableDatasetMaskService(deps: DatasetMaskDependencies): Datase
         await validatePortableDirectory(directory, root);
       }
       await deps.beforeSourceFileOpen?.();
-      const source = await readPortableFile(join(directory, segments[segments.length - 1]), root);
+      const source = await readPortableFile(join(directory, segments[segments.length - 1]), root, deps.maxSourceBytes ?? 512 * 1024 * 1024);
       const dimensions = imageSize(source.bytes);
       if (!dimensions.width || !dimensions.height) throw new Error('Unsupported source image');
+      validateSourceDimensions(dimensions.width, dimensions.height, deps);
       return { root, width: dimensions.width, height: dimensions.height, source_identity: source.identity,
         source_sha256: createHash('sha256').update(source.bytes).digest('hex') };
     } catch (error) {
@@ -708,7 +817,7 @@ function createPortableDatasetMaskService(deps: DatasetMaskDependencies): Datase
         throw error;
       }
       if (bytes.length > deps.maxPngBytes) throw new Error('PNG exceeds maximum bytes');
-      const decoded = parsePng(bytes);
+      const decoded = parsePng(bytes, deps);
       if (decoded.width !== source.width || decoded.height !== source.height) throw new Error('Mask dimensions mismatch');
       return { exists: true, width: source.width, height: source.height, png: bytes, source_identity: source.source_identity, source_sha256: source.source_sha256 };
     },
@@ -716,7 +825,7 @@ function createPortableDatasetMaskService(deps: DatasetMaskDependencies): Datase
     async save(dataset, sourcePath, png) {
       const source = await sourceDetails(dataset, sourcePath);
       if (png.length > deps.maxPngBytes) throw new Error('PNG exceeds maximum bytes');
-      const decoded = parsePng(png);
+      const decoded = parsePng(png, deps);
       if (decoded.width !== source.width || decoded.height !== source.height) throw new Error('Mask dimensions mismatch');
       const encoded = grayscalePng(decoded);
       if (encoded.bytes.length > deps.maxPngBytes) throw new Error('Encoded PNG exceeds maximum bytes');

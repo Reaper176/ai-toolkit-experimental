@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { PNG } from 'pngjs';
 import {
   assertUniqueMaskBasenames,
+  assertDatasetMaskSourceUnambiguous,
   createDatasetMaskService,
   maskDatasetName,
   maskFilename,
@@ -35,6 +36,14 @@ function growingGrayPng(): { png: Buffer; normalizedBytes: number } {
   const normalized = PNG.sync.write(PNG.sync.read(png), { colorType: 0 });
   assert.ok(normalized.length > png.length, 'fixture must grow during grayscale normalization');
   return { png, normalizedBytes: normalized.length };
+}
+
+function hugeIhdrPng(): Buffer {
+  const png = grayPng(1, 1, 0);
+  const crafted = Buffer.from(png);
+  crafted.writeUInt32BE(100_000, 16);
+  crafted.writeUInt32BE(100_000, 20);
+  return crafted;
 }
 
 async function main(): Promise<void> {
@@ -178,6 +187,56 @@ async function main(): Promise<void> {
     const growthLimited = createDatasetMaskService({ datasetsRoot, maxPngBytes: growth.normalizedBytes - 1 });
     await assert.rejects(growthLimited.save('growth', 'source.png', growth.png), /encoded.*bytes/i);
     assert.equal(existsSync(join(datasetsRoot, 'growth_masks/source.png')), false);
+
+    let decodeCalls = 0;
+    const bombSafe = createDatasetMaskService({
+      datasetsRoot,
+      maxPngBytes: 1024 * 1024,
+      maxMaskWidth: 4096,
+      maxMaskHeight: 4096,
+      maxMaskPixels: 16_000_000,
+      decodePng: bytes => { decodeCalls += 1; return PNG.sync.read(bytes); },
+    });
+    await assert.rejects(bombSafe.save('spade', 'sub/portrait.jpg', hugeIhdrPng()), /dimension|pixels/i);
+    assert.equal(decodeCalls, 0, 'oversized IHDR must be rejected before decoding');
+
+    mkdirSync(join(datasetsRoot, 'limits'), { recursive: true });
+    writeFileSync(join(datasetsRoot, 'limits/large.png'), Buffer.alloc(1025));
+    const sourceLimited = createDatasetMaskService({ datasetsRoot, maxPngBytes: 1024, maxSourceBytes: 1024 });
+    await assert.rejects(sourceLimited.read('limits', 'large.png'), /source.*bytes/i);
+    writeFileSync(join(datasetsRoot, 'limits/wide.png'), grayPng(64, 2, 0));
+    const dimensionLimited = createDatasetMaskService({ datasetsRoot, maxPngBytes: 1024, maxSourceWidth: 32 });
+    await assert.rejects(dimensionLimited.read('limits', 'wide.png'), /source.*dimension/i);
+
+    mkdirSync(join(datasetsRoot, 'walk/a/b/c'), { recursive: true });
+    writeFileSync(join(datasetsRoot, 'walk/a/b/c/deep.jpg'), grayPng(1, 1, 0));
+    await assert.rejects(
+      assertDatasetMaskSourceUnambiguous(datasetsRoot, 'walk', 'a/b/c/deep.jpg', { maxDepth: 2 }),
+      /depth|nesting/i,
+    );
+    for (let index = 0; index < 12; index += 1) writeFileSync(join(datasetsRoot, `walk/nonimage-${index}.txt`), 'x');
+    await assert.rejects(
+      assertDatasetMaskSourceUnambiguous(datasetsRoot, 'walk', 'a/b/c/deep.jpg', { maxEntries: 10 }),
+      /entry limit/i,
+    );
+    symlinkSync(outside, join(datasetsRoot, 'walk/linked'));
+    await assert.rejects(
+      assertDatasetMaskSourceUnambiguous(datasetsRoot, 'walk', 'a/b/c/deep.jpg'),
+      /symlink/i,
+    );
+    rmSync(join(datasetsRoot, 'walk/linked'));
+    await assertDatasetMaskSourceUnambiguous(
+      datasetsRoot,
+      'walk',
+      'a/b/c/deep.jpg',
+      { filesystemStrategy: 'portable', maxEntries: 100 },
+    );
+    writeFileSync(join(datasetsRoot, 'walk/duplicate.png'), grayPng(1, 1, 0));
+    writeFileSync(join(datasetsRoot, 'walk/a/duplicate.jpg'), grayPng(1, 1, 0));
+    await assert.rejects(
+      assertDatasetMaskSourceUnambiguous(datasetsRoot, 'walk', 'duplicate.png'),
+      /duplicate/i,
+    );
 
     symlinkSync(join(outside, 'escape.png'), join(datasetsRoot, 'spade/sub/escape.png'));
     await assert.rejects(masks.read('spade', 'sub/escape.png'), /symlink|escape/i);

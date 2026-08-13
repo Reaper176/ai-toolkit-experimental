@@ -14,7 +14,8 @@ export interface DatasetMaskRouteService {
 
 interface MaskHandlerDependencies {
   masks: DatasetMaskRouteService;
-  listSources(dataset: string): Promise<string[]>;
+  listSources?: (dataset: string) => Promise<string[]>;
+  assertSourceUnambiguous?: (dataset: string, source: string) => Promise<void>;
   maxPngBytes?: number;
   logger?: (operation: string, error: unknown) => void;
 }
@@ -85,7 +86,9 @@ export function createDatasetMaskRouteHandlers(deps: MaskHandlerDependencies) {
   async function context(dataset: string, request: Request): Promise<{ dataset: string; source: string }> {
     if (invalidSegment(dataset)) throw new Error('bad request');
     const source = validateSource(new URL(request.url).searchParams.get('source'));
-    assertNoDuplicate(source, await deps.listSources(dataset));
+    if (deps.assertSourceUnambiguous) await deps.assertSourceUnambiguous(dataset, source);
+    else if (deps.listSources) assertNoDuplicate(source, await deps.listSources(dataset));
+    else throw new Error('Dataset source traversal is not configured');
     return { dataset, source };
   }
   async function run(operation: string, action: () => Promise<Response>): Promise<Response> {

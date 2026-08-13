@@ -1,28 +1,29 @@
-import { readdir } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
 import { getDatasetsRoot } from '@/server/settings';
-import { createDatasetMaskService } from '@/server/datasetMaskService';
+import { assertDatasetMaskSourceUnambiguous, createDatasetMaskService } from '@/server/datasetMaskService';
 import { MAX_MASK_PNG_BYTES, createDatasetMaskRouteHandlers } from '@/server/datasetMaskRouteHandlers';
 
 async function compose(datasetName: string) {
   const datasetsRoot = await getDatasetsRoot();
-  const masks = createDatasetMaskService({ datasetsRoot, maxPngBytes: MAX_MASK_PNG_BYTES });
-  const listSources = async (dataset: string): Promise<string[]> => {
-    const datasetRoot = join(datasetsRoot, dataset);
-    const found: string[] = [];
-    async function visit(directory: string): Promise<void> {
-      const entries = await readdir(directory, { withFileTypes: true });
-      await Promise.all(entries.map(async entry => {
-        if (entry.name.startsWith('.')) return;
-        const path = join(directory, entry.name);
-        if (entry.isDirectory()) await visit(path);
-        else if (entry.isFile() && /\.(png|jpe?g|webp)$/i.test(entry.name)) found.push(relative(datasetRoot, path).split(sep).join('/'));
-      }));
-    }
-    await visit(datasetRoot);
-    return found;
-  };
-  return createDatasetMaskRouteHandlers({ masks, listSources });
+  const masks = createDatasetMaskService({
+    datasetsRoot,
+    maxPngBytes: MAX_MASK_PNG_BYTES,
+    maxSourceBytes: 512 * 1024 * 1024,
+    maxSourceWidth: 32_768,
+    maxSourceHeight: 32_768,
+    maxSourcePixels: 250_000_000,
+    maxMaskWidth: 16_384,
+    maxMaskHeight: 16_384,
+    maxMaskPixels: 100_000_000,
+  });
+  return createDatasetMaskRouteHandlers({
+    masks,
+    assertSourceUnambiguous: (dataset, source) => assertDatasetMaskSourceUnambiguous(
+      datasetsRoot,
+      dataset,
+      source,
+      { maxDepth: 32, maxEntries: 50_000, maxDirectories: 10_000, maxFiles: 10_000 },
+    ),
+  });
 }
 
 type Context = { params: Promise<{ datasetName: string }> };
