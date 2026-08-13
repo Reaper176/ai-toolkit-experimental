@@ -17,6 +17,7 @@ import {
   type DatasetPresetSnapshotStore,
   type StagedPublication,
 } from './datasetPresetSnapshotService';
+import type { DatasetMaskService } from './datasetMaskService';
 
 export interface DatasetPresetSummary {
   id: string;
@@ -401,8 +402,9 @@ export function createDatasetPresetService(dependencies: {
   store: DatasetPresetStore;
   snapshots: DatasetPresetSnapshotStore;
   datasetsRoot: string;
+  masks?: DatasetMaskService;
 }): DatasetPresetService {
-  const { store, snapshots, datasetsRoot } = dependencies;
+  const { store, snapshots, datasetsRoot, masks } = dependencies;
   const publishQueues = new Map<string, Promise<void>>();
 
   async function getPresetRow(idInput: unknown): Promise<DatasetPresetRow> {
@@ -566,6 +568,7 @@ export function createDatasetPresetService(dependencies: {
       captionExt: input.captionExt,
       loaderConfig: input.loaderConfig,
       note: input.note,
+      maskService: masks,
     });
     const manifest = publication.manifest;
     return {

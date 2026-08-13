@@ -1,6 +1,8 @@
 import type { DatasetPresetLoaderConfig } from '../helpers/datasetPresets';
 import { createDatasetPresetPrismaStore } from './datasetPresetPrismaStore';
 import { createDatasetPresetSnapshotStore } from './datasetPresetSnapshotService';
+import { createDatasetMaskService } from './datasetMaskService';
+import { MAX_MASK_PNG_BYTES } from './datasetMaskRouteHandlers';
 import {
   createDatasetPresetService,
   DatasetPresetConflictError,
@@ -326,6 +328,7 @@ const defaultRouteComposition = createDatasetPresetRouteComposition({
       store: createDatasetPresetPrismaStore(prisma),
       snapshots: createDatasetPresetSnapshotStore(dataRoot),
       datasetsRoot,
+      masks: createDatasetMaskService({ datasetsRoot, maxPngBytes: MAX_MASK_PNG_BYTES }),
     }),
 });
 

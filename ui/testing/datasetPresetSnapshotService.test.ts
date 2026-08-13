@@ -17,6 +17,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { DATASET_PRESET_NOTE_MAX, normalizeRelativeMediaPath, serializeManifest } from '../src/helpers/datasetPresets';
 import {
   DatasetPresetSnapshotConflictError,
@@ -266,6 +267,74 @@ async function main(): Promise<void> {
 
     let nextId = 0;
     const store = createDatasetPresetSnapshotStore(dataRoot, { randomId: () => `id-${++nextId}` });
+
+    const liveMasks = new Map<string, Buffer | null>([
+      ['b.png', Buffer.from('live-mask-b')],
+      ['sub/a.jpg', Buffer.from('live-mask-a')],
+    ]);
+    const maskService = {
+      async read(_dataset: string, sourcePath: string) {
+        if (!liveMasks.has(sourcePath)) throw new Error('Source not found');
+        const png = liveMasks.get(sourcePath) ?? null;
+        return { exists: png !== null, width: 1, height: 1, png };
+      },
+      async save() {}, async delete() {}, async deleteByAbsoluteSource() {},
+    };
+    const maskedPublication = await store.stageVersion({
+      presetId: 'masked', version: 1, presetName: 'Masked', sourceDataset: 'my-images', sourceRoot,
+      selectedPaths: ['b.png', 'sub/a.jpg'], captionExt: 'txt', loaderConfig, note: null, maskService,
+    });
+    assert.deepEqual(maskedPublication.manifest.files.map(file => ({
+      source: file.source_path, path: file.mask_path, bytes: file.mask_bytes,
+      sha: file.mask_sha256, missing: file.mask_missing,
+    })), [
+      { source: 'b.png', path: 'masks/b.png', bytes: 11, sha: createHash('sha256').update('live-mask-b').digest('hex'), missing: false },
+      { source: 'sub/a.jpg', path: 'masks/a.png', bytes: 11, sha: createHash('sha256').update('live-mask-a').digest('hex'), missing: false },
+    ]);
+    assert.equal(maskedPublication.manifest.total_bytes, 3 + 0 + 4 + 6 + 22);
+    await maskedPublication.publish();
+    assert.deepEqual(readFileSync(join(maskedPublication.versionRoot, 'masks/b.png')), Buffer.from('live-mask-b'));
+
+    liveMasks.set('b.png', Buffer.from('updated-mask'));
+    liveMasks.delete('sub/a.jpg');
+    const retainedMasked = await store.stageVersion({
+      presetId: 'masked', version: 2, presetName: 'Masked', sourceDataset: 'my-images', sourceRoot,
+      selectedPaths: [], retainedPaths: ['b.png', 'sub/a.jpg'], priorManifestPath: maskedPublication.manifestPath,
+      captionExt: 'txt', loaderConfig, note: null, maskService,
+    });
+    assert.deepEqual(retainedMasked.manifest.files.find(file => file.source_path === 'sub/a.jpg')?.mask_sha256,
+      maskedPublication.manifest.files.find(file => file.source_path === 'sub/a.jpg')?.mask_sha256);
+    await retainedMasked.publish();
+    assert.deepEqual(readFileSync(join(retainedMasked.versionRoot, 'masks/b.png')), Buffer.from('updated-mask'));
+    liveMasks.set('b.png', null);
+    const absentRetainedMask = await store.stageVersion({
+      presetId: 'masked', version: 3, presetName: 'Masked', sourceDataset: 'my-images', sourceRoot,
+      selectedPaths: [], retainedPaths: ['b.png'], priorManifestPath: retainedMasked.manifestPath,
+      captionExt: 'txt', loaderConfig, note: null, maskService,
+    });
+    assert.deepEqual(
+      (({ mask_path, mask_bytes, mask_sha256, mask_missing }) => ({ mask_path, mask_bytes, mask_sha256, mask_missing }))
+        (absentRetainedMask.manifest.files[0]),
+      { mask_path: null, mask_bytes: null, mask_sha256: null, mask_missing: true },
+      'a retained live source with no current mask does not inherit its prior frozen mask',
+    );
+    await absentRetainedMask.publish();
+    assert.equal(existsSync(join(absentRetainedMask.versionRoot, 'masks/b.png')), false);
+    unlinkSync(join(retainedMasked.versionRoot, 'masks/b.png'));
+    await assert.rejects(() => store.verifyFast(retainedMasked.manifestPath), error =>
+      error instanceof DatasetPresetSnapshotVerificationError && error.mismatches[0]?.kind === 'mask_missing' && error.mismatches[0]?.path === 'masks/b.png');
+    writeFileSync(join(retainedMasked.versionRoot, 'masks/b.png'), 'x');
+    await assert.rejects(() => store.verifyFast(retainedMasked.manifestPath), error =>
+      error instanceof DatasetPresetSnapshotVerificationError && error.mismatches[0]?.kind === 'mask_size');
+    writeFileSync(join(retainedMasked.versionRoot, 'masks/b.png'), Buffer.from('changed-mask'));
+    await assert.rejects(() => store.verifyFull(retainedMasked.manifestPath), error =>
+      error instanceof DatasetPresetSnapshotVerificationError && error.mismatches[0]?.kind === 'mask_sha256');
+
+    await expectRejects(() => store.stageVersion({
+      presetId: 'duplicate-mask', version: 1, presetName: 'Duplicate', sourceDataset: 'my-images', sourceRoot,
+      selectedPaths: ['b.png', 'sub/b.jpg'], captionExt: 'txt', loaderConfig, note: null, maskService,
+    }), /duplicate mask basename/i);
+    assert.equal(existsSync(join(dataRoot, 'dataset_presets/duplicate-mask')), false);
     const publication = await store.stageVersion({
       presetId: 'preset-1',
       version: 1,

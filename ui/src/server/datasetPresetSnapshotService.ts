@@ -14,6 +14,7 @@ import type { FileHandle } from 'node:fs/promises';
 import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
+import { assertUniqueMaskBasenames, maskFilename, type DatasetMaskService } from './datasetMaskService';
 import {
   buildDatasetPresetManifest,
   DATASET_PRESET_NOTE_MAX,
@@ -42,6 +43,7 @@ export interface StageVersionInput {
   captionExt: string;
   loaderConfig: DatasetPresetLoaderConfig;
   note: string | null;
+  maskService?: DatasetMaskService;
 }
 
 export interface StagedPublication {
@@ -68,8 +70,11 @@ export type DatasetPresetVerificationMismatchKind =
   | 'hash'
   | 'caption'
   | 'manifest'
-  | 'unexpected';
-export type DatasetPresetVerificationAsset = 'media' | 'caption' | 'manifest';
+  | 'unexpected'
+  | 'mask_missing'
+  | 'mask_size'
+  | 'mask_sha256';
+export type DatasetPresetVerificationAsset = 'media' | 'caption' | 'mask' | 'manifest';
 
 export interface DatasetPresetVerificationMismatch {
   kind: DatasetPresetVerificationMismatchKind;
@@ -1076,6 +1081,41 @@ export function createDatasetPresetSnapshotStore(
           }
         }
       }
+      if (file.mask_missing === false && file.mask_path) {
+        const absoluteMaskPath = toSystemPath(parsed.versionRoot, file.mask_path);
+        let pinnedMask: PinnedRegularFile | null = null;
+        try {
+          pinnedMask = await openPinnedRegularFile(absoluteMaskPath, parsed.versionRoot);
+        } catch (error) {
+          recordMismatch({
+            kind: 'mask_missing', asset: 'mask', path: file.mask_path,
+            expected: 'present', actual: isMissing(error) ? 'missing' : 'unreadable',
+          });
+        }
+        if (pinnedMask !== null) {
+          try {
+            const maskInfo = await pinnedMask.handle.stat({ bigint: true });
+            if (maskInfo.size !== BigInt(file.mask_bytes as number)) {
+              recordMismatch({ kind: 'mask_size', asset: 'mask', path: file.mask_path,
+                expected: file.mask_bytes, actual: boundedSize(maskInfo.size) });
+            } else if (full) {
+              const actualHash = await hashPinnedFile(pinnedMask);
+              if (actualHash !== file.mask_sha256) {
+                recordMismatch({ kind: 'mask_sha256', asset: 'mask', path: file.mask_path,
+                  expected: file.mask_sha256, actual: actualHash });
+              }
+            }
+          } finally {
+            await pinnedMask.handle.close().catch(() => undefined);
+          }
+        }
+      } else if (file.mask_missing === true) {
+        const expectedAbsentPath = `masks/${maskFilename(file.source_path)}`;
+        if (await pathExists(toSystemPath(parsed.versionRoot, expectedAbsentPath))) {
+          recordMismatch({ kind: 'mask_missing', asset: 'mask', path: expectedAbsentPath,
+            expected: 'missing', actual: 'present' });
+        }
+      }
     }
     if (full) {
       const expectedFiles = new Set<string>();
@@ -1208,6 +1248,7 @@ export function createDatasetPresetSnapshotStore(
     const selectedPaths = input.selectedPaths.map(normalizeRelativeMediaPath);
     const retainedPaths = (input.retainedPaths ?? []).map(normalizeRelativeMediaPath);
     if (selectedPaths.length + retainedPaths.length === 0) throw new Error('A snapshot must contain at least one file');
+    assertUniqueMaskBasenames([...selectedPaths, ...retainedPaths]);
     const selectedKeys = new Set<string>();
     for (const path of selectedPaths) {
       const key = path.toLowerCase();
@@ -1303,6 +1344,31 @@ export function createDatasetPresetSnapshotStore(
     try {
       const files: DatasetPresetManifestFile[] = [];
 
+      const freezeLiveMask = async (sourcePath: string): Promise<Pick<DatasetPresetManifestFile,
+        'mask_path' | 'mask_bytes' | 'mask_sha256' | 'mask_missing'> | null> => {
+        if (!input.maskService) return null;
+        const result = await input.maskService.read(input.sourceDataset, sourcePath);
+        if (!result.exists || result.png === null) {
+          return { mask_path: null, mask_bytes: null, mask_sha256: null, mask_missing: true };
+        }
+        const maskPath = `masks/${maskFilename(sourcePath)}`;
+        const destination = toSystemPath(stagingRoot, maskPath);
+        await mkdir(resolve(destination, '..'), { recursive: true, mode: 0o700 });
+        const handle = await open(destination, 'wx');
+        try {
+          await handle.writeFile(result.png);
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+        return {
+          mask_path: maskPath,
+          mask_bytes: result.png.length,
+          mask_sha256: createHash('sha256').update(result.png).digest('hex'),
+          mask_missing: false,
+        };
+      };
+
       for (const sourcePath of retainedPaths) {
         const prior = priorBySource.get(sourcePath.toLowerCase());
         if (!prior || !priorRoot) throw new Error(`Retained path is missing from prior manifest: ${sourcePath}`);
@@ -1342,7 +1408,25 @@ export function createDatasetPresetSnapshotStore(
             throw new Error(`Retained caption changed while copying: ${sourcePath}`);
           }
         }
-        files.push({ ...prior });
+        let mask: Pick<DatasetPresetManifestFile, 'mask_path' | 'mask_bytes' | 'mask_sha256' | 'mask_missing'> | null = null;
+        try {
+          mask = await freezeLiveMask(sourcePath);
+        } catch (error) {
+          if (!/source not found/i.test(String(error))) throw error;
+          if (prior.mask_missing === false && prior.mask_path) {
+            const copied = await copyAndHashPinned(
+              toSystemPath(priorRoot, prior.mask_path), priorRoot,
+              toSystemPath(stagingRoot, prior.mask_path), resolvedDependencies.beforeCopyComplete,
+            );
+            if (copied.bytes !== prior.mask_bytes || copied.sha256 !== prior.mask_sha256) {
+              throw new Error(`Retained mask changed while copying: ${sourcePath}`);
+            }
+            mask = { mask_path: prior.mask_path, mask_bytes: prior.mask_bytes, mask_sha256: prior.mask_sha256, mask_missing: false };
+          } else if (prior.mask_missing === true) {
+            mask = { mask_path: null, mask_bytes: null, mask_sha256: null, mask_missing: true };
+          }
+        }
+        files.push({ ...prior, ...(mask ?? {}) });
       }
 
       for (const sourcePath of selectedPaths) {
@@ -1392,6 +1476,7 @@ export function createDatasetPresetSnapshotStore(
           captionBytes = caption.bytes;
           captionSha256 = caption.sha256;
         }
+        const mask = await freezeLiveMask(sourcePath);
         files.push({
           source_path: sourcePath,
           managed_path: managedPath,
@@ -1402,6 +1487,7 @@ export function createDatasetPresetSnapshotStore(
           caption_bytes: captionBytes,
           caption_sha256: captionSha256,
           caption_missing: captionMissing,
+          ...(mask ?? {}),
         });
       }
 
