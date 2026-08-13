@@ -92,7 +92,12 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange, i
       if (latest.resolved_mask_available !== body.has_masks) {
         emitChange({ ...latest, resolved_mask_available: body.has_masks });
       }
-    }).catch(() => undefined);
+    }).catch(() => {
+      if (!request.isCurrent()) return;
+      const latest = latestDatasetRef.current;
+      if (latest.dataset_preset || latest.folder_path !== dataset.folder_path) return;
+      if (latest.resolved_mask_available !== false) emitChange({ ...latest, resolved_mask_available: false });
+    });
     return () => request.cancel();
   }, [dataset.dataset_preset, dataset.folder_path, dataset.mask_path]);
 

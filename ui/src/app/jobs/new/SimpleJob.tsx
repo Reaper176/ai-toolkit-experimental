@@ -59,38 +59,45 @@ const isDev = process.env.NODE_ENV === 'development';
 
 export function InvertedMaskPriorControl({
   train,
-  hasResolvedMasks,
+  maskAvailability,
   setTrain,
 }: {
   train: TrainConfig;
-  hasResolvedMasks: boolean;
+  maskAvailability: 'available' | 'unavailable' | 'pending';
   setTrain: React.Dispatch<React.SetStateAction<TrainConfig>>;
 }) {
   const [autoDisabled, setAutoDisabled] = useState(false);
   useEffect(() => {
-    if (!hasResolvedMasks && train.inverted_mask_prior === true) {
+    if (maskAvailability === 'unavailable' && train.inverted_mask_prior === true) {
       setTrain(current => ({ ...current, inverted_mask_prior: false }));
       setAutoDisabled(true);
-    } else if (hasResolvedMasks) {
+    } else if (maskAvailability === 'available') {
       setAutoDisabled(false);
     }
-  }, [hasResolvedMasks, setTrain, train.inverted_mask_prior]);
+  }, [maskAvailability, setTrain, train.inverted_mask_prior]);
   return (
     <div className="pt-2">
       <Checkbox
         label="Inverted Mask Prior"
         docKey={'train.inverted_mask_prior'}
         checked={train.inverted_mask_prior ?? false}
-        disabled={!hasResolvedMasks}
+        disabled={(maskAvailability !== 'available' || train.train_turbo === true) && train.inverted_mask_prior !== true}
         onChange={value => setTrain(current => ({
           ...current,
           inverted_mask_prior: value,
           inverted_mask_prior_multiplier: current.inverted_mask_prior_multiplier ?? 0.5,
         }))}
       />
-      {!hasResolvedMasks && (
+      {train.train_turbo === true && (
         <p className="pt-1 text-xs text-amber-400" role="status">
-          {autoDisabled
+          Inverted Mask Prior is incompatible with turbo training. Disable it before saving.
+        </p>
+      )}
+      {maskAvailability !== 'available' && (
+        <p className="pt-1 text-xs text-amber-400" role="status">
+          {maskAvailability === 'pending'
+            ? 'Checking live datasets for matching sibling masks…'
+            : autoDisabled
             ? 'Inverted Mask Prior was automatically disabled because no resolved dataset masks are available.'
             : 'No resolved dataset masks are available. Select a masked preset or a live folder with sibling masks.'}
         </p>
@@ -299,6 +306,11 @@ export default function SimpleJob({
   const hasResolvedMasks = jobConfig.config.process[0].datasets.some(
     dataset => Boolean(dataset.mask_path?.trim()) || dataset.resolved_mask_available === true || dataset.dataset_preset?.has_masks === true,
   );
+  const hasUnknownLiveMasks = jobConfig.config.process[0].datasets.some(
+    dataset => !dataset.dataset_preset && !dataset.mask_path && dataset.folder_path.trim() !== '' &&
+      dataset.resolved_mask_available === undefined,
+  );
+  const maskAvailability = hasResolvedMasks ? 'available' : hasUnknownLiveMasks ? 'pending' : 'unavailable';
 
   let numDatasetCols = 4;
   let numSampleTopCols = 4;
@@ -1006,7 +1018,7 @@ export default function SimpleJob({
                 )}
                 <InvertedMaskPriorControl
                   train={jobConfig.config.process[0].train}
-                  hasResolvedMasks={hasResolvedMasks}
+                  maskAvailability={maskAvailability}
                   setTrain={update => {
                     const next = typeof update === 'function'
                       ? update(jobConfig.config.process[0].train)

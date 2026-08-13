@@ -1,4 +1,20 @@
 import type { JobConfig } from '@/types';
+import { validateMaskTraining } from './maskTrainingValidation';
+
+export function validateTrainingJobForSave(jobConfig: JobConfig): void {
+  const process = jobConfig.config.process[0];
+  const train = process.train;
+  validateMaskTraining({
+    enabled: train.inverted_mask_prior,
+    multiplier: train.inverted_mask_prior_multiplier,
+    trainTurbo: train.train_turbo,
+    datasets: process.datasets.map(dataset => ({
+      mask_path: dataset.mask_path || dataset.resolved_mask_available === true || dataset.dataset_preset?.has_masks === true
+        ? 'client-confirmed-mask'
+        : null,
+    })),
+  });
+}
 
 export interface ClonePresetAvailability {
   id: string;

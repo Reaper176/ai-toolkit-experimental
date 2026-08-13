@@ -806,13 +806,14 @@ async function runCloneHydrationBehavior(): Promise<void> {
 
 async function runLiveMaskStatusBehavior(): Promise<void> {
   const first = deferred<Response>();
+  const failed = deferred<Response>();
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = String(input);
     if (url === '/api/dataset-presets') return response({ presets: [] });
     if (url.includes('folder_path=%2Fdatasets%2Ffirst')) return first.promise;
     if (url.includes('folder_path=%2Fdatasets%2Fsecond')) return response({ has_masks: false });
     if (url.includes('folder_path=%2Fdatasets%2Fmasked')) return response({ has_masks: true });
-    if (url.includes('folder_path=%2Fdatasets%2Ffailed')) throw new Error('probe failed');
+    if (url.includes('folder_path=%2Fdatasets%2Ffailed')) return failed.promise;
     throw new Error(`Unexpected URL ${url}`);
   }) as typeof fetch;
   let current: DatasetConfig = { ...initialDataset, folder_path: '/datasets/first', mask_path: null };
@@ -834,8 +835,11 @@ async function runLiveMaskStatusBehavior(): Promise<void> {
   await act(async () => { select(renderer.root, 'Target Dataset').props.onChange('/datasets/failed'); });
   assert.equal(current.resolved_mask_available, undefined,
     'changing live folders clears the prior mask result before the asynchronous probe settles');
-  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-  assert.notEqual(current.resolved_mask_available, true, 'a failed probe cannot retain stale mask availability');
+  await act(async () => {
+    failed.resolve(new Response(JSON.stringify({ error: 'failed' }), { status: 500 }));
+    await Promise.resolve(); await Promise.resolve();
+  });
+  assert.equal(current.resolved_mask_available, false, 'a failed probe confirms mask unavailability');
   await act(async () => renderer.unmount());
 }
 

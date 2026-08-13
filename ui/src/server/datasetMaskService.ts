@@ -118,6 +118,7 @@ export function assertUniqueMaskBasenames(paths: readonly string[]): void {
 
 export async function resolveLiveMaskDirectory(sourceRoot: string, options: {
   datasetsRoot?: string; maxDepth?: number; maxFiles?: number; maxEntries?: number; maxDirectories?: number;
+  maxPngBytes?: number;
   filesystemStrategy?: 'descriptor' | 'portable';
   beforeChildDirectoryOpen?: (relativePath: string) => void | Promise<void>;
 } = {}): Promise<string | null> {
@@ -216,13 +217,14 @@ export async function resolveLiveMaskDirectory(sourceRoot: string, options: {
   } else {
     await walkPortable(canonicalSource);
   }
-  const masks = createDatasetMaskService({ datasetsRoot: dirname(canonicalSource), maxPngBytes: 64 * 1024 * 1024 });
-  let matched = false;
+  const masks = createDatasetMaskService({
+    datasetsRoot: dirname(canonicalSource), maxPngBytes: options.maxPngBytes ?? 64 * 1024 * 1024,
+  });
   for (const source of sources.values()) {
     const result = await masks.read(basename(canonicalSource), source);
-    if (result.exists) matched = true;
+    if (result.exists) return canonicalMasks;
   }
-  return matched ? canonicalMasks : null;
+  return null;
 }
 
 function parsePng(bytes: Buffer): PNG {

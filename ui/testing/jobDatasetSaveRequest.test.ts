@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { buildTrainingJobSaveRequest } from '../src/helpers/jobDatasetPresetClient';
+import { buildTrainingJobSaveRequest, validateTrainingJobForSave } from '../src/helpers/jobDatasetPresetClient';
 import type { JobConfig } from '../src/types';
+import { defaultJobConfig } from '../src/app/jobs/new/jobConfig';
 
 const config = { config: { name: 'training' } } as JobConfig;
 
@@ -20,6 +21,13 @@ assert.equal(liveRequest.job_config.config.process[0].datasets[0].mask_path, nul
   'browser requests cannot submit explicit live mask paths');
 assert.equal('resolved_mask_available' in liveRequest.job_config.config.process[0].datasets[0], false,
   'UI-only live mask status is not persisted');
+
+const invalidTurbo = structuredClone(defaultJobConfig);
+invalidTurbo.config.process[0].datasets[0].resolved_mask_available = true;
+invalidTurbo.config.process[0].train.inverted_mask_prior = true;
+invalidTurbo.config.process[0].train.train_turbo = true;
+assert.throws(() => validateTrainingJobForSave(invalidTurbo), /turbo/i,
+  'client validation rejects before constructing or sending a request');
 
 assert.deepEqual(
   buildTrainingJobSaveRequest({ runId: null, cloneId: null, name: 'new', gpuIds: '0', jobConfig: config }),

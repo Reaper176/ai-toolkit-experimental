@@ -26,6 +26,7 @@ import { createTrainingPresetPageState, trainingPresetPageReducer } from './trai
 import type { DatasetPresetDetail } from '@/hooks/useDatasetPresets';
 import {
   buildTrainingJobSaveRequest,
+  validateTrainingJobForSave,
   canSaveTrainingJob,
   removeArchivedPresetSourcesFromClone,
 } from '@/helpers/jobDatasetPresetClient';
@@ -237,6 +238,12 @@ export default function TrainingForm() {
     }
     if (!canSaveTrainingJob(presetReady, jobConfig)) {
       alert('Choose a live folder or an active dataset preset for every dataset.');
+      return;
+    }
+    try {
+      validateTrainingJobForSave(jobConfig);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Inverted mask prior settings are invalid.');
       return;
     }
     setStatus('saving');
