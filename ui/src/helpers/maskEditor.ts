@@ -162,6 +162,14 @@ export function canvasBackingSize(size: Readonly<{ width: number; height: number
   return { width: Math.max(1, Math.round(size.width * ratio)), height: Math.max(1, Math.round(size.height * ratio)) };
 }
 
+export function createMaskRequestGate(): { begin(): { isCurrent(): boolean }; cancel(): void } {
+  let generation = 0;
+  return {
+    begin() { const mine = ++generation; return { isCurrent: () => mine === generation }; },
+    cancel() { generation += 1; },
+  };
+}
+
 export function maskEditorShortcut(event: Readonly<{ key: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }>): MaskEditorShortcut {
   const command = event.ctrlKey || event.metaKey;
   const key = event.key.toLowerCase();

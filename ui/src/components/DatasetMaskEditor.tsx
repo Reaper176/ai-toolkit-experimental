@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  canvasBackingSize, clampMaskImageIndex, createMaskHistory, createWhiteMask, fitMaskView, invertMask, maskEditorShortcut,
+  canvasBackingSize, clampMaskImageIndex, createMaskHistory, createMaskRequestGate, createWhiteMask, fitMaskView, invertMask, maskEditorShortcut,
   masksEqual, maskSaveMethod, paintStroke, panMaskView, screenToImage,
   type MaskHistory, type MaskView, type Point,
 } from '@/helpers/maskEditor';
@@ -36,7 +36,7 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
   const sourceCanvas = useRef<HTMLCanvasElement>(null);
   const overlayCanvas = useRef<HTMLCanvasElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
-  const request = useRef(0);
+  const request = useRef(createMaskRequestGate());
   const painting = useRef<Point | null>(null);
   const panning = useRef<Point | null>(null);
   const image = selectedLiveImages[index];
@@ -63,14 +63,14 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
 
   useEffect(() => { setIndex(current => clampMaskImageIndex(current, selectedLiveImages.length)); }, [selectedLiveImages.length]);
   useEffect(() => {
-    const token = ++request.current;
+    const token = request.current.begin();
     setMask(undefined); baseline.current = null; original.current = null; history.current = null;
     painting.current = null; setError('');
     if (!open || !image || (readOnly && !frozenMasks?.[image.relative_path])) { setLoading(false); return; }
     setLoading(true);
     const source = new Image();
     source.onload = async () => {
-      if (token !== request.current) return;
+      if (!token.isCurrent()) return;
       const width = source.naturalWidth, height = source.naturalHeight;
       setSize({ width, height });
       const canvas = sourceCanvas.current;
@@ -78,26 +78,26 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
       try {
         const maskUrl = readOnly ? frozenMasks![image.relative_path] : endpoint(datasetName, image.relative_path);
         const response = await fetch(maskUrl);
-        if (token !== request.current) return;
+        if (!token.isCurrent()) return;
         let bytes = createWhiteMask(width, height);
         if (response.status !== 204) {
           if (!response.ok) throw new Error(`Unable to load mask (HTTP ${response.status})`);
           const loaded = new Image(); loaded.src = URL.createObjectURL(await response.blob()); await loaded.decode();
-          if (token !== request.current) return;
+          if (!token.isCurrent()) return;
           const offscreen = document.createElement('canvas'); offscreen.width = width; offscreen.height = height;
           const context = offscreen.getContext('2d')!; context.drawImage(loaded, 0, 0, width, height);
           const rgba = context.getImageData(0, 0, width, height).data;
           bytes = Uint8ClampedArray.from({ length: width * height }, (_, pixel) => rgba[pixel * 4]); URL.revokeObjectURL(loaded.src);
         }
-        if (token !== request.current) return;
+        if (!token.isCurrent()) return;
         baseline.current = new Uint8ClampedArray(bytes); original.current = new Uint8ClampedArray(bytes);
         history.current = createMaskHistory(bytes); setMask(bytes); drawMask(bytes, width, height); setLoading(false);
         requestAnimationFrame(() => fit({ width, height }));
-      } catch (cause) { if (token === request.current) { setMask(undefined); history.current = null; setLoading(false); setError(cause instanceof Error ? cause.message : 'Unable to load mask'); } }
+      } catch (cause) { if (token.isCurrent()) { setMask(undefined); history.current = null; setLoading(false); setError(cause instanceof Error ? cause.message : 'Unable to load mask'); } }
     };
-    source.onerror = () => { if (token === request.current) { setLoading(false); setError('Unable to load source image'); } };
+    source.onerror = () => { if (token.isCurrent()) { setLoading(false); setError('Unable to load source image'); } };
     source.src = `/api/img/${encodeURIComponent(image.img_path)}`;
-    return () => { request.current += 1; };
+    return () => request.current.cancel();
   }, [datasetName, drawMask, fit, frozenMasks, image, open, readOnly]);
 
   const confirmDirty = () => !dirty || window.confirm('Discard unsaved mask edits?');
@@ -105,7 +105,7 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
   const apply = (bytes: Uint8ClampedArray, push = false) => { setMask(bytes); drawMask(bytes, size.width, size.height); if (push) history.current?.push(bytes); };
   const save = async () => {
     if (!mask || !image || readOnly || loading) return;
-    const token = request.current; const savingImage = image.relative_path; setError('');
+    const token = request.current.begin(); const savingImage = image.relative_path; setError('');
     try {
       const method = maskSaveMethod(mask); let body: Blob | undefined;
       if (method === 'PUT') {
@@ -116,9 +116,9 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
       }
       const response = await fetch(endpoint(datasetName, savingImage), { method, headers: method === 'PUT' ? { 'content-type': 'image/png' } : undefined, body });
       if (!response.ok) throw new Error(`Unable to save mask (HTTP ${response.status}). Try again.`);
-      if (token !== request.current || image.relative_path !== savingImage) return;
+      if (!token.isCurrent() || image.relative_path !== savingImage) return;
       baseline.current = new Uint8ClampedArray(mask); setMask(new Uint8ClampedArray(mask)); onStatusRefresh();
-    } catch (cause) { if (token === request.current) setError(cause instanceof Error ? cause.message : 'Unable to save mask. Try again.'); }
+    } catch (cause) { if (token.isCurrent()) setError(cause instanceof Error ? cause.message : 'Unable to save mask. Try again.'); }
   };
   const imagePoint = (event: React.PointerEvent) => { const rect = viewport.current!.getBoundingClientRect(); return screenToImage({ x: event.clientX - rect.left, y: event.clientY - rect.top }, view); };
   const stroke = (to: Point) => { if (!mask || !painting.current) return; const next = paintStroke(mask, size.width, size.height, painting.current, to, brush); painting.current = to; apply(next); };

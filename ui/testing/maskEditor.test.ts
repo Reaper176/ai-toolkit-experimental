@@ -13,6 +13,7 @@ import {
   maskSaveMethod,
   maskEditorShortcut,
   canvasBackingSize,
+  createMaskRequestGate,
 } from '../src/helpers/maskEditor';
 
 assert.deepEqual(screenToImage({ x: 34, y: 26 }, { zoom: 2, offsetX: 10, offsetY: 6 }), { x: 12, y: 10 });
@@ -145,6 +146,13 @@ assert.equal(maskEditorShortcut({ key: '0', ctrlKey: false, metaKey: false, shif
 assert.equal(maskEditorShortcut({ key: 'z', ctrlKey: true, metaKey: false, shiftKey: true }), 'redo');
 assert.deepEqual(canvasBackingSize({ width: 320, height: 200 }, 2), { width: 640, height: 400 });
 assert.deepEqual(canvasBackingSize({ width: 320, height: 200 }, 0), { width: 320, height: 200 });
+const maskRequests = createMaskRequestGate();
+const oldMaskRequest = maskRequests.begin();
+const currentMaskRequest = maskRequests.begin();
+assert.equal(oldMaskRequest.isCurrent(), false, 'a new image invalidates its predecessor load/save');
+assert.equal(currentMaskRequest.isCurrent(), true);
+maskRequests.cancel();
+assert.equal(currentMaskRequest.isCurrent(), false, 'closing the editor invalidates pending async work');
 assert.deepEqual([...history.undo()], [200]);
 assert.deepEqual([...history.undo()], [200]);
 assert.equal(history.canUndo(), false);
