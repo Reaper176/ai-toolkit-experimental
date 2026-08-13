@@ -139,6 +139,28 @@ async function runResolutionTests(): Promise<void> {
   resolved.usages[0].resolved_loader_config.resolution[0] = 99;
   assert.equal(resolved.usages[2].resolved_loader_config.resolution[0], 512, 'duplicate usages do not alias');
   assert.equal(input.config.process[0].datasets[0].resolution[0], 512, 'outputs do not alias input');
+
+  const enabledMasked = job([dataset('v1')]);
+  enabledMasked.config.process[0].train = {
+    inverted_mask_prior: true, inverted_mask_prior_multiplier: 0.5, train_turbo: false,
+  } as never;
+  await assert.doesNotReject(resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: enabledMasked,
+    versions: f.versions, snapshots: f.snapshots }), 'validation runs after managed masks resolve');
+
+  const enabledMaskless = job([dataset('v2')]);
+  enabledMaskless.config.process[0].train = {
+    inverted_mask_prior: true, inverted_mask_prior_multiplier: 0.5, train_turbo: false,
+  } as never;
+  await assert.rejects(resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: enabledMaskless,
+    versions: f.versions, snapshots: f.snapshots }), /resolved masks/i);
+
+  const turboMasked = job([dataset('v1')]);
+  turboMasked.config.process[0].train = {
+    inverted_mask_prior: true, inverted_mask_prior_multiplier: 0.5, train_turbo: true,
+  } as never;
+  await assert.rejects(prepareJobDatasetPresetsForTraining(turboMasked, {
+    versions: f.versions, snapshots: f.snapshots,
+  }), /turbo/i, 'persisted queue preflight rejects a newly incompatible training config');
 }
 
 async function runLegacyChecksumCompatibility(): Promise<void> {

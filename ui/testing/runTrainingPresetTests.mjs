@@ -9,6 +9,8 @@ const testingDirectory = dirname(fileURLToPath(import.meta.url));
 const uiRoot = resolve(testingDirectory, '..');
 const tsc = join(uiRoot, 'node_modules', 'typescript', 'bin', 'tsc');
 const testFiles = [
+  'maskTrainingValidation.test.js',
+  'maskTrainingControls.test.js',
   'trainingPresets.test.js',
   'trainingPresetService.test.js',
   'trainingPresetRouteHandlers.test.js',

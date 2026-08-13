@@ -21,11 +21,14 @@
     "../src/app/jobs/new/jobConfig.ts",
     "../src/app/jobs/new/trainingPresetPageState.ts",
     "../src/helpers/trainingPresets.ts",
+    "../src/helpers/maskTrainingValidation.ts",
     "../src/server/trainingPresetService.ts",
     "../src/server/trainingPresetRouteHandlers.ts",
     "trainingPresetPageIntegration.test.ts",
     "trainingPreset*.test.ts",
-    "trainingPreset*.test.tsx"
+    "trainingPreset*.test.tsx",
+    "maskTrainingValidation.test.ts",
+    "maskTrainingControls.test.ts"
   ],
   "exclude": ["../.next", "../node_modules"]
 }

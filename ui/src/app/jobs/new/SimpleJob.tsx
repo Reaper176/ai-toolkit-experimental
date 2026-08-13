@@ -242,6 +242,9 @@ export default function SimpleJob({
   const showGPUSelect = !isMac();
 
   const validationConfig = jobConfig.config.process[0].train.validation_config;
+  const hasResolvedMasks = jobConfig.config.process[0].datasets.some(
+    dataset => Boolean(dataset.mask_path?.trim()) || dataset.dataset_preset?.has_masks === true,
+  );
 
   let numDatasetCols = 4;
   let numSampleTopCols = 4;
@@ -947,6 +950,41 @@ export default function SimpleJob({
                     )}
                   </>
                 )}
+                <div className="pt-2">
+                  <Checkbox
+                    label="Inverted Mask Prior"
+                    docKey={'train.inverted_mask_prior'}
+                    checked={jobConfig.config.process[0].train.inverted_mask_prior ?? false}
+                    disabled={!hasResolvedMasks}
+                    onChange={value => {
+                      setJobConfig(value, 'config.process[0].train.inverted_mask_prior');
+                      if (
+                        value &&
+                        jobConfig.config.process[0].train.inverted_mask_prior_multiplier === undefined
+                      ) {
+                        setJobConfig(0.5, 'config.process[0].train.inverted_mask_prior_multiplier');
+                      }
+                    }}
+                  />
+                  {!hasResolvedMasks && (
+                    <p className="pt-1 text-xs text-amber-400" role="status">
+                      No resolved dataset masks are available. Select a masked preset or save a live masked dataset first.
+                    </p>
+                  )}
+                  {jobConfig.config.process[0].train.inverted_mask_prior && (
+                    <NumberInput
+                      label="Inverted Mask Prior Multiplier"
+                      className="pt-2"
+                      value={jobConfig.config.process[0].train.inverted_mask_prior_multiplier ?? 0.5}
+                      onChange={value =>
+                        value !== null &&
+                        setJobConfig(value, 'config.process[0].train.inverted_mask_prior_multiplier')
+                      }
+                      min={0}
+                      placeholder="eg. 0.5"
+                    />
+                  )}
+                </div>
                 {disableSections.includes('train.blank_prompt_preservation') ? null : (
                   <>
                     <Checkbox

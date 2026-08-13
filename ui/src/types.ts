@@ -124,6 +124,7 @@ export interface DatasetConfig {
     preset_name: string;
     version: number;
     manifest_sha256: string;
+    has_masks?: boolean;
   };
 }
 
@@ -159,6 +160,9 @@ export interface ValidationConfig {
 }
 
 export interface TrainConfig {
+  inverted_mask_prior?: boolean;
+  inverted_mask_prior_multiplier?: number;
+  train_turbo?: boolean;
   batch_size: number;
   bypass_guidance_embedding?: boolean;
   steps: number;

@@ -35,6 +35,9 @@ function applyPresetVersion(
     preset_name: preset.name,
     version: version.version,
     manifest_sha256: version.manifest_sha256,
+    ...(Array.isArray(version.manifest?.files)
+      ? { has_masks: version.manifest.files.some(file => file.mask_missing === false) }
+      : {}),
   };
   return next;
 }

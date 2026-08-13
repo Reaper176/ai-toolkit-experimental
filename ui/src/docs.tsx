@@ -288,6 +288,17 @@ const docs: { [key: string]: ConfigDoc } = {
       </>
     ),
   },
+  'train.inverted_mask_prior': {
+    title: 'Inverted Mask Prior',
+    description: (
+      <>
+        Inverted Mask Prior preserves the model outside the painted mask by making an additional prediction with the
+        training network disabled. That extra prior prediction increases training runtime and VRAM use. It requires at
+        least one dataset with resolved masks and is incompatible with turbo training. The multiplier controls the
+        outside-mask prior loss; zero is allowed and disables that loss contribution.
+      </>
+    ),
+  },
   'train.do_differential_guidance': {
     title: 'Differential Guidance',
     description: (

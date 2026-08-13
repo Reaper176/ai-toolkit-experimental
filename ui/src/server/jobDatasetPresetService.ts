@@ -14,6 +14,7 @@ import type { DatasetPresetSnapshotStore } from './datasetPresetSnapshotService'
 import type { DatasetConfig, JobConfig } from '../types';
 import { DATASET_PRESET_REPRODUCIBILITY_BREAKING_PATH_KEYS } from '../helpers/datasetPresetValidation';
 import { resolveLiveMaskDirectory } from './datasetMaskService';
+import { validateMaskTraining } from '../helpers/maskTrainingValidation';
 
 export interface ResolvedJobDatasets {
   jobConfig: JobConfig;
@@ -419,6 +420,19 @@ async function resolveJobDatasetPresetsInternal(input: {
       preset_version: authoritative.version.version,
       manifest_sha256: authoritative.version.manifest_sha256,
       resolved_loader_config: structuredClone(resolvedLoader),
+    });
+  }
+  try {
+    const train = jobConfig.config.process[0].train ?? ({} as JobConfig['config']['process'][number]['train']);
+    validateMaskTraining({
+      enabled: train.inverted_mask_prior,
+      multiplier: train.inverted_mask_prior_multiplier,
+      trainTurbo: train.train_turbo,
+      datasets,
+    });
+  } catch (error) {
+    throw new JobDatasetPresetError(error instanceof Error ? error.message : 'Inverted mask prior settings are invalid', {
+      cause: error,
     });
   }
   return { jobConfig, usages };

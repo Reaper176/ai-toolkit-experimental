@@ -120,7 +120,10 @@ export async function POST(request: Request) {
     if (error !== null && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
       return NextResponse.json({ error: 'Job name already exists' }, { status: 409 });
     }
-    if (error instanceof JobDatasetPresetError || error instanceof SyntaxError) {
+    if (error instanceof JobDatasetPresetError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    if (error instanceof SyntaxError) {
       return NextResponse.json({ error: 'Job dataset preset configuration is invalid' }, { status: 400 });
     }
     console.error(error);

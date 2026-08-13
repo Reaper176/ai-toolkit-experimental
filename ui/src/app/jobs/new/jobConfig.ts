@@ -68,6 +68,8 @@ export const defaultJobConfig: JobConfig = {
         },
         datasets: [defaultDatasetConfig],
         train: {
+          inverted_mask_prior: false,
+          inverted_mask_prior_multiplier: 0.5,
           batch_size: 1,
           bypass_guidance_embedding: true,
           steps: 3000,
