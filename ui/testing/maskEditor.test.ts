@@ -14,6 +14,7 @@ import {
   maskEditorShortcut,
   canvasBackingSize,
   createMaskRequestGate,
+  frozenMaskUrlsFromManifest,
 } from '../src/helpers/maskEditor';
 
 assert.deepEqual(screenToImage({ x: 34, y: 26 }, { zoom: 2, offsetX: 10, offsetY: 6 }), { x: 12, y: 10 });
@@ -153,6 +154,9 @@ assert.equal(oldMaskRequest.isCurrent(), false, 'a new image invalidates its pre
 assert.equal(currentMaskRequest.isCurrent(), true);
 maskRequests.cancel();
 assert.equal(currentMaskRequest.isCurrent(), false, 'closing the editor invalidates pending async work');
+assert.deepEqual(frozenMaskUrlsFromManifest('version 1', [{ source_path: 'a.png', mask_managed_path: 'masks/a.png' }, { source_path: 'b.png' }, { source_path: 'c.png', frozen_mask_url: '/immutable/c' }]), {
+  'a.png': '/api/dataset-preset-versions/version%201/files?path=masks%2Fa.png', 'c.png': '/immutable/c',
+});
 assert.deepEqual([...history.undo()], [200]);
 assert.deepEqual([...history.undo()], [200]);
 assert.equal(history.canUndo(), false);

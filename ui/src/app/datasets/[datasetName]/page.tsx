@@ -46,6 +46,7 @@ import useDatasetPresets, {
   type DatasetPresetSummary,
   type DatasetPresetVersionDetail,
 } from '@/hooks/useDatasetPresets';
+import { frozenMaskUrlsFromManifest } from '@/helpers/maskEditor';
 
 interface DatasetImageEntry {
   img_path: string;
@@ -94,6 +95,9 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   selectionDirtyRef.current = selectionDirty;
   const archivedReadOnly = activePreset !== null && activePreset.archived_at !== null;
   const selectedLiveImages = useMemo(() => imgList.filter(image => selectedPaths.has(image.relative_path)), [imgList, selectedPaths]);
+  const frozenMasks = useMemo(() => activeVersion ? frozenMaskUrlsFromManifest(activeVersion.id, activeVersion.manifest.files) : {}, [activeVersion]);
+  const archivedMaskPreviewAvailable = archivedReadOnly && selectedLiveImages.some(image => !!frozenMasks[image.relative_path]);
+  const maskEditorImages = archivedReadOnly ? selectedLiveImages.filter(image => !!frozenMasks[image.relative_path]) : selectedLiveImages;
   const selectionInteractionLocked = selectionSaving || lifecyclePending || archivedReadOnly;
   activeManifestPathsRef.current = new Set(activeVersion?.manifest.files.map(file => file.source_path) ?? []);
 
@@ -608,7 +612,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
               readOnly={archivedReadOnly}
               onAction={handleSelectionAction}
               onSave={archivedReadOnly ? undefined : () => setPresetDialogOpen(true)}
-              onEditMasks={!archivedReadOnly && selectedLiveImages.length > 0 ? () => setMaskEditorOpen(true) : undefined}
+              onEditMasks={(!archivedReadOnly || archivedMaskPreviewAvailable) && selectedLiveImages.length > 0 ? () => setMaskEditorOpen(true) : undefined}
               onCancel={cancelSelectionMode}
             />
             {archivedReadOnly && (
@@ -659,7 +663,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
                   captionRefreshKey={captionRefreshKeys[img.img_path] || 0}
                   observerRoot={scrollParent}
                   captionExt={captionExt}
-                  maskState={archivedReadOnly ? 'read-only' : 'missing'}
+                  maskState={archivedReadOnly && frozenMasks[img.relative_path] ? 'read-only' : 'missing'}
                   maskDatasetName={datasetName}
                   maskSourcePath={img.relative_path}
                   maskStatusRefreshKey={maskStatusRefreshKey}
@@ -687,13 +691,14 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
         {/* Baseline gap below the last row of cards. The caption bar itself is handled by
             shrinking MainContent's bottom to the bar height, so no dynamic spacer is needed. */}
         <div className="h-6" />
-        {!archivedReadOnly && <DatasetMaskEditor
+        {(!archivedReadOnly || archivedMaskPreviewAvailable) && <DatasetMaskEditor
           datasetName={datasetName}
-          selectedLiveImages={selectedLiveImages}
+          selectedLiveImages={maskEditorImages}
           archivedReadOnly={archivedReadOnly}
           open={maskEditorOpen}
           onClose={() => setMaskEditorOpen(false)}
           onStatusRefresh={() => setMaskStatusRefreshKey(value => value + 1)}
+          frozenMasks={frozenMasks}
           key={maskStatusRefreshKey}
         />}
       </MainContent>

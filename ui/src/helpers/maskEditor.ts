@@ -170,6 +170,20 @@ export function createMaskRequestGate(): { begin(): { isCurrent(): boolean }; ca
   };
 }
 
+export function frozenMaskUrlsFromManifest(versionId: string, files: readonly unknown[]): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const untrusted of files) {
+    if (!untrusted || typeof untrusted !== 'object') continue;
+    const file = untrusted as Record<string, unknown>;
+    if (typeof file.source_path !== 'string') continue;
+    const direct = typeof file.frozen_mask_url === 'string' ? file.frozen_mask_url : typeof file.mask_url === 'string' ? file.mask_url : null;
+    const managed = typeof file.mask_managed_path === 'string' ? file.mask_managed_path : typeof file.managed_mask_path === 'string' ? file.managed_mask_path : null;
+    if (direct) result[file.source_path] = direct;
+    else if (managed) result[file.source_path] = `/api/dataset-preset-versions/${encodeURIComponent(versionId)}/files?path=${encodeURIComponent(managed)}`;
+  }
+  return result;
+}
+
 export function maskEditorShortcut(event: Readonly<{ key: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }>): MaskEditorShortcut {
   const command = event.ctrlKey || event.metaKey;
   const key = event.key.toLowerCase();

@@ -121,8 +121,10 @@ assert.match(
 );
 assert.match(pageSource, /baseSelection/, 'page keeps a base selection for dirty checks');
 assert.match(pageSource, /<DatasetMaskEditor/, 'page renders the focused mask editor');
-assert.match(pageSource, /onEditMasks=\{!archivedReadOnly\s*&&\s*selectedLiveImages\.length/, 'archived presets cannot launch a live mask editor');
-assert.match(pageSource, /selectedLiveImages=\{selectedLiveImages\}/, 'editor navigation receives the full selected live ordering');
+assert.match(pageSource, /frozenMaskUrlsFromManifest\(activeVersion\.id,\s*activeVersion\.manifest\.files\)/, 'page derives immutable archived preview URLs from optional manifest fields');
+assert.match(pageSource, /\(!archivedReadOnly\s*\|\|\s*archivedMaskPreviewAvailable\)/, 'archived editor launch requires immutable frozen mask data');
+assert.match(pageSource, /const\s+maskEditorImages\s*=\s*archivedReadOnly\s*\?\s*selectedLiveImages\.filter[\s\S]{0,120}:\s*selectedLiveImages/, 'live editor keeps full selected ordering while archived preview includes frozen files only');
+assert.match(pageSource, /selectedLiveImages=\{maskEditorImages\}/, 'editor receives the correct ordered live or frozen-preview images');
 assert.match(pageSource, /datasetName=\{datasetName\}/, 'editor receives the dataset name');
 assert.match(maskEditorSource, /paintStroke/, 'mask editor uses the shared painting engine');
 assert.match(maskEditorSource, /createMaskHistory/, 'mask editor uses bounded undo and redo history');
