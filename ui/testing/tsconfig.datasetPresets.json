@@ -39,6 +39,7 @@
     "datasetMaskService.test.ts",
     "datasetMaskRouteHandlers.test.ts",
     "maskEditor.test.ts",
+    "datasetMaskEditor.test.tsx",
     "datasetPreset*.test.tsx",
     "datasetProvenance.test.tsx",
     "datasetSourceControl.test.tsx",

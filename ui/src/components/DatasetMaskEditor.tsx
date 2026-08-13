@@ -26,6 +26,7 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
   const [mask, setMask] = useState<Uint8ClampedArray>();
   const [size, setSize] = useState({ width: 1, height: 1 });
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [brush, setBrush] = useState({ value: 0, size: 24, hardness: 1, opacity: 1 });
   const [overlayOpacity, setOverlayOpacity] = useState(.55);
@@ -104,8 +105,9 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
   const navigate = (next: number) => { const bounded = clampMaskImageIndex(next, selectedLiveImages.length); if (bounded !== index && confirmDirty()) setIndex(bounded); };
   const apply = (bytes: Uint8ClampedArray, push = false) => { setMask(bytes); drawMask(bytes, size.width, size.height); if (push) history.current?.push(bytes); };
   const save = async () => {
-    if (!mask || !image || readOnly || loading) return;
+    if (!mask || !image || readOnly || loading || saving) return;
     const token = request.current.begin(); const savingImage = image.relative_path; setError('');
+    setSaving(true);
     try {
       const method = maskSaveMethod(mask); let body: Blob | undefined;
       if (method === 'PUT') {
@@ -119,10 +121,12 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
       if (!token.isCurrent() || image.relative_path !== savingImage) return;
       baseline.current = new Uint8ClampedArray(mask); setMask(new Uint8ClampedArray(mask)); onStatusRefresh();
     } catch (cause) { if (token.isCurrent()) setError(cause instanceof Error ? cause.message : 'Unable to save mask. Try again.'); }
+    finally { if (token.isCurrent()) setSaving(false); }
   };
   const imagePoint = (event: React.PointerEvent) => { const rect = viewport.current!.getBoundingClientRect(); return screenToImage({ x: event.clientX - rect.left, y: event.clientY - rect.top }, view); };
   const stroke = (to: Point) => { if (!mask || !painting.current) return; const next = paintStroke(mask, size.width, size.height, painting.current, to, brush); painting.current = to; apply(next); };
   const runShortcut = useCallback((action: ReturnType<typeof maskEditorShortcut>) => {
+    if (saving && action !== 'zoom-in' && action !== 'zoom-out' && action !== 'fit') return;
     if (action === 'save') void save();
     else if (action === 'undo') { const next = history.current?.undo(); if (next) apply(next); }
     else if (action === 'redo') { const next = history.current?.redo(); if (next) apply(next); }
@@ -134,7 +138,7 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
     else if (action === 'zoom-in') setView(current => ({ ...current, zoom: Math.min(8, current.zoom * 1.25) }));
     else if (action === 'zoom-out') setView(current => ({ ...current, zoom: Math.max(.05, current.zoom / 1.25) }));
     else if (action === 'fit') fit(size);
-  }, [index, mask, readOnly, size, view, dirty]);
+  }, [index, mask, readOnly, size, view, dirty, saving]);
   useEffect(() => {
     if (!open) return;
     const key = (event: globalThis.KeyboardEvent) => {
@@ -147,17 +151,17 @@ export default function DatasetMaskEditor(props: DatasetMaskEditorProps) {
   if (!open || !image || (readOnly && !frozenMasks?.[image.relative_path])) return null;
   const transform = `translate(${view.offsetX}px, ${view.offsetY}px) scale(${view.zoom})`;
   return <div role="dialog" aria-modal="true" aria-label="Dataset mask editor" className="fixed inset-0 z-50 flex flex-col bg-gray-950/95 p-4 text-white">
-    <header className="flex flex-wrap items-center gap-2"><strong>{image.relative_path}</strong><span>{index + 1} / {selectedLiveImages.length}</span><button disabled={index === 0 || loading} onClick={() => navigate(index - 1)}>Previous</button><button disabled={index === selectedLiveImages.length - 1 || loading} onClick={() => navigate(index + 1)}>Next</button><button className="ml-auto" onClick={() => confirmDirty() && onClose()}>Close</button></header>
+    <header className="flex flex-wrap items-center gap-2"><strong>{image.relative_path}</strong><span>{index + 1} / {selectedLiveImages.length}</span><button disabled={index === 0 || loading || saving} onClick={() => navigate(index - 1)}>Previous</button><button disabled={index === selectedLiveImages.length - 1 || loading || saving} onClick={() => navigate(index + 1)}>Next</button><button disabled={saving} className="ml-auto" onClick={() => confirmDirty() && onClose()}>Close</button></header>
     <div className="flex flex-wrap gap-3 py-3">
-      <button disabled={readOnly || loading} aria-pressed={brush.value < 255} onClick={() => setBrush({ ...brush, value: 0 })}>Paint</button><button disabled={readOnly || loading} aria-pressed={brush.value === 255} onClick={() => setBrush({ ...brush, value: 255 })}>Eraser</button>
-      {(['value','size','hardness','opacity'] as const).map(name => <label key={name}>{name}<input aria-label={`Brush ${name}`} type="range" min={name === 'value' ? 0 : name === 'size' ? 1 : 0} max={name === 'value' ? 255 : name === 'size' ? 200 : 1} step={name === 'value' || name === 'size' ? 1 : .05} value={brush[name]} disabled={readOnly || loading} onChange={event => setBrush({ ...brush, [name]: Number(event.target.value) })}/></label>)}
+      <button disabled={readOnly || loading || saving} aria-pressed={brush.value < 255} onClick={() => setBrush({ ...brush, value: 0 })}>Paint</button><button disabled={readOnly || loading || saving} aria-pressed={brush.value === 255} onClick={() => setBrush({ ...brush, value: 255 })}>Eraser</button>
+      {(['value','size','hardness','opacity'] as const).map(name => <label key={name}>{name}<input aria-label={`Brush ${name}`} type="range" min={name === 'value' ? 0 : name === 'size' ? 1 : 0} max={name === 'value' ? 255 : name === 'size' ? 200 : 1} step={name === 'value' || name === 'size' ? 1 : .05} value={brush[name]} disabled={readOnly || loading || saving} onChange={event => setBrush({ ...brush, [name]: Number(event.target.value) })}/></label>)}
       <label>Overlay opacity<input aria-label="Overlay opacity" type="range" min="0" max="1" step=".05" value={overlayOpacity} onChange={event => setOverlayOpacity(Number(event.target.value))}/></label>
-      <button onClick={() => { const next = history.current?.undo(); if (next) apply(next); }} disabled={!history.current?.canUndo() || readOnly || loading}>Undo</button><button onClick={() => { const next = history.current?.redo(); if (next) apply(next); }} disabled={!history.current?.canRedo() || readOnly || loading}>Redo</button>
-      <button onClick={() => original.current && apply(new Uint8ClampedArray(original.current), true)} disabled={!mask || readOnly || loading}>Reset original</button><button onClick={() => apply(createWhiteMask(size.width, size.height), true)} disabled={!mask || readOnly || loading}>Clear white</button><button onClick={() => mask && apply(invertMask(mask), true)} disabled={!mask || readOnly || loading}>Invert</button>
-      <button onClick={() => runShortcut('zoom-in')}>Zoom in</button><button onClick={() => runShortcut('zoom-out')}>Zoom out</button><button onClick={() => fit(size)}>Fit</button><button disabled={!dirty || readOnly || loading} onClick={() => void save()}>Save mask</button>
+      <button onClick={() => { const next = history.current?.undo(); if (next) apply(next); }} disabled={!history.current?.canUndo() || readOnly || loading || saving}>Undo</button><button onClick={() => { const next = history.current?.redo(); if (next) apply(next); }} disabled={!history.current?.canRedo() || readOnly || loading || saving}>Redo</button>
+      <button onClick={() => original.current && apply(new Uint8ClampedArray(original.current), true)} disabled={!mask || readOnly || loading || saving}>Reset original</button><button onClick={() => apply(createWhiteMask(size.width, size.height), true)} disabled={!mask || readOnly || loading || saving}>Clear white</button><button onClick={() => mask && apply(invertMask(mask), true)} disabled={!mask || readOnly || loading || saving}>Invert</button>
+      <button onClick={() => runShortcut('zoom-in')}>Zoom in</button><button onClick={() => runShortcut('zoom-out')}>Zoom out</button><button onClick={() => fit(size)}>Fit</button><button disabled={!dirty || readOnly || loading || saving} onClick={() => void save()}>Save mask</button>
     </div>{loading && <p role="status">Loading mask…</p>}{readOnly && <p>Archived frozen mask preview is read-only.</p>}{error && <p role="alert" className="text-red-400">{error}</p>}
     <div ref={viewport} className="relative flex-1 overflow-hidden bg-black" onPointerDown={event => { if (event.button === 1 || event.shiftKey) panning.current = { x: event.clientX, y: event.clientY }; }} onPointerMove={event => { if (!panning.current) return; setView(current => panMaskView(current, event.clientX - panning.current!.x, event.clientY - panning.current!.y)); panning.current = { x: event.clientX, y: event.clientY }; }} onPointerUp={() => { panning.current = null; }}>
-      <div className="absolute origin-top-left" style={{ width: size.width, height: size.height, transform }}><canvas ref={sourceCanvas} className="absolute inset-0" style={{ width: size.width, height: size.height }}/><canvas ref={overlayCanvas} className="absolute inset-0 touch-none" style={{ width: size.width, height: size.height, opacity: overlayOpacity }} onPointerDown={event => { if (readOnly || loading || event.shiftKey) return; event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); const start = imagePoint(event); painting.current = start; stroke(start); }} onPointerMove={event => { if (painting.current) stroke(imagePoint(event)); }} onPointerUp={() => { if (mask && painting.current) history.current?.push(mask); painting.current = null; }}/></div>
+      <div className="absolute origin-top-left" style={{ width: size.width, height: size.height, transform }}><canvas ref={sourceCanvas} className="absolute inset-0" style={{ width: size.width, height: size.height }}/><canvas ref={overlayCanvas} className="absolute inset-0 touch-none" style={{ width: size.width, height: size.height, opacity: overlayOpacity }} onPointerDown={event => { if (readOnly || loading || saving || event.shiftKey || event.button === 1) return; event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); const start = imagePoint(event); painting.current = start; stroke(start); }} onPointerMove={event => { if (painting.current) stroke(imagePoint(event)); }} onPointerUp={() => { if (mask && painting.current) history.current?.push(mask); painting.current = null; }}/></div>
     </div>
   </div>;
 }
