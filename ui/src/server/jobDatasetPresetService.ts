@@ -1,6 +1,6 @@
 import type { Job } from '@prisma/client';
 import { lstat, realpath } from 'node:fs/promises';
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import {
   LOADER_CONFIG_KEYS,
   manifestSha256,
@@ -46,6 +46,7 @@ export interface SaveJobInput {
   jobs: JobWriteStore;
   versions: JobDatasetVersionStore;
   snapshots: DatasetPresetSnapshotStore;
+  datasetsRoot?: string;
 }
 
 type TransactionSaveInput = Omit<SaveJobInput, 'jobs' | 'versions' | 'snapshots'> & { job_config: JobConfig };
@@ -69,6 +70,7 @@ export interface JobWriteStore {
 export interface PreflightDeps {
   versions: Pick<JobDatasetVersionStore, 'getVersionForResolution'>;
   snapshots: DatasetPresetSnapshotStore;
+  datasetsRoot?: string;
 }
 
 export class JobDatasetPresetError extends Error {
@@ -252,6 +254,7 @@ async function resolveJobDatasetPresetsInternal(input: {
   jobConfig: JobConfig;
   versions: JobDatasetVersionStore;
   snapshots: DatasetPresetSnapshotStore;
+  datasetsRoot?: string;
 }, eligibility: 'save' | 'integrity-only'): Promise<ResolvedJobDatasets> {
   const { jobConfig, datasets } = cloneAndLocateDatasets(input.jobConfig);
   if (input.jobId !== null && !nonblank(input.jobId)) throw new JobDatasetPresetError('Job identity is invalid');
@@ -331,6 +334,13 @@ async function resolveJobDatasetPresetsInternal(input: {
         try {
           const canonicalMaskPath = await realpath(dataset.mask_path);
           if (canonicalMaskPath !== dataset.mask_path) throw new Error('Explicit live mask path must be canonical');
+          if (input.datasetsRoot) {
+            const canonicalRoot = await realpath(input.datasetsRoot);
+            const child = relative(canonicalRoot, canonicalMaskPath);
+            if (!child || child === '..' || child.startsWith(`..${sep}`) || isAbsolute(child)) {
+              throw new Error('Explicit live mask path escapes configured datasets root');
+            }
+          }
           const info = await lstat(canonicalMaskPath);
           if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Explicit live mask path must be a directory');
         } catch (error) {
@@ -338,7 +348,7 @@ async function resolveJobDatasetPresetsInternal(input: {
         }
       } else if (nonblank(dataset.folder_path)) {
         try {
-          dataset.mask_path = await resolveLiveMaskDirectory(dataset.folder_path);
+          dataset.mask_path = await resolveLiveMaskDirectory(dataset.folder_path, { datasetsRoot: input.datasetsRoot });
         } catch (error) {
           if (error instanceof Error && /^Duplicate mask basename: [^/\\]+$/.test(error.message)) {
             throw new JobDatasetPresetError(error.message, { cause: error });
@@ -420,6 +430,7 @@ export async function resolveJobDatasetPresets(input: {
   jobConfig: JobConfig;
   versions: JobDatasetVersionStore;
   snapshots: DatasetPresetSnapshotStore;
+  datasetsRoot?: string;
 }): Promise<ResolvedJobDatasets> {
   return resolveJobDatasetPresetsInternal(input, 'save');
 }
@@ -431,6 +442,7 @@ export async function saveJobWithDatasetUsages(input: SaveJobInput): Promise<Job
     jobConfig: input.job_config,
     versions: input.versions,
     snapshots: input.snapshots,
+    datasetsRoot: input.datasetsRoot,
   });
   return input.jobs.transaction(async transaction => {
     const job = await transaction.createOrUpdateJob({
@@ -474,6 +486,7 @@ export async function prepareJobDatasetPresetsForTraining(
       async existingUsage() { return null; },
     },
     snapshots: deps.snapshots,
+    datasetsRoot: deps.datasetsRoot,
   }, 'integrity-only');
   return resolved.jobConfig;
 }

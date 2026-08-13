@@ -12,7 +12,7 @@ import {
   jobWithDatasetPresetUsagesInclude,
   jobWithDatasetPresetUsagesResponse,
 } from '@/server/jobDatasetPresetPrismaStore';
-import { getDataRoot } from '@/server/settings';
+import { getDataRoot, getDatasetsRoot } from '@/server/settings';
 import type { JobConfig } from '@/types';
 
 const versions = createJobDatasetVersionPrismaStore(prisma);
@@ -113,6 +113,7 @@ export async function POST(request: Request) {
       jobs,
       versions,
       snapshots: createDatasetPresetSnapshotStore(await getDataRoot()),
+      datasetsRoot: await getDatasetsRoot(),
     });
     return NextResponse.json(training);
   } catch (error: unknown) {

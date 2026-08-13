@@ -228,12 +228,12 @@ async function runExternalAuxiliaryPathTests(): Promise<void> {
     const matching = dataset();
     matching.folder_path = images;
     matching.mask_path = null;
-    const liveResolved = await resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([matching]), versions: f.versions, snapshots: f.snapshots });
+    const liveResolved = await resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([matching]), versions: f.versions, snapshots: f.snapshots, datasetsRoot: root });
     assert.equal(liveResolved.jobConfig.config.process[0].datasets[0].mask_path, masks);
     const explicit = dataset();
     explicit.folder_path = images;
     explicit.mask_path = masks;
-    const explicitResolved = await prepareJobDatasetPresetsForTraining(job([explicit]), { versions: f.versions, snapshots: f.snapshots });
+    const explicitResolved = await prepareJobDatasetPresetsForTraining(job([explicit]), { versions: f.versions, snapshots: f.snapshots, datasetsRoot: root });
     assert.equal(explicitResolved.config.process[0].datasets[0].mask_path, masks, 'trusted persisted explicit live mask path is preserved');
     await assert.rejects(
       resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([explicit]), versions: f.versions, snapshots: f.snapshots }),
@@ -247,13 +247,17 @@ async function runExternalAuxiliaryPathTests(): Promise<void> {
     await writeFile(join(masks, 'deep.png'), PNG.sync.write(new PNG({ width: 1, height: 1 })));
     const nestedOnly = dataset();
     nestedOnly.folder_path = images;
-    const nestedResolved = await resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([nestedOnly]), versions: f.versions, snapshots: f.snapshots });
+    const nestedResolved = await resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([nestedOnly]), versions: f.versions, snapshots: f.snapshots, datasetsRoot: root });
     assert.equal(nestedResolved.jobConfig.config.process[0].datasets[0].mask_path, masks, 'nested media participates in live mask discovery');
     await writeFile(join(nested, 'one.jpg'), Buffer.from('not-needed-for-basename-check'));
     await assert.rejects(
-      resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([nestedOnly]), versions: f.versions, snapshots: f.snapshots }),
+      resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([nestedOnly]), versions: f.versions, snapshots: f.snapshots, datasetsRoot: root }),
       /duplicate mask basename/i,
     );
+    for (const invalidRoot of ['/', root]) {
+      const invalid = dataset(); invalid.folder_path = invalidRoot;
+      await assert.rejects(resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([invalid]), versions: f.versions, snapshots: f.snapshots, datasetsRoot: root }), /invalid|ambiguous|escape/i);
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }
