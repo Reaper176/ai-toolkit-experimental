@@ -38,6 +38,18 @@ const half = paintStroke(new Uint8ClampedArray([200]), 1, 1, { x: 0, y: 0 }, { x
 });
 assert.deepEqual([...half], [175]);
 
+const translucentStroke = paintStroke(white(7), 7, 1, { x: 0, y: 0 }, { x: 6, y: 0 }, {
+  value: 0,
+  size: 1,
+  hardness: 1,
+  opacity: 0.5,
+});
+assert.deepEqual(
+  [...translucentStroke],
+  [128, 128, 128, 128, 128, 128, 128],
+  'interpolated dabs contribute opacity only once per pixel',
+);
+
 const erased = paintStroke(new Uint8ClampedArray([0]), 1, 1, { x: 0, y: 0 }, { x: 0, y: 0 }, {
   value: 255,
   size: 1,
@@ -66,6 +78,7 @@ assert.throws(
 
 const initial = new Uint8ClampedArray([255]);
 const history = createMaskHistory(initial, 2);
+assert.throws(() => history.push(new Uint8ClampedArray([255, 255])), /length/i);
 assert.deepEqual([...history.current()], [255]);
 assert.equal(history.canUndo(), false);
 history.push(new Uint8ClampedArray([200]));

@@ -51,6 +51,11 @@ function validatePaint(mask: Uint8ClampedArray, width: number, height: number, b
   if (brush.opacity < 0 || brush.opacity > 1) throw new RangeError('brush opacity must be between 0 and 1');
 }
 
+/**
+ * Paints one geometric segment with at most one opacity contribution per pixel.
+ * To apply opacity once across a multi-event pointer stroke, callers should
+ * repaint its accumulated path from the buffer captured at stroke start.
+ */
 export function paintStroke(
   mask: Uint8ClampedArray,
   width: number,
@@ -66,6 +71,7 @@ export function paintStroke(
   requireFinite('to.y', to.y);
 
   const result = new Uint8ClampedArray(mask);
+  const coverage = new Float64Array(mask.length);
   const radius = brush.size / 2;
   const dx = to.x - from.x;
   const dy = to.y - from.y;
@@ -90,10 +96,14 @@ export function paintStroke(
           ? 1
           : (radius - pixelDistance) / (radius - solidRadius);
         const index = y * width + x;
-        const alpha = brush.opacity * falloff;
-        result[index] = Math.round(result[index] + (brush.value - result[index]) * alpha);
+        coverage[index] = Math.max(coverage[index], falloff);
       }
     }
+  }
+
+  for (let index = 0; index < result.length; index += 1) {
+    const alpha = brush.opacity * coverage[index];
+    result[index] = Math.round(result[index] + (brush.value - result[index]) * alpha);
   }
   return result;
 }
@@ -111,6 +121,7 @@ export function createMaskHistory(initial: Uint8ClampedArray, limit = 20): MaskH
   return {
     current: copyCurrent,
     push(mask) {
+      if (mask.length !== initial.length) throw new RangeError('mask length must match the initial mask length');
       snapshots = snapshots.slice(0, index + 1);
       snapshots.push(new Uint8ClampedArray(mask));
       if (snapshots.length > limit + 1) snapshots.shift();
