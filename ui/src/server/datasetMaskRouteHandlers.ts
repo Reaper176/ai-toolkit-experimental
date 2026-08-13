@@ -1,4 +1,6 @@
 import { basename, extname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { constants } from 'node:fs';
+import { lstat, open, realpath, unlink } from 'node:fs/promises';
 import type { DatasetMaskReadResult, DatasetMaskService } from './datasetMaskService';
 
 export const MAX_MASK_PNG_BYTES = 16 * 1024 * 1024;
@@ -116,26 +118,79 @@ export function createDatasetMaskRouteHandlers(deps: MaskHandlerDependencies) {
 interface ImageDeleteDependencies {
   masks: Pick<DatasetMaskService, 'deleteByAbsoluteSource'>;
   resolveRoots(): Promise<{ datasetsRoot: string; trainingRoot: string }>;
-  exists(path: string): Promise<boolean>;
-  unlink(path: string): Promise<void>;
+  deleteFile?: (root: string, path: string) => Promise<boolean>;
 }
+
+class InvalidDeletePathError extends Error {}
 
 function within(root: string, path: string): boolean {
   const child = relative(resolve(root), resolve(path));
   return child !== '' && child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child);
 }
 
+type Identity = { dev: number; ino: number; mode: number };
+const identity = (stat: Identity): Identity => ({ dev: stat.dev, ino: stat.ino, mode: stat.mode });
+const sameIdentity = (left: Identity, right: Identity) =>
+  left.dev === right.dev && left.ino === right.ino && left.mode === right.mode;
+
+async function deleteConfinedFile(configuredRoot: string, requestedPath: string): Promise<boolean> {
+  const configured = resolve(configuredRoot);
+  const child = relative(configured, resolve(requestedPath));
+  if (child === '' || child === '..' || child.startsWith(`..${sep}`) || isAbsolute(child)) {
+    throw new InvalidDeletePathError();
+  }
+  const root = await realpath(configured);
+  const parts = child.split(sep);
+  const parents: Array<{ path: string; identity: Identity }> = [];
+  let directory = root;
+  for (const part of parts.slice(0, -1)) {
+    directory = resolve(directory, part);
+    let stat;
+    try { stat = await lstat(directory); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new InvalidDeletePathError();
+    if (!within(root, await realpath(directory))) throw new InvalidDeletePathError();
+    parents.push({ path: directory, identity: identity(stat) });
+  }
+  const target = resolve(root, ...parts);
+  let before;
+  try { before = await lstat(target); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+  if (before.isSymbolicLink() || !before.isFile()) throw new InvalidDeletePathError();
+  if (!within(root, await realpath(target))) throw new InvalidDeletePathError();
+  const expected = identity(before);
+  const handle = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    if (!sameIdentity(expected, identity(await handle.stat()))) throw new InvalidDeletePathError();
+  } finally {
+    await handle.close();
+  }
+  for (const parent of parents) {
+    if (!sameIdentity(parent.identity, identity(await lstat(parent.path)))) throw new InvalidDeletePathError();
+  }
+  if (!sameIdentity(expected, identity(await lstat(target)))) throw new InvalidDeletePathError();
+  await unlink(target);
+  return true;
+}
+
 export function createImageDeleteHandler(deps: ImageDeleteDependencies) {
   return async (request: Request): Promise<Response> => {
     try {
-      const { imgPath } = await request.json() as { imgPath?: unknown };
+      let body: unknown;
+      try { body = await request.json(); } catch { return json(400, 'Invalid request body'); }
+      const { imgPath } = (body && typeof body === 'object' ? body : {}) as { imgPath?: unknown };
       const roots = await deps.resolveRoots();
       if (typeof imgPath !== 'string' || (!within(roots.datasetsRoot, imgPath) && !within(roots.trainingRoot, imgPath))) {
         return json(400, 'Invalid image path');
       }
       if (!/\.(jpg|jpeg|png|bmp|gif|tiff|webp|mp4|mp3|wav|flac|ogg)$/i.test(imgPath)) return json(400, 'Not an image');
-      if (!(await deps.exists(imgPath))) return Response.json({ success: true });
-      await deps.unlink(imgPath);
+      const root = within(roots.datasetsRoot, imgPath) ? roots.datasetsRoot : roots.trainingRoot;
+      const deleteFile = deps.deleteFile ?? deleteConfinedFile;
+      if (!(await deleteFile(root, imgPath))) return Response.json({ success: true });
       let maskCleanupError: unknown;
       if (within(roots.datasetsRoot, imgPath)) {
         try {
@@ -145,11 +200,12 @@ export function createImageDeleteHandler(deps: ImageDeleteDependencies) {
         }
       }
       const captionPath = imgPath.replace(/\.[^/.]+$/, '') + '.txt';
-      if (await deps.exists(captionPath)) await deps.unlink(captionPath);
+      await deleteFile(root, captionPath);
       if (maskCleanupError !== undefined) throw maskCleanupError;
       return Response.json({ success: true });
-    } catch {
-      return json(500, 'Failed to create dataset');
+    } catch (error) {
+      if (error instanceof InvalidDeletePathError) return json(400, 'Invalid image path');
+      return json(500, 'Failed to delete image');
     }
   };
 }

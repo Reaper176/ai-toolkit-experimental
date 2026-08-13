@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   MAX_MASK_PNG_BYTES,
   createDatasetMaskRouteHandlers,
@@ -89,9 +92,10 @@ async function main(): Promise<void> {
   const deleteImage = createImageDeleteHandler({
     masks: imageMasks,
     resolveRoots: async () => ({ datasetsRoot: '/datasets', trainingRoot: '/training' }),
-    exists: async path => path !== '/datasets/photos/missing.jpg',
-    unlink: async path => {
+    deleteFile: async (_root, path) => {
+      if (path === '/datasets/photos/missing.jpg') return false;
       order.push(`unlink:${path}`);
+      return true;
     },
   });
   response = await deleteImage(new Request('http://localhost/api/img/delete', {
@@ -108,13 +112,13 @@ async function main(): Promise<void> {
   const failedDelete = createImageDeleteHandler({
     masks: imageMasks,
     resolveRoots: async () => ({ datasetsRoot: '/datasets', trainingRoot: '/training' }),
-    exists: async () => true,
-    unlink: async path => { order.push(`unlink:${path}`); throw new Error('unlink failed'); },
+    deleteFile: async (_root, path) => { order.push(`unlink:${path}`); throw new Error('unlink failed'); },
   });
   response = await failedDelete(new Request('http://localhost/api/img/delete', {
     method: 'POST', body: JSON.stringify({ imgPath: '/datasets/photos/portrait.jpg' }),
   }));
   assert.equal(response.status, 500);
+  assert.deepEqual(await response.json(), { error: 'Failed to delete image' });
   assert.deepEqual(order, ['unlink:/datasets/photos/portrait.jpg']);
 
   order.length = 0;
@@ -126,8 +130,7 @@ async function main(): Promise<void> {
   const failedMaskCleanup = createImageDeleteHandler({
     masks: failingMasks,
     resolveRoots: async () => ({ datasetsRoot: '/datasets', trainingRoot: '/training' }),
-    exists: async () => true,
-    unlink: async path => { order.push(`unlink:${path}`); },
+    deleteFile: async (_root, path) => { order.push(`unlink:${path}`); return true; },
   });
   response = await failedMaskCleanup(new Request('http://localhost/api/img/delete', {
     method: 'POST', body: JSON.stringify({ imgPath: '/datasets/photos/portrait.jpg' }),
@@ -138,6 +141,43 @@ async function main(): Promise<void> {
     'mask:/datasets/photos/portrait.jpg',
     'unlink:/datasets/photos/portrait.txt',
   ]);
+
+  response = await deleteImage(new Request('http://localhost/api/img/delete', {
+    method: 'POST', body: '{bad json',
+  }));
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: 'Invalid request body' });
+
+  const tempRoot = await mkdtemp(join(tmpdir(), 'mask-delete-confinement-'));
+  try {
+    const datasetsRoot = join(tempRoot, 'datasets');
+    const trainingRoot = join(tempRoot, 'training');
+    const outsideRoot = join(tempRoot, 'outside');
+    await Promise.all([mkdir(join(datasetsRoot, 'photos'), { recursive: true }), mkdir(trainingRoot), mkdir(outsideRoot)]);
+    const outsideImage = join(outsideRoot, 'outside.jpg');
+    const outsideCaption = join(outsideRoot, 'outside.txt');
+    await Promise.all([writeFile(outsideImage, 'image'), writeFile(outsideCaption, 'caption')]);
+    try {
+      await symlink(outsideRoot, join(datasetsRoot, 'photos', 'linked-dir'), process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (error) {
+      if (!['EPERM', 'EACCES', 'ENOTSUP'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+      console.log('dataset mask symlink regression skipped: symlinks unavailable');
+      return;
+    }
+    const confinedDelete = createImageDeleteHandler({
+      masks: new FakeMasks(),
+      resolveRoots: async () => ({ datasetsRoot, trainingRoot }),
+    });
+    response = await confinedDelete(new Request('http://localhost/api/img/delete', {
+      method: 'POST',
+      body: JSON.stringify({ imgPath: join(datasetsRoot, 'photos', 'linked-dir', 'outside.jpg') }),
+    }));
+    assert.equal(response.status, 400);
+    assert.equal(await readFile(outsideImage, 'utf8'), 'image');
+    assert.equal(await readFile(outsideCaption, 'utf8'), 'caption');
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 
   console.log('dataset mask route handler tests passed');
 }
