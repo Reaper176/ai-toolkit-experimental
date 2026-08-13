@@ -16,6 +16,7 @@
   "include": [
     "../src/server/datasetMaskService.ts",
     "../src/server/datasetMaskRouteHandlers.ts",
+    "../src/server/datasetPresetFileService.ts",
     "../src/helpers/maskEditor.ts",
     "../src/helpers/datasetPresets.ts",
     "../src/helpers/datasetSelection.ts",
@@ -38,6 +39,7 @@
     "datasetPreset*.test.ts",
     "datasetMaskService.test.ts",
     "datasetMaskRouteHandlers.test.ts",
+    "datasetPresetFileService.test.ts",
     "maskEditor.test.ts",
     "datasetMaskEditor.test.tsx",
     "datasetPreset*.test.tsx",

@@ -11,6 +11,7 @@ const tsc = join(uiRoot, 'node_modules', 'typescript', 'bin', 'tsc');
 const testFiles = [
   'maskEditor.test.js',
   'datasetMaskEditor.test.js',
+  'datasetPresetFileService.test.js',
   'datasetMaskService.test.js',
   'datasetMaskRouteHandlers.test.js',
   'datasetPresets.test.js',
