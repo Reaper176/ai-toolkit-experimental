@@ -140,6 +140,19 @@ async function runResolutionTests(): Promise<void> {
   assert.equal(resolved.usages[2].resolved_loader_config.resolution[0], 512, 'duplicate usages do not alias');
   assert.equal(input.config.process[0].datasets[0].resolution[0], 512, 'outputs do not alias input');
 
+  const persistedMasked = structuredClone(resolved.jobConfig);
+  persistedMasked.config.process[0].datasets[0].folder_path = '/persisted/wrong/media';
+  persistedMasked.config.process[0].datasets[0].mask_path = '/persisted/wrong/masks';
+  const preparedMasked = await prepareJobDatasetPresetsForTraining(persistedMasked, {
+    versions: f.versions, snapshots: f.snapshots,
+  });
+  assert.equal(preparedMasked.config.process[0].datasets[0].folder_path, '/managed/p-v1/v1/media',
+    'preflight replaces persisted media paths with the verified snapshot path');
+  assert.equal(preparedMasked.config.process[0].datasets[0].mask_path, '/managed/p-v1/v1/masks',
+    'preflight replaces persisted mask paths with the verified snapshot path');
+  assert.equal(preparedMasked.config.process[0].datasets[2].mask_path, null,
+    'preflight keeps verified maskless preset versions maskless');
+
   const enabledMasked = job([dataset('v1')]);
   enabledMasked.config.process[0].train = {
     inverted_mask_prior: true, inverted_mask_prior_multiplier: 0.5, train_turbo: false,
@@ -495,11 +508,12 @@ async function runPreflightTests(): Promise<void> {
   );
   const malicious = dataset('v1') as DatasetConfig & Record<string, unknown>;
   malicious.dataset_path = '/attacker/resolved-config.json';
-  await assert.rejects(
-    preflightJobDatasetPresets(job([malicious]), { versions: f.versions, snapshots: f.snapshots }),
-    /dataset_path/,
-    'resolved training configuration can never retain a primary dataset path override with provenance',
-  );
+  const sanitized = await prepareJobDatasetPresetsForTraining(job([malicious]), {
+    versions: f.versions, snapshots: f.snapshots,
+  });
+  assert.equal('dataset_path' in sanitized.config.process[0].datasets[0], false,
+    'preflight discards persisted primary dataset path overrides before deriving verified paths');
+  assert.equal(sanitized.config.process[0].datasets[0].folder_path, '/managed/p-v1/v1/media');
 }
 
 async function main(): Promise<void> {

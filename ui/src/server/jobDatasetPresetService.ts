@@ -209,6 +209,12 @@ function rejectPresetExternalPaths(dataset: DatasetConfig): void {
   }
 }
 
+function discardPersistedPresetPaths(dataset: DatasetConfig): void {
+  const mutable = dataset as unknown as Record<string, unknown>;
+  delete mutable.folder_path;
+  for (const key of DATASET_PRESET_REPRODUCIBILITY_BREAKING_PATH_KEYS) delete mutable[key];
+}
+
 function loaderSettings(dataset: DatasetConfig): DatasetPresetLoaderConfig {
   const candidate: Record<string, unknown> = {};
   for (const key of LOADER_CONFIG_KEYS) {
@@ -364,7 +370,8 @@ async function resolveJobDatasetPresetsInternal(input: {
     if (!isPlainObject(dataset.dataset_preset) || !nonblank(dataset.dataset_preset.version_id)) {
       throw new JobDatasetPresetError('Dataset preset reference is invalid');
     }
-    rejectPresetExternalPaths(dataset);
+    if (eligibility === 'save') rejectPresetExternalPaths(dataset);
+    else discardPersistedPresetPaths(dataset);
     const versionId = dataset.dataset_preset.version_id.trim();
     const { authoritative, manifest } = await getVerified(versionId, dataset.dataset_preset);
     if (eligibility === 'save' && authoritative.preset.archived_at !== null) {
