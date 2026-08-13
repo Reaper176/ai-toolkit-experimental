@@ -210,6 +210,14 @@ export function archivedMaskEditorImages(versionId: string, files: readonly unkn
   });
 }
 
+export function liveMaskEditorImagesForLaunch<T extends { relative_path: string }>(
+  images: readonly T[],
+  selectedPaths: ReadonlySet<string>,
+  launchPath?: string,
+): T[] {
+  return images.filter(image => selectedPaths.has(image.relative_path) || image.relative_path === launchPath);
+}
+
 export function maskEditorShortcut(event: Readonly<{ key: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }>): MaskEditorShortcut {
   const command = event.ctrlKey || event.metaKey;
   const key = event.key.toLowerCase();

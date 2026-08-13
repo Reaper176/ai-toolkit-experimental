@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import DatasetMaskEditor from '../src/components/DatasetMaskEditor';
+import { liveMaskEditorImagesForLaunch } from '../src/helpers/maskEditor';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 (globalThis as any).requestAnimationFrame = (callback: () => void) => { callback(); return 1; };
@@ -141,6 +142,33 @@ async function run() {
   await act(async () => renderer.update(<LaunchHarness editorImages={images.map(image => ({ ...image }))} token={2}/>));
   await flush();
   assert.equal(renderer.root.findByType('strong').children.join(''), 'b.png', 'a new launch token retargets against the latest image list');
+  await act(async () => renderer.unmount());
+
+  const BadgeLaunchHarness = ({ selectedPaths }: { selectedPaths: ReadonlySet<string> }) => {
+    const editorImages = liveMaskEditorImagesForLaunch(images, selectedPaths, 'b.png');
+    return <DatasetMaskEditor
+      datasetName="set"
+      selectedLiveImages={editorImages}
+      archivedReadOnly={false}
+      open
+      initialImagePath="b.png"
+      launchToken={1}
+      onClose={() => undefined}
+      onStatusRefresh={() => undefined}
+    />;
+  };
+  await act(async () => { renderer = TestRenderer.create(<BadgeLaunchHarness selectedPaths={new Set()}/>, { createNodeMock: nodeMock }); });
+  await flush();
+  assert.equal(renderer.root.findByType('strong').children.join(''), 'b.png', 'an unselected badge target opens directly');
+  assert.equal(renderer.root.findByType('header').findAllByType('span')[0].children.join(''), '1 / 1', 'zero selection produces a one-image editor list');
+  await act(async () => renderer.unmount());
+  await act(async () => { renderer = TestRenderer.create(<BadgeLaunchHarness selectedPaths={new Set(['a.png'])}/>, { createNodeMock: nodeMock }); });
+  await flush();
+  assert.equal(renderer.root.findByType('strong').children.join(''), 'b.png', 'badge target remains initial when another image is selected');
+  assert.equal(renderer.root.findByType('header').findAllByType('span')[0].children.join(''), '2 / 2', 'badge target joins the selected navigation list in dataset order');
+  await act(async () => button(renderer, 'Previous').props.onClick());
+  await flush();
+  assert.equal(renderer.root.findByType('strong').children.join(''), 'a.png', 'navigation order remains deterministic');
   await act(async () => renderer.unmount());
 
   requests.length = 0;

@@ -46,7 +46,7 @@ import useDatasetPresets, {
   type DatasetPresetSummary,
   type DatasetPresetVersionDetail,
 } from '@/hooks/useDatasetPresets';
-import { archivedMaskEditorImages, frozenMaskUrlsFromManifest } from '@/helpers/maskEditor';
+import { archivedMaskEditorImages, frozenMaskUrlsFromManifest, liveMaskEditorImagesForLaunch } from '@/helpers/maskEditor';
 
 interface DatasetImageEntry {
   img_path: string;
@@ -99,13 +99,14 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
   const frozenMasks = useMemo(() => activeVersion ? frozenMaskUrlsFromManifest(activeVersion.id, activeVersion.manifest.files) : {}, [activeVersion]);
   const archivedEditorImages = useMemo(() => activeVersion ? archivedMaskEditorImages(activeVersion.id, activeVersion.manifest.files).filter(image => selectedPaths.has(image.relative_path)) : [], [activeVersion, selectedPaths]);
   const archivedMaskPreviewAvailable = archivedReadOnly && archivedEditorImages.length > 0;
-  const maskEditorImages = archivedReadOnly ? archivedEditorImages : selectedLiveImages;
+  const liveEditorImages = useMemo(() => liveMaskEditorImagesForLaunch(imgList, selectedPaths, maskEditorLaunch.path), [imgList, selectedPaths, maskEditorLaunch.path]);
+  const maskEditorImages = archivedReadOnly ? archivedEditorImages : liveEditorImages;
   const openMaskEditorAt = (path: string) => {
     setMaskEditorLaunch(current => ({ path, token: current.token + 1 }));
     setMaskEditorOpen(true);
   };
   const openMaskEditor = () => {
-    const path = maskEditorImages[0]?.relative_path;
+    const path = (archivedReadOnly ? archivedEditorImages : selectedLiveImages)[0]?.relative_path;
     if (!path) return;
     openMaskEditorAt(path);
   };

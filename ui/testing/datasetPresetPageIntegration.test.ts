@@ -126,7 +126,8 @@ assert.match(pageSource, /frozenMaskUrlsFromManifest\(activeVersion\.id,\s*activ
 assert.match(pageSource, /maskDatasetName=\{archivedReadOnly\s*\?\s*undefined\s*:\s*datasetName\}/, 'archived cards cannot poll live mask state');
 assert.match(pageSource, /maskSourcePath=\{archivedReadOnly\s*\?\s*undefined\s*:\s*img\.relative_path\}/, 'archived cards omit the live mask source');
 assert.match(pageSource, /\(!archivedReadOnly\s*\|\|\s*archivedMaskPreviewAvailable\)/, 'archived editor launch requires immutable frozen mask data');
-assert.match(pageSource, /const\s+maskEditorImages\s*=\s*archivedReadOnly\s*\?\s*archivedEditorImages\s*:\s*selectedLiveImages/, 'live editor keeps full selected ordering while archived preview derives from immutable manifest files');
+assert.match(pageSource, /liveMaskEditorImagesForLaunch\(imgList,\s*selectedPaths,\s*maskEditorLaunch\.path\)/, 'live badge launch adds its target to the editor-only list without mutating selection');
+assert.match(pageSource, /const\s+maskEditorImages\s*=\s*archivedReadOnly\s*\?\s*archivedEditorImages\s*:\s*liveEditorImages/, 'live editor uses the launch-aware stable list while archived preview derives from immutable manifest files');
 assert.match(pageSource, /archivedMaskPreviewAvailable\s*=\s*archivedReadOnly\s*&&\s*archivedEditorImages\.length\s*>\s*0/, 'all-live-missing archived selections can still open frozen previews');
 assert.match(pageSource, /selectedLiveImages=\{maskEditorImages\}/, 'editor receives the correct ordered live or frozen-preview images');
 assert.match(pageSource, /datasetName=\{datasetName\}/, 'editor receives the dataset name');
