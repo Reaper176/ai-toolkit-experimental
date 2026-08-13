@@ -59,7 +59,7 @@ export function DatasetSelectionToolbar({
           </button>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <button type="button" className={buttonClass} disabled={!onEditMasks || selectedCount === 0} onClick={onEditMasks}>Edit masks</button>
+          <button type="button" className={buttonClass} disabled={!onEditMasks || selectedCount === 0 || readOnly || saving} onClick={onEditMasks}>Edit masks</button>
           <button type="button" className="rounded-md bg-blue-700 px-2.5 py-1.5 text-sm text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50" disabled={saveDisabled} onClick={onSave}>
             Save preset
           </button>

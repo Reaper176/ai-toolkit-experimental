@@ -121,6 +121,7 @@ assert.match(
 );
 assert.match(pageSource, /baseSelection/, 'page keeps a base selection for dirty checks');
 assert.match(pageSource, /<DatasetMaskEditor/, 'page renders the focused mask editor');
+assert.match(pageSource, /onEditMasks=\{!archivedReadOnly\s*&&\s*selectedLiveImages\.length/, 'archived presets cannot launch a live mask editor');
 assert.match(pageSource, /selectedLiveImages=\{selectedLiveImages\}/, 'editor navigation receives the full selected live ordering');
 assert.match(pageSource, /datasetName=\{datasetName\}/, 'editor receives the dataset name');
 assert.match(maskEditorSource, /paintStroke/, 'mask editor uses the shared painting engine');

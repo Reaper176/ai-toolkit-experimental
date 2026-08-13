@@ -608,7 +608,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
               readOnly={archivedReadOnly}
               onAction={handleSelectionAction}
               onSave={archivedReadOnly ? undefined : () => setPresetDialogOpen(true)}
-              onEditMasks={selectedLiveImages.length > 0 ? () => setMaskEditorOpen(true) : undefined}
+              onEditMasks={!archivedReadOnly && selectedLiveImages.length > 0 ? () => setMaskEditorOpen(true) : undefined}
               onCancel={cancelSelectionMode}
             />
             {archivedReadOnly && (
@@ -687,7 +687,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
         {/* Baseline gap below the last row of cards. The caption bar itself is handled by
             shrinking MainContent's bottom to the bar height, so no dynamic spacer is needed. */}
         <div className="h-6" />
-        <DatasetMaskEditor
+        {!archivedReadOnly && <DatasetMaskEditor
           datasetName={datasetName}
           selectedLiveImages={selectedLiveImages}
           archivedReadOnly={archivedReadOnly}
@@ -695,7 +695,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
           onClose={() => setMaskEditorOpen(false)}
           onStatusRefresh={() => setMaskStatusRefreshKey(value => value + 1)}
           key={maskStatusRefreshKey}
-        />
+        />}
       </MainContent>
       <AddImagesModal />
       <DatasetPresetDialog

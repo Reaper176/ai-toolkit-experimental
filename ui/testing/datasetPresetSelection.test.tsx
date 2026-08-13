@@ -7,6 +7,7 @@ import TestRenderer, { act } from 'react-test-renderer';
 import { DatasetSelectionToolbar } from '../src/components/DatasetSelectionToolbar';
 import DatasetReviewEmptyState from '../src/components/DatasetReviewEmptyState';
 import DatasetSourceMissingList from '../src/components/DatasetSourceMissingList';
+import DatasetMaskBadge from '../src/components/DatasetMaskBadge';
 import { createLatestDatasetPresetRequestGate } from '../src/hooks/useDatasetPresets';
 import {
   areSelectionsEqual,
@@ -165,6 +166,12 @@ async function run(): Promise<void> {
   const originalConsoleError = console.error;
   console.error = () => undefined;
   try {
+    for (const [state, label] of [['mask', 'Mask available'], ['missing', 'No mask'], ['read-only', 'Mask editing unavailable — archived preset']] as const) {
+      let badge!: TestRenderer.ReactTestRenderer;
+      act(() => { badge = TestRenderer.create(<DatasetMaskBadge state={state} />); });
+      assert.equal(badge.root.findByType('span').props['aria-label'], label);
+      act(() => badge.unmount());
+    }
     assert.equal(areSelectionsEqual(new Set(['a', 'b']), new Set(['b', 'a'])), true);
     assert.equal(areSelectionsEqual(new Set(['a']), new Set(['b'])), false);
     const images = [
@@ -448,6 +455,18 @@ async function run(): Promise<void> {
     assert.deepEqual(actions, ['all', 'none', 'invert']);
     assert.equal(cancelled, 1);
     assert.equal(toolbar.root.findByProps({ children: 'Save preset' }).props.disabled, true);
+
+    let maskEditorLaunches = 0;
+    await act(async () => {
+      toolbar.update(
+        <DatasetSelectionToolbar selectedCount={1} totalCount={1} dirty={false} saving={false} readOnly
+          showOnlySelected={false} onShowOnlySelectedChange={() => undefined} onAction={() => undefined}
+          onEditMasks={() => maskEditorLaunches++} onCancel={() => undefined} />,
+      );
+    });
+    const archivedMaskButton = toolbar.root.findByProps({ children: 'Edit masks' });
+    assert.equal(archivedMaskButton.props.disabled, true, 'archived selection cannot launch live mask editing');
+    assert.equal(maskEditorLaunches, 0);
 
     let saves = 0;
     await act(async () => {

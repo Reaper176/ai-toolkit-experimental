@@ -20,6 +20,7 @@
     "../src/helpers/datasetPresets.ts",
     "../src/helpers/datasetSelection.ts",
     "../src/components/DatasetImageCard.tsx",
+    "../src/components/DatasetMaskEditor.tsx",
     "../src/server/datasetPresetSnapshotService.ts",
     "../src/server/datasetPresetService.ts",
     "../src/server/datasetPresetRouteHandlers.ts",
