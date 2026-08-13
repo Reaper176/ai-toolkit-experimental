@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
-import { mkdir, open, realpath, rename as fsRename, rm, type FileHandle } from 'node:fs/promises';
+import { lstat, mkdir, open, realpath, rename as fsRename, rm, type FileHandle } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { basename, extname, isAbsolute } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path';
 import { imageSize } from 'image-size';
 import { PNG } from 'pngjs';
 
@@ -19,6 +19,7 @@ export interface DatasetMaskDependencies {
   beforeSourceFileOpen?: () => void | Promise<void>;
   beforeMaskFileOpen?: () => void | Promise<void>;
   beforeTemporaryOpen?: () => void | Promise<void>;
+  filesystemStrategy?: 'descriptor' | 'portable';
 }
 
 export interface DatasetMaskService {
@@ -126,7 +127,7 @@ async function closeAll(handles: FileHandle[]): Promise<void> {
   await Promise.all(handles.reverse().map(handle => handle.close().catch(() => undefined)));
 }
 
-export function createDatasetMaskService(deps: DatasetMaskDependencies): DatasetMaskService {
+function createDescriptorDatasetMaskService(deps: DatasetMaskDependencies): DatasetMaskService {
   if (!Number.isSafeInteger(deps.maxPngBytes) || deps.maxPngBytes <= 0) throw new Error('Invalid max PNG bytes');
   const renameFile = deps.rename ?? fsRename;
 
@@ -286,4 +287,198 @@ export function createDatasetMaskService(deps: DatasetMaskDependencies): Dataset
       }
     },
   };
+}
+
+interface FileIdentity {
+  dev: number;
+  ino: number;
+  mode: number;
+}
+
+function identityOf(stat: { dev: number; ino: number; mode: number }): FileIdentity {
+  return { dev: stat.dev, ino: stat.ino, mode: stat.mode };
+}
+
+function sameIdentity(left: FileIdentity, right: FileIdentity): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.mode === right.mode;
+}
+
+function assertPathConfined(root: string, target: string): void {
+  const child = relative(root, target);
+  if (child === '..' || child.startsWith(`..${sep}`) || isAbsolute(child)) throw new Error('Path escapes datasets root');
+}
+
+async function validatePortableDirectory(path: string, root: string): Promise<FileIdentity> {
+  const before = await lstat(path);
+  if (before.isSymbolicLink() || !before.isDirectory()) throw new Error('Refusing directory symlink escape');
+  const canonical = await realpath(path);
+  assertPathConfined(root, canonical);
+  const after = await lstat(path);
+  const beforeIdentity = identityOf(before);
+  if (!sameIdentity(beforeIdentity, identityOf(after))) throw new Error('Directory changed during validation');
+  return beforeIdentity;
+}
+
+async function readPortableFile(path: string, root: string): Promise<Buffer> {
+  const before = await lstat(path);
+  if (before.isSymbolicLink() || !before.isFile()) throw new Error('Refusing file symlink escape');
+  const canonical = await realpath(path);
+  assertPathConfined(root, canonical);
+  const checked = await lstat(path);
+  const expected = identityOf(before);
+  if (!sameIdentity(expected, identityOf(checked))) throw new Error('File changed during validation');
+  const handle = await open(path, constants.O_RDONLY);
+  try {
+    if (!sameIdentity(expected, identityOf(await handle.stat()))) throw new Error('File changed while opening');
+    const bytes = await handle.readFile();
+    if (!sameIdentity(expected, identityOf(await handle.stat()))) throw new Error('File changed while reading');
+    return bytes;
+  } finally {
+    await handle.close();
+  }
+}
+
+function createPortableDatasetMaskService(deps: DatasetMaskDependencies): DatasetMaskService {
+  if (!Number.isSafeInteger(deps.maxPngBytes) || deps.maxPngBytes <= 0) throw new Error('Invalid max PNG bytes');
+  const renameFile = deps.rename ?? fsRename;
+
+  async function rootPath(): Promise<string> {
+    const root = await realpath(deps.datasetsRoot);
+    await validatePortableDirectory(root, root);
+    return root;
+  }
+
+  async function sourceDetails(dataset: string, sourcePath: string) {
+    assertSingleSegment(dataset, 'dataset');
+    const segments = sourceSegments(sourcePath);
+    if (!SOURCE_EXTENSIONS.has(extname(segments[segments.length - 1]).toLowerCase())) {
+      throw new Error('Unsupported source image');
+    }
+    const root = await rootPath();
+    let directory = join(root, dataset);
+    try {
+      await validatePortableDirectory(directory, root);
+      for (const segment of segments.slice(0, -1)) {
+        directory = join(directory, segment);
+        await validatePortableDirectory(directory, root);
+      }
+      await deps.beforeSourceFileOpen?.();
+      const bytes = await readPortableFile(join(directory, segments[segments.length - 1]), root);
+      const dimensions = imageSize(bytes);
+      if (!dimensions.width || !dimensions.height) throw new Error('Unsupported source image');
+      return { root, width: dimensions.width, height: dimensions.height };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('Source not found');
+      throw error;
+    }
+  }
+
+  async function maskDirectory(root: string, dataset: string): Promise<{ path: string; identity: FileIdentity }> {
+    const path = join(root, maskDatasetName(dataset));
+    try {
+      await mkdir(path, { mode: 0o700 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+    return { path, identity: await validatePortableDirectory(path, root) };
+  }
+
+  async function assertDirectoryUnchanged(directory: { path: string; identity: FileIdentity }, root: string): Promise<void> {
+    if (!sameIdentity(directory.identity, await validatePortableDirectory(directory.path, root))) {
+      throw new Error('Mask directory changed during operation');
+    }
+  }
+
+  async function syncPortableDirectory(directory: { path: string; identity: FileIdentity }, root: string): Promise<void> {
+    await assertDirectoryUnchanged(directory, root);
+    const handle = await open(directory.path, constants.O_RDONLY);
+    try {
+      if (!sameIdentity(directory.identity, identityOf(await handle.stat()))) throw new Error('Mask directory changed while opening');
+      try {
+        await handle.sync();
+      } catch (error) {
+        // Windows and some macOS filesystems do not permit fsync on directory handles.
+        if (!['EINVAL', 'EPERM', 'ENOTSUP'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+      }
+    } finally {
+      await handle.close();
+    }
+  }
+
+  return {
+    async read(dataset, sourcePath) {
+      const source = await sourceDetails(dataset, sourcePath);
+      const directory = await maskDirectory(source.root, dataset);
+      const destination = join(directory.path, maskFilename(sourcePath));
+      await deps.beforeMaskFileOpen?.();
+      let bytes: Buffer;
+      try {
+        bytes = await readPortableFile(destination, source.root);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return { exists: false, width: source.width, height: source.height, png: null };
+        }
+        throw error;
+      }
+      if (bytes.length > deps.maxPngBytes) throw new Error('PNG exceeds maximum bytes');
+      const decoded = parsePng(bytes);
+      if (decoded.width !== source.width || decoded.height !== source.height) throw new Error('Mask dimensions mismatch');
+      return { exists: true, width: source.width, height: source.height, png: bytes };
+    },
+
+    async save(dataset, sourcePath, png) {
+      const source = await sourceDetails(dataset, sourcePath);
+      if (png.length > deps.maxPngBytes) throw new Error('PNG exceeds maximum bytes');
+      const decoded = parsePng(png);
+      if (decoded.width !== source.width || decoded.height !== source.height) throw new Error('Mask dimensions mismatch');
+      const encoded = grayscalePng(decoded);
+      if (encoded.bytes.length > deps.maxPngBytes) throw new Error('Encoded PNG exceeds maximum bytes');
+
+      const directory = await maskDirectory(source.root, dataset);
+      const destination = join(directory.path, maskFilename(sourcePath));
+      try {
+        const current = await lstat(destination);
+        if (current.isSymbolicLink() || !current.isFile()) throw new Error('Refusing mask symlink escape');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+
+      if (encoded.allWhite) {
+        await assertDirectoryUnchanged(directory, source.root);
+        await rm(destination, { force: true });
+        await syncPortableDirectory(directory, source.root);
+        return;
+      }
+
+      await deps.beforeTemporaryOpen?.();
+      await assertDirectoryUnchanged(directory, source.root);
+      let temporary: string | undefined = join(directory.path, `.${maskFilename(sourcePath)}.${randomUUID()}.tmp`);
+      let handle: FileHandle | undefined;
+      try {
+        handle = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
+        const canonicalTemporary = await realpath(temporary);
+        assertPathConfined(source.root, canonicalTemporary);
+        if (dirname(canonicalTemporary) !== await realpath(directory.path)) throw new Error('Temporary path escaped mask directory');
+        await assertDirectoryUnchanged(directory, source.root);
+        await handle.writeFile(encoded.bytes);
+        await handle.sync();
+        await assertDirectoryUnchanged(directory, source.root);
+        await handle.close();
+        handle = undefined;
+        await renameFile(temporary, destination);
+        temporary = undefined;
+        await syncPortableDirectory(directory, source.root);
+      } finally {
+        if (handle) await handle.close().catch(() => undefined);
+        if (temporary) await rm(temporary, { force: true }).catch(() => undefined);
+      }
+    },
+  };
+}
+
+export function createDatasetMaskService(deps: DatasetMaskDependencies): DatasetMaskService {
+  const strategy = deps.filesystemStrategy ?? (process.platform === 'linux' ? 'descriptor' : 'portable');
+  return strategy === 'descriptor'
+    ? createDescriptorDatasetMaskService(deps)
+    : createPortableDatasetMaskService(deps);
 }

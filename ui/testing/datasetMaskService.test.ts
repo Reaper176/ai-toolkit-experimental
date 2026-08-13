@@ -22,6 +22,21 @@ function grayPng(width: number, height: number, value: number): Buffer {
   return PNG.sync.write(image, { colorType: 0 });
 }
 
+function growingGrayPng(): { png: Buffer; normalizedBytes: number } {
+  const image = new PNG({ width: 64, height: 64, colorType: 6 });
+  for (let offset = 0; offset < image.data.length; offset += 4) {
+    const value = (((offset / 4) * 10 * 13) ^ (offset * 7 + 10)) & 255;
+    image.data[offset] = value;
+    image.data[offset + 1] = value;
+    image.data[offset + 2] = value;
+    image.data[offset + 3] = 255;
+  }
+  const png = PNG.sync.write(image, { colorType: 6, filterType: 2, deflateLevel: 6 });
+  const normalized = PNG.sync.write(PNG.sync.read(png), { colorType: 0 });
+  assert.ok(normalized.length > png.length, 'fixture must grow during grayscale normalization');
+  return { png, normalizedBytes: normalized.length };
+}
+
 async function main(): Promise<void> {
   const ownedRoot = mkdtempSync(join(tmpdir(), 'aitk-mask-service-test-'));
   try {
@@ -125,6 +140,44 @@ async function main(): Promise<void> {
     assert.equal((await masks.read('spade', 'sub/portrait.jpg')).exists, true);
     assert.deepEqual(readdirSync(join(datasetsRoot, 'spade_masks')), ['portrait.png']);
     assert.ok([80, 81].includes(PNG.sync.read(readFileSync(join(datasetsRoot, 'spade_masks/portrait.png'))).data[0]));
+
+    mkdirSync(join(datasetsRoot, 'portable/sub'), { recursive: true });
+    writeFileSync(join(datasetsRoot, 'portable/sub/portrait.png'), grayPng(32, 24, 20));
+    const portable = createDatasetMaskService({
+      datasetsRoot,
+      maxPngBytes: 16 * 1024 * 1024,
+      filesystemStrategy: 'portable',
+    });
+    await portable.save('portable', 'sub/portrait.png', grayPng(32, 24, 90));
+    assert.equal((await portable.read('portable', 'sub/portrait.png')).exists, true);
+    await portable.save('portable', 'sub/portrait.png', grayPng(32, 24, 255));
+    assert.equal((await portable.read('portable', 'sub/portrait.png')).exists, false);
+    symlinkSync(join(outside, 'escape.png'), join(datasetsRoot, 'portable/sub/linked.png'));
+    await assert.rejects(portable.read('portable', 'sub/linked.png'), /symlink|escape|changed/i);
+    let portableRaceTriggered = false;
+    const portableRace = createDatasetMaskService({
+      datasetsRoot,
+      maxPngBytes: 16 * 1024 * 1024,
+      filesystemStrategy: 'portable',
+      beforeTemporaryOpen: () => {
+        if (portableRaceTriggered) return;
+        portableRaceTriggered = true;
+        renameSync(join(datasetsRoot, 'portable_masks'), join(datasetsRoot, 'portable_masks-held'));
+        symlinkSync(outside, join(datasetsRoot, 'portable_masks'));
+      },
+    });
+    await assert.rejects(portableRace.save('portable', 'sub/portrait.png', grayPng(32, 24, 91)), /symlink|changed|escape/i);
+    assert.equal(existsSync(join(outside, 'portrait.png')), false);
+    rmSync(join(datasetsRoot, 'portable_masks'));
+    renameSync(join(datasetsRoot, 'portable_masks-held'), join(datasetsRoot, 'portable_masks'));
+
+    const growth = growingGrayPng();
+    mkdirSync(join(datasetsRoot, 'growth'), { recursive: true });
+    writeFileSync(join(datasetsRoot, 'growth/source.png'), grayPng(64, 64, 20));
+    assert.ok(growth.png.length < growth.normalizedBytes);
+    const growthLimited = createDatasetMaskService({ datasetsRoot, maxPngBytes: growth.normalizedBytes - 1 });
+    await assert.rejects(growthLimited.save('growth', 'source.png', growth.png), /encoded.*bytes/i);
+    assert.equal(existsSync(join(datasetsRoot, 'growth_masks/source.png')), false);
 
     symlinkSync(join(outside, 'escape.png'), join(datasetsRoot, 'spade/sub/escape.png'));
     await assert.rejects(masks.read('spade', 'sub/escape.png'), /symlink|escape/i);
