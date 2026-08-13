@@ -141,6 +141,12 @@ function portablePathKey(path: string): string {
   return path.toLowerCase();
 }
 
+function maskPathForSource(sourcePath: string): string {
+  const basename = sourcePath.slice(sourcePath.lastIndexOf('/') + 1);
+  const extensionIndex = basename.lastIndexOf('.');
+  return `masks/${(extensionIndex > 0 ? basename.slice(0, extensionIndex) : basename)}.png`;
+}
+
 function requireCanonicalUtcMillisecondTimestamp(value: unknown, path: string): string {
   const timestamp = requireText(value, path);
   const date = new Date(timestamp);
@@ -190,8 +196,9 @@ function validateFile(untrusted: unknown, path: string): DatasetPresetManifestFi
     requireNonnegativeSafeInteger(captionBytes, `${path}.caption_bytes`);
     requireSha256(captionSha256, `${path}.caption_sha256`);
   }
+  const sourcePath = normalizeRelativeMediaPath(value.source_path);
   const result: DatasetPresetManifestFile = {
-    source_path: normalizeRelativeMediaPath(value.source_path),
+    source_path: sourcePath,
     managed_path: normalizeRelativeMediaPath(value.managed_path),
     media_bytes: requireNonnegativeSafeInteger(value.media_bytes, `${path}.media_bytes`),
     media_sha256: requireSha256(value.media_sha256, `${path}.media_sha256`),
@@ -211,6 +218,9 @@ function validateFile(untrusted: unknown, path: string): DatasetPresetManifestFi
     } else {
       if (typeof value.mask_path !== 'string' || !/^masks\/[^/\\]+\.png$/.test(value.mask_path)) {
         throw new Error(`${path}.mask_path must be masks/<basename>.png`);
+      }
+      if (value.mask_path !== maskPathForSource(sourcePath)) {
+        throw new Error(`${path}.mask_path must match the source filename basename case-sensitively`);
       }
       const maskBytes = requireNonnegativeSafeInteger(value.mask_bytes, `${path}.mask_bytes`);
       if (maskBytes === 0) throw new Error(`${path}.mask_bytes must be positive when mask is present`);

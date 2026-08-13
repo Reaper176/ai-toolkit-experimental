@@ -332,6 +332,25 @@ async function testDialogBehavior(): Promise<void> {
   assert.equal((syncedPayload?.loader_config as { invert_mask?: boolean }).invert_mask, true);
   assert.equal('mask_path' in (syncedPayload?.loader_config as object), false, 'edited requests omit mask_path');
 
+  let blankMaskRenderer: TestRenderer.ReactTestRenderer;
+  fetchCalls = [];
+  await act(async () => {
+    blankMaskRenderer = TestRenderer.create(<DatasetPresetDialog {...createProps} />);
+  });
+  await act(async () => {
+    const maskInput = blankMaskRenderer!.root.findAllByType(NumberInput).find(input => input.props.label === 'Mask minimum value')!;
+    maskInput.props.onChange(null);
+    maskInput.props.onValuePresenceChange(false);
+  });
+  await act(async () => {
+    await blankMaskRenderer!.root.findByType('form').props.onSubmit({ preventDefault() {} });
+  });
+  assert.equal(fetchCalls.length, 0, 'blank mask minimum value is rejected locally instead of defaulted');
+  assert.ok(
+    blankMaskRenderer!.root.findAll(node => node.props.role === 'alert').some(node => /mask_min_value/i.test(textOf(node))),
+    'blank mask minimum value renders a field error',
+  );
+
   fetchCalls = [];
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     fetchCalls.push({ url: String(url), init });

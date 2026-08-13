@@ -206,7 +206,10 @@ function rejectPresetExternalPaths(dataset: DatasetConfig): void {
 
 function loaderSettings(dataset: DatasetConfig): DatasetPresetLoaderConfig {
   const candidate: Record<string, unknown> = {};
-  for (const key of LOADER_CONFIG_KEYS) candidate[key] = dataset[key as keyof DatasetConfig];
+  for (const key of LOADER_CONFIG_KEYS) {
+    const value = dataset[key as keyof DatasetConfig];
+    if (value !== undefined) candidate[key] = value;
+  }
   try {
     return validateLoaderConfig(candidate);
   } catch (error) {

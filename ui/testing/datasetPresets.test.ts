@@ -87,6 +87,8 @@ for (const maskMinValue of [-0.01, 1.01, Number.NaN, Number.POSITIVE_INFINITY]) 
   expectThrows(() => validateLoaderConfig({ ...loaderConfig, mask_min_value: maskMinValue }), /mask_min_value/i);
 }
 expectThrows(() => validateLoaderConfig({ ...loaderConfig, invert_mask: 'false' }), /invert_mask/i);
+expectThrows(() => validateLoaderConfig({ ...loaderConfig, mask_min_value: null }), /mask_min_value/i);
+expectThrows(() => validateLoaderConfig({ ...loaderConfig, invert_mask: null }), /invert_mask/i);
 assert.equal(
   serializeManifest(manifest),
   `{
@@ -255,6 +257,8 @@ for (const invalidFile of [
   { ...manifest.files[0], mask_path: '../masks/a.png', mask_bytes: 1, mask_sha256: 'd'.repeat(64), mask_missing: false },
   { ...manifest.files[0], mask_path: 'masks/sub/a.png', mask_bytes: 1, mask_sha256: 'd'.repeat(64), mask_missing: false },
   { ...manifest.files[0], mask_path: 'masks/a.jpg', mask_bytes: 1, mask_sha256: 'd'.repeat(64), mask_missing: false },
+  { ...manifest.files[0], mask_path: 'masks/b.png', mask_bytes: 1, mask_sha256: 'd'.repeat(64), mask_missing: false },
+  { ...manifest.files[0], mask_path: 'masks/A.png', mask_bytes: 1, mask_sha256: 'd'.repeat(64), mask_missing: false },
   { ...manifest.files[0], mask_path: 'masks/a.png', mask_bytes: 0, mask_sha256: 'd'.repeat(64), mask_missing: false },
   { ...manifest.files[0], mask_path: 'masks/a.png', mask_bytes: 1, mask_sha256: 'D'.repeat(64), mask_missing: false },
   { ...manifest.files[0], mask_path: null, mask_bytes: 1, mask_sha256: null, mask_missing: true },

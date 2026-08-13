@@ -168,6 +168,10 @@ assert.equal(currentMaskRequest.isCurrent(), false, 'closing the editor invalida
 assert.deepEqual(frozenMaskUrlsFromManifest('version 1', [{ source_path: 'a.png', mask_path: 'masks/a.png', mask_bytes: 1, mask_sha256: 'a'.repeat(64), mask_missing: false }, { source_path: 'b.png', mask_path: null, mask_bytes: null, mask_sha256: null, mask_missing: true }]), {
   'a.png': '/api/dataset-preset-versions/version%201/files?path=masks%2Fa.png',
 });
+assert.deepEqual(frozenMaskUrlsFromManifest('v', [
+  { source_path: 'sub/a.jpg', mask_path: 'masks/b.png', mask_bytes: 1, mask_sha256: 'a'.repeat(64), mask_missing: false },
+  { source_path: 'sub/A.jpg', mask_path: 'masks/a.png', mask_bytes: 1, mask_sha256: 'a'.repeat(64), mask_missing: false },
+]), {}, 'archived mask paths must match source basenames case-sensitively');
 assert.deepEqual([...history.undo()], [200]);
 assert.deepEqual([...history.undo()], [200]);
 assert.equal(history.canUndo(), false);

@@ -180,6 +180,9 @@ export function frozenMaskUrlsFromManifest(versionId: string, files: readonly un
     if (!untrusted || typeof untrusted !== 'object') continue;
     const file = untrusted as Record<string, unknown>;
     if (typeof file.source_path !== 'string') continue;
+    const sourceBasename = typeof file.source_path === 'string' ? file.source_path.slice(file.source_path.lastIndexOf('/') + 1) : '';
+    const extensionIndex = sourceBasename.lastIndexOf('.');
+    const expectedMaskPath = `masks/${extensionIndex > 0 ? sourceBasename.slice(0, extensionIndex) : sourceBasename}.png`;
     if (
       file.mask_missing !== false ||
       typeof file.mask_path !== 'string' ||
@@ -188,7 +191,8 @@ export function frozenMaskUrlsFromManifest(versionId: string, files: readonly un
       !Number.isSafeInteger(file.mask_bytes) ||
       file.mask_bytes <= 0 ||
       typeof file.mask_sha256 !== 'string' ||
-      !/^[a-f0-9]{64}$/.test(file.mask_sha256)
+      !/^[a-f0-9]{64}$/.test(file.mask_sha256) ||
+      file.mask_path !== expectedMaskPath
     ) continue;
     result[file.source_path] = `/api/dataset-preset-versions/${encodeURIComponent(versionId)}/files?path=${encodeURIComponent(file.mask_path)}`;
   }
