@@ -23,6 +23,7 @@ function applyPresetVersion(
   version: DatasetPresetVersionDetail,
 ): DatasetConfig {
   const next = { ...dataset };
+  delete next.resolved_mask_available;
   const target = next as unknown as Record<string, unknown>;
   const loader = version.loader_config as unknown as Record<string, unknown>;
   for (const key of LOADER_CONFIG_KEYS) {
@@ -59,6 +60,7 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange, i
   const [localError, setLocalError] = useState<string | null>(null);
   const presetRequests = useRef(createLatestDatasetPresetRequestGate());
   const versionRequests = useRef(createLatestDatasetPresetRequestGate());
+  const maskStatusRequests = useRef(createLatestDatasetPresetRequestGate());
   const latestDatasetRef = useRef(dataset);
   latestDatasetRef.current = dataset;
   const sourceSignature = datasetSourceSignature(dataset);
@@ -75,10 +77,30 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange, i
     void refresh().catch(() => undefined);
   }, [refresh]);
 
+  useEffect(() => {
+    if (dataset.dataset_preset || !dataset.folder_path.trim() || dataset.mask_path) return;
+    const request = maskStatusRequests.current.begin();
+    void fetch(`/api/datasets/mask-status?folder_path=${encodeURIComponent(dataset.folder_path)}`, {
+      signal: request.signal,
+    }).then(async response => {
+      if (!response.ok) throw new Error('Unable to resolve live dataset masks');
+      const body = await response.json() as { has_masks?: unknown };
+      if (typeof body.has_masks !== 'boolean') throw new Error('Invalid live dataset mask status');
+      if (!request.isCurrent()) return;
+      const latest = latestDatasetRef.current;
+      if (latest.dataset_preset || latest.folder_path !== dataset.folder_path) return;
+      if (latest.resolved_mask_available !== body.has_masks) {
+        emitChange({ ...latest, resolved_mask_available: body.has_masks });
+      }
+    }).catch(() => undefined);
+    return () => request.cancel();
+  }, [dataset.dataset_preset, dataset.folder_path, dataset.mask_path]);
+
   useEffect(
     () => () => {
       presetRequests.current.cancelCurrent();
       versionRequests.current.cancelCurrent();
+      maskStatusRequests.current.cancelCurrent();
     },
     [],
   );
@@ -90,6 +112,7 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange, i
     emittedSourceSignatureRef.current = null;
     presetRequests.current.cancelCurrent();
     versionRequests.current.cancelCurrent();
+    maskStatusRequests.current.cancelCurrent();
     setLoadingDetail(false);
     setLoadingVersion(false);
     setDetail(null);
@@ -113,6 +136,7 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange, i
     emittedSourceSignatureRef.current = null;
     presetRequests.current.cancelCurrent();
     versionRequests.current.cancelCurrent();
+    maskStatusRequests.current.cancelCurrent();
     setLoadingDetail(false);
     setLoadingVersion(false);
     setDetail(null);
@@ -170,7 +194,7 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange, i
     const latestDataset = latestDatasetRef.current;
     if (presetChanged && (latestDataset.dataset_preset || latestDataset.folder_path !== '')) {
       const { dataset_preset: _removed, ...pendingDataset } = latestDataset;
-      emitChange({ ...pendingDataset, folder_path: '' });
+      emitChange({ ...pendingDataset, folder_path: '', resolved_mask_available: undefined });
     }
     const request = presetRequests.current.begin();
     setLoadingDetail(true);
@@ -212,24 +236,26 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange, i
     if (mode === 'live' && !dataset.dataset_preset) return;
     presetRequests.current.cancelCurrent();
     versionRequests.current.cancelCurrent();
+    maskStatusRequests.current.cancelCurrent();
     setMode('live');
     setSelectedPresetId('');
     setDetail(null);
     setLocalError(null);
     const { dataset_preset: _removed, ...liveDataset } = dataset;
-    emitChange({ ...liveDataset, folder_path: '' });
+    emitChange({ ...liveDataset, folder_path: '', resolved_mask_available: undefined });
   };
 
   const switchToPreset = () => {
     if (mode === 'preset') return;
     presetRequests.current.cancelCurrent();
     versionRequests.current.cancelCurrent();
+    maskStatusRequests.current.cancelCurrent();
     setMode('preset');
     setSelectedPresetId('');
     setDetail(null);
     setLocalError(null);
     const { dataset_preset: _removed, ...pendingDataset } = latestDatasetRef.current;
-    emitChange({ ...pendingDataset, folder_path: '' });
+    emitChange({ ...pendingDataset, folder_path: '', resolved_mask_available: undefined });
   };
 
   return (
@@ -284,7 +310,11 @@ export default function DatasetSourceControl({ dataset, liveOptions, onChange, i
       )}
       <div className="space-y-2 rounded border border-gray-700 p-2" aria-label="Dataset mask settings">
         <p className="text-xs text-gray-400">
-          Mask path: {dataset.mask_path || (dataset.dataset_preset ? 'Resolved by server when saved' : 'No matching masks resolved')}
+          Mask path: {dataset.mask_path || (dataset.dataset_preset
+            ? 'Resolved by server when saved'
+            : dataset.resolved_mask_available
+              ? 'Matching sibling masks found (path resolved by server when saved)'
+              : 'No matching masks resolved')}
         </p>
         <NumberInput
           label="Mask minimum value"

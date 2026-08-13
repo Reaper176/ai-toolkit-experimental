@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   modelArchs,
   ModelArch,
@@ -10,7 +10,7 @@ import {
   SampleTags,
 } from './options';
 import { defaultCompileOptions, defaultDatasetConfig } from './jobConfig';
-import { DatasetConfig, GroupedSelectOption, JobConfig, SelectOption } from '@/types';
+import { DatasetConfig, GroupedSelectOption, JobConfig, SelectOption, TrainConfig } from '@/types';
 import { objectCopy, tagsToObj, objToTags } from '@/utils/basic';
 import {
   TextInput,
@@ -56,6 +56,60 @@ interface DatasetBlockIdentity {
 }
 
 const isDev = process.env.NODE_ENV === 'development';
+
+export function InvertedMaskPriorControl({
+  train,
+  hasResolvedMasks,
+  setTrain,
+}: {
+  train: TrainConfig;
+  hasResolvedMasks: boolean;
+  setTrain: React.Dispatch<React.SetStateAction<TrainConfig>>;
+}) {
+  const [autoDisabled, setAutoDisabled] = useState(false);
+  useEffect(() => {
+    if (!hasResolvedMasks && train.inverted_mask_prior === true) {
+      setTrain(current => ({ ...current, inverted_mask_prior: false }));
+      setAutoDisabled(true);
+    } else if (hasResolvedMasks) {
+      setAutoDisabled(false);
+    }
+  }, [hasResolvedMasks, setTrain, train.inverted_mask_prior]);
+  return (
+    <div className="pt-2">
+      <Checkbox
+        label="Inverted Mask Prior"
+        docKey={'train.inverted_mask_prior'}
+        checked={train.inverted_mask_prior ?? false}
+        disabled={!hasResolvedMasks}
+        onChange={value => setTrain(current => ({
+          ...current,
+          inverted_mask_prior: value,
+          inverted_mask_prior_multiplier: current.inverted_mask_prior_multiplier ?? 0.5,
+        }))}
+      />
+      {!hasResolvedMasks && (
+        <p className="pt-1 text-xs text-amber-400" role="status">
+          {autoDisabled
+            ? 'Inverted Mask Prior was automatically disabled because no resolved dataset masks are available.'
+            : 'No resolved dataset masks are available. Select a masked preset or a live folder with sibling masks.'}
+        </p>
+      )}
+      {train.inverted_mask_prior && (
+        <NumberInput
+          label="Inverted Mask Prior Multiplier"
+          className="pt-2"
+          value={train.inverted_mask_prior_multiplier ?? 0.5}
+          onChange={value => value !== null && setTrain(current => ({
+            ...current, inverted_mask_prior_multiplier: value,
+          }))}
+          min={0}
+          placeholder="eg. 0.5"
+        />
+      )}
+    </div>
+  );
+}
 
 export default function SimpleJob({
   jobConfig,
@@ -243,7 +297,7 @@ export default function SimpleJob({
 
   const validationConfig = jobConfig.config.process[0].train.validation_config;
   const hasResolvedMasks = jobConfig.config.process[0].datasets.some(
-    dataset => Boolean(dataset.mask_path?.trim()) || dataset.dataset_preset?.has_masks === true,
+    dataset => Boolean(dataset.mask_path?.trim()) || dataset.resolved_mask_available === true || dataset.dataset_preset?.has_masks === true,
   );
 
   let numDatasetCols = 4;
@@ -950,41 +1004,17 @@ export default function SimpleJob({
                     )}
                   </>
                 )}
-                <div className="pt-2">
-                  <Checkbox
-                    label="Inverted Mask Prior"
-                    docKey={'train.inverted_mask_prior'}
-                    checked={jobConfig.config.process[0].train.inverted_mask_prior ?? false}
-                    disabled={!hasResolvedMasks}
-                    onChange={value => {
-                      setJobConfig(value, 'config.process[0].train.inverted_mask_prior');
-                      if (
-                        value &&
-                        jobConfig.config.process[0].train.inverted_mask_prior_multiplier === undefined
-                      ) {
-                        setJobConfig(0.5, 'config.process[0].train.inverted_mask_prior_multiplier');
-                      }
-                    }}
-                  />
-                  {!hasResolvedMasks && (
-                    <p className="pt-1 text-xs text-amber-400" role="status">
-                      No resolved dataset masks are available. Select a masked preset or save a live masked dataset first.
-                    </p>
-                  )}
-                  {jobConfig.config.process[0].train.inverted_mask_prior && (
-                    <NumberInput
-                      label="Inverted Mask Prior Multiplier"
-                      className="pt-2"
-                      value={jobConfig.config.process[0].train.inverted_mask_prior_multiplier ?? 0.5}
-                      onChange={value =>
-                        value !== null &&
-                        setJobConfig(value, 'config.process[0].train.inverted_mask_prior_multiplier')
-                      }
-                      min={0}
-                      placeholder="eg. 0.5"
-                    />
-                  )}
-                </div>
+                <InvertedMaskPriorControl
+                  train={jobConfig.config.process[0].train}
+                  hasResolvedMasks={hasResolvedMasks}
+                  setTrain={update => {
+                    const next = typeof update === 'function'
+                      ? update(jobConfig.config.process[0].train)
+                      : update;
+                    setJobConfig(next.inverted_mask_prior, 'config.process[0].train.inverted_mask_prior');
+                    setJobConfig(next.inverted_mask_prior_multiplier, 'config.process[0].train.inverted_mask_prior_multiplier');
+                  }}
+                />
                 {disableSections.includes('train.blank_prompt_preservation') ? null : (
                   <>
                     <Checkbox

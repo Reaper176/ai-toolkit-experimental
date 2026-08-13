@@ -24,6 +24,16 @@ assert.throws(
   () => validateMaskTraining({ enabled: true, multiplier: 0.5, trainTurbo: false, datasets: maskless }),
   /resolved mask/i,
 );
+for (const invalid of [
+  { enabled: null }, { enabled: 'true' }, { multiplier: null }, { trainTurbo: null }, { trainTurbo: 1 },
+]) {
+  assert.throws(
+    () => validateMaskTraining({
+      enabled: false, multiplier: 0.5, trainTurbo: false, datasets: maskless, ...invalid,
+    } as never),
+    /inverted mask prior|turbo/i,
+  );
+}
 assert.throws(
   () => validateMaskTraining({ enabled: true, multiplier: 0.5, trainTurbo: true, datasets: masked }),
   /turbo/i,

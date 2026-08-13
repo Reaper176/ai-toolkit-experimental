@@ -804,6 +804,35 @@ async function runCloneHydrationBehavior(): Promise<void> {
   );
 }
 
+async function runLiveMaskStatusBehavior(): Promise<void> {
+  const first = deferred<Response>();
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === '/api/dataset-presets') return response({ presets: [] });
+    if (url.includes('folder_path=%2Fdatasets%2Ffirst')) return first.promise;
+    if (url.includes('folder_path=%2Fdatasets%2Fsecond')) return response({ has_masks: false });
+    if (url.includes('folder_path=%2Fdatasets%2Fmasked')) return response({ has_masks: true });
+    throw new Error(`Unexpected URL ${url}`);
+  }) as typeof fetch;
+  let current: DatasetConfig = { ...initialDataset, folder_path: '/datasets/first', mask_path: null };
+  let replace!: (dataset: DatasetConfig) => void;
+  function Harness() {
+    const [dataset, setDataset] = useState(current);
+    current = dataset;
+    replace = setDataset;
+    return <DatasetSourceControl dataset={dataset} liveOptions={[]} onChange={setDataset} />;
+  }
+  let renderer!: TestRenderer.ReactTestRenderer;
+  await act(async () => { renderer = TestRenderer.create(<Harness />); await Promise.resolve(); });
+  await act(async () => { replace({ ...current, folder_path: '/datasets/second' }); await Promise.resolve(); await Promise.resolve(); });
+  assert.equal(current.resolved_mask_available, false, 'an absent sibling mask directory is reported');
+  await act(async () => { first.resolve(response({ has_masks: true })); await Promise.resolve(); await Promise.resolve(); });
+  assert.equal(current.resolved_mask_available, false, 'a stale positive response cannot overwrite the latest live folder status');
+  await act(async () => { replace({ ...current, folder_path: '/datasets/masked' }); await Promise.resolve(); await Promise.resolve(); });
+  assert.equal(current.resolved_mask_available, true, 'a live folder with sibling masks enables mask-aware controls');
+  await act(async () => renderer.unmount());
+}
+
 async function main(): Promise<void> {
   await runActivePresetBehavior();
   await runArchivedBehavior();
@@ -814,6 +843,7 @@ async function main(): Promise<void> {
   await runTrainingPresetReplacementBehavior();
   await runSharedListBehavior();
   await runCloneHydrationBehavior();
+  await runLiveMaskStatusBehavior();
   console.error = originalError;
   console.log('dataset source control behavior tests passed');
 }

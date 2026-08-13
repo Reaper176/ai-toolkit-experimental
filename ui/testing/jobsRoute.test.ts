@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultJobConfig } from '../src/app/jobs/new/jobConfig';
+import type { JobConfig } from '../src/types';
 
 async function main(): Promise<void> {
   const malformed = await POST(new Request('http://localhost/api/jobs', {
@@ -11,6 +12,22 @@ async function main(): Promise<void> {
   }));
   assert.equal(malformed.status, 400);
   assert.deepEqual(await malformed.json(), { error: 'Job dataset preset configuration is invalid' });
+
+  for (const [field, value] of [
+    ['inverted_mask_prior', null],
+    ['inverted_mask_prior_multiplier', null],
+    ['train_turbo', null],
+    ['inverted_mask_prior', 'true'],
+  ] as const) {
+    const handcrafted = structuredClone(defaultJobConfig) as JobConfig;
+    (handcrafted.config.process[0].train as unknown as Record<string, unknown>)[field] = value;
+    const response = await POST(new Request('http://localhost/api/jobs', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: null, clone: false, name: `invalid ${field}`, gpu_ids: '0', job_config: handcrafted }),
+    }));
+    assert.equal(response.status, 400);
+    assert.match(String((await response.json()).error), /inverted mask prior|turbo/i);
+  }
 
   const invalidClone = await POST(new Request('http://localhost/api/jobs', {
     method: 'POST', headers: { 'content-type': 'application/json' },

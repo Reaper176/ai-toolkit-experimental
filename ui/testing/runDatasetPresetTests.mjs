@@ -14,6 +14,7 @@ const testFiles = [
   'datasetPresetFileService.test.js',
   'datasetMaskService.test.js',
   'datasetMaskRouteHandlers.test.js',
+  'datasetMaskStatus.test.js',
   'datasetPresets.test.js',
   'datasetPresetSnapshotService.test.js',
   'datasetPresetService.test.js',

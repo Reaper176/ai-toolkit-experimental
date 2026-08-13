@@ -14,6 +14,7 @@ import {
 } from '@/server/jobDatasetPresetPrismaStore';
 import { getDataRoot, getDatasetsRoot } from '@/server/settings';
 import type { JobConfig } from '@/types';
+import { validateMaskTrainingScalarSettings } from '@/helpers/maskTrainingValidation';
 
 const versions = createJobDatasetVersionPrismaStore(prisma);
 const jobs = createJobWritePrismaStore(prisma);
@@ -94,6 +95,20 @@ export async function POST(request: Request) {
     }
     if (hasClientMaskPath(body.job_config)) {
       return NextResponse.json({ error: 'Job dataset preset configuration is invalid' }, { status: 400 });
+    }
+    if (isPlainObject(body.job_config) && isPlainObject(body.job_config.config) &&
+      Array.isArray(body.job_config.config.process) && isPlainObject(body.job_config.config.process[0]) &&
+      isPlainObject(body.job_config.config.process[0].train)) {
+      const train = body.job_config.config.process[0].train;
+      try {
+        validateMaskTrainingScalarSettings({
+          enabled: train.inverted_mask_prior as boolean | undefined,
+          multiplier: train.inverted_mask_prior_multiplier as number | undefined,
+          trainTurbo: train.train_turbo as boolean | undefined,
+        });
+      } catch (error) {
+        throw new JobDatasetPresetError(error instanceof Error ? error.message : 'Inverted mask prior settings are invalid');
+      }
     }
     const clone = body.clone === undefined ? false : body.clone;
     if (typeof clone !== 'boolean') return NextResponse.json({ error: 'Invalid job request' }, { status: 400 });

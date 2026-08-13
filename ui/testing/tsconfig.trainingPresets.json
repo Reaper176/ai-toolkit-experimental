@@ -28,7 +28,7 @@
     "trainingPreset*.test.ts",
     "trainingPreset*.test.tsx",
     "maskTrainingValidation.test.ts",
-    "maskTrainingControls.test.ts"
+    "maskTrainingControls.test.tsx"
   ],
   "exclude": ["../.next", "../node_modules"]
 }

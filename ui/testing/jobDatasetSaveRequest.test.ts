@@ -12,10 +12,14 @@ const presetRequest = buildTrainingJobSaveRequest({ runId: null, cloneId: null, 
 assert.equal(presetRequest.job_config.config.process[0].datasets[0].mask_path, null,
   'client never submits a browser-derived mask path for preset resolution');
 assert.equal(presetConfig.config.process[0].datasets[0].mask_path, '/browser/attack', 'request building does not mutate UI state');
-const liveConfig = { config: { process: [{ datasets: [{ folder_path: '/datasets/live', mask_path: '/browser/live-attack' }] }] } } as unknown as JobConfig;
+const liveConfig = { config: { process: [{ datasets: [{
+  folder_path: '/datasets/live', mask_path: '/browser/live-attack', resolved_mask_available: true,
+}] }] } } as unknown as JobConfig;
 const liveRequest = buildTrainingJobSaveRequest({ runId: null, cloneId: null, name: 'live', gpuIds: '0', jobConfig: liveConfig });
 assert.equal(liveRequest.job_config.config.process[0].datasets[0].mask_path, null,
   'browser requests cannot submit explicit live mask paths');
+assert.equal('resolved_mask_available' in liveRequest.job_config.config.process[0].datasets[0], false,
+  'UI-only live mask status is not persisted');
 
 assert.deepEqual(
   buildTrainingJobSaveRequest({ runId: null, cloneId: null, name: 'new', gpuIds: '0', jobConfig: config }),
