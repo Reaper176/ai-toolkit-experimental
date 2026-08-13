@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -26,7 +26,10 @@ async function main(): Promise<void> {
   const ownedRoot = mkdtempSync(join(tmpdir(), 'aitk-mask-service-test-'));
   try {
     const datasetsRoot = join(ownedRoot, 'datasets');
+    const outside = join(ownedRoot, 'outside');
     mkdirSync(join(datasetsRoot, 'spade/sub'), { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'escape.png'), grayPng(32, 24, 0));
     writeFileSync(join(datasetsRoot, 'spade/sub/portrait.jpg'), grayPng(32, 24, 20));
     const masks = createDatasetMaskService({ datasetsRoot, maxPngBytes: 16 * 1024 * 1024 });
 
@@ -63,13 +66,71 @@ async function main(): Promise<void> {
     await assert.rejects(tinyLimit.read('spade', 'sub/portrait.jpg'), /large|bytes/i);
     rmSync(join(datasetsRoot, 'spade_masks/portrait.png'));
 
-    const outside = join(ownedRoot, 'outside');
-    mkdirSync(outside);
-    writeFileSync(join(outside, 'escape.png'), grayPng(32, 24, 0));
+    const sourceRaceOutside = join(outside, 'source-race.png');
+    writeFileSync(sourceRaceOutside, grayPng(32, 24, 99));
+    let sourceRaceTriggered = false;
+    const sourceRace = createDatasetMaskService({
+      datasetsRoot,
+      maxPngBytes: 16 * 1024 * 1024,
+      beforeSourceFileOpen: () => {
+        if (sourceRaceTriggered) return;
+        sourceRaceTriggered = true;
+        renameSync(join(datasetsRoot, 'spade/sub/portrait.jpg'), join(datasetsRoot, 'spade/sub/original.jpg'));
+        symlinkSync(sourceRaceOutside, join(datasetsRoot, 'spade/sub/portrait.jpg'));
+      },
+    });
+    await assert.rejects(sourceRace.read('spade', 'sub/portrait.jpg'), /symlink|open/i);
+    rmSync(join(datasetsRoot, 'spade/sub/portrait.jpg'));
+    renameSync(join(datasetsRoot, 'spade/sub/original.jpg'), join(datasetsRoot, 'spade/sub/portrait.jpg'));
+
+    await masks.save('spade', 'sub/portrait.jpg', grayPng(32, 24, 70));
+    let maskRaceTriggered = false;
+    const maskRace = createDatasetMaskService({
+      datasetsRoot,
+      maxPngBytes: 16 * 1024 * 1024,
+      beforeMaskFileOpen: () => {
+        if (maskRaceTriggered) return;
+        maskRaceTriggered = true;
+        rmSync(join(datasetsRoot, 'spade_masks/portrait.png'));
+        symlinkSync(join(outside, 'escape.png'), join(datasetsRoot, 'spade_masks/portrait.png'));
+      },
+    });
+    await assert.rejects(maskRace.read('spade', 'sub/portrait.jpg'), /symlink|open/i);
+    rmSync(join(datasetsRoot, 'spade_masks/portrait.png'));
+
+    let directoryRaceTriggered = false;
+    const directoryRace = createDatasetMaskService({
+      datasetsRoot,
+      maxPngBytes: 16 * 1024 * 1024,
+      beforeTemporaryOpen: () => {
+        if (directoryRaceTriggered) return;
+        directoryRaceTriggered = true;
+        renameSync(join(datasetsRoot, 'spade_masks'), join(datasetsRoot, 'spade_masks-held'));
+        symlinkSync(outside, join(datasetsRoot, 'spade_masks'));
+      },
+    });
+    await directoryRace.save('spade', 'sub/portrait.jpg', grayPng(32, 24, 71));
+    assert.equal(existsSync(join(outside, 'portrait.png')), false);
+    assert.equal(existsSync(join(datasetsRoot, 'spade_masks-held/portrait.png')), true);
+    rmSync(join(datasetsRoot, 'spade_masks'));
+    renameSync(join(datasetsRoot, 'spade_masks-held'), join(datasetsRoot, 'spade_masks'));
+
+    rmSync(join(datasetsRoot, 'spade_masks'), { recursive: true });
+    const concurrentA = createDatasetMaskService({ datasetsRoot, maxPngBytes: 16 * 1024 * 1024 });
+    const concurrentB = createDatasetMaskService({ datasetsRoot, maxPngBytes: 16 * 1024 * 1024 });
+    await Promise.all([
+      concurrentA.save('spade', 'sub/portrait.jpg', grayPng(32, 24, 80)),
+      concurrentB.save('spade', 'sub/portrait.jpg', grayPng(32, 24, 81)),
+    ]);
+    assert.equal((await masks.read('spade', 'sub/portrait.jpg')).exists, true);
+    assert.deepEqual(readdirSync(join(datasetsRoot, 'spade_masks')), ['portrait.png']);
+    assert.ok([80, 81].includes(PNG.sync.read(readFileSync(join(datasetsRoot, 'spade_masks/portrait.png'))).data[0]));
+
     symlinkSync(join(outside, 'escape.png'), join(datasetsRoot, 'spade/sub/escape.png'));
     await assert.rejects(masks.read('spade', 'sub/escape.png'), /symlink|escape/i);
     symlinkSync(outside, join(datasetsRoot, 'linked'));
     await assert.rejects(masks.read('linked', 'escape.png'), /symlink|escape/i);
+    rmSync(join(datasetsRoot, 'spade_masks/portrait.png'));
     symlinkSync(join(outside, 'escape.png'), join(datasetsRoot, 'spade_masks/portrait.png'));
     await assert.rejects(masks.save('spade', 'sub/portrait.jpg', grayPng(32, 24, 255)), /symlink|escape/i);
     assert.equal(existsSync(join(outside, 'escape.png')), true);

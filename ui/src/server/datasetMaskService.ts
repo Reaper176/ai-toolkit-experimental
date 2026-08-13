@@ -1,6 +1,7 @@
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, readFile, realpath, rename as fsRename, rm } from 'node:fs/promises';
-import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path';
+import { mkdir, open, realpath, rename as fsRename, rm, type FileHandle } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { basename, extname, isAbsolute } from 'node:path';
 import { imageSize } from 'image-size';
 import { PNG } from 'pngjs';
 
@@ -15,6 +16,9 @@ export interface DatasetMaskDependencies {
   datasetsRoot: string;
   maxPngBytes: number;
   rename?: typeof fsRename;
+  beforeSourceFileOpen?: () => void | Promise<void>;
+  beforeMaskFileOpen?: () => void | Promise<void>;
+  beforeTemporaryOpen?: () => void | Promise<void>;
 }
 
 export interface DatasetMaskService {
@@ -23,6 +27,37 @@ export interface DatasetMaskService {
 }
 
 const SOURCE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+const DIRECTORY_FLAGS = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+const READ_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW;
+
+function descriptorPath(handle: FileHandle, child?: string): string {
+  return child === undefined ? `/proc/self/fd/${handle.fd}` : `/proc/self/fd/${handle.fd}/${child}`;
+}
+
+async function openDirectory(path: string): Promise<FileHandle> {
+  const handle = await open(path, DIRECTORY_FLAGS);
+  const stat = await handle.stat();
+  if (!stat.isDirectory()) {
+    await handle.close();
+    throw new Error('Path is not a directory');
+  }
+  return handle;
+}
+
+async function openFileAt(directory: FileHandle, name: string): Promise<FileHandle> {
+  try {
+    const handle = await open(descriptorPath(directory, name), READ_FLAGS);
+    const stat = await handle.stat();
+    if (!stat.isFile()) {
+      await handle.close();
+      throw new Error('Path is not a regular file');
+    }
+    return handle;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ELOOP') throw new Error('Refusing symlink open');
+    throw error;
+  }
+}
 
 function assertSingleSegment(value: string, label: string): void {
   if (!value || value === '.' || value === '..' || value.includes('/') || value.includes('\\') || isAbsolute(value)) {
@@ -30,7 +65,7 @@ function assertSingleSegment(value: string, label: string): void {
   }
 }
 
-function normalizeSourcePath(sourcePath: string): string {
+function sourceSegments(sourcePath: string): string[] {
   if (!sourcePath || isAbsolute(sourcePath) || sourcePath.includes('\\') || sourcePath.includes('\0')) {
     throw new Error('Invalid source path');
   }
@@ -38,14 +73,7 @@ function normalizeSourcePath(sourcePath: string): string {
   if (segments.some(segment => !segment || segment === '.' || segment === '..')) {
     throw new Error('Invalid source path segment');
   }
-  return segments.join('/');
-}
-
-function assertConfined(root: string, target: string): void {
-  const child = relative(root, target);
-  if (child === '' || child === '..' || child.startsWith(`..${sep}`) || isAbsolute(child)) {
-    throw new Error('Path escapes datasets root');
-  }
+  return segments;
 }
 
 export function maskDatasetName(dataset: string): string {
@@ -54,8 +82,9 @@ export function maskDatasetName(dataset: string): string {
 }
 
 export function maskFilename(sourcePath: string): string {
-  const normalized = normalizeSourcePath(sourcePath);
-  return `${basename(normalized, extname(normalized))}.png`;
+  const segments = sourceSegments(sourcePath);
+  const name = segments[segments.length - 1];
+  return `${basename(name, extname(name))}.png`;
 }
 
 export function assertUniqueMaskBasenames(paths: readonly string[]): void {
@@ -93,129 +122,167 @@ function grayscalePng(image: PNG): { bytes: Buffer; allWhite: boolean } {
   return { bytes: PNG.sync.write(output, { colorType: 0 }), allWhite };
 }
 
+async function closeAll(handles: FileHandle[]): Promise<void> {
+  await Promise.all(handles.reverse().map(handle => handle.close().catch(() => undefined)));
+}
+
 export function createDatasetMaskService(deps: DatasetMaskDependencies): DatasetMaskService {
   if (!Number.isSafeInteger(deps.maxPngBytes) || deps.maxPngBytes <= 0) throw new Error('Invalid max PNG bytes');
   const renameFile = deps.rename ?? fsRename;
 
-  async function sourceDetails(dataset: string, sourcePath: string) {
-    assertSingleSegment(dataset, 'dataset');
-    const normalizedSource = normalizeSourcePath(sourcePath);
-    if (!SOURCE_EXTENSIONS.has(extname(normalizedSource).toLowerCase())) throw new Error('Unsupported source image');
-
-    const root = await realpath(deps.datasetsRoot);
-    const datasetPath = join(root, dataset);
-    let datasetStat;
-    try {
-      datasetStat = await lstat(datasetPath);
-    } catch {
-      throw new Error('Source not found');
+  async function openRoot(): Promise<FileHandle> {
+    const canonicalRoot = await realpath(deps.datasetsRoot);
+    const root = await openDirectory(canonicalRoot);
+    if (await realpath(descriptorPath(root)) !== canonicalRoot) {
+      await root.close();
+      throw new Error('Datasets root changed while opening');
     }
-    if (datasetStat.isSymbolicLink() || !datasetStat.isDirectory()) throw new Error('Dataset symlink escape');
-    const realDataset = await realpath(datasetPath);
-    assertConfined(root, realDataset);
-
-    const source = join(realDataset, normalizedSource);
-    let sourceStat;
-    try {
-      sourceStat = await lstat(source);
-    } catch {
-      throw new Error('Source not found');
-    }
-    if (sourceStat.isSymbolicLink() || !sourceStat.isFile()) throw new Error('Source symlink escape');
-    const realSource = await realpath(source);
-    assertConfined(realDataset, realSource);
-    const dimensions = imageSize(await readFile(realSource));
-    if (!dimensions.width || !dimensions.height) throw new Error('Unsupported source image');
-    return { root, normalizedSource, width: dimensions.width, height: dimensions.height };
+    return root;
   }
 
-  async function maskDirectory(root: string, dataset: string): Promise<string> {
-    const directory = join(root, maskDatasetName(dataset));
+  async function openChildDirectory(parent: FileHandle, name: string, missingMessage: string): Promise<FileHandle> {
     try {
-      const current = await lstat(directory);
-      if (current.isSymbolicLink() || !current.isDirectory()) throw new Error('Mask directory symlink escape');
+      return await openDirectory(descriptorPath(parent, name));
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      await mkdir(directory, { mode: 0o700 });
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') throw new Error(missingMessage);
+      if (code === 'ELOOP' || code === 'ENOTDIR') throw new Error('Refusing symlink escape');
+      throw error;
     }
-    const realDirectory = await realpath(directory);
-    assertConfined(root, realDirectory);
-    return realDirectory;
   }
 
-  async function destinationFor(root: string, dataset: string, sourcePath: string): Promise<string> {
-    return join(await maskDirectory(root, dataset), maskFilename(sourcePath));
-  }
-
-  async function syncDirectory(directory: string): Promise<void> {
-    const directoryHandle = await open(directory, constants.O_RDONLY);
+  async function readSource(dataset: string, sourcePath: string) {
+    assertSingleSegment(dataset, 'dataset');
+    const segments = sourceSegments(sourcePath);
+    if (!SOURCE_EXTENSIONS.has(extname(segments[segments.length - 1]).toLowerCase())) {
+      throw new Error('Unsupported source image');
+    }
+    const handles: FileHandle[] = [];
     try {
-      await directoryHandle.sync();
+      let directory = await openRoot();
+      handles.push(directory);
+      directory = await openChildDirectory(directory, dataset, 'Source not found');
+      handles.push(directory);
+      for (const segment of segments.slice(0, -1)) {
+        directory = await openChildDirectory(directory, segment, 'Source not found');
+        handles.push(directory);
+      }
+      await deps.beforeSourceFileOpen?.();
+      let source: FileHandle;
+      try {
+        source = await openFileAt(directory, segments[segments.length - 1]);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('Source not found');
+        throw error;
+      }
+      handles.push(source);
+      const bytes = await source.readFile();
+      const dimensions = imageSize(bytes);
+      if (!dimensions.width || !dimensions.height) throw new Error('Unsupported source image');
+      return { width: dimensions.width, height: dimensions.height };
     } finally {
-      await directoryHandle.close();
+      await closeAll(handles);
     }
+  }
+
+  async function openMaskDirectory(root: FileHandle, dataset: string): Promise<FileHandle> {
+    const name = maskDatasetName(dataset);
+    try {
+      return await openChildDirectory(root, name, 'Mask directory missing');
+    } catch (error) {
+      if ((error as Error).message !== 'Mask directory missing') throw error;
+      try {
+        await mkdir(descriptorPath(root, name), { mode: 0o700 });
+      } catch (mkdirError) {
+        if ((mkdirError as NodeJS.ErrnoException).code !== 'EEXIST') throw mkdirError;
+      }
+      return openChildDirectory(root, name, 'Mask directory missing');
+    }
+  }
+
+  async function syncDirectory(directory: FileHandle): Promise<void> {
+    await directory.sync();
   }
 
   return {
     async read(dataset, sourcePath) {
-      const source = await sourceDetails(dataset, sourcePath);
-      const destination = await destinationFor(source.root, dataset, source.normalizedSource);
+      const source = await readSource(dataset, sourcePath);
+      const handles: FileHandle[] = [];
       try {
-        const destinationStat = await lstat(destination);
-        if (destinationStat.isSymbolicLink() || !destinationStat.isFile()) throw new Error('Mask symlink escape');
-        if (destinationStat.size > deps.maxPngBytes) throw new Error('PNG exceeds maximum bytes');
-        const bytes = await readFile(destination);
+        const root = await openRoot();
+        handles.push(root);
+        const directory = await openMaskDirectory(root, dataset);
+        handles.push(directory);
+        await deps.beforeMaskFileOpen?.();
+        let mask: FileHandle;
+        try {
+          mask = await openFileAt(directory, maskFilename(sourcePath));
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return { exists: false, width: source.width, height: source.height, png: null };
+          }
+          throw error;
+        }
+        handles.push(mask);
+        const stat = await mask.stat();
+        if (stat.size > deps.maxPngBytes) throw new Error('PNG exceeds maximum bytes');
+        const bytes = await mask.readFile();
         const decoded = parsePng(bytes);
         if (decoded.width !== source.width || decoded.height !== source.height) throw new Error('Mask dimensions mismatch');
         return { exists: true, width: source.width, height: source.height, png: bytes };
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          return { exists: false, width: source.width, height: source.height, png: null };
-        }
-        throw error;
+      } finally {
+        await closeAll(handles);
       }
     },
 
     async save(dataset, sourcePath, png) {
-      const source = await sourceDetails(dataset, sourcePath);
+      const source = await readSource(dataset, sourcePath);
       if (png.length > deps.maxPngBytes) throw new Error('PNG exceeds maximum bytes');
       const decoded = parsePng(png);
       if (decoded.width !== source.width || decoded.height !== source.height) throw new Error('Mask dimensions mismatch');
       const encoded = grayscalePng(decoded);
-      const destination = await destinationFor(source.root, dataset, source.normalizedSource);
-      if (encoded.allWhite) {
+      if (encoded.bytes.length > deps.maxPngBytes) throw new Error('Encoded PNG exceeds maximum bytes');
+
+      const handles: FileHandle[] = [];
+      let temporary: string | undefined;
+      try {
+        const root = await openRoot();
+        handles.push(root);
+        const directory = await openMaskDirectory(root, dataset);
+        handles.push(directory);
+        const destination = descriptorPath(directory, maskFilename(sourcePath));
+
         try {
-          const current = await lstat(destination);
-          if (current.isSymbolicLink() || !current.isFile()) throw new Error('Mask symlink escape');
-          await rm(destination);
-          await syncDirectory(dirname(destination));
+          const current = await openFileAt(directory, maskFilename(sourcePath));
+          await current.close();
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         }
-        return;
-      }
 
-      try {
-        const current = await lstat(destination);
-        if (current.isSymbolicLink() || !current.isFile()) throw new Error('Mask symlink escape');
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      }
+        if (encoded.allWhite) {
+          await rm(destination, { force: true });
+          await syncDirectory(directory);
+          return;
+        }
 
-      const directory = dirname(destination);
-      const temporary = join(directory, `.${basename(destination)}.${process.pid}.${Date.now()}.tmp`);
-      let handle;
-      try {
-        handle = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
-        await handle.writeFile(encoded.bytes);
-        await handle.sync();
-        await handle.close();
-        handle = undefined;
+        await deps.beforeTemporaryOpen?.();
+        temporary = descriptorPath(directory, `.${maskFilename(sourcePath)}.${randomUUID()}.tmp`);
+        const temporaryHandle = await open(
+          temporary,
+          constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+          0o600,
+        );
+        handles.push(temporaryHandle);
+        await temporaryHandle.writeFile(encoded.bytes);
+        await temporaryHandle.sync();
+        await temporaryHandle.close();
+        handles.pop();
         await renameFile(temporary, destination);
+        temporary = undefined;
         await syncDirectory(directory);
       } finally {
-        if (handle) await handle.close().catch(() => undefined);
-        await rm(temporary, { force: true }).catch(() => undefined);
+        if (temporary) await rm(temporary, { force: true }).catch(() => undefined);
+        await closeAll(handles);
       }
     },
   };
