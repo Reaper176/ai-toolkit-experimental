@@ -210,24 +210,15 @@ assert.match(
   'virtualized keys use visible stable relative paths',
 );
 assert.match(pageSource, /<DatasetSourceMissingList\s+paths=\{visibleMissingPaths\}/, 'missing list uses visible paths');
-const selectedOnlyEmptyStateSource = pageSource.match(
-  /\{selectionMode\s*&&\s*showOnlySelected[\s\S]*?<\/p>\s*\)\}/,
-)?.[0];
-assert.ok(selectedOnlyEmptyStateSource, 'selected-only empty state is present');
 assert.match(
-  selectedOnlyEmptyStateSource,
-  /selectionMode\s*&&\s*showOnlySelected\s*&&\s*status\s*===\s*['"]success['"]\s*&&\s*imgList\.length\s*\+\s*sourceMissingPaths\.length\s*>\s*0\s*&&\s*visibleImages\.length\s*===\s*0\s*&&\s*visibleMissingPaths\.length\s*===\s*0/,
-  'selected-only empty state covers nonempty live-image and missing-only preset review sets',
+  pageSource,
+  /<DatasetReviewEmptyState[\s\S]{0,400}liveCount=\{imgList\.length\}[\s\S]{0,120}missingCount=\{sourceMissingPaths\.length\}[\s\S]{0,240}visibleLiveCount=\{visibleImages\.length\}[\s\S]{0,120}visibleMissingCount=\{visibleMissingPaths\.length\}/,
+  'review empty state receives full and visible live-plus-missing counts',
 );
 assert.doesNotMatch(
-  selectedOnlyEmptyStateSource,
-  /status\s*===\s*['"]success['"]\s*&&\s*imgList\.length\s*>\s*0/,
-  'missing-only presets must not be excluded by a live-image-only guard',
-);
-assert.match(
-  selectedOnlyEmptyStateSource,
-  /visibleMissingPaths\.length\s*===\s*0\s*&&\s*\(\s*<p\s+role=["']status["'][^>]*>\s*No selected images to show\.\s*<\/p>/,
-  'selected-only empty state is announced with the exact accessible status message',
+  pageSource,
+  /status\s*==?=\s*['"]success['"]\s*&&\s*imgList\.length\s*===\s*0/,
+  'the page no longer derives generic emptiness from live images alone',
 );
 assert.match(
   pageSource,

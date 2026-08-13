@@ -2,10 +2,11 @@
 
 import { useEffect, useState, use, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { LuImageOff, LuLoader, LuBan } from 'react-icons/lu';
+import { LuLoader, LuBan } from 'react-icons/lu';
 import { FaChevronLeft } from 'react-icons/fa';
 import { VirtuosoGrid } from 'react-virtuoso';
 import DatasetImageCard from '@/components/DatasetImageCard';
+import DatasetReviewEmptyState from '@/components/DatasetReviewEmptyState';
 import DatasetSelectionToolbar from '@/components/DatasetSelectionToolbar';
 import DatasetSourceMissingList from '@/components/DatasetSourceMissingList';
 import DatasetPresetLifecycleControls, { type LifecycleChange } from '@/components/DatasetPresetLifecycleControls';
@@ -458,16 +459,6 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
       textColor = 'text-red-100';
       iconColor = 'text-red-400';
     }
-    if (status == 'success' && imgList.length === 0) {
-      icon = <LuImageOff className="w-8 h-8" />;
-      text = 'No Images Found';
-      subtitle = 'This dataset is empty. Click "Add Images" to get started.';
-      showIt = true;
-      bgColor = 'bg-gray-800/50';
-      textColor = 'text-gray-100';
-      iconColor = 'text-gray-400';
-    }
-
     if (!showIt) return null;
 
     return (
@@ -479,7 +470,7 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
         <p className="text-sm opacity-75 leading-relaxed">{subtitle}</p>
       </div>
     );
-  }, [status, imgList.length]);
+  }, [status]);
 
   return (
     <>
@@ -618,16 +609,15 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
           </div>
         )}
         {PageInfoContent}
-        {selectionMode &&
-          showOnlySelected &&
-          status === 'success' &&
-          imgList.length + sourceMissingPaths.length > 0 &&
-          visibleImages.length === 0 &&
-          visibleMissingPaths.length === 0 && (
-            <p role="status" className="py-10 text-center text-sm text-gray-400">
-              No selected images to show.
-            </p>
-          )}
+        <DatasetReviewEmptyState
+          status={status}
+          liveCount={imgList.length}
+          missingCount={sourceMissingPaths.length}
+          selectionMode={selectionMode}
+          showOnlySelected={showOnlySelected}
+          visibleLiveCount={visibleImages.length}
+          visibleMissingCount={visibleMissingPaths.length}
+        />
         {status === 'success' && visibleImages.length > 0 && scrollParent && (
           <VirtuosoGrid
             totalCount={visibleImages.length}

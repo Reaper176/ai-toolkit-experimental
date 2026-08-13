@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { DatasetSelectionToolbar } from '../src/components/DatasetSelectionToolbar';
+import DatasetReviewEmptyState from '../src/components/DatasetReviewEmptyState';
 import DatasetSourceMissingList from '../src/components/DatasetSourceMissingList';
 import { createLatestDatasetPresetRequestGate } from '../src/hooks/useDatasetPresets';
 import {
@@ -52,6 +53,23 @@ const DatasetImageCard: React.ComponentType<any> = require('../src/components/Da
 
 function click(instance: TestRenderer.ReactTestInstance): void {
   instance.props.onClick({ stopPropagation() {} });
+}
+
+function emptyStateMessages(props: React.ComponentProps<typeof DatasetReviewEmptyState>): string[] {
+  let renderer!: TestRenderer.ReactTestRenderer;
+  act(() => {
+    renderer = TestRenderer.create(<DatasetReviewEmptyState {...props} />);
+  });
+  const messages = renderer.root
+    .findAll(node => node.type === 'h3' || node.type === 'p')
+    .map(node => node.children.join(''));
+  assert.equal(
+    renderer.root.findAllByProps({ role: 'status' }).length,
+    messages.includes('No selected images to show.') ? 1 : 0,
+    'the selected-only empty message is the sole announced status',
+  );
+  act(() => renderer.unmount());
+  return messages;
 }
 
 class PositionAwareHistory {
@@ -161,6 +179,58 @@ async function run(): Promise<void> {
     assert.equal(filterPathsBySelection(missingPaths, selected, false), missingPaths);
     assert.deepEqual(filterPathsBySelection(missingPaths, selected, true), ['missing.png']);
     assert.deepEqual(filterDatasetImagesBySelection(images, new Set(), true), []);
+    assert.deepEqual(
+      emptyStateMessages({
+        status: 'success',
+        liveCount: 0,
+        missingCount: 0,
+        selectionMode: false,
+        showOnlySelected: false,
+        visibleLiveCount: 0,
+        visibleMissingCount: 0,
+      }),
+      ['No Images Found', 'This dataset is empty. Click "Add Images" to get started.'],
+      'an empty underlying review set renders the generic empty state once',
+    );
+    assert.deepEqual(
+      emptyStateMessages({
+        status: 'success',
+        liveCount: 0,
+        missingCount: 1,
+        selectionMode: true,
+        showOnlySelected: true,
+        visibleLiveCount: 0,
+        visibleMissingCount: 1,
+      }),
+      [],
+      'a selected missing-only preset leaves its visible missing list as the sole content',
+    );
+    assert.deepEqual(
+      emptyStateMessages({
+        status: 'success',
+        liveCount: 0,
+        missingCount: 1,
+        selectionMode: true,
+        showOnlySelected: true,
+        visibleLiveCount: 0,
+        visibleMissingCount: 0,
+      }),
+      ['No selected images to show.'],
+      'a filtered missing-only preset renders only the selected-only empty state',
+    );
+    assert.deepEqual(
+      emptyStateMessages({
+        status: 'success',
+        liveCount: 1,
+        missingCount: 0,
+        selectionMode: true,
+        showOnlySelected: true,
+        visibleLiveCount: 0,
+        visibleMissingCount: 0,
+      }),
+      ['No selected images to show.'],
+      'a filtered live dataset renders only the selected-only empty state',
+    );
     assert.deepEqual(reconcileSelection(new Set(['a', 'missing']), ['a', 'b']), new Set(['a']));
     assert.equal(normalizeRelativeMediaPath('nested\\portrait.jpg'), 'nested/portrait.jpg');
     const requestGate = createLatestDatasetPresetRequestGate();
