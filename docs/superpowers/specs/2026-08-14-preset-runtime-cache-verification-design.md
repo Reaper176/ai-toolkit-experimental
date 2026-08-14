@@ -36,4 +36,3 @@ Regression coverage will prove:
 2. Cache directories are not recursively enumerated by verification.
 3. Wrong-type cache entries, symlinks, near-match names, nested cache names, and arbitrary undeclared files remain rejected.
 4. Declared media and mask tampering continues to fail size/SHA verification.
-
