@@ -1207,6 +1207,95 @@ async function main(): Promise<void> {
     await treePublication.publish();
     assert.equal((await store.verifyFull(treePublication.manifestPath)).media_count, 1, 'nested expected dirs verify');
     const treeMediaRoot = join(treePublication.versionRoot, 'media');
+    writeFileSync(join(treeMediaRoot, '.aitk_size.json'), '{"nested/expected.jpg":[512,512]}');
+    mkdirSync(join(treeMediaRoot, '_latent_cache/deep'), { recursive: true });
+    writeFileSync(join(treeMediaRoot, '_latent_cache/deep/arbitrary.bin'), 'latent cache contents');
+    mkdirSync(join(treeMediaRoot, '_t_e_cache/deeper/still'), { recursive: true });
+    writeFileSync(join(treeMediaRoot, '_t_e_cache/deeper/still/arbitrary.bin'), 'text embedding cache contents');
+    assert.equal(
+      (await store.verifyFull(treePublication.manifestPath)).media_count,
+      1,
+      'exact root toolkit runtime caches with arbitrary directory contents verify',
+    );
+    unlinkSync(join(treeMediaRoot, '.aitk_size.json'));
+    rmSync(join(treeMediaRoot, '_latent_cache'), { recursive: true });
+    rmSync(join(treeMediaRoot, '_t_e_cache'), { recursive: true });
+
+    for (const [relativePath, createEntry, actual] of [
+      ['.aitk_size.json', (path: string) => mkdirSync(path), 'directory'],
+      ['_latent_cache', (path: string) => writeFileSync(path, 'not a directory'), 'file'],
+      ['_t_e_cache', (path: string) => writeFileSync(path, 'not a directory'), 'file'],
+    ] as const) {
+      const absolutePath = join(treeMediaRoot, relativePath);
+      createEntry(absolutePath);
+      await assert.rejects(
+        () => store.verifyFull(treePublication.manifestPath),
+        error =>
+          error instanceof DatasetPresetSnapshotVerificationError &&
+          error.mismatches.some(
+            mismatch =>
+              mismatch.kind === 'unexpected' &&
+              mismatch.asset === 'media' &&
+              mismatch.path === relativePath &&
+              mismatch.expected === 'absent' &&
+              mismatch.actual === actual,
+          ),
+        `${relativePath} with actual kind ${actual} is rejected`,
+      );
+      rmSync(absolutePath, { recursive: true });
+    }
+
+    for (const [relativePath, createEntry, actual] of [
+      ['.aitk_size.json.bak', (path: string) => writeFileSync(path, '{}'), 'file'],
+      ['_latent_cache_extra', (path: string) => mkdirSync(path), 'directory'],
+      ['_t_e_cache.tmp', (path: string) => mkdirSync(path), 'directory'],
+      ['nested/.aitk_size.json', (path: string) => writeFileSync(path, '{}'), 'file'],
+      ['nested/_latent_cache', (path: string) => mkdirSync(path), 'directory'],
+      ['nested/_t_e_cache', (path: string) => mkdirSync(path), 'directory'],
+      ['unrelated-runtime-entry.bin', (path: string) => writeFileSync(path, 'undeclared'), 'file'],
+    ] as const) {
+      const absolutePath = join(treeMediaRoot, relativePath);
+      createEntry(absolutePath);
+      await assert.rejects(
+        () => store.verifyFull(treePublication.manifestPath),
+        error =>
+          error instanceof DatasetPresetSnapshotVerificationError &&
+          error.mismatches.some(
+            mismatch =>
+              mismatch.kind === 'unexpected' &&
+              mismatch.asset === 'media' &&
+              mismatch.path === relativePath &&
+              mismatch.expected === 'absent' &&
+              mismatch.actual === actual,
+          ),
+        `${relativePath} is not an exact root runtime cache ${actual}`,
+      );
+      rmSync(absolutePath, { recursive: true });
+    }
+
+    if (symlinksSupported) {
+      const cacheSymlinkTarget = join(ownedRoot, 'runtime-cache-symlink-target');
+      mkdirSync(cacheSymlinkTarget);
+      for (const relativePath of ['.aitk_size.json', '_latent_cache', '_t_e_cache']) {
+        const absolutePath = join(treeMediaRoot, relativePath);
+        symlinkSync(cacheSymlinkTarget, absolutePath, process.platform === 'win32' ? 'junction' : 'dir');
+        await assert.rejects(
+          () => store.verifyFull(treePublication.manifestPath),
+          error =>
+            error instanceof DatasetPresetSnapshotVerificationError &&
+            error.mismatches.some(
+              mismatch =>
+                mismatch.kind === 'unexpected' &&
+                mismatch.asset === 'media' &&
+                mismatch.path === relativePath &&
+                mismatch.expected === 'absent' &&
+                mismatch.actual === 'symlink',
+            ),
+          `${relativePath} symlink is rejected`,
+        );
+        unlinkSync(absolutePath);
+      }
+    }
     for (const [relativePath, contents, asset] of [
       ['nested/extra.jpg', 'image', 'media'],
       ['nested/extra.txt', 'caption', 'caption'],
