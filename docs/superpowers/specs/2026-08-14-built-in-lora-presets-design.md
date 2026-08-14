@@ -4,7 +4,7 @@
 
 ## Goal
 
-Ship a small, safe, versioned catalog of immutable LoRA training presets for the core model families documented by the LoRA Training Book. Built-ins provide current, architecture-specific starting configurations while preserving every job- and dataset-specific value. They are configuration starters, not quality or hardware guarantees.
+Ship a small, safe, versioned catalog of immutable LoRA training presets for the core model families documented by the LoRA Training Book. Built-ins provide current, architecture-specific starting configurations while preserving the explicitly protected identity, path, device, trigger, dataset, and prompt values enumerated below. They are configuration starters, not quality or hardware guarantees.
 
 This catalog extends the existing server-backed training preset feature. User-created presets retain their existing SQLite lifecycle and behavior.
 
@@ -103,19 +103,19 @@ record.model_arch
 
 The strict validator also binds `model.name_or_path` and backend normalization to this exact allowlist:
 
-| UI architecture | Required model path | Expected engine architecture |
-|---|---|---|
-| `anima` | `circlestone-labs/Anima-Base-v1.0-Diffusers` | `anima` |
-| `flux` | `black-forest-labs/FLUX.1-dev` | `flux` |
-| `flex1` | `ostris/Flex.1-alpha` | `flux` |
-| `qwen_image` | `Qwen/Qwen-Image` | `qwen_image` |
-| `qwen_image_edit_plus` | `Qwen/Qwen-Image-Edit-2509` | `qwen_image_edit_plus` |
-| `sdxl` | `stabilityai/stable-diffusion-xl-base-1.0` | `sdxl` |
-| `sd15` | `stable-diffusion-v1-5/stable-diffusion-v1-5` | `sd15` |
-| `wan21:1b` | `Wan-AI/Wan2.1-T2V-1.3B-Diffusers` | `wan21` |
-| `wan22_14b:t2v` | `ai-toolkit/Wan2.2-T2V-A14B-Diffusers-bf16` | `wan22_14b` |
+| UI architecture | Required model path | Expected engine architecture | Expected model class |
+|---|---|---|---|
+| `anima` | `circlestone-labs/Anima-Base-v1.0-Diffusers` | `anima` | `AnimaModel` |
+| `flux` | `black-forest-labs/FLUX.1-dev` | `flux` | `StableDiffusion` |
+| `flex1` | `ostris/Flex.1-alpha` | `flux` | `StableDiffusion` |
+| `qwen_image` | `Qwen/Qwen-Image` | `qwen_image` | `QwenImageModel` |
+| `qwen_image_edit_plus` | `Qwen/Qwen-Image-Edit-2509` | `qwen_image_edit_plus` | `QwenImageEditPlusModel` |
+| `sdxl` | `stabilityai/stable-diffusion-xl-base-1.0` | `sdxl` | `StableDiffusion` |
+| `sd15` | `stable-diffusion-v1-5/stable-diffusion-v1-5` | `sd15` | `StableDiffusion` |
+| `wan21:1b` | `Wan-AI/Wan2.1-T2V-1.3B-Diffusers` | `wan21` | `Wan21` |
+| `wan22_14b:t2v` | `ai-toolkit/Wan2.2-T2V-A14B-Diffusers-bf16` | `wan22_14b` | `Wan2214bModel` |
 
-Unknown/missing architectures, suffix mismatches, metadata/snapshot disagreement, unexpected model paths, and a backend fallback to the legacy Stable Diffusion class are catalog errors.
+Unknown/missing architectures, suffix mismatches, metadata/snapshot disagreement, unexpected model paths, and disagreement with the expected resolved model class are catalog errors. The legacy `StableDiffusion` fallback is intentional and required for `flux`, `flex1`, `sdxl`, and `sd15`; it is rejected for every other row. Tests source-verify this mapping against backend normalization and model registration without treating every fallback as a failure.
 
 General user-preset validation remains permissive for legacy, advanced, and future configurations. It is not tightened to catalog policy.
 
@@ -166,6 +166,25 @@ The first catalog is curated and contains the following 14 entries. Every entry 
 This is not a Cartesian product. Unsupported intent/model combinations are omitted. The proposed FLUX low-VRAM entry is deliberately excluded because current `modelArchs` does not declare `low_vram` for `flux`; a commented historical YAML option is insufficient catalog evidence. Additional Qwen revisions, edit variants, Wan I2V variants, FLUX Kontext, Flex.2, and other UI architectures require later catalog revisions with dedicated compatibility evidence.
 
 Every approved recipe category is represented at least once. Video-specific dataset requirements are explained in the Wan model chapter and linked character/diagnostic recipe sections.
+
+The exact revision-1 summaries are:
+
+| Entry | Literal `summary` |
+|---:|---|
+| 1 | Balanced Anima LoRA starting point for a recurring character or identity. |
+| 2 | Anima starting point biased toward low-noise detail and focused refinement. |
+| 3 | Anima character starting point with low-VRAM mode enabled; dataset memory settings remain unchanged. |
+| 4 | One-interval Anima run for validating configuration, samples, saving, and queue behavior. |
+| 5 | FLUX.1 starting point biased toward subject and general concept learning. |
+| 6 | FLUX.1 starting point biased toward style and aesthetic learning. |
+| 7 | Flex.1 starting point for objects and general concepts with its required guidance behavior. |
+| 8 | Qwen Image low-VRAM starting point for objects and general concepts. |
+| 9 | Qwen Image Edit 2509 starting point for paired edit/refinement training; control data is required. |
+| 10 | SDXL LoRA starting point biased toward character and identity learning. |
+| 11 | SDXL LoRA starting point biased toward style and aesthetic learning. |
+| 12 | SD 1.5 LoRA starting point biased toward character and identity learning. |
+| 13 | One-interval Wan 2.1 1.3B T2V run for validating a video dataset and training pipeline. |
+| 14 | Wan 2.2 14B T2V starting point for subject and motion learning across both noise stages. |
 
 ## Normative Snapshot Matrix
 
@@ -237,7 +256,7 @@ The entry overlays are below. “Steps” maps to `train.steps`, “Timestep” 
 
 | Entry | Linear rank/alpha | Steps | Noise scheduler | Timestep | Bias | Memory | Sample | Keep |
 |---:|---:|---:|---|---|---|---|---|---:|
-| 1 | 32 | 3000 | flowmatch | weighted | balanced | A | A | 4 |
+| 1 | 32 | 3000 | flowmatch | weighted | content | A | A | 4 |
 | 2 | 32 | 3000 | flowmatch | weighted | style | A | A | 4 |
 | 3 | 32 | 3000 | flowmatch | weighted | balanced | A-low | A | 4 |
 | 4 | 32 | 250 | flowmatch | weighted | balanced | A | A | 1 |
@@ -312,7 +331,7 @@ Preset values use the normative matrix rather than being copied verbatim from hi
 
 Mask-dependent settings such as inverted-mask prior remain disabled because datasets are preserved and may not contain masks. The focused-refinement recipe explains how to enable mask settings after the UI confirms resolved masks.
 
-No preset may contain placeholders that would reach runtime, personal paths, workstation-specific directories, or mutable dataset paths. The sanitizer omits `sample.samples`, legacy `sample.prompts`, and the global negative prompt `sample.neg`; all three are protected user prompt data.
+No preset may contain placeholders that would reach runtime, personal paths, workstation-specific directories, or mutable dataset paths. Both preset sources omit `sample.samples` and legacy `sample.prompts`. Built-in definitions additionally forbid `sample.neg`, and the built-in application path captures and restores the current job's global negative prompt with property-presence semantics. Existing user-preset compatibility remains unchanged: `sanitizeTrainingPreset` may retain `sample.neg`, and applying a user preset may replace the current global negative prompt with the saved user-preset value.
 
 ## Application and Undo
 
@@ -322,12 +341,12 @@ Built-ins use the existing deep-copy preset application semantics:
 2. Confirm exact architecture compatibility.
 3. Capture one undo snapshot of the current complete job configuration.
 4. Apply the authoritative preset process.
-5. Restore protected job identity, dataset, trigger, device, path, sample items/controls, and global negative-prompt fields.
+5. Restore protected job identity, dataset, trigger, device, path, sample items/controls, and—for built-ins only—the current global negative-prompt field.
 6. Validate the resulting job configuration before committing UI state.
 
 Applying a built-in does not create a live relationship. The resulting settings are saved into the job. Later catalog revisions cannot mutate existing jobs.
 
-Preservation uses structural deep equality plus property-presence semantics. `config.name`, root `meta`, `training_folder`, `sqlite_db_path`, `device`, `trigger_word`, and `datasets` equal the original pre-application input, including absent versus present properties. `sample.samples` and `sample.neg` equal the migrated current representation; legacy `sample.prompts` is allowed to become `sample.samples` through the existing migration and is not resurrected alongside it. GPU state, which lives outside `JobConfig`, remains unchanged. Undo restores the complete original editor `JobConfig` snapshot, not merely protected fields.
+Built-in preservation uses structural deep equality plus property-presence semantics. `config.name`, root `meta`, `training_folder`, `sqlite_db_path`, `device`, `trigger_word`, and `datasets` equal the original pre-application input, including absent versus present properties. `sample.samples` and `sample.neg` equal the migrated current representation; legacy `sample.prompts` is allowed to become `sample.samples` through the existing migration and is not resurrected alongside it. User-preset negative-prompt semantics remain the current saved-value behavior. GPU state, which lives outside `JobConfig`, remains unchanged. Undo restores the complete original editor `JobConfig` snapshot, not merely protected fields.
 
 ## API and Service Behavior
 
@@ -337,7 +356,7 @@ Preservation uses structural deep equality plus property-presence semantics. `co
 
 Whole-catalog validation rejects an entry error, duplicate ID, missing or extra normative entry, mixed revision, duplicate manifest row, ID/field mismatch, category/recipe coverage loss, ordering ambiguity, or stronger evidence without a valid attestation. `npm run test:training-presets` invokes this validator, and `npm run build` runs the same validator before Next compilation.
 
-One invalid built-in must not make user presets unavailable in production. Runtime catalog loading validates entries independently; all built-ins participating in an ID collision are excluded, other invalid built-ins are excluded, and a redacted error code plus deterministic ID digest is logged without snapshot contents, prompts, paths, or filesystem details. The server still returns valid built-ins plus user records. The client also validates records individually and drops malformed built-in records without discarding valid user records. Tests/build make this fail-safe unreachable in a normal release.
+One invalid built-in must not make user presets unavailable in production. Runtime catalog loading validates entries independently; all built-ins participating in an ID collision are excluded, other invalid built-ins are excluded, and a redacted error code plus deterministic ID digest is logged without snapshot contents, prompts, paths, or filesystem details. The log digest is the first 12 lowercase hexadecimal characters of SHA-256 over the UTF-8 bytes of the exact complete preset ID. The server still returns valid built-ins plus user records. The client also validates records individually and drops malformed built-in records without discarding valid user records. Tests/build make this fail-safe unreachable in a normal release.
 
 If a stored user row somehow uses the case-insensitive reserved ID prefix, it is treated as corrupt user data and excluded with the existing generic corruption logging; it never shadows a built-in. Display-name collisions across sources remain allowed.
 
@@ -366,7 +385,7 @@ Evidence is explicit:
 
 All 14 revision-1 entries are unconditionally `configuration-validated`. This label means static schema/catalog validation, protected-field application tests, semantic configuration validation, and verified UI-architecture-to-engine mapping; it does not mean a model was downloaded or a job was launched.
 
-Any future stronger label requires `docs/book/preset-evidence/<preset-id-digest>.json` containing preset ID/revision, canonical snapshot SHA-256, repository commit, UTC date, hardware/model identifier, test scope, result, and reviewer. Changing the canonical snapshot changes its digest and invalidates the attestation until evidence is repeated. Build validation rejects stronger labels with missing, stale, mismatched, or unsuccessful attestations.
+Any future stronger label requires `docs/book/preset-evidence/<preset-id-digest>.json` containing preset ID/revision, canonical snapshot SHA-256, repository commit, UTC date, hardware/model identifier, test scope, result, and reviewer. `<preset-id-digest>` is the full 64-character lowercase hexadecimal SHA-256 of the UTF-8 bytes of the exact complete preset ID. The snapshot digest is the full lowercase SHA-256 of its canonical JSON UTF-8 bytes. Canonical JSON recursively sorts object keys by Unicode code point, preserves array order, emits `JSON.stringify`-equivalent JSON with no insignificant whitespace, and rejects `undefined`, non-finite numbers, sparse arrays, and non-JSON values rather than coercing them. Changing the canonical snapshot changes its digest and invalidates the attestation until evidence is repeated. Build validation rejects stronger labels with missing, stale, mismatched, or unsuccessful attestations.
 
 Memory labels are descriptive test conditions, not guarantees. A “Low-VRAM starting point” states which quantization/offloading choices it sets and directs users to the recipe; it does not promise a specific card capacity because dataset resolutions and caches are preserved.
 
@@ -389,10 +408,10 @@ Focused tests cover:
 - strict LoRA/process/model validation;
 - no protected fields, external side effects, placeholders, or mutable references;
 - exact-architecture applicability;
-- UI/snapshot/ID/backend architecture agreement, variant mismatches, and backend-fallback rejection;
+- UI/snapshot/ID/backend architecture agreement, variant mismatches, the four intentional `StableDiffusion` fallbacks, and rejection of fallback for every other catalog architecture;
 - deterministic sorting and name/ID collision behavior;
 - stronger evidence without a matching attestation is rejected;
-- apply/undo preserves every protected job and dataset field, property presence, global negative prompt, and legacy prompt migration semantics.
+- apply/undo preserves every protected job and dataset field and property presence; a built-in preserves a differing current global negative prompt while a user preset retains the existing saved-negative-prompt behavior; legacy prompt migration semantics remain covered.
 
 ### Service and routes
 

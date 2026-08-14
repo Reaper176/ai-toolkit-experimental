@@ -246,7 +246,7 @@ The exhaustive reference is backed by structured catalog data. A user-configurab
 - at least one concrete example;
 - source file and symbol used for verification.
 
-The LoRA configuration boundary includes process-level controls from `BaseProcess`, `BaseTrainProcess`, `BaseSDTrainProcess`, and `DiffusionTrainer`; user-facing fields parsed by `SaveConfig`, `LoggingConfig`, `SampleConfig`, `SampleItem`, LoRM/module settings, `NetworkConfig`, `AdapterConfig`, validation configuration, `EmbeddingConfig`, `DecoratorConfig`, `TrainConfig`, `ModelConfig`, `EMAConfig`, `GuidanceConfig`, and `DatasetConfig`; optimizer and scheduler dispatch plus locally consumed/injected parameter maps; inline prompt overrides; model-specific `model_kwargs` consumers for the focused model-page allowlist; root/job envelope behavior; config-file environment/name expansion; `run.py` flags and user-relevant environment variables; UI-created defaults, migrations, UI-only state, server-owned state, architecture transition overrides, section visibility, controls, gating metadata, and global settings. Slider, extraction, generation-only constructors, reference-dataset classes, arbitrary third-party optimizer constructor signatures, external extensions, and model-developer integration APIs are outside the LoRA-setting boundary and are listed by exact symbol in the exclusions ledger rather than silently omitted.
+The LoRA configuration boundary includes process-level controls from `BaseProcess`, `BaseTrainProcess`, `BaseSDTrainProcess`, and `DiffusionTrainer`; user-facing fields parsed by `SaveConfig`, `LoggingConfig`, `SampleConfig`, `SampleItem`, LoRM/module settings, `NetworkConfig`, `AdapterConfig`, validation configuration, `EmbeddingConfig`, `DecoratorConfig`, `TrainConfig`, `ModelConfig`, `EMAConfig`, `GuidanceConfig`, and `DatasetConfig`; optimizer and scheduler dispatch plus locally consumed/injected parameter maps; inline prompt overrides; first-party model-specific `model_kwargs` consumers for every architecture in the full current `modelArchs` set; root/job envelope behavior; config-file environment/name expansion; `run.py` flags and user-relevant environment variables; UI-created defaults, migrations, UI-only state, server-owned state, architecture transition overrides, section visibility, controls, gating metadata, and global settings. Overview-only architectures therefore still receive exhaustive factual settings-reference coverage even when they have no focused recipe. Slider, extraction, generation-only constructors, reference-dataset classes, arbitrary third-party optimizer constructor signatures, external extensions, and model-developer integration APIs are outside the LoRA-setting boundary and are listed by exact symbol in the exclusions ledger rather than silently omitted.
 
 Where UI and engine defaults differ, both values are shown and neither is labeled simply “the default.” Where architecture selection overrides an edited value, the reference states that behavior. Where the UI accepts a wider range than runtime meaningfully supports, the reference states the effective runtime behavior.
 
@@ -254,15 +254,16 @@ Where UI and engine defaults differ, both values are shown and neither is labele
 
 Narrative chapters are hand-written. Machine-readable settings metadata and validation fixtures anchor factual fields to the code without attempting to generate teaching prose.
 
-The extraction source union is declared in `docs/book/reference/settings-sources.json`. It combines repository-wide discovery rules with explicit ownership entries for every Python module/class/function, optimizer/scheduler registry, focused model-kwargs consumer, CLI parser, and UI export included by the inventory. Validation tooling must:
+The extraction source union is declared in `docs/book/reference/settings-sources.json`. It combines repository-wide discovery rules with explicit ownership entries for every Python module/class/function, optimizer/scheduler registry, first-party model-kwargs consumer applicable to the full current `modelArchs` set, CLI parser, and UI export included by the inventory. Validation tooling must:
 
 - discover literal `kwargs.get`, `get_conf`, direct configuration-map reads, `model_kwargs` reads, CLI/environment definitions, UI setter paths/default exports, and registry dispatch across declared repository globs; inventory registered optimizer/scheduler choices and locally consumed/injected parameters; then compare the exact discovered union with explicit catalog/exclusion ownership;
 - require every discovered key to be documented or explicitly classified;
 - fail when a declared source disappears, a new source is unowned, a dynamic configuration read cannot be resolved to a finite set, any source inventory is unexpectedly empty, a stable ID is duplicated, location/applicability claims overlap, an alias has no replacement policy, a source symbol is stale, required metadata/example text is blank, or a page anchor is missing;
 - verify every documented UI-created default against `defaultJobConfig`, dataset/sample fixtures, and architecture overrides;
 - verify the complete visible `modelArchs` inventory against the edition manifest and the exact preset/focused-page allowlists for default paths, gating, schedulers, controls, model kwargs, and overrides;
-- parse every YAML example shipped under `docs/book/examples/`;
-- require exact equality between files on disk and `docs/book/examples/manifest.json`; each entry declares architecture, roles, chapters, validation profile, and typed user-substitution tokens such as `${DATASET_DIR}` and `${OUTPUT_DIR}`, and validation rejects undeclared or unreferenced placeholders;
+- parse every `*.yaml` example shipped under `docs/book/examples/`;
+- require exact set equality between `docs/book/examples/*.yaml` and the paths declared by `docs/book/examples/manifest.json`; each YAML entry declares architecture, roles, chapters, validation profile, and typed user-substitution tokens such as `${DATASET_DIR}` and `${OUTPUT_DIR}`, and validation rejects undeclared or unreferenced placeholders;
+- separately require exactly one `docs/book/examples/README.md` and one `docs/book/examples/manifest.json`, validate the manifest against its committed schema/contract, and reject any other non-YAML file in that directory;
 - reject example keys absent from the settings catalog, then run current preprocessing/config semantic validation so ignored typos, stale aliases, invalid discriminators, and incompatible combinations fail;
 - validate internal Markdown links, page anchors, generated-block parity, and preset-to-recipe links;
 - report drift without automatically rewriting narrative explanations.
@@ -285,9 +286,21 @@ The link is a semantic keyboard-accessible anchor, opens in a new tab, and uses 
 
 Documentation validation reports the chapter/catalog entry and exact missing or conflicting source key. A single invalid example or broken link fails the documentation check. Validation errors do not affect normal UI startup or training runtime because documentation data is not imported into training code.
 
-The GPU/network-free automated boundary is `npm run test:training-book` from `ui/`. It AST-extracts Python facts without importing side-effectful model modules, compiles/imports UI fixtures through the existing temporary TypeScript test pattern, checks migrations/aliases with presence semantics, and runs source inventory, catalog/schema checks, semantic example validation with local substitutions, generated-reference parity, Markdown links/anchors/navigation/footer checks, model allowlist checks, and UI link component tests. Semantic config checks instantiate only pure configuration classes, preprocess datasets with fixtures, run central validators and known pre-init rules, and never instantiate a trainer/model, download artifacts, or require optional GPU optimizer libraries. `npm run build` remains the production integration check.
+The GPU/network-free automated boundary is `npm run test:training-book` from `ui/`. It AST-extracts Python facts without importing side-effectful model modules, compiles/imports UI fixtures through the existing temporary TypeScript test pattern, checks migrations/aliases with presence semantics, and runs source inventory, catalog/schema checks, semantic example validation with local substitutions, generated-reference parity, Markdown links/anchors/navigation/footer checks, model allowlist checks, and UI link component tests. Semantic config checks instantiate only pure configuration classes, preprocess datasets with fixtures, run central validators and known pre-init rules, and never instantiate a trainer/model, download artifacts, or require optional GPU optimizer libraries.
 
-A separate manual supported-GPU smoke record under `docs/book/verification/first-run-smoke.md` records the tested commit, model, hardware, dataset fixture, and result for: UI authentication; creating a diagnostic job; queueing and starting it; producing fixed-seed samples and a checkpoint; comparing the sample; stopping; increasing total steps; resuming from the checkpoint and compatible `optimizer.pt`; and observing continued step progression. Network/model downloads are prerequisites for that manual smoke and are never hidden inside the automated documentation test.
+The exact network/GPU-free regression gate for this phase is, from the repository root:
+
+```bash
+cd ui
+npm run test:training-book
+npm run test:training-presets
+npm run test:dataset-presets
+npm run build
+```
+
+These four commands are the acceptance boundary; unrelated repository suites are not implied by the phrase “existing application tests.”
+
+A separate manual supported-GPU smoke record under `docs/book/verification/first-run-smoke.md` records the tested commit, exact `book_revision` from `book-manifest.json`, model, hardware, dataset fixture, and result for: UI authentication; creating a diagnostic job; queueing and starting it; producing fixed-seed samples and a checkpoint; comparing the sample; stopping; increasing total steps; resuming from the checkpoint and compatible `optimizer.pt`; and observing continued step progression. The accepted edition requires the smoke record's `book_revision` to equal the current manifest revision and its tested commit to contain that exact edition; a smoke record for an older edition is stale and fails acceptance. Network/model downloads are prerequisites for that manual smoke and are never hidden inside the automated documentation test.
 
 If the external GitHub guide cannot be reached, the UI remains functional; the link is ordinary navigation and does not fetch documentation during rendering.
 
@@ -301,13 +314,14 @@ The book phase is accepted when:
 - the beginner walkthrough reaches a queued/running diagnostic job without requiring Advanced YAML, evaluates a fixed-seed checkpoint sample, and follows the safe resume procedure;
 - all six recipe chapters contain dataset, training, sampling, and diagnosis guidance;
 - the five model-family chapters cover the declared first-edition architectures without unsupported guarantees;
-- every discovered UI, Advanced YAML, CLI, process, optimizer/scheduler, and first-edition model-specific field is documented or explicitly classified by the fail-closed source union;
+- every discovered UI, Advanced YAML, CLI, process, optimizer/scheduler, and first-party model-specific field applicable to the full current `modelArchs` set is documented or explicitly classified by the fail-closed source union;
 - settings entries distinguish UI defaults from engine fallbacks;
 - book YAML examples parse and internal links resolve;
 - book example keys and combinations pass catalog-aware semantic validation rather than relying on permissive `**kwargs` parsing;
 - README and UI Training Guide links point to the canonical book, and the sidebar link has semantic keyboard behavior, `_blank`, and safe `rel` attributes;
-- documentation validation is integrated into a focused repeatable test command;
-- existing application tests and production build remain successful.
+- documentation validation is integrated into the exact focused regression gate above;
+- the current-edition supported-GPU smoke record exists and is not stale;
+- all four named regression commands pass.
 
 ## Non-Goals
 
