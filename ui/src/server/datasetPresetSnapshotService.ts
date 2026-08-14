@@ -275,6 +275,12 @@ function toSystemPath(root: string, portableRelativePath: string): string {
   return join(root, ...portableRelativePath.split('/'));
 }
 
+function isAllowedRuntimeCacheRoot(portablePath: string, info: BigIntStats): boolean {
+  return portablePath === 'media/.aitk_size.json'
+    ? info.isFile()
+    : (portablePath === 'media/_latent_cache' || portablePath === 'media/_t_e_cache') && info.isDirectory();
+}
+
 function cloneManifest(manifest: DatasetPresetManifestV1): DatasetPresetManifestV1 {
   return validateManifest(manifest);
 }
@@ -1195,6 +1201,7 @@ export function createDatasetPresetSnapshotStore(
             });
             continue;
           }
+          if (isAllowedRuntimeCacheRoot(portablePath, info)) continue;
           if (info.isDirectory()) {
             if (!expectedDirectories.has(portablePath)) {
               recordMismatch({
