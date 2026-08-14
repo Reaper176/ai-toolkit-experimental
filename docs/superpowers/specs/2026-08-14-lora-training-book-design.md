@@ -298,7 +298,7 @@ npm run test:dataset-presets
 npm run build
 ```
 
-These four commands are the acceptance boundary; unrelated repository suites are not implied by the phrase “existing application tests.”
+These four commands are the automated acceptance boundary; unrelated repository suites are not implied by the phrase “existing application tests.” Full phase acceptance is the automated gate plus the current-edition supported-GPU smoke record defined below.
 
 A separate manual supported-GPU smoke record under `docs/book/verification/first-run-smoke.md` records the tested commit, exact `book_revision` from `book-manifest.json`, model, hardware, dataset fixture, and result for: UI authentication; creating a diagnostic job; queueing and starting it; producing fixed-seed samples and a checkpoint; comparing the sample; stopping; increasing total steps; resuming from the checkpoint and compatible `optimizer.pt`; and observing continued step progression. The accepted edition requires the smoke record's `book_revision` to equal the current manifest revision and its tested commit to contain that exact edition; a smoke record for an older edition is stale and fails acceptance. Network/model downloads are prerequisites for that manual smoke and are never hidden inside the automated documentation test.
 

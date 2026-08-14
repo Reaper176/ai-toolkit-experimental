@@ -133,35 +133,35 @@ The first catalog is curated and contains the following 14 entries. Every entry 
 
 ### Anima (`anima`)
 
-1. `builtin:anima:character-identity-balanced@1` — Character/identity balanced — `character` — `docs/book/recipes/character-identity.md`
-2. `builtin:anima:focused-refinement@1` — Focused refinement — `refinement` — `docs/book/recipes/focused-refinement.md`
-3. `builtin:anima:low-vram-starting-point@1` — Low-VRAM starting point — `low-vram` — `docs/book/recipes/low-vram.md`
-4. `builtin:anima:short-diagnostic-run@1` — Short diagnostic run — `diagnostic` — `docs/book/recipes/diagnostic-run.md`
+1. `builtin:anima:character-identity@1` — name `Anima — Character / Identity` — category `character` — recipe `docs/book/recipes/character-identity.md`
+2. `builtin:anima:focused-refinement@1` — name `Anima — Focused Refinement` — category `refinement` — recipe `docs/book/recipes/focused-refinement.md`
+3. `builtin:anima:low-vram-starting-point@1` — name `Anima — Low-VRAM Starting Point` — category `low-vram` — recipe `docs/book/recipes/low-vram.md`
+4. `builtin:anima:short-diagnostic-run@1` — name `Anima — Short Diagnostic Run` — category `diagnostic` — recipe `docs/book/recipes/diagnostic-run.md`
 
 ### FLUX.1 (`flux`)
 
-5. `builtin:flux:character-general-concept@1` — Character/general concept — `character` — `docs/book/recipes/character-identity.md`
-6. `builtin:flux:style-aesthetic@1` — Style/aesthetic — `style` — `docs/book/recipes/style.md`
+5. `builtin:flux:character-general-concept@1` — name `FLUX.1 — Character / General Concept` — category `character` — recipe `docs/book/recipes/character-identity.md`
+6. `builtin:flux:style-aesthetic@1` — name `FLUX.1 — Style / Aesthetic` — category `style` — recipe `docs/book/recipes/style.md`
 
 ### Flex.1 (`flex1`)
 
-7. `builtin:flex1:object-general-concept@1` — Object/general concept — `object` — `docs/book/recipes/object-concept.md`
+7. `builtin:flex1:object-general-concept@1` — name `Flex.1 — Object / General Concept` — category `object` — recipe `docs/book/recipes/object-concept.md`
 
 ### Qwen
 
-8. `builtin:qwen_image:object-general-concept@1` — Qwen Image object/general concept — `object` — `docs/book/recipes/object-concept.md`
-9. `builtin:qwen_image_edit_plus:focused-refinement@1` — Qwen Image Edit focused refinement — `refinement` — `docs/book/recipes/focused-refinement.md`
+8. `builtin:qwen_image:object-general-concept@1` — name `Qwen Image — Object / General Concept` — category `object` — recipe `docs/book/recipes/object-concept.md`
+9. `builtin:qwen_image_edit_plus:focused-refinement@1` — name `Qwen Image Edit 2509 — Focused Refinement` — category `refinement` — recipe `docs/book/recipes/focused-refinement.md`
 
 ### Stable Diffusion
 
-10. `builtin:sdxl:character-identity@1` — SDXL character/identity — `character` — `docs/book/recipes/character-identity.md`
-11. `builtin:sdxl:style-aesthetic@1` — SDXL style/aesthetic — `style` — `docs/book/recipes/style.md`
-12. `builtin:sd15:character-identity@1` — SD 1.5 character/identity — `character` — `docs/book/recipes/character-identity.md`
+10. `builtin:sdxl:character-identity@1` — name `SDXL — Character / Identity` — category `character` — recipe `docs/book/recipes/character-identity.md`
+11. `builtin:sdxl:style-aesthetic@1` — name `SDXL — Style / Aesthetic` — category `style` — recipe `docs/book/recipes/style.md`
+12. `builtin:sd15:character-identity@1` — name `SD 1.5 — Character / Identity` — category `character` — recipe `docs/book/recipes/character-identity.md`
 
 ### Wan
 
-13. `builtin:wan21:1b:subject-motion-diagnostic@1` — Wan 2.1 1.3B subject/motion diagnostic — `diagnostic` — `docs/book/recipes/diagnostic-run.md`
-14. `builtin:wan22_14b:t2v:subject-motion-starting-point@1` — Wan 2.2 14B T2V subject/motion starting point — `character` — `docs/book/recipes/character-identity.md`
+13. `builtin:wan21:1b:subject-motion-diagnostic@1` — name `Wan 2.1 1.3B T2V — Subject / Motion Diagnostic` — category `diagnostic` — recipe `docs/book/recipes/diagnostic-run.md`
+14. `builtin:wan22_14b:t2v:subject-motion-starting-point@1` — name `Wan 2.2 14B T2V — Subject / Motion Starting Point` — category `character` — recipe `docs/book/recipes/character-identity.md`
 
 This is not a Cartesian product. Unsupported intent/model combinations are omitted. The proposed FLUX low-VRAM entry is deliberately excluded because current `modelArchs` does not declare `low_vram` for `flux`; a commented historical YAML option is insufficient catalog evidence. Additional Qwen revisions, edit variants, Wan I2V variants, FLUX Kontext, Flex.2, and other UI architectures require later catalog revisions with dedicated compatibility evidence.
 
@@ -171,7 +171,7 @@ The exact revision-1 summaries are:
 
 | Entry | Literal `summary` |
 |---:|---|
-| 1 | Balanced Anima LoRA starting point for a recurring character or identity. |
+| 1 | Anima LoRA starting point biased toward recurring character or identity learning. |
 | 2 | Anima starting point biased toward low-noise detail and focused refinement. |
 | 3 | Anima character starting point with low-VRAM mode enabled; dataset memory settings remain unchanged. |
 | 4 | One-interval Anima run for validating configuration, samples, saving, and queue behavior. |
@@ -300,22 +300,29 @@ Non-prompt sample profiles are exact:
 
 The catalog deliberately adopts three new revision-1 policies: diagnostic runs use 250 total steps with one retained periodic save; character/object/subject intents use `content`, style/refinement uses `style`, and low-VRAM/diagnostic uses `balanced`; intent slugs and global revision are the literal values declared above. These are disclosed catalog policies, not claims recovered from historical examples.
 
-Every record includes these literal base messages:
+Every record's `prerequisites` array begins with these exact strings in this order:
 
-```text
-prerequisite: Select the exact model architecture shown by this preset.
-prerequisite: Review the linked recipe and provide a compatible dataset; dataset settings are not changed.
-warning: Configuration validation does not guarantee output quality or a specific VRAM requirement.
-```
+1. `Select the exact model architecture shown by this preset.`
+2. `Review the linked recipe and provide a compatible dataset; dataset settings are not changed.`
 
-Additional literal messages are attached by applicability:
+Every record's `warnings` array begins with `Configuration validation does not guarantee output quality or a specific VRAM requirement.` The following exact arrays are appended in the listed order; `[]` means no additional item:
 
-- FLUX entries require access to the gated `black-forest-labs/FLUX.1-dev` repository.
-- Qwen Image Edit requires filename-matched edit/control data.
-- Wan entries require video/frame/FPS settings compatible with the linked Wan chapter.
-- The Wan 2.2 entry warns that the 14B model remains resource intensive despite quantization/low-VRAM settings.
-- The Anima low-VRAM entry warns that reduced memory use may lower throughput.
-- Refinement entries warn that masks and inverted-mask prior are not enabled automatically.
+| Entry | Additional `prerequisites` | Additional `warnings` |
+|---:|---|---|
+| 1 | `[]` | `[]` |
+| 2 | `[]` | `["Masks and inverted-mask prior are not enabled automatically."]` |
+| 3 | `[]` | `["Low-VRAM mode may reduce throughput and does not guarantee a specific VRAM requirement."]` |
+| 4 | `[]` | `[]` |
+| 5 | `["Access to the gated black-forest-labs/FLUX.1-dev repository is required."]` | `[]` |
+| 6 | `["Access to the gated black-forest-labs/FLUX.1-dev repository is required."]` | `[]` |
+| 7 | `[]` | `[]` |
+| 8 | `[]` | `[]` |
+| 9 | `["Filename-matched edit/control data is required."]` | `["Masks and inverted-mask prior are not enabled automatically."]` |
+| 10 | `[]` | `[]` |
+| 11 | `[]` | `[]` |
+| 12 | `[]` | `[]` |
+| 13 | `["Video frame-count and FPS settings must be compatible with the linked Wan chapter."]` | `[]` |
+| 14 | `["Video frame-count and FPS settings must be compatible with the linked Wan chapter."]` | `["The Wan 2.2 14B model remains resource intensive despite quantization and low-VRAM settings."]` |
 
 ## Preset Content Rules
 
@@ -403,7 +410,7 @@ Focused tests cover:
 
 ### Pure catalog and preset helpers
 
-- the exact golden 14-entry manifest, snapshots, IDs, architectures, categories, revisions, model paths, warnings, prerequisites, and recipe links;
+- the exact golden 14-entry manifest, snapshots, IDs, names, summaries, intent slugs, architectures, categories, revisions, evidence labels, model paths, ordered warning/prerequisite arrays, and recipe links;
 - catalog-level duplicate/omission/extra/mixed-revision failures;
 - strict LoRA/process/model validation;
 - no protected fields, external side effects, placeholders, or mutable references;
@@ -437,9 +444,11 @@ Focused tests cover:
 - each built-in produces a valid current job configuration for its exact architecture;
 - client save request strips UI-only catalog state;
 - job save/preflight remains authoritative for datasets and masks;
-- existing training-preset, dataset-preset, and production build suites remain successful.
+- the exact four-command automated gate remains successful.
 
 ## Acceptance Criteria
+
+The catalog's automated acceptance gate is the same exact four-command gate defined by the book design: from the repository root, run `cd ui`, then `npm run test:training-book`, `npm run test:training-presets`, `npm run test:dataset-presets`, and `npm run build`. Full combined-edition acceptance additionally requires the current-edition supported-GPU smoke record defined by the book design; that smoke does not promote any catalog entry beyond `configuration-validated`.
 
 The catalog phase is accepted when:
 
@@ -452,7 +461,7 @@ The catalog phase is accepted when:
 - applying and undoing built-ins is covered by mounted UI tests;
 - no catalog entry claims evidence it has not earned;
 - no database migration or seed side effect occurs;
-- focused tests, existing preset suites, dataset suites, and production build pass.
+- the exact four-command automated gate passes and the combined edition's current supported-GPU smoke record is not stale.
 
 ## Non-Goals
 
