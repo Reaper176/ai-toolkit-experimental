@@ -25,6 +25,7 @@ from scripts.training_book.discovery import (  # noqa: E402
     discover_python_settings,
     load_exclusions,
     load_source_catalog,
+    validate_inventory_baseline,
     validate_discovery_target,
     validate_setting_ownership,
 )
@@ -522,6 +523,24 @@ class Resolver:
             ),
         )
 
+    def test_discovery_rejects_mixed_literal_and_dynamic_parameter_calls(self):
+        self.write_source(
+            "mixed_components.py",
+            """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def load(self, component):
+        self.resolve("dit")
+        self.resolve(component)
+""",
+        )
+
+        with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+            discover_python_settings(
+                self.repository_root, ("mixed_components.py",)
+            )
+
     def test_discovery_fails_closed_on_unresolved_dynamic_configuration_key(self):
         self.write_source(
             "dynamic.py",
@@ -558,20 +577,71 @@ class Resolver:
             ),
         )
 
-    def test_discovery_ignores_open_environment_interpolation_helpers(self):
+    def test_discovery_rejects_generic_dynamic_environment_keys(self):
+        cases = (
+            "return os.getenv(name)",
+            "return os.environ.get(name)",
+            "return os.environ[name]",
+        )
+        for index, statement in enumerate(cases):
+            with self.subTest(statement=statement):
+                path = f"dynamic_environment_{index}.py"
+                self.write_source(path, f"def read(name):\n    {statement}\n")
+                with self.assertRaisesRegex(
+                    DiscoveryError, "dynamic environment key"
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_has_one_exact_dynamic_environment_expansion_sentinel(self):
+        source = """def replace_env_vars_in_string(value):
+    def replacer(name):
+        return os.environ.get(name)
+    return replacer(value)
+"""
+        self.write_source("toolkit/config.py", source)
+
+        self.assertEqual(
+            discover_python_settings(self.repository_root, ("toolkit/config.py",)),
+            (
+                DiscoveredSetting(
+                    "toolkit/config.py", "replace_env_vars_in_string.replacer",
+                    3, "<dynamic-environment-name>",
+                    "os.environ.get.dynamic", "environment", None,
+                ),
+            ),
+        )
+
+        self.write_source("other.py", source)
+        with self.assertRaisesRegex(DiscoveryError, "dynamic environment key"):
+            discover_python_settings(self.repository_root, ("other.py",))
+
+    def test_discovery_recognizes_literal_environment_reads_through_os_alias(self):
         self.write_source(
-            "environment_helper.py",
-            """def replace(match):
-    variable_name = match.group(1)
-    return os.environ.get(variable_name)
+            "environment_alias.py",
+            """import os as _os
+def read():
+    _os.environ.get("DEBUG_MEM", "0")
+    _os.getenv("TOKEN", None)
+    _os.environ["RANK"]
 """,
         )
 
         self.assertEqual(
-            discover_python_settings(
-                self.repository_root, ("environment_helper.py",)
+            discover_python_settings(self.repository_root, ("environment_alias.py",)),
+            (
+                DiscoveredSetting(
+                    "environment_alias.py", "read", 3, "DEBUG_MEM",
+                    "os.environ.get", "environment", "'0'",
+                ),
+                DiscoveredSetting(
+                    "environment_alias.py", "read", 5, "RANK",
+                    "os.environ[]", "environment", None,
+                ),
+                DiscoveredSetting(
+                    "environment_alias.py", "read", 4, "TOKEN",
+                    "os.getenv", "environment", "None",
+                ),
             ),
-            (),
         )
 
     def test_discovery_emits_membership_and_every_nested_subscript_key(self):
@@ -720,6 +790,17 @@ def build(factory, network_kwargs):
 """,
                 "dynamic.*target",
             ),
+            (
+                "starred_positionals.py",
+                """class KnownNetwork:
+    def __init__(self, alpha=1):
+        self.alpha = alpha
+
+def build(args, network_kwargs):
+    return KnownNetwork(*args, **network_kwargs)
+""",
+                "dynamic positional",
+            ),
         )
         for path, source, message in cases:
             with self.subTest(path=path):
@@ -773,6 +854,24 @@ def build(network_kwargs):
 """,
         )
         with self.assertRaisesRegex(DiscoveryError, "unconstrained.*kwargs"):
+            discover_python_settings(self.repository_root, ("terminal_sink.py",))
+
+        self.write_source(
+            "terminal_sink.py",
+            """class TerminalMixin:
+    def __init__(self, rate=0.5):
+        self.rate = rate
+
+class Wrapper(TerminalMixin):
+    def __init__(self, alpha=1, **kwargs):
+        kwargs.pop("secret", None)
+        super().__init__(**kwargs)
+
+def build(network_kwargs):
+    return Wrapper(**network_kwargs)
+""",
+        )
+        with self.assertRaisesRegex(DiscoveryError, "consumed.*kwargs"):
             discover_python_settings(self.repository_root, ("terminal_sink.py",))
 
     def test_discovery_fails_on_branch_dependent_configuration_alias(self):
@@ -1124,15 +1223,36 @@ def build(network_kwargs):
 
         inventory = json.loads(first_inventory.read_text(encoding="utf-8"))
         self.assertEqual(inventory["schema_version"], 1)
-        self.assertGreater(inventory["summary"]["total"], 500)
-        self.assertGreater(inventory["summary"]["major_groups"]["toolkit/config_modules.py"], 400)
-        self.assertGreaterEqual(inventory["summary"]["major_groups"]["TrainConfig"], 120)
+        self.assertGreaterEqual(inventory["summary"]["total"], 965)
+        self.assertGreaterEqual(inventory["summary"]["major_groups"]["toolkit/config_modules.py"], 436)
+        self.assertGreaterEqual(inventory["summary"]["major_groups"]["TrainConfig"], 126)
         self.assertGreaterEqual(inventory["summary"]["major_groups"]["ModelConfig"], 60)
-        self.assertGreaterEqual(inventory["summary"]["major_groups"]["DatasetConfig"], 70)
-        self.assertGreaterEqual(inventory["summary"]["major_groups"]["AdapterConfig"], 45)
+        self.assertGreaterEqual(inventory["summary"]["major_groups"]["DatasetConfig"], 78)
+        self.assertGreaterEqual(inventory["summary"]["major_groups"]["AdapterConfig"], 49)
         self.assertTrue(
             all(row["ownership"] == "unowned" for row in inventory["settings"])
         )
+
+    def test_discovery_inventory_floor_rejects_each_one_row_reduction(self):
+        baseline = {
+            "toolkit/config_modules.py": 436,
+            "TrainConfig": 126,
+            "ModelConfig": 60,
+            "DatasetConfig": 78,
+            "AdapterConfig": 49,
+        }
+        validate_inventory_baseline(baseline, 965)
+        validate_inventory_baseline(
+            {name: count + 1 for name, count in baseline.items()}, 966
+        )
+        with self.assertRaisesRegex(DiscoveryError, "abruptly reduced.*total"):
+            validate_inventory_baseline(baseline, 964)
+        for name in baseline:
+            with self.subTest(group=name):
+                reduced = dict(baseline)
+                reduced[name] -= 1
+                with self.assertRaisesRegex(DiscoveryError, "abruptly reduced"):
+                    validate_inventory_baseline(reduced, 965)
 
     def test_discovery_cli_rejects_an_empty_target_selector(self):
         result = subprocess.run(

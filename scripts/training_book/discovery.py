@@ -64,9 +64,34 @@ _APPROVED_EXCLUSION_REASONS = {
     "model-developer API",
 }
 _SOURCE_OWNERS = {"python-ast", "typescript-test"}
+_INVENTORY_BASELINE_TOTAL = 965
+_INVENTORY_BASELINE_GROUPS = {
+    "toolkit/config_modules.py": 436,
+    "TrainConfig": 126,
+    "ModelConfig": 60,
+    "DatasetConfig": 78,
+    "AdapterConfig": 49,
+}
 
 
 _Identity = tuple[str, str, str, str]
+
+
+def validate_inventory_baseline(counts: dict[str, int], total: int) -> None:
+    """Reject any reduction from the immutable Task 2 production inventory."""
+
+    if total < _INVENTORY_BASELINE_TOTAL:
+        raise DiscoveryError(
+            f"discovery inventory abruptly reduced to {total} total Python facts "
+            f"(minimum {_INVENTORY_BASELINE_TOTAL})"
+        )
+    for group, minimum in _INVENTORY_BASELINE_GROUPS.items():
+        count = counts.get(group, 0)
+        if count < minimum:
+            raise DiscoveryError(
+                f"discovery inventory group {group} abruptly reduced to "
+                f"{count} facts (minimum {minimum})"
+            )
 
 
 def _identity(value: DiscoveredSetting | SourceClaim | Exclusion) -> _Identity:
@@ -326,10 +351,14 @@ def _module_literal_maps(tree: ast.Module) -> dict[str, tuple[str, ...]]:
 
 def _parameter_domains(
     tree: ast.Module,
-) -> dict[tuple[str, str, str], tuple[str, ...]]:
+) -> tuple[
+    dict[tuple[str, str, str], tuple[str, ...]],
+    frozenset[tuple[str, str, str]],
+]:
     """Infer finite method-parameter values from literal calls and map indexing."""
 
     result: dict[tuple[str, str, str], set[str]] = {}
+    unresolved: set[tuple[str, str, str]] = set()
     literal_maps = _module_literal_maps(tree)
     classes = {
         node.name: node for node in tree.body if isinstance(node, ast.ClassDef)
@@ -356,6 +385,53 @@ def _parameter_domains(
                         (class_name, method_name, inner.slice.id), set()
                     ).update(literal_maps[inner.value.id])
 
+        def finite_method_return(call: ast.Call) -> tuple[str, ...] | None:
+            if (
+                call.args
+                or call.keywords
+                or not isinstance(call.func, ast.Attribute)
+                or not isinstance(call.func.value, ast.Name)
+                or call.func.value.id not in {"self", "cls"}
+            ):
+                return None
+            producer = methods.get(call.func.attr)
+            if producer is None:
+                return None
+            local_values: dict[str, tuple[str, ...]] = {}
+            for inner in ast.walk(producer):
+                if (
+                    isinstance(inner, ast.Compare)
+                    and len(inner.ops) == 1
+                    and isinstance(inner.ops[0], (ast.In, ast.NotIn))
+                    and isinstance(inner.left, ast.Name)
+                    and len(inner.comparators) == 1
+                ):
+                    values = _literal_strings(inner.comparators[0], {})
+                    if values:
+                        local_values[inner.left.id] = values
+            returns = [
+                inner for inner in ast.walk(producer) if isinstance(inner, ast.Return)
+            ]
+            if not returns:
+                return None
+            resolved: set[str] = set()
+            for statement in returns:
+                if statement.value is None:
+                    return None
+                values = _literal_strings(statement.value, local_values)
+                if values is None:
+                    return None
+                resolved.update(values)
+            return tuple(sorted(resolved)) or None
+
+        def call_values(argument: ast.AST) -> tuple[str, ...] | None:
+            values = _literal_strings(argument, {})
+            if values is not None:
+                return values
+            if isinstance(argument, ast.Call):
+                return finite_method_return(argument)
+            return None
+
         for caller in methods.values():
             for call in ast.walk(caller):
                 if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
@@ -372,19 +448,24 @@ def _parameter_domains(
                 for index, argument in enumerate(call.args):
                     if index >= len(target_parameters):
                         break
-                    values = _literal_strings(argument, {})
+                    key = (class_name, target_name, target_parameters[index])
+                    values = call_values(argument)
                     if values is not None:
-                        result.setdefault(
-                            (class_name, target_name, target_parameters[index]), set()
-                        ).update(values)
+                        result.setdefault(key, set()).update(values)
+                    else:
+                        unresolved.add(key)
                 for keyword in call.keywords:
                     if keyword.arg in target_parameters:
-                        values = _literal_strings(keyword.value, {})
+                        key = (class_name, target_name, keyword.arg)
+                        values = call_values(keyword.value)
                         if values is not None:
-                            result.setdefault(
-                                (class_name, target_name, keyword.arg), set()
-                            ).update(values)
-    return {key: tuple(sorted(values)) for key, values in result.items()}
+                            result.setdefault(key, set()).update(values)
+                        else:
+                            unresolved.add(key)
+    return (
+        {key: tuple(sorted(values)) for key, values in result.items()},
+        frozenset(unresolved),
+    )
 
 
 class _SettingVisitor(ast.NodeVisitor):
@@ -398,7 +479,15 @@ class _SettingVisitor(ast.NodeVisitor):
         self.source = source
         self.tree = tree
         self.classes = classes
-        self.parameter_domains = _parameter_domains(tree)
+        self.parameter_domains, self.unresolved_parameter_calls = _parameter_domains(tree)
+        self.os_aliases = {"os"}
+        self.os_aliases.update(
+            alias.asname
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+            if alias.name == "os" and alias.asname is not None
+        )
         self.class_stack: list[str] = []
         self.function_stack: list[str] = []
         self.aliases: list[dict[str, str]] = []
@@ -460,12 +549,52 @@ class _SettingVisitor(ast.NodeVisitor):
         return None
 
     def _resolved_keys(self, node: ast.AST, owner: ast.AST) -> tuple[str, ...]:
+        if self.class_stack and self.function_stack:
+            unresolved_names = {
+                parameter
+                for class_name, method_name, parameter in self.unresolved_parameter_calls
+                if class_name == self.class_stack[-1]
+                and method_name == self.function_stack[-1]
+            }
+            if any(
+                isinstance(inner, ast.Name) and inner.id in unresolved_names
+                for inner in ast.walk(node)
+            ):
+                raise self._error(owner, "dynamic parameter call site is not finite")
         keys = _literal_strings(node, self.current_values)
         if keys is None:
             raise self._error(owner, "dynamic configuration key is not finite")
         if not keys or any(not key for key in keys):
             raise self._error(owner, "configuration key must be a non-empty string")
         return tuple(sorted(set(keys)))
+
+    def _normalized_os_path(self, node: ast.AST) -> str | None:
+        path = _attribute_path(node)
+        if path is None:
+            return None
+        head, separator, tail = path.partition(".")
+        if head not in self.os_aliases:
+            return path
+        return "os" + (separator + tail if separator else "")
+
+    def _dynamic_environment_read(self, node: ast.AST, read_kind: str) -> None:
+        # The interpolation helper intentionally expands an environment name
+        # captured from source text. This exact source/symbol is the sole
+        # repository exception; it remains visible as a deterministic fact.
+        if (
+            self.source == "toolkit/config.py"
+            and self.symbol == "replace_env_vars_in_string.replacer"
+            and read_kind == "os.environ.get"
+        ):
+            self._add(
+                node,
+                "<dynamic-environment-name>",
+                "os.environ.get.dynamic",
+                "environment",
+                None,
+            )
+            return
+        raise self._error(node, "dynamic environment key is not finite")
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self.class_stack.append(node.name)
@@ -616,9 +745,10 @@ class _SettingVisitor(ast.NodeVisitor):
             return
         if (
             isinstance(node.value, ast.Attribute)
-            and _attribute_path(node.value) == "os.environ"
+            and self._normalized_os_path(node.value) == "os.environ"
         ):
             if _literal_strings(node.slice, self.current_values) is None:
+                self._dynamic_environment_read(node, "os.environ[]")
                 return
             for key in self._resolved_keys(node.slice, node):
                 self._add(node, key, "os.environ[]", "environment", None)
@@ -687,11 +817,12 @@ class _SettingVisitor(ast.NodeVisitor):
                     self.visit(keyword.value)
             return
 
-        path = _attribute_path(node.func)
+        path = self._normalized_os_path(node.func)
         if path == "os.getenv":
             if not node.args:
                 raise self._error(node, "os.getenv call has no key")
             if _literal_strings(node.args[0], self.current_values) is None:
+                self._dynamic_environment_read(node, "os.getenv")
                 return
             default = node.args[1] if len(node.args) > 1 else None
             for key in self._resolved_keys(node.args[0], node):
@@ -701,6 +832,7 @@ class _SettingVisitor(ast.NodeVisitor):
             if not node.args:
                 raise self._error(node, "os.environ.get call has no key")
             if _literal_strings(node.args[0], self.current_values) is None:
+                self._dynamic_environment_read(node, "os.environ.get")
                 return
             default = node.args[1] if len(node.args) > 1 else None
             for key in self._resolved_keys(node.args[0], node):
@@ -907,8 +1039,34 @@ class _SettingVisitor(ast.NodeVisitor):
 
             if constructor.args.kwarg is not None:
                 forwarded = False
+                saw_spread = False
+                forwarding_uses: set[int] = set()
+                consumed_uses: set[int] = set()
+                consumed_keys: set[str] = set()
                 kwargs_name = constructor.args.kwarg.arg
                 for inner in ast.walk(constructor):
+                    if (
+                        isinstance(inner, ast.Call)
+                        and isinstance(inner.func, ast.Attribute)
+                        and isinstance(inner.func.value, ast.Name)
+                        and inner.func.value.id == kwargs_name
+                        and inner.func.attr in {"get", "pop"}
+                        and inner.args
+                    ):
+                        keys = _literal_strings(inner.args[0], {})
+                        if keys is not None:
+                            consumed_uses.add(id(inner.func.value))
+                            consumed_keys.update(keys)
+                    if (
+                        isinstance(inner, ast.Subscript)
+                        and isinstance(inner.ctx, ast.Load)
+                        and isinstance(inner.value, ast.Name)
+                        and inner.value.id == kwargs_name
+                    ):
+                        keys = _literal_strings(inner.slice, {})
+                        if keys is not None:
+                            consumed_uses.add(id(inner.value))
+                            consumed_keys.update(keys)
                     if not isinstance(inner, ast.Call):
                         continue
                     spreads_kwargs = any(
@@ -919,6 +1077,14 @@ class _SettingVisitor(ast.NodeVisitor):
                     )
                     if not spreads_kwargs:
                         continue
+                    saw_spread = True
+                    forwarding_uses.update(
+                        id(keyword.value)
+                        for keyword in inner.keywords
+                        if keyword.arg is None
+                        and isinstance(keyword.value, ast.Name)
+                        and keyword.value.id == kwargs_name
+                    )
                     base_names: list[str] = []
                     if (
                         isinstance(inner.func, ast.Attribute)
@@ -950,12 +1116,21 @@ class _SettingVisitor(ast.NodeVisitor):
                     isinstance(inner, ast.Name)
                     and inner.id == kwargs_name
                     and isinstance(inner.ctx, ast.Load)
+                    and id(inner) not in forwarding_uses
+                    and id(inner) not in consumed_uses
                     for inner in ast.walk(constructor)
                 )
                 # An unread terminal **kwargs is a dead sink, not an open
                 # setting surface. Any later read/forward/expansion flips this
                 # branch to a fail-closed error (covered by the mutation test).
-                if not forwarded and kwargs_is_consumed:
+                consumes_unreserved = not consumed_keys.issubset(explicit)
+                if forwarded and (kwargs_is_consumed or consumes_unreserved):
+                    raise self._error(
+                        constructor, "consumed forwarded kwargs sink"
+                    )
+                if not forwarded and (
+                    saw_spread or kwargs_is_consumed or consumes_unreserved
+                ):
                     raise self._error(
                         constructor, "unconstrained forwarded kwargs sink"
                     )

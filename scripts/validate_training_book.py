@@ -16,6 +16,7 @@ from training_book.discovery import (
     load_source_catalog,
     ownership_status,
     validate_discovery_target,
+    validate_inventory_baseline,
     validate_setting_ownership,
 )
 from training_book.manifest import load_book_manifest, validate_book_manifest
@@ -98,26 +99,6 @@ def _major_group_counts(discovered) -> dict[str, int]:
     return result
 
 
-def _guard_inventory(counts: dict[str, int], total: int) -> None:
-    minimums = {
-        "toolkit/config_modules.py": 400,
-        "TrainConfig": 120,
-        "ModelConfig": 60,
-        "DatasetConfig": 70,
-        "AdapterConfig": 45,
-    }
-    if total < 500:
-        raise DiscoveryError(
-            f"discovery inventory abruptly reduced to {total} total Python facts"
-        )
-    for group, minimum in minimums.items():
-        if counts[group] < minimum:
-            raise DiscoveryError(
-                f"discovery inventory group {group} abruptly reduced to "
-                f"{counts[group]} facts (minimum {minimum})"
-            )
-
-
 def _write_inventory(path: Path, discovered, claims, exclusions) -> None:
     _validate_inventory_declarations(discovered, claims, exclusions)
     rows = ownership_status(discovered, claims, exclusions)
@@ -127,7 +108,7 @@ def _write_inventory(path: Path, discovered, claims, exclusions) -> None:
         status_counts[status] = status_counts.get(status, 0) + 1
         settings.append({**asdict(fact), "ownership": status})
     major_groups = _major_group_counts(discovered)
-    _guard_inventory(major_groups, len(settings))
+    validate_inventory_baseline(major_groups, len(settings))
     payload = {
         "schema_version": 1,
         "settings": settings,
