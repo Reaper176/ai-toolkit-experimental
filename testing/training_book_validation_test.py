@@ -615,6 +615,63 @@ def external_load(resolver, component):
                 ("same_name_target.py", "same_name_caller.py"),
             )
 
+    def test_discovery_rejects_dynamic_keyword_spreads_to_finite_producers(self):
+        callers = (
+            """    def load(self, params):
+        self.resolve("dit")
+        return self.resolve(**params)
+""",
+            """    def load(self):
+        return self.resolve("dit")
+
+def external_load(resolver, params):
+    return resolver.resolve(**params)
+""",
+        )
+        for index, caller in enumerate(callers):
+            with self.subTest(caller=caller):
+                path = f"dynamic_keyword_spread_{index}.py"
+                self.write_source(
+                    path,
+                    """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+"""
+                    + caller,
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_resolves_exact_literal_keyword_spreads(self):
+        self.write_source(
+            "literal_keyword_spread.py",
+            """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def load(self):
+        return self.resolve(**{"component": "vae"})
+""",
+        )
+
+        self.assertEqual(
+            discover_python_settings(
+                self.repository_root, ("literal_keyword_spread.py",)
+            ),
+            (
+                DiscoveredSetting(
+                    "literal_keyword_spread.py",
+                    "Resolver.resolve",
+                    3,
+                    "vae_path",
+                    "model_kwargs.get",
+                    "model",
+                    "None",
+                ),
+            ),
+        )
+
     def test_discovery_rejects_formatted_fstring_configuration_keys(self):
         formatted_keys = (
             'f"{component!r}_path"',
@@ -1062,8 +1119,8 @@ def build(network_kwargs):
 
 class Wrapper(TerminalMixin):
     def __init__(self, reserved=None, **kwargs):
-        kwargs.{method}("reserved", None)
         super().__init__(**kwargs)
+        kwargs.{method}("reserved", None)
 
 def build(network_kwargs):
     return Wrapper(reserved=True, **network_kwargs)
@@ -1083,8 +1140,8 @@ def build(network_kwargs):
 
 class Wrapper(TerminalMixin):
     def __init__(self, **kwargs):
-        self.network_config = kwargs.get("network_config", None)
         super().__init__(**kwargs)
+        self.network_config = kwargs.get("network_config", None)
 
 def build(network_kwargs):
     return Wrapper(network_config=object(), **network_kwargs)
@@ -1107,6 +1164,49 @@ def build(network_kwargs):
                 ),
             ),
         )
+
+    def test_discovery_rejects_non_dominating_reserved_kwargs_forwarding(self):
+        constructor_bodies = (
+            """        if False:
+            super().__init__(**kwargs)
+        self.network_config = kwargs.get("network_config", None)
+""",
+            """        if enabled:
+            super().__init__(**kwargs)
+        self.network_config = kwargs.get("network_config", None)
+""",
+            """        def forward_later():
+            super().__init__(**kwargs)
+        self.network_config = kwargs.get("network_config", None)
+""",
+            """        self.network_config = kwargs.get("network_config", None)
+        super().__init__(**kwargs)
+""",
+            """        return
+        super().__init__(**kwargs)
+        self.network_config = kwargs.get("network_config", None)
+""",
+        )
+        for index, constructor_body in enumerate(constructor_bodies):
+            with self.subTest(constructor_body=constructor_body):
+                path = f"non_dominating_forward_{index}.py"
+                self.write_source(
+                    path,
+                    """class TerminalMixin:
+    def __init__(self):
+        pass
+
+class Wrapper(TerminalMixin):
+    def __init__(self, enabled=False, **kwargs):
+"""
+                    + constructor_body
+                    + """
+def build(network_kwargs):
+    return Wrapper(network_config=object(), **network_kwargs)
+""",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "kwargs"):
+                    discover_python_settings(self.repository_root, (path,))
 
     def test_discovery_rejects_conditional_config_alias_reassignment(self):
         control_flows = (
@@ -1150,6 +1250,57 @@ def build(network_kwargs):
                     DiscoveryError, "conditional configuration alias"
                 ):
                     discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_merges_try_and_match_alias_introductions(self):
+        control_flows = (
+            """    try:
+        mkw = model_config.model_kwargs
+    except Exception:
+        mkw = {}
+""",
+            """    try:
+        mkw = {}
+    except Exception:
+        mkw = model_config.model_kwargs
+""",
+            """    match token:
+        case "config":
+            mkw = model_config.model_kwargs
+        case _:
+            mkw = {}
+""",
+            """    match token:
+        case "empty":
+            mkw = {}
+        case _:
+            mkw = model_config.model_kwargs
+""",
+        )
+        for index, control_flow in enumerate(control_flows):
+            with self.subTest(control_flow=control_flow):
+                path = f"introduced_alias_{index}.py"
+                self.write_source(
+                    path,
+                    """def load(model_config, token):
+"""
+                    + control_flow
+                    + """    return mkw.get("critical", 1)
+""",
+                )
+                self.assertEqual(
+                    discover_python_settings(self.repository_root, (path,)),
+                    (
+                        DiscoveredSetting(
+                            path,
+                            "load",
+                            len(control_flow.splitlines()) + 2,
+                            "critical",
+                            "model_kwargs.get",
+                            "model",
+                            "1",
+                        ),
+                    ),
+                )
 
     def test_discovery_fails_on_branch_dependent_configuration_alias(self):
         self.write_source(

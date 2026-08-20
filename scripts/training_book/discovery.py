@@ -463,6 +463,36 @@ def _parameter_domains(
                             result.setdefault(key, set()).update(values)
                         else:
                             unresolved.add(key)
+                    elif keyword.arg is None:
+                        mapping = keyword.value
+                        if not isinstance(mapping, ast.Dict) or any(
+                            key_node is None
+                            or not isinstance(key_node, ast.Constant)
+                            or not isinstance(key_node.value, str)
+                            for key_node in mapping.keys
+                        ):
+                            unresolved.update(
+                                (class_name, target_name, parameter)
+                                for parameter in target_parameters
+                            )
+                            continue
+                        for key_node, value_node in zip(
+                            mapping.keys, mapping.values
+                        ):
+                            assert isinstance(key_node, ast.Constant)
+                            parameter = key_node.value
+                            if parameter not in target_parameters:
+                                unresolved.update(
+                                    (class_name, target_name, name)
+                                    for name in target_parameters
+                                )
+                                continue
+                            key = (class_name, target_name, parameter)
+                            values = call_values(value_node)
+                            if values is None:
+                                unresolved.add(key)
+                            else:
+                                result.setdefault(key, set()).update(values)
     return (
         {key: tuple(sorted(values)) for key, values in result.items()},
         frozenset(unresolved),
@@ -796,15 +826,87 @@ class _SettingVisitor(ast.NodeVisitor):
         self._reject_conditional_alias_reassignment(node)
         self.generic_visit(node)
 
+    def _visit_state_branch(
+        self,
+        statements: Sequence[ast.stmt],
+        aliases: dict[str, str],
+        values: dict[str, tuple[str, ...]],
+    ) -> tuple[dict[str, str], dict[str, tuple[str, ...]]]:
+        self.aliases[-1] = dict(aliases)
+        self.values[-1] = dict(values)
+        for statement in statements:
+            self.visit(statement)
+        return dict(self.current_aliases), dict(self.current_values)
+
+    def _merge_may_alias_states(
+        self,
+        alias_states: Sequence[dict[str, str]],
+        value_states: Sequence[dict[str, tuple[str, ...]]],
+    ) -> None:
+        merged_aliases: dict[str, str] = {}
+        for name in set().union(*(state.keys() for state in alias_states)):
+            kinds = {state[name] for state in alias_states if name in state}
+            merged_aliases[name] = kinds.pop() if len(kinds) == 1 else "dynamic"
+        merged_values: dict[str, tuple[str, ...]] = {}
+        for name in set.intersection(
+            *(set(state) for state in value_states)
+        ):
+            merged_values[name] = tuple(
+                sorted({value for state in value_states for value in state[name]})
+            )
+        self.aliases[-1] = merged_aliases
+        self.values[-1] = merged_values
+
     def visit_Try(self, node: ast.Try) -> None:
         self._reject_conditional_alias_reassignment(node)
-        self.generic_visit(node)
+        if not self.aliases:
+            self.generic_visit(node)
+            return
+        baseline_aliases = dict(self.current_aliases)
+        baseline_values = dict(self.current_values)
+        normal_aliases, normal_values = self._visit_state_branch(
+            (*node.body, *node.orelse), baseline_aliases, baseline_values
+        )
+        alias_states = [normal_aliases]
+        value_states = [normal_values]
+        for handler in node.handlers:
+            self.aliases[-1] = dict(baseline_aliases)
+            self.values[-1] = dict(baseline_values)
+            if handler.type is not None:
+                self.visit(handler.type)
+            handler_aliases, handler_values = self._visit_state_branch(
+                handler.body, self.current_aliases, self.current_values
+            )
+            alias_states.append(handler_aliases)
+            value_states.append(handler_values)
+        self._merge_may_alias_states(alias_states, value_states)
+        for statement in node.finalbody:
+            self.visit(statement)
 
     visit_TryStar = visit_Try
 
     def visit_Match(self, node: ast.Match) -> None:
         self._reject_conditional_alias_reassignment(node)
-        self.generic_visit(node)
+        if not self.aliases:
+            self.generic_visit(node)
+            return
+        self.visit(node.subject)
+        baseline_aliases = dict(self.current_aliases)
+        baseline_values = dict(self.current_values)
+        alias_states = [baseline_aliases]
+        value_states = [baseline_values]
+        for case in node.cases:
+            self.aliases[-1] = dict(baseline_aliases)
+            self.values[-1] = dict(baseline_values)
+            self.visit(case.pattern)
+            if case.guard is not None:
+                self.visit(case.guard)
+            case_aliases, case_values = self._visit_state_branch(
+                case.body, self.current_aliases, self.current_values
+            )
+            alias_states.append(case_aliases)
+            value_states.append(case_values)
+        self._merge_may_alias_states(alias_states, value_states)
 
     def visit_If(self, node: ast.If) -> None:
         if not self.aliases:
@@ -1144,14 +1246,58 @@ class _SettingVisitor(ast.NodeVisitor):
                 )
 
             if constructor.args.kwarg is not None:
-                forwarded = False
-                saw_spread = False
+                kwargs_name = constructor.args.kwarg.arg
+                statement_positions = {
+                    id(inner): position
+                    for position, statement in enumerate(constructor.body)
+                    for inner in ast.walk(statement)
+                }
+                direct_calls: dict[int, int] = {}
+                reachable = True
+                for position, statement in enumerate(constructor.body):
+                    value: ast.AST | None = None
+                    if isinstance(statement, ast.Expr):
+                        value = statement.value
+                    elif isinstance(statement, ast.Assign):
+                        value = statement.value
+                    elif isinstance(statement, ast.AnnAssign):
+                        value = statement.value
+                    if reachable and isinstance(value, ast.Call):
+                        direct_calls[id(value)] = position
+                    if isinstance(statement, (ast.Return, ast.Raise)):
+                        reachable = False
+                nested_nodes: set[int] = set()
+                for inner in ast.walk(constructor):
+                    if inner is constructor:
+                        continue
+                    if isinstance(
+                        inner,
+                        (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef),
+                    ):
+                        nested_nodes.update(id(descendant) for descendant in ast.walk(inner))
+
                 forwarding_uses: set[int] = set()
                 consumed_uses: set[int] = set()
                 read_defaults: dict[str, ast.AST | None] = {}
+                read_positions: dict[str, list[int]] = {}
                 mutated_or_indexed_keys: set[str] = set()
-                kwargs_name = constructor.args.kwarg.arg
+                spread_calls: list[ast.Call] = []
                 for inner in ast.walk(constructor):
+                    if id(inner) in nested_nodes:
+                        if isinstance(inner, ast.Call):
+                            nested_spreads = [
+                                keyword.value
+                                for keyword in inner.keywords
+                                if keyword.arg is None
+                                and isinstance(keyword.value, ast.Name)
+                                and keyword.value.id == kwargs_name
+                            ]
+                            if nested_spreads:
+                                spread_calls.append(inner)
+                                forwarding_uses.update(
+                                    id(value) for value in nested_spreads
+                                )
+                        continue
                     if (
                         isinstance(inner, ast.Call)
                         and isinstance(inner.func, ast.Attribute)
@@ -1177,6 +1323,9 @@ class _SettingVisitor(ast.NodeVisitor):
                                             "conflicting reserved kwargs read defaults",
                                         )
                                     read_defaults[key] = default
+                                    read_positions.setdefault(key, []).append(
+                                        statement_positions[id(inner)]
+                                    )
                             else:
                                 mutated_or_indexed_keys.update(keys)
                     if (
@@ -1199,7 +1348,7 @@ class _SettingVisitor(ast.NodeVisitor):
                     )
                     if not spreads_kwargs:
                         continue
-                    saw_spread = True
+                    spread_calls.append(inner)
                     forwarding_uses.update(
                         id(keyword.value)
                         for keyword in inner.keywords
@@ -1207,6 +1356,30 @@ class _SettingVisitor(ast.NodeVisitor):
                         and isinstance(keyword.value, ast.Name)
                         and keyword.value.id == kwargs_name
                     )
+                kwargs_is_consumed = any(
+                    isinstance(inner, ast.Name)
+                    and inner.id == kwargs_name
+                    and isinstance(inner.ctx, ast.Load)
+                    and id(inner) not in forwarding_uses
+                    and id(inner) not in consumed_uses
+                    for inner in ast.walk(constructor)
+                )
+                edge_read_keys = set(read_defaults)
+                first_read_position = min(
+                    (
+                        position
+                        for positions in read_positions.values()
+                        for position in positions
+                    ),
+                    default=len(constructor.body),
+                )
+                forwarded = False
+                for inner in spread_calls:
+                    position = direct_calls.get(id(inner))
+                    if position is None or (
+                        edge_read_keys and position >= first_read_position
+                    ):
+                        continue
                     base_names: list[str] = []
                     if (
                         isinstance(inner.func, ast.Attribute)
@@ -1224,6 +1397,8 @@ class _SettingVisitor(ast.NodeVisitor):
                         and isinstance(inner.func.value, ast.Name)
                     ):
                         base_names = [inner.func.value.id]
+                    if not base_names:
+                        continue
                     for base_name in base_names:
                         base_infos = self.classes.get(base_name, [])
                         if len(base_infos) != 1:
@@ -1234,14 +1409,6 @@ class _SettingVisitor(ast.NodeVisitor):
                             base_infos[0], explicit, "forwarded", seen
                         )
                         forwarded = True
-                kwargs_is_consumed = any(
-                    isinstance(inner, ast.Name)
-                    and inner.id == kwargs_name
-                    and isinstance(inner.ctx, ast.Load)
-                    and id(inner) not in forwarding_uses
-                    and id(inner) not in consumed_uses
-                    for inner in ast.walk(constructor)
-                )
                 # An unread terminal **kwargs is a dead sink, not an open
                 # setting surface. Any later read/forward/expansion flips this
                 # branch to a fail-closed error (covered by the mutation test).
@@ -1259,7 +1426,7 @@ class _SettingVisitor(ast.NodeVisitor):
                         constructor, "consumed forwarded kwargs sink"
                     )
                 if not forwarded and (
-                    saw_spread or invalid_consumption or edge_read_keys
+                    spread_calls or invalid_consumption or edge_read_keys
                 ):
                     raise self._error(
                         constructor, "unconstrained forwarded kwargs sink"
