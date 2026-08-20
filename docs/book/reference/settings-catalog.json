@@ -515,6 +515,182 @@
         "drawbacks": "Frequent performance logging adds console noise and a small measurement overhead.",
         "example": "performance_log_every: 100"
       }
+    },
+    {
+      "id": "process.log_dir",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].log_dir"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "job.log_dir when defined, otherwise null"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseTrainProcess.py",
+          "symbol": "BaseTrainProcess.__init__",
+          "key": "log_dir",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-log-dir",
+        "description": "Overrides the inherited TensorBoard log directory for one process.",
+        "benefits": "Keeps TensorBoard event files in a chosen location.",
+        "drawbacks": "A null value disables TensorBoard setup, while an unwritable path fails logging.",
+        "example": "log_dir: /workspace/logs"
+      }
+    },
+    {
+      "id": "process.training_folder",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].training_folder"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "job.training_folder when defined, otherwise null"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseTrainProcess.py",
+          "symbol": "BaseTrainProcess.__init__",
+          "key": "training_folder",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-training-folder",
+        "description": "Overrides the inherited root folder used for training artifacts.",
+        "benefits": "Controls where the named process folder and saved configuration are created.",
+        "drawbacks": "The process cannot initialize its output path when no usable folder is supplied.",
+        "example": "training_folder: /workspace/output"
+      }
+    },
+    {
+      "id": "process.training_seed",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].training_seed"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "job.training_seed when defined, otherwise null"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "A present seed is applied to PyTorch, available CUDA generators, and Python random.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseTrainProcess.py",
+          "symbol": "BaseTrainProcess.__init__",
+          "key": "training_seed",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-training-seed",
+        "description": "Overrides the inherited random seed for process initialization.",
+        "benefits": "Helps reproduce initialization and other seeded process behavior.",
+        "drawbacks": "It does not make nondeterministic kernels or every external component deterministic.",
+        "example": "training_seed: 42"
+      }
     }
   ]
 }
