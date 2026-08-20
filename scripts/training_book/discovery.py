@@ -470,16 +470,56 @@ def _parameter_domains(
             for node in class_node.body
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
-        def finite_method_return(call: ast.Call) -> tuple[str, ...] | None:
+        def finite_method_return(
+            call: ast.Call,
+            caller_source: str,
+            caller_class: str | None,
+        ) -> tuple[str, ...] | None:
             if (
                 call.args
                 or call.keywords
                 or not isinstance(call.func, ast.Attribute)
-                or not isinstance(call.func.value, ast.Name)
-                or call.func.value.id not in {"self", "cls"}
             ):
                 return None
-            producer = methods.get(call.func.attr)
+            receiver = call.func.value
+            if isinstance(receiver, ast.Name) and receiver.id in {"self", "cls"}:
+                super_only = False
+            elif (
+                isinstance(receiver, ast.Call)
+                and isinstance(receiver.func, ast.Name)
+                and receiver.func.id == "super"
+                and not receiver.args
+                and not receiver.keywords
+            ):
+                super_only = True
+            else:
+                return None
+            owners, uncertain = _resolve_method_owners(
+                classes=classes,
+                caller_source=caller_source,
+                caller_class=caller_class,
+                method_name=call.func.attr,
+                super_only=super_only,
+            )
+            if uncertain or len(owners) != 1:
+                return None
+            producer_source, producer_class = next(iter(owners))
+            producer_classes = [
+                info
+                for info in classes.get(producer_class, ())
+                if info.source == producer_source
+            ]
+            if len(producer_classes) != 1:
+                return None
+            producer = next(
+                (
+                    node
+                    for node in producer_classes[0].node.body
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name == call.func.attr
+                ),
+                None,
+            )
             if (
                 not isinstance(producer, ast.FunctionDef)
                 or producer.decorator_list
@@ -546,12 +586,18 @@ def _parameter_domains(
                 resolved.update(values)
             return tuple(sorted(resolved)) or None
 
-        def call_values(argument: ast.AST) -> tuple[str, ...] | None:
+        def call_values(
+            argument: ast.AST,
+            caller_source: str,
+            caller_class: str | None,
+        ) -> tuple[str, ...] | None:
             values = _literal_strings(argument, {})
             if values is not None:
                 return values
             if isinstance(argument, ast.Call):
-                return finite_method_return(argument)
+                return finite_method_return(
+                    argument, caller_source, caller_class
+                )
             return None
 
         for target_name, target in methods.items():
@@ -574,6 +620,18 @@ def _parameter_domains(
                 argument.arg for argument in target.args.kwonlyargs
             ]
             target_owner = (source, class_name)
+            if (
+                not isinstance(target, ast.FunctionDef)
+                or target.decorator_list
+                or any(
+                    isinstance(inner, (ast.Yield, ast.YieldFrom))
+                    for inner in ast.walk(target)
+                )
+            ):
+                unresolved.update(
+                    (class_name, target_name, parameter)
+                    for parameter in target_parameters
+                )
             for reference, caller_source, caller_class in method_references.get(
                 target_name, ()
             ):
@@ -611,7 +669,9 @@ def _parameter_domains(
                     parameter = positional_parameters[index]
                     supplied.add(parameter)
                     key = (class_name, target_name, parameter)
-                    values = call_values(argument)
+                    values = call_values(
+                        argument, caller_source, caller_class
+                    )
                     if values is not None:
                         result.setdefault(key, set()).update(values)
                     else:
@@ -625,7 +685,9 @@ def _parameter_domains(
                             )
                         supplied.add(keyword.arg)
                         key = (class_name, target_name, keyword.arg)
-                        values = call_values(keyword.value)
+                        values = call_values(
+                            keyword.value, caller_source, caller_class
+                        )
                         if values is not None:
                             result.setdefault(key, set()).update(values)
                         else:
@@ -661,7 +723,9 @@ def _parameter_domains(
                                 )
                             supplied.add(parameter)
                             key = (class_name, target_name, parameter)
-                            values = call_values(value_node)
+                            values = call_values(
+                                value_node, caller_source, caller_class
+                            )
                             if values is None:
                                 unresolved.add(key)
                             else:
@@ -679,7 +743,7 @@ def _parameter_domains(
                     if default is None:
                         unresolved.add(key)
                         continue
-                    values = call_values(default)
+                    values = call_values(default, source, class_name)
                     if values is None:
                         unresolved.add(key)
                     else:
