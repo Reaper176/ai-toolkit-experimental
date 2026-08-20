@@ -167,12 +167,31 @@ def main() -> None:
     validate_book_manifest(
         manifest, expected_full_architectures=FULL_ARCHITECTURES
     )
+    has_target = (
+        arguments.target_source is not None or arguments.target_symbol is not None
+    )
+    target_mode = False
     if arguments.check_discovery:
-        if arguments.scope != ["discovery-fixtures"]:
+        if arguments.inventory_json is not None:
+            raise DiscoveryError(
+                "discovery mode cannot combine --check-discovery with --inventory-json"
+            )
+        if has_target:
+            if arguments.scope:
+                raise DiscoveryError(
+                    "discovery mode cannot combine a target with --scope"
+                )
+            target_mode = True
+        elif arguments.scope != ["discovery-fixtures"]:
             raise DiscoveryError(
                 "--check-discovery requires exactly --scope discovery-fixtures"
             )
-        _check_discovery_fixture()
+        else:
+            _check_discovery_fixture()
+    elif has_target:
+        raise DiscoveryError(
+            "target discovery mode requires --check-discovery"
+        )
     elif arguments.scope:
         raise DiscoveryError(
             "--scope values are inactive without their matching check mode"
@@ -180,8 +199,7 @@ def main() -> None:
 
     needs_production_discovery = bool(
         arguments.inventory_json
-        or arguments.target_source is not None
-        or arguments.target_symbol is not None
+        or target_mode
     )
     if needs_production_discovery:
         catalog = load_source_catalog(
@@ -199,7 +217,7 @@ def main() -> None:
             _write_inventory(
                 arguments.inventory_json, discovered, catalog.claims, exclusions
             )
-        if arguments.target_source is not None or arguments.target_symbol is not None:
+        if target_mode:
             validate_discovery_target(
                 discovered,
                 catalog.claims,

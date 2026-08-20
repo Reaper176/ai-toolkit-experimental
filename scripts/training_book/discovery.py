@@ -295,6 +295,8 @@ def _literal_strings(node: ast.AST, values: dict[str, tuple[str, ...]]) -> tuple
             if isinstance(part, ast.Constant) and isinstance(part.value, str):
                 replacements = (part.value,)
             elif isinstance(part, ast.FormattedValue):
+                if part.conversion != -1 or part.format_spec is not None:
+                    return None
                 replacements = _literal_strings(part.value, values)
                 if replacements is None:
                     return None
@@ -326,40 +328,18 @@ def _class_method_symbol(class_name: str, method_name: str) -> str:
 class _ClassInfo:
     source: str
     node: ast.ClassDef
-
-
-def _module_literal_maps(tree: ast.Module) -> dict[str, tuple[str, ...]]:
-    maps: dict[str, tuple[str, ...]] = {}
-    for statement in tree.body:
-        if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
-            continue
-        value = statement.value
-        if not isinstance(value, ast.Dict):
-            continue
-        keys: list[str] = []
-        for key in value.keys:
-            if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
-                break
-            keys.append(key.value)
-        else:
-            targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
-            for target in targets:
-                if isinstance(target, ast.Name):
-                    maps[target.id] = tuple(keys)
-    return maps
-
-
 def _parameter_domains(
+    source: str,
     tree: ast.Module,
+    call_sites: dict[str, tuple[tuple[ast.Call, str, str | None], ...]],
 ) -> tuple[
     dict[tuple[str, str, str], tuple[str, ...]],
     frozenset[tuple[str, str, str]],
 ]:
-    """Infer finite method-parameter values from literal calls and map indexing."""
+    """Infer finite method-parameter values from every parsed call site."""
 
     result: dict[tuple[str, str, str], set[str]] = {}
     unresolved: set[tuple[str, str, str]] = set()
-    literal_maps = _module_literal_maps(tree)
     classes = {
         node.name: node for node in tree.body if isinstance(node, ast.ClassDef)
     }
@@ -369,22 +349,6 @@ def _parameter_domains(
             for node in class_node.body
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
-        for method_name, method in methods.items():
-            parameters = [argument.arg for argument in method.args.args]
-            if parameters and parameters[0] in {"self", "cls"}:
-                parameters = parameters[1:]
-            for inner in ast.walk(method):
-                if (
-                    isinstance(inner, ast.Subscript)
-                    and isinstance(inner.value, ast.Name)
-                    and inner.value.id in literal_maps
-                    and isinstance(inner.slice, ast.Name)
-                    and inner.slice.id in parameters
-                ):
-                    result.setdefault(
-                        (class_name, method_name, inner.slice.id), set()
-                    ).update(literal_maps[inner.value.id])
-
         def finite_method_return(call: ast.Call) -> tuple[str, ...] | None:
             if (
                 call.args
@@ -469,15 +433,15 @@ def _parameter_domains(
                 return finite_method_return(argument)
             return None
 
-        for caller in methods.values():
-            for call in ast.walk(caller):
-                if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
+        for target_name, target in methods.items():
+            for call, caller_source, caller_class in call_sites.get(target_name, ()):
+                if (
+                    isinstance(call.func.value, ast.Name)
+                    and call.func.value.id in {"self", "cls"}
+                    and (caller_source, caller_class) != (source, class_name)
+                ):
                     continue
                 if not isinstance(call.func.value, (ast.Name, ast.Attribute)):
-                    continue
-                target_name = call.func.attr
-                target = methods.get(target_name)
-                if target is None:
                     continue
                 target_parameters = [argument.arg for argument in target.args.args]
                 if target_parameters and target_parameters[0] in {"self", "cls"}:
@@ -512,11 +476,14 @@ class _SettingVisitor(ast.NodeVisitor):
         source: str,
         tree: ast.Module,
         classes: dict[str, list[_ClassInfo]],
+        call_sites: dict[str, tuple[tuple[ast.Call, str, str | None], ...]],
     ) -> None:
         self.source = source
         self.tree = tree
         self.classes = classes
-        self.parameter_domains, self.unresolved_parameter_calls = _parameter_domains(tree)
+        self.parameter_domains, self.unresolved_parameter_calls = _parameter_domains(
+            source, tree, call_sites
+        )
         self.os_aliases = {"os"}
         self.os_aliases.update(
             alias.asname
@@ -527,6 +494,7 @@ class _SettingVisitor(ast.NodeVisitor):
         )
         self.class_stack: list[str] = []
         self.function_stack: list[str] = []
+        self.function_nodes: list[ast.FunctionDef | ast.AsyncFunctionDef] = []
         self.aliases: list[dict[str, str]] = []
         self.values: list[dict[str, tuple[str, ...]]] = []
         self.facts: list[DiscoveredSetting] = []
@@ -643,6 +611,7 @@ class _SettingVisitor(ast.NodeVisitor):
         self, node: ast.FunctionDef | ast.AsyncFunctionDef
     ) -> None:
         self.function_stack.append(node.name)
+        self.function_nodes.append(node)
         aliases: dict[str, str] = {}
         if node.args.kwarg is not None and node.args.kwarg.arg == "kwargs":
             aliases["kwargs"] = "kwargs"
@@ -664,6 +633,7 @@ class _SettingVisitor(ast.NodeVisitor):
             self.visit(statement)
         self.values.pop()
         self.aliases.pop()
+        self.function_nodes.pop()
         self.function_stack.pop()
 
     visit_FunctionDef = _visit_function
@@ -693,7 +663,90 @@ class _SettingVisitor(ast.NodeVisitor):
         ast.copy_location(synthetic, node)
         self.visit_Assign(synthetic)
 
+    def _reject_conditional_alias_reassignment(self, node: ast.AST) -> None:
+        if self.function_stack and self.function_stack[-1] in {
+            "get_conf",
+            "get_config",
+        }:
+            return
+        tracked = set(self.current_aliases)
+        if not tracked:
+            return
+
+        def is_read_as_container(path: str) -> bool:
+            if not self.function_nodes:
+                return False
+            for inner in ast.walk(self.function_nodes[-1]):
+                if (
+                    isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Attribute)
+                    and inner.func.attr == "get"
+                    and _attribute_path(inner.func.value) == path
+                ):
+                    return True
+                if (
+                    isinstance(inner, ast.Subscript)
+                    and isinstance(inner.ctx, ast.Load)
+                    and _attribute_path(inner.value) == path
+                ):
+                    return True
+                if isinstance(inner, ast.Compare) and any(
+                    _attribute_path(comparator) == path
+                    for comparator in inner.comparators
+                ):
+                    return True
+            return False
+
+        def reject_path(path: str | None, owner: ast.AST) -> None:
+            if path in tracked and path is not None and is_read_as_container(path):
+                raise self._error(
+                    owner, "conditional configuration alias reassignment"
+                )
+
+        if isinstance(node, (ast.For, ast.AsyncFor)):
+            pending_targets = [node.target]
+            while pending_targets:
+                target = pending_targets.pop()
+                if isinstance(target, (ast.Tuple, ast.List)):
+                    pending_targets.extend(target.elts)
+                elif isinstance(target, ast.Starred):
+                    pending_targets.append(target.value)
+                else:
+                    reject_path(_attribute_path(target), node)
+        if isinstance(node, (ast.Try, ast.TryStar)):
+            for handler in node.handlers:
+                reject_path(handler.name, handler)
+        if isinstance(node, ast.Match):
+            for pattern in ast.walk(node):
+                if isinstance(pattern, (ast.MatchAs, ast.MatchStar)):
+                    reject_path(pattern.name, pattern)
+                elif isinstance(pattern, ast.MatchMapping):
+                    reject_path(pattern.rest, pattern)
+
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Assign):
+                targets = inner.targets
+            elif isinstance(inner, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
+                targets = [inner.target]
+            elif isinstance(inner, ast.Delete):
+                targets = inner.targets
+            else:
+                continue
+            for target in targets:
+                pending = [target]
+                while pending:
+                    candidate = pending.pop()
+                    if isinstance(candidate, (ast.Tuple, ast.List)):
+                        pending.extend(candidate.elts)
+                        continue
+                    if isinstance(candidate, ast.Starred):
+                        pending.append(candidate.value)
+                        continue
+                    path = _attribute_path(candidate)
+                    reject_path(path, inner)
+
     def visit_For(self, node: ast.For) -> None:
+        self._reject_conditional_alias_reassignment(node)
         iterable = _literal_strings(node.iter, self.current_values)
         if isinstance(node.target, ast.Name) and iterable is not None:
             previous = self.current_values.get(node.target.id)
@@ -735,6 +788,22 @@ class _SettingVisitor(ast.NodeVisitor):
             for statement in node.orelse:
                 self.visit(statement)
             return
+        self.generic_visit(node)
+
+    visit_AsyncFor = visit_For
+
+    def visit_While(self, node: ast.While) -> None:
+        self._reject_conditional_alias_reassignment(node)
+        self.generic_visit(node)
+
+    def visit_Try(self, node: ast.Try) -> None:
+        self._reject_conditional_alias_reassignment(node)
+        self.generic_visit(node)
+
+    visit_TryStar = visit_Try
+
+    def visit_Match(self, node: ast.Match) -> None:
+        self._reject_conditional_alias_reassignment(node)
         self.generic_visit(node)
 
     def visit_If(self, node: ast.If) -> None:
@@ -1079,7 +1148,8 @@ class _SettingVisitor(ast.NodeVisitor):
                 saw_spread = False
                 forwarding_uses: set[int] = set()
                 consumed_uses: set[int] = set()
-                consumed_keys: set[str] = set()
+                read_defaults: dict[str, ast.AST | None] = {}
+                mutated_or_indexed_keys: set[str] = set()
                 kwargs_name = constructor.args.kwarg.arg
                 for inner in ast.walk(constructor):
                     if (
@@ -1093,7 +1163,22 @@ class _SettingVisitor(ast.NodeVisitor):
                         keys = _literal_strings(inner.args[0], {})
                         if keys is not None:
                             consumed_uses.add(id(inner.func.value))
-                            consumed_keys.update(keys)
+                            if inner.func.attr == "get":
+                                default = inner.args[1] if len(inner.args) > 1 else None
+                                for key in keys:
+                                    previous = read_defaults.get(key)
+                                    if (
+                                        key in read_defaults
+                                        and _source_expression(previous)
+                                        != _source_expression(default)
+                                    ):
+                                        raise self._error(
+                                            inner,
+                                            "conflicting reserved kwargs read defaults",
+                                        )
+                                    read_defaults[key] = default
+                            else:
+                                mutated_or_indexed_keys.update(keys)
                     if (
                         isinstance(inner, ast.Subscript)
                         and isinstance(inner.ctx, ast.Load)
@@ -1103,7 +1188,7 @@ class _SettingVisitor(ast.NodeVisitor):
                         keys = _literal_strings(inner.slice, {})
                         if keys is not None:
                             consumed_uses.add(id(inner.value))
-                            consumed_keys.update(keys)
+                            mutated_or_indexed_keys.update(keys)
                     if not isinstance(inner, ast.Call):
                         continue
                     spreads_kwargs = any(
@@ -1160,17 +1245,38 @@ class _SettingVisitor(ast.NodeVisitor):
                 # An unread terminal **kwargs is a dead sink, not an open
                 # setting surface. Any later read/forward/expansion flips this
                 # branch to a fail-closed error (covered by the mutation test).
-                consumes_unreserved = not consumed_keys.issubset(explicit)
-                if forwarded and (kwargs_is_consumed or consumes_unreserved):
+                edge_read_keys = set(read_defaults)
+                invalid_edge_reads = edge_read_keys.difference(explicit) | (
+                    edge_read_keys & set(defaults)
+                )
+                invalid_consumption = bool(
+                    kwargs_is_consumed
+                    or mutated_or_indexed_keys
+                    or invalid_edge_reads
+                )
+                if forwarded and invalid_consumption:
                     raise self._error(
                         constructor, "consumed forwarded kwargs sink"
                     )
                 if not forwarded and (
-                    saw_spread or kwargs_is_consumed or consumes_unreserved
+                    saw_spread or invalid_consumption or edge_read_keys
                 ):
                     raise self._error(
                         constructor, "unconstrained forwarded kwargs sink"
                     )
+                if forwarded:
+                    for key in sorted(edge_read_keys):
+                        self.facts.append(
+                            DiscoveredSetting(
+                                info.source,
+                                symbol,
+                                constructor.lineno,
+                                key,
+                                "network_kwargs.reserved",
+                                "network",
+                                _source_expression(read_defaults[key]),
+                            )
+                        )
         finally:
             self.source = old_source
             self.class_stack = old_classes
@@ -1222,11 +1328,49 @@ def discover_python_settings(
                 classes.setdefault(node.name, []).append(_ClassInfo(source, node))
 
     facts: list[DiscoveredSetting] = []
+    mutable_call_sites: dict[
+        str, list[tuple[ast.Call, str, str | None]]
+    ] = {}
+
+    def collect_calls(
+        node: ast.AST,
+        source: str,
+        containing_class: str | None = None,
+    ) -> None:
+        if isinstance(node, ast.ClassDef):
+            containing_class = node.name
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            mutable_call_sites.setdefault(node.func.attr, []).append(
+                (node, source, containing_class)
+            )
+        for child in ast.iter_child_nodes(node):
+            collect_calls(child, source, containing_class)
+
     for source, tree in parsed:
-        visitor = _SettingVisitor(source=source, tree=tree, classes=classes)
+        collect_calls(tree, source)
+    call_sites = {
+        name: tuple(calls) for name, calls in mutable_call_sites.items()
+    }
+    for source, tree in parsed:
+        visitor = _SettingVisitor(
+            source=source, tree=tree, classes=classes, call_sites=call_sites
+        )
         visitor.visit(tree)
         facts.extend(visitor.facts)
 
+    reserved_kwargs_reads = {
+        (fact.source, fact.symbol, fact.key)
+        for fact in facts
+        if fact.read_kind == "network_kwargs.reserved"
+    }
+    facts = [
+        fact
+        for fact in facts
+        if not (
+            fact.read_kind == "kwargs.get"
+            and (fact.source, fact.symbol, fact.key) in reserved_kwargs_reads
+        )
+    ]
     unique: dict[_Identity, DiscoveredSetting] = {}
     for fact in sorted(
         facts,

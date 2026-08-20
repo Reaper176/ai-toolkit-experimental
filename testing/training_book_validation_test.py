@@ -541,6 +541,102 @@ class Resolver:
                 self.repository_root, ("mixed_components.py",)
             )
 
+    def test_discovery_does_not_infer_domains_from_literal_map_lookups(self):
+        method_bodies = (
+            """        if False:
+            COMPONENTS[component]
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+""",
+            """        value = self.model_config.model_kwargs.get(
+            f"{component}_path", None
+        )
+        COMPONENTS[component]
+        return value
+""",
+            """        try:
+            COMPONENTS[component]
+        except KeyError:
+            pass
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+""",
+        )
+        for index, method_body in enumerate(method_bodies):
+            with self.subTest(method_body=method_body):
+                path = f"literal_map_domain_{index}.py"
+                self.write_source(
+                    path,
+                    """COMPONENTS = {"dit": 1, "vae": 2}
+class Resolver:
+    def resolve(self, component):
+"""
+                    + method_body,
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dynamic"):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_accounts_for_external_dynamic_method_callers(self):
+        self.write_source(
+            "external_caller.py",
+            """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def load(self):
+        return self.resolve("dit")
+
+def external_load(resolver, component):
+    return resolver.resolve(component)
+""",
+        )
+
+        with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+            discover_python_settings(self.repository_root, ("external_caller.py",))
+
+        self.write_source(
+            "same_name_target.py",
+            """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+""",
+        )
+        self.write_source(
+            "same_name_caller.py",
+            """class Resolver:
+    def resolve(self, component):
+        return component
+
+    def load(self):
+        return self.resolve("dit")
+""",
+        )
+        with self.assertRaisesRegex(DiscoveryError, "dynamic"):
+            discover_python_settings(
+                self.repository_root,
+                ("same_name_target.py", "same_name_caller.py"),
+            )
+
+    def test_discovery_rejects_formatted_fstring_configuration_keys(self):
+        formatted_keys = (
+            'f"{component!r}_path"',
+            'f"{component!s}_path"',
+            'f"{component:>8}_path"',
+            'f"{component:{width}}_path"',
+        )
+        for index, formatted_key in enumerate(formatted_keys):
+            with self.subTest(formatted_key=formatted_key):
+                path = f"formatted_key_{index}.py"
+                self.write_source(
+                    path,
+                    """def load(model_config, width):
+    mkw = model_config.model_kwargs
+    for component in ("dit", "vae"):
+        mkw.get("""
+                    + formatted_key
+                    + ", None)\n",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dynamic"):
+                    discover_python_settings(self.repository_root, (path,))
+
     def test_discovery_rejects_non_dominating_finite_return_guards(self):
         producer_bodies = (
             """        if component in ("dit", "vae"):
@@ -955,6 +1051,106 @@ def build(network_kwargs):
         with self.assertRaisesRegex(DiscoveryError, "consumed.*kwargs"):
             discover_python_settings(self.repository_root, ("terminal_sink.py",))
 
+    def test_discovery_rejects_reserved_key_reads_from_forwarded_kwargs(self):
+        for method in ("get", "pop"):
+            with self.subTest(method=method):
+                self.write_source(
+                    "reserved_consumption.py",
+                    f"""class TerminalMixin:
+    def __init__(self):
+        pass
+
+class Wrapper(TerminalMixin):
+    def __init__(self, reserved=None, **kwargs):
+        kwargs.{method}("reserved", None)
+        super().__init__(**kwargs)
+
+def build(network_kwargs):
+    return Wrapper(reserved=True, **network_kwargs)
+""",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "consumed.*kwargs"):
+                    discover_python_settings(
+                        self.repository_root, ("reserved_consumption.py",)
+                    )
+
+    def test_discovery_classifies_edge_reserved_forwarded_kwargs_reads(self):
+        self.write_source(
+            "edge_reserved_consumption.py",
+            """class TerminalMixin:
+    def __init__(self):
+        pass
+
+class Wrapper(TerminalMixin):
+    def __init__(self, **kwargs):
+        self.network_config = kwargs.get("network_config", None)
+        super().__init__(**kwargs)
+
+def build(network_kwargs):
+    return Wrapper(network_config=object(), **network_kwargs)
+""",
+        )
+
+        self.assertEqual(
+            discover_python_settings(
+                self.repository_root, ("edge_reserved_consumption.py",)
+            ),
+            (
+                DiscoveredSetting(
+                    "edge_reserved_consumption.py",
+                    "Wrapper.__init__",
+                    6,
+                    "network_config",
+                    "network_kwargs.reserved",
+                    "network",
+                    "None",
+                ),
+            ),
+        )
+
+    def test_discovery_rejects_conditional_config_alias_reassignment(self):
+        control_flows = (
+            """    for item in items:
+        mkw = {}
+""",
+            """    for mkw in items:
+        pass
+""",
+            """    while ready():
+        mkw = {}
+""",
+            """    try:
+        operate()
+    except Exception:
+        mkw = {}
+""",
+            """    try:
+        operate()
+    finally:
+        mkw = {}
+""",
+            """    match token:
+        case "reset":
+            mkw = {}
+""",
+        )
+        for index, control_flow in enumerate(control_flows):
+            with self.subTest(control_flow=control_flow):
+                path = f"conditional_alias_{index}.py"
+                self.write_source(
+                    path,
+                    """def load(model_config, items, token):
+    mkw = model_config.model_kwargs
+"""
+                    + control_flow
+                    + """    return mkw.get("critical", 1)
+""",
+                )
+                with self.assertRaisesRegex(
+                    DiscoveryError, "conditional configuration alias"
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
     def test_discovery_fails_on_branch_dependent_configuration_alias(self):
         self.write_source(
             "branch_alias.py",
@@ -1351,6 +1547,68 @@ def build(network_kwargs):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("target", result.stderr)
+
+    def test_discovery_cli_target_modes_reach_target_ownership_validation(self):
+        selectors = (
+            ("--target-source", "toolkit/config.py"),
+            (
+                "--target-symbol",
+                "toolkit/config.py::replace_env_vars_in_string.replacer",
+            ),
+        )
+        for selector in selectors:
+            with self.subTest(selector=selector):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "scripts/validate_training_book.py",
+                        "--check-discovery",
+                        *selector,
+                    ],
+                    cwd=REPOSITORY_ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("unowned", result.stderr)
+                self.assertNotIn("requires exactly --scope", result.stderr)
+
+    def test_discovery_cli_rejects_inactive_or_multiple_modes(self):
+        cases = (
+            ("--target-source", "toolkit/config.py"),
+            (
+                "--check-discovery",
+                "--scope",
+                "discovery-fixtures",
+                "--target-source",
+                "toolkit/config.py",
+            ),
+            (
+                "--check-discovery",
+                "--inventory-json",
+                str(self.repository_root / "invalid-inventory.json"),
+                "--scope",
+                "discovery-fixtures",
+            ),
+        )
+        for arguments in cases:
+            with self.subTest(arguments=arguments):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "scripts/validate_training_book.py",
+                        *arguments,
+                    ],
+                    cwd=REPOSITORY_ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("mode", result.stderr)
 
     def test_discovery_cli_rejects_unknown_or_inactive_scopes(self):
         for arguments in (
