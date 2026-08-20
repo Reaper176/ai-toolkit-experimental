@@ -782,6 +782,12 @@ class CatalogProductionSliceTests(unittest.TestCase):
     def test_catalog_core_process_scope_is_exactly_owned(self):
         self.assert_catalog_selector_green("--scope", "core-process")
 
+    def test_catalog_save_config_symbol_is_exactly_owned(self):
+        self.assert_catalog_selector_green(
+            "--target-symbol",
+            "toolkit/config_modules.py::SaveConfig.__init__",
+        )
+
 
 class DiscoveryContractTests(unittest.TestCase):
     def setUp(self):
