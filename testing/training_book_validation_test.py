@@ -1653,6 +1653,267 @@ class Outer:
             (("Outer.Inner.load", "function_path"),),
         )
 
+    def test_discovery_rejects_scalar_string_iterable_domains(self):
+        bodies = (
+            """for component in "dit":
+    model_config.model_kwargs.get(f"{component}_path")
+""",
+            """components = "dit"
+for component in components:
+    model_config.model_kwargs.get(f"{component}_path")
+""",
+            """[
+    model_config.model_kwargs.get(f"{component}_path")
+    for component in "dit"
+]
+""",
+            """components = "dit"
+[
+    model_config.model_kwargs.get(f"{component}_path")
+    for component in components
+]
+""",
+            """components = "dit"
+if external():
+    components = ["vae"]
+for component in components:
+    model_config.model_kwargs.get(f"{component}_path")
+""",
+        )
+        for index, body in enumerate(bodies):
+            with self.subTest(body=body):
+                path = f"scalar_iterable_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(DiscoveryError, "iterable.*shape"):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_preserves_proven_collection_shape(self):
+        self.write_source(
+            "proven_collection_shape.py",
+            """components = ["dit", "vae"]
+for component in components:
+    model_config.model_kwargs.get(f"{component}_path", None)
+
+[
+    model_config.model_kwargs.get(f"{component}_block", 1)
+    for component in components
+]
+""",
+        )
+        discovered = discover_python_settings(
+            self.repository_root, ("proven_collection_shape.py",)
+        )
+        self.assertEqual(
+            tuple((fact.key, fact.default_expression) for fact in discovered),
+            (
+                ("dit_block", "1"),
+                ("dit_path", "None"),
+                ("vae_block", "1"),
+                ("vae_path", "None"),
+            ),
+        )
+
+    def test_discovery_poison_handlers_from_mutated_try_prefixes(self):
+        bodies = (
+            """component = "dit"
+try:
+    component = external()
+    raise RuntimeError
+except RuntimeError:
+    model_config.model_kwargs.get(f"{component}_path")
+""",
+            """settings = model_config.model_kwargs
+try:
+    settings = external()
+    raise RuntimeError
+except RuntimeError:
+    settings.get("stale")
+""",
+            """component = "dit"
+try:
+    if external():
+        component = external()
+        raise RuntimeError
+except RuntimeError:
+    model_config.model_kwargs.get(f"{component}_path")
+""",
+        )
+        for index, body in enumerate(bodies):
+            with self.subTest(body=body):
+                path = f"mutated_try_prefix_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(
+                    DiscoveryError,
+                    "dynamic configuration|branch-dependent configuration alias",
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_stops_at_unconditional_terminal_statements(self):
+        bodies = (
+            """for component in ["dit"]:
+    break
+    model_config.model_kwargs.get("after_break")
+""",
+            """for component in ["dit"]:
+    continue
+    model_config.model_kwargs.get("after_continue")
+""",
+            """while external():
+    break
+    model_config.model_kwargs.get("after_while_break")
+""",
+            """while external():
+    continue
+    model_config.model_kwargs.get("after_while_continue")
+""",
+            """def load(model_config):
+    return
+    model_config.model_kwargs.get("after_return")
+""",
+            """def load(model_config):
+    raise RuntimeError
+    model_config.model_kwargs.get("after_raise")
+""",
+        )
+        for index, body in enumerate(bodies):
+            with self.subTest(body=body):
+                path = f"unreachable_terminal_{index}.py"
+                self.write_source(path, body)
+                self.assertEqual(
+                    discover_python_settings(self.repository_root, (path,)), ()
+                )
+
+    def test_discovery_uses_terminal_loop_state_not_unreachable_state(self):
+        for index, terminal in enumerate(("break", "continue")):
+            with self.subTest(terminal=terminal):
+                path = f"terminal_loop_state_{index}.py"
+                self.write_source(
+                    path,
+                    f'''component = "dit"
+for component in ["vae"]:
+    {terminal}
+    component = external()
+model_config.model_kwargs.get(f"{{component}}_path")
+''',
+                )
+                self.assertEqual(
+                    discover_python_settings(self.repository_root, (path,)),
+                    (
+                        DiscoveredSetting(
+                            path,
+                            "<module>",
+                            5,
+                            "vae_path",
+                            "model_kwargs.get",
+                            "model",
+                            None,
+                        ),
+                    ),
+                )
+
+        for index, terminal in enumerate(("break", "continue"), start=2):
+            with self.subTest(terminal=f"while-{terminal}"):
+                path = f"terminal_loop_state_{index}.py"
+                self.write_source(
+                    path,
+                    f'''component = "dit"
+while external():
+    component = "vae"
+    {terminal}
+    component = external()
+model_config.model_kwargs.get(f"{{component}}_path")
+''',
+                )
+                self.assertEqual(
+                    tuple(
+                        fact.key
+                        for fact in discover_python_settings(
+                            self.repository_root, (path,)
+                        )
+                    ),
+                    ("dit_path", "vae_path"),
+                )
+
+    def test_discovery_ignores_unreachable_try_suffix_after_raise(self):
+        self.write_source(
+            "unreachable_try_suffix.py",
+            """component = "dit"
+try:
+    raise RuntimeError
+    component = external()
+except RuntimeError:
+    pass
+model_config.model_kwargs.get(f"{component}_path")
+""",
+        )
+        self.assertEqual(
+            discover_python_settings(
+                self.repository_root, ("unreachable_try_suffix.py",)
+            ),
+            (
+                DiscoveredSetting(
+                    "unreachable_try_suffix.py",
+                    "<module>",
+                    7,
+                    "dit_path",
+                    "model_kwargs.get",
+                    "model",
+                    None,
+                ),
+            ),
+        )
+
+    def test_discovery_carries_try_state_through_else_and_finally(self):
+        self.write_source(
+            "try_else_finally_flow.py",
+            """def caught(model_config):
+    component = "dit"
+    try:
+        raise RuntimeError
+    except RuntimeError:
+        pass
+    else:
+        component = external()
+    finally:
+        component = "vae"
+    model_config.model_kwargs.get(f"{component}_path")
+
+def terminating(model_config):
+    try:
+        pass
+    finally:
+        return
+    model_config.model_kwargs.get("unreachable")
+""",
+        )
+        self.assertEqual(
+            tuple(
+                (fact.symbol, fact.key)
+                for fact in discover_python_settings(
+                    self.repository_root, ("try_else_finally_flow.py",)
+                )
+            ),
+            (("caught", "vae_path"),),
+        )
+
+    def test_discovery_poisons_finally_from_mutated_try_prefixes(self):
+        self.write_source(
+            "try_prefix_finally.py",
+            """component = "dit"
+try:
+    component = external()
+    raise RuntimeError
+except RuntimeError:
+    pass
+finally:
+    model_config.model_kwargs.get(f"{component}_path")
+""",
+        )
+        with self.assertRaisesRegex(DiscoveryError, "dynamic configuration"):
+            discover_python_settings(
+                self.repository_root, ("try_prefix_finally.py",)
+            )
+
     def test_discovery_supports_unconventional_bound_receiver_names(self):
         for index, signature in enumerate(("this", "this, /")):
             with self.subTest(signature=signature):

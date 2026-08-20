@@ -55,6 +55,21 @@ class SourceCatalog:
     claims: tuple[SourceClaim, ...]
 
 
+@dataclass
+class _SettingState:
+    aliases: dict[str, str]
+    values: dict[str, tuple[str, ...]]
+    iterables: dict[str, tuple[str, ...]]
+    bindings: set[str]
+
+
+@dataclass
+class _StatementFlow:
+    falls_through: bool
+    terminals: tuple[tuple[str, _SettingState], ...] = ()
+    prefixes: tuple[_SettingState, ...] = ()
+
+
 _APPROVED_EXCLUSION_REASONS = {
     "slider-only",
     "extraction-only",
@@ -966,6 +981,7 @@ class _SettingVisitor(ast.NodeVisitor):
         self.function_nodes: list[ast.FunctionDef | ast.AsyncFunctionDef] = []
         self.aliases: list[dict[str, str]] = [{}]
         self.values: list[dict[str, tuple[str, ...]]] = [{}]
+        self.iterables: list[dict[str, tuple[str, ...]]] = [{}]
         self.value_bindings: list[set[str]] = [set()]
         self.scope_frames: list[str] = ["module"]
         self.pending_class_bindings: list[tuple[int, str]] = []
@@ -983,6 +999,10 @@ class _SettingVisitor(ast.NodeVisitor):
     @property
     def current_values(self) -> dict[str, tuple[str, ...]]:
         return self.values[-1]
+
+    @property
+    def current_iterables(self) -> dict[str, tuple[str, ...]]:
+        return self.iterables[-1]
 
     def _visible_frame_indices(self) -> tuple[int, ...]:
         """Return lexical frames visible to the current expression.
@@ -1018,6 +1038,36 @@ class _SettingVisitor(ast.NodeVisitor):
                 visible.pop(name, None)
         return visible
 
+    @property
+    def visible_iterables(self) -> dict[str, tuple[str, ...]]:
+        visible: dict[str, tuple[str, ...]] = {}
+        for index in self._visible_frame_indices():
+            for name in self.value_bindings[index]:
+                visible.pop(name, None)
+            visible.update(self.iterables[index])
+        for class_index, name in self.pending_class_bindings:
+            if any(
+                frame in {"function", "lambda"}
+                for frame in self.scope_frames[class_index + 1 :]
+            ):
+                visible.pop(name, None)
+        return visible
+
+    def _iterable_strings(self, node: ast.AST) -> tuple[str, ...] | None:
+        if isinstance(node, ast.Name):
+            return self.visible_iterables.get(node.id)
+        if not isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            return None
+        values: list[str] = []
+        for element in node.elts:
+            if isinstance(element, (ast.Tuple, ast.List, ast.Set)):
+                return None
+            element_values = _literal_strings(element, self.visible_values)
+            if element_values is None:
+                return None
+            values.extend(element_values)
+        return tuple(values)
+
     def _visible_alias_state(self, path: str) -> str | None:
         if any(
             (path == name or path.startswith(f"{name}."))
@@ -1041,17 +1091,20 @@ class _SettingVisitor(ast.NodeVisitor):
     def _push_scope(self, frame: str) -> None:
         self.aliases.append({})
         self.values.append({})
+        self.iterables.append({})
         self.value_bindings.append(set())
         self.scope_frames.append(frame)
 
     def _pop_scope(self) -> None:
         self.scope_frames.pop()
         self.value_bindings.pop()
+        self.iterables.pop()
         self.values.pop()
         self.aliases.pop()
 
     def _bind_unknown(self, name: str, frame_index: int = -1) -> None:
         self.values[frame_index].pop(name, None)
+        self.iterables[frame_index].pop(name, None)
         self.value_bindings[frame_index].add(name)
 
     def _bind_literal(
@@ -1059,8 +1112,13 @@ class _SettingVisitor(ast.NodeVisitor):
         name: str,
         values: tuple[str, ...],
         frame_index: int = -1,
+        iterable_values: tuple[str, ...] | None = None,
     ) -> None:
         self.values[frame_index][name] = values
+        if iterable_values is None:
+            self.iterables[frame_index].pop(name, None)
+        else:
+            self.iterables[frame_index][name] = iterable_values
         self.value_bindings[frame_index].add(name)
 
     def _bind_target_unknown(
@@ -1086,6 +1144,68 @@ class _SettingVisitor(ast.NodeVisitor):
         self._bind_target_unknown(
             ast.Name(id=name, ctx=ast.Store()), frame_index
         )
+
+    def _capture_state(self) -> _SettingState:
+        return _SettingState(
+            dict(self.current_aliases),
+            dict(self.current_values),
+            dict(self.current_iterables),
+            set(self.value_bindings[-1]),
+        )
+
+    def _restore_state(self, state: _SettingState) -> None:
+        self.aliases[-1] = dict(state.aliases)
+        self.values[-1] = dict(state.values)
+        self.iterables[-1] = dict(state.iterables)
+        self.value_bindings[-1] = set(state.bindings)
+
+    def _merge_states(self, states: Sequence[_SettingState]) -> _SettingState:
+        if not states:
+            raise ValueError("cannot merge an empty setting-state sequence")
+        self._merge_may_alias_states(
+            tuple(state.aliases for state in states),
+            tuple(state.values for state in states),
+            tuple(state.iterables for state in states),
+            tuple(state.bindings for state in states),
+        )
+        return self._capture_state()
+
+    def _visit_statements(
+        self, statements: Sequence[ast.stmt]
+    ) -> _StatementFlow:
+        prefixes = [self._capture_state()]
+        terminals: list[tuple[str, _SettingState]] = []
+        for statement in statements:
+            result = self.visit(statement)
+            prefixes.append(self._capture_state())
+            if isinstance(result, _StatementFlow):
+                terminals.extend(result.terminals)
+                if not result.falls_through:
+                    return _StatementFlow(
+                        False, tuple(terminals), tuple(prefixes)
+                    )
+        return _StatementFlow(True, tuple(terminals), tuple(prefixes))
+
+    def visit_Module(self, node: ast.Module) -> None:
+        self._visit_statements(node.body)
+
+    def visit_Break(self, node: ast.Break) -> _StatementFlow:
+        return _StatementFlow(False, (("break", self._capture_state()),))
+
+    def visit_Continue(self, node: ast.Continue) -> _StatementFlow:
+        return _StatementFlow(False, (("continue", self._capture_state()),))
+
+    def visit_Return(self, node: ast.Return) -> _StatementFlow:
+        if node.value is not None:
+            self.visit(node.value)
+        return _StatementFlow(False, (("return", self._capture_state()),))
+
+    def visit_Raise(self, node: ast.Raise) -> _StatementFlow:
+        if node.exc is not None:
+            self.visit(node.exc)
+        if node.cause is not None:
+            self.visit(node.cause)
+        return _StatementFlow(False, (("raise", self._capture_state()),))
 
     def _error(self, node: ast.AST, message: str) -> DiscoveryError:
         return DiscoveryError(
@@ -1192,8 +1312,7 @@ class _SettingVisitor(ast.NodeVisitor):
         self.pending_class_bindings.append(
             (len(self.scope_frames) - 1, node.name)
         )
-        for statement in node.body:
-            self.visit(statement)
+        self._visit_statements(node.body)
         self.pending_class_bindings.pop()
         self._pop_scope()
         self.class_stack.pop()
@@ -1249,8 +1368,7 @@ class _SettingVisitor(ast.NodeVisitor):
                 )
                 if domain:
                     self._bind_literal(argument.arg, domain)
-        for statement in node.body:
-            self.visit(statement)
+        self._visit_statements(node.body)
         self._pop_scope()
         self.function_nodes.pop()
         self.function_stack.pop()
@@ -1285,7 +1403,12 @@ class _SettingVisitor(ast.NodeVisitor):
     ) -> None:
         first, *remaining = node.generators
         self.visit(first.iter)
-        first_values = _literal_strings(first.iter, self.visible_values)
+        first_values = self._iterable_strings(first.iter)
+        if (
+            first_values is None
+            and _literal_strings(first.iter, self.visible_values) is not None
+        ):
+            raise self._error(first.iter, "iterable value shape is scalar")
         self._push_scope("comprehension")
 
         def bind_generator(generator: ast.comprehension, values: tuple[str, ...] | None) -> None:
@@ -1298,7 +1421,14 @@ class _SettingVisitor(ast.NodeVisitor):
         bind_generator(first, first_values)
         for generator in remaining:
             self.visit(generator.iter)
-            generator_values = _literal_strings(generator.iter, self.visible_values)
+            generator_values = self._iterable_strings(generator.iter)
+            if (
+                generator_values is None
+                and _literal_strings(generator.iter, self.visible_values) is not None
+            ):
+                raise self._error(
+                    generator.iter, "iterable value shape is scalar"
+                )
             bind_generator(generator, generator_values)
         if isinstance(node, ast.DictComp):
             self.visit(node.key)
@@ -1316,19 +1446,26 @@ class _SettingVisitor(ast.NodeVisitor):
         self.visit(node.value)
         kind = self._container_kind(node.value)
         literal_values = _literal_strings(node.value, self.visible_values)
+        iterable_values = self._iterable_strings(node.value)
         for target in node.targets:
             target_path = _attribute_path(target)
             if target_path is not None:
                 if kind is not None:
                     self.current_aliases[target_path] = kind
                 else:
-                    if self._visible_alias_state(target_path) is not None:
+                    if isinstance(node.value, ast.Dict):
+                        self.current_aliases.pop(target_path, None)
+                    elif self._visible_alias_state(target_path) is not None:
                         self.current_aliases[target_path] = "shadowed"
                     else:
                         self.current_aliases.pop(target_path, None)
             if isinstance(target, ast.Name):
                 if literal_values is not None:
-                    self._bind_literal(target.id, literal_values)
+                    self._bind_literal(
+                        target.id,
+                        literal_values,
+                        iterable_values=iterable_values,
+                    )
                 else:
                     self._bind_unknown(target.id)
 
@@ -1347,6 +1484,7 @@ class _SettingVisitor(ast.NodeVisitor):
         self.visit(node.value)
         kind = self._container_kind(node.value)
         literal_values = _literal_strings(node.value, self.visible_values)
+        iterable_values = self._iterable_strings(node.value)
         frame_index = next(
             index
             for index in range(len(self.scope_frames) - 1, -1, -1)
@@ -1358,7 +1496,12 @@ class _SettingVisitor(ast.NodeVisitor):
         else:
             self._bind_target_unknown(node.target, frame_index)
         if isinstance(node.target, ast.Name) and literal_values is not None:
-            self._bind_literal(node.target.id, literal_values, frame_index)
+            self._bind_literal(
+                node.target.id,
+                literal_values,
+                frame_index,
+                iterable_values,
+            )
 
     def visit_Import(self, node: ast.Import) -> None:
         for imported in node.names:
@@ -1378,13 +1521,14 @@ class _SettingVisitor(ast.NodeVisitor):
         for target in node.targets:
             self._bind_target_unknown(target)
 
-    def visit_With(self, node: ast.With | ast.AsyncWith) -> None:
+    def visit_With(
+        self, node: ast.With | ast.AsyncWith
+    ) -> _StatementFlow:
         for item in node.items:
             self.visit(item.context_expr)
             if item.optional_vars is not None:
                 self._bind_target_unknown(item.optional_vars)
-        for statement in node.body:
-            self.visit(statement)
+        return self._visit_statements(node.body)
 
     visit_AsyncWith = visit_With
 
@@ -1470,25 +1614,60 @@ class _SettingVisitor(ast.NodeVisitor):
                     path = _attribute_path(candidate)
                     reject_path(path, inner)
 
-    def visit_For(self, node: ast.For) -> None:
+    def visit_For(self, node: ast.For) -> _StatementFlow:
         self._reject_conditional_alias_reassignment(node)
         self.visit(node.iter)
-        baseline_aliases = dict(self.current_aliases)
-        baseline_values = dict(self.current_values)
-        baseline_bindings = set(self.value_bindings[-1])
-        iterable = _literal_strings(node.iter, self.visible_values)
+        baseline = self._capture_state()
+        iterable = self._iterable_strings(node.iter)
+        if (
+            iterable is None
+            and _literal_strings(node.iter, self.visible_values) is not None
+        ):
+            raise self._error(node.iter, "iterable value shape is scalar")
+
+        def finish_loop(
+            body_flow: _StatementFlow,
+            *,
+            zero_iteration: bool,
+        ) -> _StatementFlow:
+            break_states = [
+                state for kind, state in body_flow.terminals if kind == "break"
+            ]
+            iteration_states = [
+                state
+                for kind, state in body_flow.terminals
+                if kind == "continue"
+            ]
+            propagated = [
+                (kind, state)
+                for kind, state in body_flow.terminals
+                if kind not in {"break", "continue"}
+            ]
+            if body_flow.falls_through:
+                iteration_states.append(self._capture_state())
+            if zero_iteration:
+                iteration_states.append(baseline)
+
+            post_states = list(break_states)
+            if iteration_states:
+                self._restore_state(self._merge_states(iteration_states))
+                else_flow = self._visit_statements(node.orelse)
+                propagated.extend(else_flow.terminals)
+                if else_flow.falls_through:
+                    post_states.append(self._capture_state())
+            if not post_states:
+                return _StatementFlow(False, tuple(propagated))
+            self._restore_state(self._merge_states(post_states))
+            return _StatementFlow(True, tuple(propagated))
+
         if isinstance(node.target, ast.Name) and iterable is not None:
             if not iterable:
-                for statement in node.orelse:
-                    self.visit(statement)
-                return
+                return self._visit_statements(node.orelse)
             self._bind_target_unknown(node.target)
             self._bind_literal(node.target.id, iterable)
-            for statement in node.body:
-                self.visit(statement)
-            for statement in node.orelse:
-                self.visit(statement)
-            return
+            return finish_loop(
+                self._visit_statements(node.body), zero_iteration=False
+            )
         iterated_value = node.iter
         element_target = node.target
         if (
@@ -1507,61 +1686,52 @@ class _SettingVisitor(ast.NodeVisitor):
                 raise self._error(node, "configuration loop target is not statically named")
             self._bind_target_unknown(node.target)
             self.current_aliases[target_path] = element_kind
-            for statement in node.body:
-                self.visit(statement)
-            iterated_aliases = dict(self.current_aliases)
-            iterated_values = dict(self.current_values)
-            iterated_bindings = set(self.value_bindings[-1])
-            self._merge_may_alias_states(
-                (baseline_aliases, iterated_aliases),
-                (baseline_values, iterated_values),
-                (baseline_bindings, iterated_bindings),
+            return finish_loop(
+                self._visit_statements(node.body), zero_iteration=True
             )
-            for statement in node.orelse:
-                self.visit(statement)
-            return
         self._bind_target_unknown(node.target)
-        for statement in node.body:
-            self.visit(statement)
-        iterated_aliases = dict(self.current_aliases)
-        iterated_values = dict(self.current_values)
-        iterated_bindings = set(self.value_bindings[-1])
-        self._merge_may_alias_states(
-            (baseline_aliases, iterated_aliases),
-            (baseline_values, iterated_values),
-            (baseline_bindings, iterated_bindings),
+        return finish_loop(
+            self._visit_statements(node.body), zero_iteration=True
         )
-        for statement in node.orelse:
-            self.visit(statement)
 
     visit_AsyncFor = visit_For
 
-    def visit_While(self, node: ast.While) -> None:
+    def visit_While(self, node: ast.While) -> _StatementFlow:
         self._reject_conditional_alias_reassignment(node)
-        self.generic_visit(node)
+        self.visit(node.test)
+        baseline = self._capture_state()
+        body_flow = self._visit_statements(node.body)
+        break_states = [
+            state for kind, state in body_flow.terminals if kind == "break"
+        ]
+        normal_states = [
+            state for kind, state in body_flow.terminals if kind == "continue"
+        ]
+        propagated = [
+            (kind, state)
+            for kind, state in body_flow.terminals
+            if kind not in {"break", "continue"}
+        ]
+        if body_flow.falls_through:
+            normal_states.append(self._capture_state())
+        normal_states.append(baseline)
 
-    def _visit_state_branch(
-        self,
-        statements: Sequence[ast.stmt],
-        aliases: dict[str, str],
-        values: dict[str, tuple[str, ...]],
-        bindings: set[str],
-    ) -> tuple[dict[str, str], dict[str, tuple[str, ...]], set[str]]:
-        self.aliases[-1] = dict(aliases)
-        self.values[-1] = dict(values)
-        self.value_bindings[-1] = set(bindings)
-        for statement in statements:
-            self.visit(statement)
-        return (
-            dict(self.current_aliases),
-            dict(self.current_values),
-            set(self.value_bindings[-1]),
-        )
+        self._restore_state(self._merge_states(normal_states))
+        else_flow = self._visit_statements(node.orelse)
+        propagated.extend(else_flow.terminals)
+        post_states = list(break_states)
+        if else_flow.falls_through:
+            post_states.append(self._capture_state())
+        if not post_states:
+            return _StatementFlow(False, tuple(propagated))
+        self._restore_state(self._merge_states(post_states))
+        return _StatementFlow(True, tuple(propagated))
 
     def _merge_may_alias_states(
         self,
         alias_states: Sequence[dict[str, str]],
         value_states: Sequence[dict[str, tuple[str, ...]]],
+        iterable_states: Sequence[dict[str, tuple[str, ...]]],
         binding_states: Sequence[set[str]],
     ) -> None:
         merged_aliases: dict[str, str] = {}
@@ -1586,74 +1756,86 @@ class _SettingVisitor(ast.NodeVisitor):
                 )
         self.aliases[-1] = merged_aliases
         self.values[-1] = merged_values
+        self.iterables[-1] = {
+            name: tuple(
+                sorted(
+                    {
+                        value
+                        for state in iterable_states
+                        for value in state[name]
+                    }
+                )
+            )
+            for name in set.intersection(
+                *(set(state) for state in iterable_states)
+            )
+        }
         self.value_bindings[-1] = merged_bindings
 
-    def visit_Try(self, node: ast.Try) -> None:
+    def visit_Try(self, node: ast.Try) -> _StatementFlow:
         self._reject_conditional_alias_reassignment(node)
-        if not self.aliases:
-            self.generic_visit(node)
-            return
-        baseline_aliases = dict(self.current_aliases)
-        baseline_values = dict(self.current_values)
-        baseline_bindings = set(self.value_bindings[-1])
-        normal_aliases, normal_values, normal_bindings = self._visit_state_branch(
-            (*node.body, *node.orelse),
-            baseline_aliases,
-            baseline_values,
-            baseline_bindings,
-        )
-        alias_states = [normal_aliases]
-        value_states = [normal_values]
-        binding_states = [normal_bindings]
+        baseline = self._capture_state()
+        body_flow = self._visit_statements(node.body)
+        continuing_states: list[_SettingState] = []
+        terminals = list(body_flow.terminals)
+        if body_flow.falls_through:
+            else_flow = self._visit_statements(node.orelse)
+            terminals.extend(else_flow.terminals)
+            if else_flow.falls_through:
+                continuing_states.append(self._capture_state())
+        elif node.handlers:
+            # Handler matching and exception provenance are intentionally not
+            # interpreted. Retain the pre-try state as a conservative path.
+            continuing_states.append(baseline)
+
+        handler_inputs = list(body_flow.prefixes or (baseline,))
+        handler_inputs.extend(state for _, state in body_flow.terminals)
+        handler_entry = self._merge_states(handler_inputs)
         for handler in node.handlers:
-            self.aliases[-1] = dict(baseline_aliases)
-            self.values[-1] = dict(baseline_values)
-            self.value_bindings[-1] = set(baseline_bindings)
+            self._restore_state(handler_entry)
             if handler.type is not None:
                 self.visit(handler.type)
             if handler.name is not None:
                 self._bind_name_unknown(handler.name)
-            handler_aliases, handler_values, handler_bindings = (
-                self._visit_state_branch(
-                    handler.body,
-                    self.current_aliases,
-                    self.current_values,
-                    self.value_bindings[-1],
-                )
-            )
+            handler_flow = self._visit_statements(handler.body)
             if handler.name is not None:
-                self.aliases[-1] = dict(handler_aliases)
-                self.values[-1] = dict(handler_values)
-                self.value_bindings[-1] = set(handler_bindings)
                 self._bind_name_unknown(handler.name)
-                handler_aliases = dict(self.current_aliases)
-                handler_values = dict(self.current_values)
-                handler_bindings = set(self.value_bindings[-1])
-            alias_states.append(handler_aliases)
-            value_states.append(handler_values)
-            binding_states.append(handler_bindings)
-        self._merge_may_alias_states(alias_states, value_states, binding_states)
-        for statement in node.finalbody:
-            self.visit(statement)
+            terminals.extend(handler_flow.terminals)
+            if handler_flow.falls_through:
+                continuing_states.append(self._capture_state())
+
+        if node.finalbody:
+            final_inputs = list(continuing_states)
+            final_inputs.extend(state for _, state in terminals)
+            self._restore_state(
+                self._merge_states(final_inputs or [handler_entry])
+            )
+            final_flow = self._visit_statements(node.finalbody)
+            if not final_flow.falls_through:
+                return final_flow
+            terminals.extend(final_flow.terminals)
+            if continuing_states:
+                return _StatementFlow(True, tuple(terminals))
+            return _StatementFlow(False, tuple(terminals))
+
+        if continuing_states:
+            self._restore_state(self._merge_states(continuing_states))
+            return _StatementFlow(True, tuple(terminals))
+        terminal_states = [state for _, state in terminals]
+        if terminal_states:
+            self._restore_state(self._merge_states(terminal_states))
+        return _StatementFlow(False, tuple(terminals))
 
     visit_TryStar = visit_Try
 
-    def visit_Match(self, node: ast.Match) -> None:
+    def visit_Match(self, node: ast.Match) -> _StatementFlow:
         self._reject_conditional_alias_reassignment(node)
-        if not self.aliases:
-            self.generic_visit(node)
-            return
         self.visit(node.subject)
-        baseline_aliases = dict(self.current_aliases)
-        baseline_values = dict(self.current_values)
-        baseline_bindings = set(self.value_bindings[-1])
-        alias_states = [baseline_aliases]
-        value_states = [baseline_values]
-        binding_states = [baseline_bindings]
+        baseline = self._capture_state()
+        continuing = [baseline]
+        terminals: list[tuple[str, _SettingState]] = []
         for case in node.cases:
-            self.aliases[-1] = dict(baseline_aliases)
-            self.values[-1] = dict(baseline_values)
-            self.value_bindings[-1] = set(baseline_bindings)
+            self._restore_state(baseline)
             self.visit(case.pattern)
             for name in {
                 pattern.name
@@ -1669,48 +1851,44 @@ class _SettingVisitor(ast.NodeVisitor):
                 self._bind_name_unknown(name)
             if case.guard is not None:
                 self.visit(case.guard)
-            case_aliases, case_values, case_bindings = self._visit_state_branch(
-                case.body,
-                self.current_aliases,
-                self.current_values,
-                self.value_bindings[-1],
-            )
-            alias_states.append(case_aliases)
-            value_states.append(case_values)
-            binding_states.append(case_bindings)
-        self._merge_may_alias_states(alias_states, value_states, binding_states)
+            case_flow = self._visit_statements(case.body)
+            terminals.extend(case_flow.terminals)
+            if case_flow.falls_through:
+                continuing.append(self._capture_state())
+        self._restore_state(self._merge_states(continuing))
+        return _StatementFlow(True, tuple(terminals))
 
-    def visit_If(self, node: ast.If) -> None:
-        if not self.aliases:
-            self.generic_visit(node)
-            return
+    def visit_If(self, node: ast.If) -> _StatementFlow:
         self.visit(node.test)
-        baseline_aliases = dict(self.current_aliases)
-        baseline_values = dict(self.current_values)
-        baseline_bindings = set(self.value_bindings[-1])
+        baseline = self._capture_state()
 
-        self.aliases[-1] = dict(baseline_aliases)
-        self.values[-1] = dict(baseline_values)
-        self.value_bindings[-1] = set(baseline_bindings)
-        for statement in node.body:
-            self.visit(statement)
-        body_aliases = dict(self.current_aliases)
-        body_values = dict(self.current_values)
-        body_bindings = set(self.value_bindings[-1])
+        self._restore_state(baseline)
+        body_flow = self._visit_statements(node.body)
+        body_state = self._capture_state() if body_flow.falls_through else None
+        continuing = [body_state] if body_state is not None else []
 
-        self.aliases[-1] = dict(baseline_aliases)
-        self.values[-1] = dict(baseline_values)
-        self.value_bindings[-1] = set(baseline_bindings)
-        for statement in node.orelse:
-            self.visit(statement)
-        else_aliases = dict(self.current_aliases)
-        else_values = dict(self.current_values)
-        else_bindings = set(self.value_bindings[-1])
-        self._merge_may_alias_states(
-            (body_aliases, else_aliases),
-            (body_values, else_values),
-            (body_bindings, else_bindings),
-        )
+        self._restore_state(baseline)
+        else_flow = self._visit_statements(node.orelse)
+        else_state = self._capture_state() if else_flow.falls_through else None
+        if else_state is not None:
+            continuing.append(else_state)
+
+        terminals = body_flow.terminals + else_flow.terminals
+        if not continuing:
+            terminal_states = [state for _, state in terminals]
+            if terminal_states:
+                self._restore_state(self._merge_states(terminal_states))
+            return _StatementFlow(False, terminals)
+        self._restore_state(self._merge_states(continuing))
+        for name in baseline.aliases:
+            if (
+                body_state is not None
+                and else_state is not None
+                and (name in body_state.aliases)
+                != (name in else_state.aliases)
+            ):
+                self.current_aliases[name] = "dynamic"
+        return _StatementFlow(True, terminals)
 
     def visit_Subscript(self, node: ast.Subscript) -> None:
         if not isinstance(node.ctx, ast.Load):
