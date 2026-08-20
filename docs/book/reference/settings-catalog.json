@@ -3911,6 +3911,1066 @@
         "drawbacks": "Large lists lengthen every sampling event; legacy prompts cannot express per-item overrides.",
         "example": "samples: [{prompt: \"a portrait\", seed: 42}]"
       }
+    },
+    {
+      "id": "sample.item.ctrl_idx",
+      "ui_label": null,
+      "scope": "sample",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample.samples[*].ctrl_idx"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "nonnegative-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "SampleItem.__init__",
+          "key": "ctrl_idx",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "sample-item-ctrl-idx",
+        "description": "Selects which control input slot this sample item addresses.",
+        "benefits": "Targets the intended control stream for multi-control models.",
+        "drawbacks": "An index unsupported by the model can select no useful control.",
+        "example": "ctrl_idx: 0"
+      }
+    },
+    {
+      "id": "sample.item.ctrl_img",
+      "ui_label": null,
+      "scope": "sample",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample.samples[*].ctrl_img"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "SampleItem.__init__",
+          "key": "ctrl_img",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "sample-item-ctrl-img",
+        "description": "Sets the primary control image for this sample item.",
+        "benefits": "Evaluates conditioning against a fixed reference input.",
+        "drawbacks": "A missing or incompatible image prevents meaningful controlled evaluation.",
+        "example": "ctrl_img: control.png"
+      }
+    },
+    {
+      "id": "sample.item.ctrl_img_1",
+      "ui_label": null,
+      "scope": "sample",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample.samples[*].ctrl_img_1"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "sample item ctrl_img"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "sample.item.ctrl_img",
+          "kind": "fallback",
+          "description": "When omitted, this item uses sample.item.ctrl_img.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "SampleItem.__init__",
+          "key": "ctrl_img_1",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "sample-item-ctrl-img-1",
+        "description": "Sets control image slot one, falling back to the primary control image.",
+        "benefits": "Supports models with explicitly numbered control inputs.",
+        "drawbacks": "Duplicated or misordered control images can obscure which condition is active.",
+        "example": "ctrl_img_1: control.png"
+      }
+    },
+    {
+      "id": "sample.item.ctrl_img_2",
+      "ui_label": null,
+      "scope": "sample",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample.samples[*].ctrl_img_2"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "SampleItem.__init__",
+          "key": "ctrl_img_2",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "sample-item-ctrl-img-2",
+        "description": "Sets the optional second control image.",
+        "benefits": "Exercises a model's second control condition.",
+        "drawbacks": "It has no effect for models without that control slot.",
+        "example": "ctrl_img_2: control.png"
+      }
+    },
+    {
+      "id": "sample.item.ctrl_img_3",
+      "ui_label": null,
+      "scope": "sample",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample.samples[*].ctrl_img_3"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "SampleItem.__init__",
+          "key": "ctrl_img_3",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "sample-item-ctrl-img-3",
+        "description": "Sets the optional third control image.",
+        "benefits": "Exercises a model's third control condition.",
+        "drawbacks": "It has no effect for models without that control slot.",
+        "example": "ctrl_img_3: control.png"
+      }
+    },
+    {
+      "id": "sample.item.do_cfg_norm",
+      "ui_label": null,
+      "scope": "sample",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample.samples[*].do_cfg_norm"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "SampleItem.__init__",
+          "key": "do_cfg_norm",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "sample-item-do-cfg-norm",
+        "description": "Enables classifier-free-guidance normalization for this item.",
+        "benefits": "Allows one model-specific evaluation item to use normalized guidance.",
+        "drawbacks": "It changes output characteristics and is unsupported by many models.",
+        "example": "do_cfg_norm: false"
+      }
+    },
+    {
+      "id": "sample.item.fps",
+      "ui_label": null,
+      "scope": "sample",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample.samples[*].fps"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "sample.fps"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "sample.fps",
+          "kind": "fallback",
+          "description": "When omitted, this item uses sample.fps.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "SampleItem.__init__",
+          "key": "fps",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "sample-item-fps",
+        "description": "Overrides animation playback rate for this item.",
+        "benefits": "Tests a different playback rate without changing every sample.",
+        "drawbacks": "It changes playback timing, not generated motion.",
+        "example": "fps: <inherited>"
+      }
+    },
+    {
+      "id": "sample.item.guidance_scale",
+      "ui_label": null,
+      "scope": "sample",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample.samples[*].guidance_scale"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "sample.guidance_scale"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "sample.guidance_scale",
+          "kind": "fallback",
+          "description": "When omitted, this item uses sample.guidance_scale.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "SampleItem.__init__",
+          "key": "guidance_scale",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "sample-item-guidance-scale",
+        "description": "Overrides classifier-free guidance strength for this item.",
+        "benefits": "Tests prompt adherence at an item-specific strength.",
+        "drawbacks": "Different strengths make direct visual comparisons less controlled.",
+        "example": "guidance_scale: <inherited>"
+      }
+    },
+    {
+      "id": "sample.item.height",
+      "ui_label": null,
+      "scope": "sample",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample.samples[*].height"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "sample.height"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "sample.height",
+          "kind": "fallback",
+          "description": "When omitted, this item uses sample.height.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "SampleItem.__init__",
+          "key": "height",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "sample-item-height",
+        "description": "Overrides output height for this item.",
+        "benefits": "Supports fixed evaluation at multiple aspect ratios.",
+        "drawbacks": "Larger sizes increase generation memory and time.",
+        "example": "height: <inherited>"
+      }
+    },
+    {
+      "id": "sample.item.neg",
+      "ui_label": null,
+      "scope": "sample",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample.samples[*].neg"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string-or-boolean",
+        "supported_type": "negative-prompt-or-false",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "sample.neg"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "sample.neg",
+          "kind": "fallback",
+          "description": "When omitted, this item uses sample.neg.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "SampleItem.__init__",
+          "key": "neg",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "sample-item-neg",
+        "description": "Overrides the shared negative prompt for this item.",
+        "benefits": "Targets item-specific unwanted traits.",
+        "drawbacks": "A broad negative prompt can suppress intended content.",
+        "example": "neg: <inherited>"
+      }
+    },
+    {
+      "id": "sample.item.network_multiplier",
+      "ui_label": null,
+      "scope": "sample",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample.samples[*].network_multiplier"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "sample.network_multiplier"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "A string value is converted to float; conversion failure prints a warning and uses 1.0.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "sample.network_multiplier",
+          "kind": "fallback",
+          "description": "When omitted, this item uses sample.network_multiplier.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "SampleItem.__init__",
+          "key": "network_multiplier",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "sample-item-network-multiplier",
+        "description": "Overrides trained-network strength for this item.",
+        "benefits": "Compares the learned effect at a chosen multiplier.",
+        "drawbacks": "A deployment-mismatched value can misrepresent progress.",
+        "example": "network_multiplier: <inherited>"
+      }
+    },
+    {
+      "id": "sample.item.num_frames",
+      "ui_label": null,
+      "scope": "sample",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample.samples[*].num_frames"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "sample.num_frames"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "sample.num_frames",
+          "kind": "fallback",
+          "description": "When omitted, this item uses sample.num_frames.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "SampleItem.__init__",
+          "key": "num_frames",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "sample-item-num-frames",
+        "description": "Overrides generated frame count for this item.",
+        "benefits": "Evaluates a specific temporal length.",
+        "drawbacks": "More frames increase generation memory and time.",
+        "example": "num_frames: <inherited>"
+      }
+    },
+    {
+      "id": "sample.item.prompt",
+      "ui_label": null,
+      "scope": "sample",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample.samples[*].prompt"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "SampleItem.__init__",
+          "key": "prompt",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "sample-item-prompt",
+        "description": "Sets the positive prompt for this sample item.",
+        "benefits": "Creates a stable qualitative evaluation target.",
+        "drawbacks": "A missing prompt is omitted from the legacy prompts view and may not produce a useful evaluation.",
+        "example": "prompt: a portrait"
+      }
+    },
+    {
+      "id": "sample.item.sample_steps",
+      "ui_label": null,
+      "scope": "sample",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample.samples[*].sample_steps"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "sample.sample_steps"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "sample.sample_steps",
+          "kind": "fallback",
+          "description": "When omitted, this item uses sample.sample_steps.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "SampleItem.__init__",
+          "key": "sample_steps",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "sample-item-sample-steps",
+        "description": "Overrides denoising steps for this item.",
+        "benefits": "Tests a chosen quality/speed point.",
+        "drawbacks": "Many steps slow sampling and can reduce comparability.",
+        "example": "sample_steps: <inherited>"
+      }
+    },
+    {
+      "id": "sample.item.seed",
+      "ui_label": null,
+      "scope": "sample",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample.samples[*].seed"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "SampleItem.__init__",
+          "key": "seed",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "sample-item-seed",
+        "description": "Sets an optional fixed seed; null requests automatic seed selection.",
+        "benefits": "Supports either exact repeatability or automatic variation.",
+        "drawbacks": "Automatic seeds make repeated progress samples harder to compare.",
+        "example": "seed: <inherited>"
+      }
+    },
+    {
+      "id": "sample.item.width",
+      "ui_label": null,
+      "scope": "sample",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample.samples[*].width"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "sample.width"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "sample.width",
+          "kind": "fallback",
+          "description": "When omitted, this item uses sample.width.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "SampleItem.__init__",
+          "key": "width",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "sample-item-width",
+        "description": "Overrides output width for this item.",
+        "benefits": "Supports fixed evaluation at multiple aspect ratios.",
+        "drawbacks": "Larger sizes increase generation memory and time.",
+        "example": "width: <inherited>"
+      }
     }
   ]
 }
