@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -101,6 +102,11 @@ class ManifestContractTests(unittest.TestCase):
     def write_manifest(self, data):
         path = Path(self.directory.name) / "book-manifest.json"
         path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def write_raw_manifest(self, data):
+        path = Path(self.directory.name) / "book-manifest.json"
+        path.write_text(data, encoding="utf-8")
         return path
 
     def setUp(self):
@@ -258,6 +264,35 @@ class ManifestContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, field):
                     load_book_manifest(self.write_manifest(data))
 
+    def test_manifest_rejects_duplicate_json_object_keys_at_every_depth(self):
+        raw_manifests = (
+            (
+                '{"schema_version": 1, "schema_version": 2, '
+                '"book_revision": 1, "verified_date": "2026-08-14", '
+                '"pages": [], "preset_architectures": [], '
+                '"focused_architectures": [], "full_architectures": [], '
+                '"required_footer": "footer"}',
+                "schema_version",
+            ),
+            (
+                '{"schema_version": 1, "book_revision": 1, '
+                '"verified_date": "2026-08-14", "pages": '
+                '[{"path": "README.md", "path": "glossary.md", '
+                '"previous": null, "next": null}], '
+                '"preset_architectures": [], "focused_architectures": [], '
+                '"full_architectures": [], "required_footer": "footer"}',
+                "path",
+            ),
+        )
+        for raw_manifest, duplicate_key in raw_manifests:
+            with self.subTest(duplicate_key=duplicate_key):
+                manifest_path = self.write_raw_manifest(raw_manifest)
+
+                with self.assertRaisesRegex(ValueError, duplicate_key) as raised:
+                    load_book_manifest(manifest_path)
+
+                self.assertNotIn(str(manifest_path.parent), str(raised.exception))
+
     def test_manifest_rejects_boolean_and_nonpositive_integer_fields(self):
         for field, value in (
             ("schema_version", True),
@@ -340,6 +375,32 @@ class BookArtifactTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_runner_rejects_missing_training_book_package_initializer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repository_root = Path(directory)
+            runner = repository_root / "ui/testing/runTrainingBookTests.mjs"
+            runner.parent.mkdir(parents=True)
+            shutil.copy(
+                REPOSITORY_ROOT / "ui/testing/runTrainingBookTests.mjs", runner
+            )
+            for artifact in (
+                "testing/training_book_validation_test.py",
+                "scripts/validate_training_book.py",
+                "scripts/training_book/manifest.py",
+                "docs/book/book-manifest.json",
+                "docs/book/README.md",
+            ):
+                artifact_path = repository_root / artifact
+                artifact_path.parent.mkdir(parents=True, exist_ok=True)
+                artifact_path.touch()
+
+            result = subprocess.run(
+                ["node", runner], capture_output=True, text=True, check=False
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scripts/training_book/__init__.py", result.stderr)
 
 
 if __name__ == "__main__":

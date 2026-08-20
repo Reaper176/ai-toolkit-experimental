@@ -9,6 +9,7 @@ const testFile = join(repositoryRoot, 'testing', 'training_book_validation_test.
 const requiredArtifacts = [
   testFile,
   join(repositoryRoot, 'scripts', 'validate_training_book.py'),
+  join(repositoryRoot, 'scripts', 'training_book', '__init__.py'),
   join(repositoryRoot, 'scripts', 'training_book', 'manifest.py'),
   join(repositoryRoot, 'docs', 'book', 'book-manifest.json'),
   join(repositoryRoot, 'docs', 'book', 'README.md'),

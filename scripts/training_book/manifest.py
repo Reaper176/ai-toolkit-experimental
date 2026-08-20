@@ -47,6 +47,17 @@ def _invalid(field: str, value: object, reason: str) -> ValueError:
     return ValueError(f"{field} has invalid value {value!r}: {reason}")
 
 
+def _reject_duplicate_object_keys(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _invalid("JSON object key", key, "duplicate key")
+        result[key] = value
+    return result
+
+
 def _require_exact_fields(value: dict[str, object], expected: set[str], field: str) -> None:
     missing = sorted(expected.difference(value))
     if missing:
@@ -108,7 +119,10 @@ def load_book_manifest(path: Path) -> BookManifest:
     """Load a JSON manifest without retaining its source filesystem path."""
 
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_object_keys,
+        )
     except json.JSONDecodeError as error:
         raise ValueError(
             f"manifest has invalid JSON at line {error.lineno}, column {error.colno}"
