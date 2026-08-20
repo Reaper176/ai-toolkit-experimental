@@ -938,6 +938,97 @@ class ChildResolver(BaseResolver):
                 with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
                     discover_python_settings(self.repository_root, (path,))
 
+    def test_discovery_rejects_exception_target_receiver_bindings(self):
+        self.write_source(
+            "exception_receiver.py",
+            """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def load(self):
+        try:
+            external()
+        except Exception as self:
+            pass
+        return self.resolve("dit")
+""",
+        )
+        with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+            discover_python_settings(
+                self.repository_root, ("exception_receiver.py",)
+            )
+
+    def test_discovery_rejects_match_capture_receiver_bindings(self):
+        patterns = ("self", "[*self]", "{**self}")
+        for index, pattern in enumerate(patterns):
+            with self.subTest(pattern=pattern):
+                path = f"match_receiver_{index}.py"
+                self.write_source(
+                    path,
+                    """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def load(self, value):
+        match value:
+            case """
+                    + pattern
+                    + ":\n                pass\n"
+                    + '        return self.resolve("dit")\n',
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_rejects_local_definition_receiver_bindings(self):
+        definitions = (
+            "def self():\n            pass",
+            "async def self():\n            pass",
+            "class self:\n            pass",
+        )
+        for index, definition in enumerate(definitions):
+            with self.subTest(definition=definition):
+                path = f"definition_receiver_{index}.py"
+                self.write_source(
+                    path,
+                    """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def load(self):
+        """
+                    + definition
+                    + '\n        return self.resolve("dit")\n',
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_rejects_import_receiver_bindings(self):
+        cases = (
+            ("self", "import package as self"),
+            ("package", "import package.module"),
+            ("self", "from package import value as self"),
+            ("self", "from package import self"),
+        )
+        for index, (receiver, import_statement) in enumerate(cases):
+            with self.subTest(import_statement=import_statement):
+                path = f"import_receiver_{index}.py"
+                self.write_source(
+                    path,
+                    """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def load("""
+                    + receiver
+                    + "):\n        "
+                    + import_statement
+                    + "\n        return "
+                    + receiver
+                    + '.resolve("dit")\n',
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+                    discover_python_settings(self.repository_root, (path,))
+
     def test_discovery_supports_unconventional_bound_receiver_names(self):
         for index, signature in enumerate(("this", "this, /")):
             with self.subTest(signature=signature):

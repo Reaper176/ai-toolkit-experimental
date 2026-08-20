@@ -451,16 +451,36 @@ def _bound_receiver(
     if not positional:
         return None, True
     receiver = positional[0].arg
-    rebound = any(
-        (
+
+    def binds_receiver(node: ast.AST) -> bool:
+        if (
             isinstance(node, ast.Name)
             and node.id == receiver
             and isinstance(node.ctx, (ast.Store, ast.Del))
-        )
-        or (
+        ):
+            return True
+        if (
             isinstance(node, (ast.Global, ast.Nonlocal))
             and receiver in node.names
-        )
+        ):
+            return True
+        if isinstance(node, ast.ExceptHandler) and node.name == receiver:
+            return True
+        if isinstance(node, (ast.MatchAs, ast.MatchStar)):
+            return node.name == receiver
+        if isinstance(node, ast.MatchMapping):
+            return node.rest == receiver
+        if isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        ):
+            return node.name == receiver
+        if isinstance(node, ast.alias):
+            bound_name = node.asname or node.name.split(".", maxsplit=1)[0]
+            return node.name != "*" and bound_name == receiver
+        return False
+
+    rebound = any(
+        binds_receiver(node)
         for statement in function.body
         for node in ast.walk(statement)
     )
