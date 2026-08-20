@@ -2739,6 +2739,235 @@ model_config.model_kwargs.get(f"{component}_path")
                     ("dit_path",),
                 )
 
+    def test_discovery_preserves_unpack_element_evaluation_states(self):
+        cases = (
+            """component = external()
+first, second = component, (component := "dit")
+model_config.model_kwargs.get(f"{first}_path")
+""",
+            """component = external()
+first, (second, third) = component, ("vae", (component := "dit"))
+model_config.model_kwargs.get(f"{first}_path")
+""",
+            """component = external()
+first, *middle, last = "dit", component, (component := "vae")
+for item in middle:
+    model_config.model_kwargs.get(f"{item}_path")
+""",
+        )
+        for index, body in enumerate(cases):
+            with self.subTest(index=index):
+                path = f"unpack_evaluation_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(
+                    DiscoveryError, "dynamic configuration"
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
+        self.write_source(
+            "unpack_evaluation_positive.py",
+            """component = external()
+first, second = component, (component := "dit")
+model_config.model_kwargs.get(f"{second}_path")
+""",
+        )
+        self.assertEqual(
+            tuple(
+                fact.key
+                for fact in discover_python_settings(
+                    self.repository_root,
+                    ("unpack_evaluation_positive.py",),
+                )
+            ),
+            ("dit_path",),
+        )
+
+    def test_discovery_proves_accessor_derived_keys_in_source_order(self):
+        template = """class BaseJob:
+    def get_conf(self, key, default=None):
+        BODY
+    def load(self):
+        return self.get_conf("steps", 1)
+"""
+        bodies = (
+            "keys = key.split('.')\n        keys = external()\n        for subkey in keys:\n            return self.config[subkey]",
+            "keys = key.split('.')\n        del keys\n        for subkey in keys:\n            return self.config[subkey]",
+            "if external():\n            keys = key.split('.')\n        for subkey in keys:\n            return self.config[subkey]",
+            "keys = key.split('.')\n        aliases = keys\n        keys = aliases\n        for subkey in keys:\n            return self.config[subkey]",
+            "keys = key.split('.')\n        aliases = keys\n        for subkey in keys:\n            return self.config[subkey]",
+            "return self.config[subkey]\n        keys = key.split('.')\n        for subkey in keys:\n            return self.config[subkey]",
+        )
+        for index, body in enumerate(bodies):
+            with self.subTest(index=index):
+                self.write_source(
+                    "jobs/BaseJob.py", template.replace("BODY", body)
+                )
+                with self.assertRaisesRegex(
+                    DiscoveryError, "dynamic configuration key"
+                ):
+                    discover_python_settings(
+                        self.repository_root, ("jobs/BaseJob.py",)
+                    )
+
+    def test_discovery_visits_store_and_delete_target_expressions(self):
+        self.write_source(
+            "dynamic_store_target.py",
+            "sink[kwargs.get(external_key())] = 1\n",
+        )
+        with self.assertRaisesRegex(
+            DiscoveryError, "dynamic configuration key"
+        ):
+            discover_python_settings(
+                self.repository_root, ("dynamic_store_target.py",)
+            )
+
+        surfaces = (
+            (
+                "delete_target.py",
+                "del sink[kwargs.get('delete_slot')]\n",
+                "delete_slot",
+            ),
+            (
+                "with_target.py",
+                "with manager() as sink[kwargs.get('with_slot')]:\n    pass\n",
+                "with_slot",
+            ),
+            (
+                "loop_target.py",
+                "for sink[kwargs.get('loop_slot')] in values:\n    pass\n",
+                "loop_slot",
+            ),
+            (
+                "attribute_store_target.py",
+                "sink_factory(kwargs.get('base_slot')).value = 1\n",
+                "base_slot",
+            ),
+        )
+        for path, body, key in surfaces:
+            with self.subTest(path=path):
+                self.write_source(path, body)
+                self.assertEqual(
+                    tuple(
+                        (fact.key, fact.read_kind)
+                        for fact in discover_python_settings(
+                            self.repository_root, (path,)
+                        )
+                    ),
+                    ((key, "kwargs.get"),),
+                )
+
+        self.write_source(
+            "empty_loop_target.py",
+            "for sink[kwargs.get('never')] in ():\n    pass\n",
+        )
+        self.assertEqual(
+            discover_python_settings(
+                self.repository_root, ("empty_loop_target.py",)
+            ),
+            (),
+        )
+
+    def test_discovery_evaluates_get_conf_receiver_before_key(self):
+        self.write_source(
+            "get_conf_evaluation_order.py",
+            """key = "steps"
+providers[(key := external_key())].get_conf(key)
+""",
+        )
+        with self.assertRaisesRegex(
+            DiscoveryError, "dynamic configuration key"
+        ):
+            discover_python_settings(
+                self.repository_root, ("get_conf_evaluation_order.py",)
+            )
+
+    def test_discovery_indexes_reflective_identity_binders(self):
+        binders = (
+            "from builtins import getattr as lookup\n        lookup(self, 'resolve')('vae')",
+            "lookup: object = getattr\n        lookup(self, 'resolve')('vae')",
+            "lookup(self, 'resolve')('vae')",
+            "getattr(self, 'resolve')('vae')",
+        )
+        signatures = (
+            "self",
+            "self",
+            "self, lookup=getattr",
+            "self, getattr=external",
+        )
+        for index, (statements, signature) in enumerate(
+            zip(binders, signatures)
+        ):
+            with self.subTest(index=index):
+                path = f"reflective_identity_binder_{index}.py"
+                self.write_source(
+                    path,
+                    f"""class Loader:
+    def resolve(self, component):
+        return model_config.model_kwargs.get(f"{{component}}_path")
+    def load({signature}):
+        self.resolve("dit")
+        {statements}
+""",
+                )
+                with self.assertRaisesRegex(
+                    DiscoveryError, "dynamic parameter call site"
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_precomputes_nonlocal_owners_and_closure_effects(self):
+        self.write_source(
+            "late_nonlocal_owner.py",
+            """def outer(model_config):
+    component = "vae"
+    def middle():
+        def mutate():
+            nonlocal component
+            component = external()
+        component = "dit"
+        mutate()
+        return model_config.model_kwargs.get(f"{component}_path")
+    return middle()
+""",
+        )
+        with self.assertRaisesRegex(DiscoveryError, "dynamic configuration"):
+            discover_python_settings(
+                self.repository_root, ("late_nonlocal_owner.py",)
+            )
+
+        safe_controls = (
+            """def outer(model_config):
+    component = "dit"
+    unrelated = "vae"
+    def inspect():
+        nonlocal component
+        return component
+    inspect()
+    return model_config.model_kwargs.get(f"{component}_path")
+""",
+            """def outer(model_config):
+    component = "dit"
+    unrelated = "vae"
+    def mutate():
+        nonlocal unrelated
+        unrelated = external()
+    mutate()
+    return model_config.model_kwargs.get(f"{component}_path")
+""",
+        )
+        for index, body in enumerate(safe_controls):
+            with self.subTest(control=index):
+                path = f"safe_closure_{index}.py"
+                self.write_source(path, body)
+                self.assertEqual(
+                    tuple(
+                        fact.key
+                        for fact in discover_python_settings(
+                            self.repository_root, (path,)
+                        )
+                    ),
+                    ("dit_path",),
+                )
+
     def test_discovery_supports_unconventional_bound_receiver_names(self):
         for index, signature in enumerate(("this", "this, /")):
             with self.subTest(signature=signature):

@@ -63,6 +63,13 @@ class _SettingState:
     bindings: set[str]
 
 
+@dataclass(frozen=True)
+class _AssignmentResolution:
+    kind: str | None
+    literals: tuple[str, ...] | None
+    iterable: tuple[str, ...] | None
+
+
 @dataclass
 class _StatementFlow:
     falls_through: bool
@@ -349,11 +356,10 @@ def _reflective_method_lookup(
 ) -> tuple[ast.AST, str | None, bool] | None:
     if not isinstance(node, ast.Call) or node.keywords:
         return None
-    if _attribute_path(node.func) in {"getattr", "builtins.getattr"} and len(
-        node.args
-    ) in {2, 3}:
+    path = _attribute_path(node.func)
+    if path in {"getattr", "builtins.getattr"} and len(node.args) in {2, 3}:
         receiver, name = node.args[:2]
-        ambiguous = False
+        ambiguous = path.split(".", maxsplit=1)[0] in aliases
     elif (
         isinstance(node.func, ast.Name)
         and node.func.id in aliases
@@ -372,7 +378,7 @@ def _reflective_method_lookup(
         _attribute_path(node.func) == "object.__getattribute__" and len(node.args) == 2
     ):
         receiver, name = node.args
-        ambiguous = False
+        ambiguous = "object" in aliases
     else:
         return None
     method_name = (
@@ -1033,6 +1039,8 @@ class _SettingVisitor(ast.NodeVisitor):
         self.iterables: list[dict[str, tuple[str, ...]]] = [{}]
         self.value_bindings: list[set[str]] = [set()]
         self.scope_frames: list[str] = ["module"]
+        self.lexical_locals: list[set[str]] = [set()]
+        self.volatile_bindings: list[set[str]] = [set()]
         self.pending_class_bindings: list[tuple[int, str]] = []
         self.binding_declarations: list[dict[str, int]] = []
         self.expression_prefix_frames: list[tuple[int, list[_SettingState]]] = []
@@ -1147,14 +1155,20 @@ class _SettingVisitor(ast.NodeVisitor):
         kind = self._visible_alias_state(path)
         return None if kind == "shadowed" else kind
 
-    def _push_scope(self, frame: str) -> None:
+    def _push_scope(
+        self, frame: str, lexical_locals: Iterable[str] = ()
+    ) -> None:
         self.aliases.append({})
         self.values.append({})
         self.iterables.append({})
         self.value_bindings.append(set())
         self.scope_frames.append(frame)
+        self.lexical_locals.append(set(lexical_locals))
+        self.volatile_bindings.append(set())
 
     def _pop_scope(self) -> None:
+        self.volatile_bindings.pop()
+        self.lexical_locals.pop()
         self.scope_frames.pop()
         self.value_bindings.pop()
         self.iterables.pop()
@@ -1182,6 +1196,9 @@ class _SettingVisitor(ast.NodeVisitor):
     ) -> None:
         if frame_index is None:
             frame_index = self._binding_frame(name)
+        if name in self.volatile_bindings[frame_index]:
+            self._bind_unknown(name, frame_index)
+            return
         self.values[frame_index][name] = values
         if iterable_values is None:
             self.iterables[frame_index].pop(name, None)
@@ -1370,49 +1387,91 @@ class _SettingVisitor(ast.NodeVisitor):
 
         derived_keys = {"key"}
         derived_collections: set[str] = set()
+        allowed_derived_key_nodes: set[int] = set()
         containers = {"config", "self.config"}
         allow_value_alias = (
             self.source,
             self.symbol,
         ) == ("jobs/process/BaseProcess.py", "BaseProcess.get_conf")
-        changed = True
-        while changed:
-            changed = False
-            for inner in ast.walk(function):
+        for statement in function.body:
+            assigned_name: str | None = None
+            assigned_value: ast.AST | None = None
+            if (
+                isinstance(statement, ast.Assign)
+                and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Name)
+            ):
+                assigned_name = statement.targets[0].id
+                assigned_value = statement.value
+            elif (
+                isinstance(statement, ast.AnnAssign)
+                and isinstance(statement.target, ast.Name)
+                and statement.value is not None
+            ):
+                assigned_name = statement.target.id
+                assigned_value = statement.value
+
+            if assigned_name is not None and assigned_value is not None:
+                loaded_collections = {
+                    inner.id
+                    for inner in ast.walk(assigned_value)
+                    if isinstance(inner, ast.Name)
+                    and isinstance(inner.ctx, ast.Load)
+                    and inner.id in derived_collections
+                }
+                derived_collections.difference_update(loaded_collections)
+                value_path = _attribute_path(assigned_value)
                 if (
-                    isinstance(inner, ast.Assign)
-                    and len(inner.targets) == 1
-                    and isinstance(inner.targets[0], ast.Name)
+                    allow_value_alias
+                    and assigned_name == "value"
+                    and value_path in containers
                 ):
-                    target = inner.targets[0].id
-                    value_path = _attribute_path(inner.value)
-                    if (
-                        allow_value_alias
-                        and target == "value"
-                        and value_path in containers
-                        and target not in containers
-                    ):
-                        containers.add(target)
-                        changed = True
-                    if (
-                        isinstance(inner.value, ast.Call)
-                        and isinstance(inner.value.func, ast.Attribute)
-                        and inner.value.func.attr == "split"
-                        and isinstance(inner.value.func.value, ast.Name)
-                        and inner.value.func.value.id in derived_keys
-                        and target not in derived_collections
-                    ):
-                        derived_collections.add(target)
-                        changed = True
+                    containers.add(assigned_name)
                 if (
-                    isinstance(inner, (ast.For, ast.AsyncFor))
-                    and isinstance(inner.target, ast.Name)
-                    and isinstance(inner.iter, ast.Name)
-                    and inner.iter.id in derived_collections
-                    and inner.target.id not in derived_keys
+                    isinstance(assigned_value, ast.Call)
+                    and isinstance(assigned_value.func, ast.Attribute)
+                    and assigned_value.func.attr == "split"
+                    and isinstance(assigned_value.func.value, ast.Name)
+                    and assigned_value.func.value.id in derived_keys
                 ):
-                    derived_keys.add(inner.target.id)
-                    changed = True
+                    derived_collections.add(assigned_name)
+                else:
+                    derived_collections.discard(assigned_name)
+                continue
+
+            if (
+                isinstance(statement, (ast.For, ast.AsyncFor))
+                and isinstance(statement.target, ast.Name)
+                and isinstance(statement.iter, ast.Name)
+                and statement.iter.id in derived_collections
+            ):
+                target = statement.target.id
+                rebound_target = any(
+                    isinstance(inner, ast.Name)
+                    and inner.id == target
+                    and isinstance(inner.ctx, (ast.Store, ast.Del))
+                    for body_statement in statement.body
+                    for inner in ast.walk(body_statement)
+                )
+                if not rebound_target:
+                    derived_keys.add(target)
+                    allowed_derived_key_nodes.update(
+                        id(inner)
+                        for body_statement in statement.body
+                        for inner in ast.walk(body_statement)
+                        if isinstance(inner, ast.Name)
+                        and inner.id == target
+                        and isinstance(inner.ctx, ast.Load)
+                    )
+                continue
+
+            rebound = {
+                inner.id
+                for inner in ast.walk(statement)
+                if isinstance(inner, ast.Name)
+                and isinstance(inner.ctx, (ast.Store, ast.Del))
+            }
+            derived_collections.difference_update(rebound)
 
         found_read = False
         for inner in ast.walk(function):
@@ -1445,7 +1504,10 @@ class _SettingVisitor(ast.NodeVisitor):
             found_read = True
             if not (
                 isinstance(key_node, ast.Name)
-                and key_node.id in derived_keys
+                and (
+                    key_node.id == "key"
+                    or id(key_node) in allowed_derived_key_nodes
+                )
             ):
                 return False
         return found_read
@@ -1585,10 +1647,10 @@ class _SettingVisitor(ast.NodeVisitor):
         for expression in definition_expressions:
             self.visit(expression)
         self._bind_name_unknown(node.name)
-        declarations = self._function_binding_declarations(node)
+        lexical_locals, declarations = self._function_binding_declarations(node)
         self.function_stack.append(node.name)
         self.function_nodes.append(node)
-        self._push_scope("function")
+        self._push_scope("function", lexical_locals)
         self.binding_declarations.append(declarations)
         if node.args.kwarg is not None and node.args.kwarg.arg == "kwargs":
             self.current_aliases["kwargs"] = "kwargs"
@@ -1618,9 +1680,20 @@ class _SettingVisitor(ast.NodeVisitor):
 
     def _function_binding_declarations(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef
-    ) -> dict[str, int]:
+    ) -> tuple[set[str], dict[str, int]]:
         global_names: set[str] = set()
         nonlocal_names: set[str] = set()
+        bound_names: set[str] = {
+            argument.arg
+            for argument in (
+                *node.args.posonlyargs,
+                *node.args.args,
+                *node.args.kwonlyargs,
+                *(() if node.args.vararg is None else (node.args.vararg,)),
+                *(() if node.args.kwarg is None else (node.args.kwarg,)),
+            )
+        }
+        written_names: set[str] = set()
 
         class DeclarationVisitor(ast.NodeVisitor):
             def visit_Global(self, declaration: ast.Global) -> None:
@@ -1630,6 +1703,8 @@ class _SettingVisitor(ast.NodeVisitor):
                 nonlocal_names.update(declaration.names)
 
             def visit_FunctionDef(self, inner: ast.FunctionDef) -> None:
+                bound_names.add(inner.name)
+                written_names.add(inner.name)
                 return
 
             visit_AsyncFunctionDef = visit_FunctionDef
@@ -1638,12 +1713,86 @@ class _SettingVisitor(ast.NodeVisitor):
                 return
 
             def visit_ClassDef(self, inner: ast.ClassDef) -> None:
+                bound_names.add(inner.name)
+                written_names.add(inner.name)
                 return
+
+            def visit_Name(self, inner: ast.Name) -> None:
+                if isinstance(inner.ctx, (ast.Store, ast.Del)):
+                    bound_names.add(inner.id)
+                    written_names.add(inner.id)
+
+            def visit_ExceptHandler(self, inner: ast.ExceptHandler) -> None:
+                if inner.type is not None:
+                    self.visit(inner.type)
+                if inner.name is not None:
+                    bound_names.add(inner.name)
+                    written_names.add(inner.name)
+                for statement in inner.body:
+                    self.visit(statement)
+
+            def visit_Import(self, inner: ast.Import) -> None:
+                for imported in inner.names:
+                    name = imported.asname or imported.name.split(".", maxsplit=1)[0]
+                    bound_names.add(name)
+                    written_names.add(name)
+
+            def visit_ImportFrom(self, inner: ast.ImportFrom) -> None:
+                for imported in inner.names:
+                    if imported.name == "*":
+                        continue
+                    name = imported.asname or imported.name
+                    bound_names.add(name)
+                    written_names.add(name)
+
+            def visit_MatchAs(self, inner: ast.MatchAs) -> None:
+                if inner.pattern is not None:
+                    self.visit(inner.pattern)
+                if inner.name is not None:
+                    bound_names.add(inner.name)
+                    written_names.add(inner.name)
+
+            def visit_MatchStar(self, inner: ast.MatchStar) -> None:
+                if inner.name is not None:
+                    bound_names.add(inner.name)
+                    written_names.add(inner.name)
+
+            def visit_MatchMapping(self, inner: ast.MatchMapping) -> None:
+                for key in inner.keys:
+                    self.visit(key)
+                for pattern in inner.patterns:
+                    self.visit(pattern)
+                if inner.rest is not None:
+                    bound_names.add(inner.rest)
+                    written_names.add(inner.rest)
+
+            def _visit_comprehension(
+                self,
+                inner: ast.ListComp
+                | ast.SetComp
+                | ast.GeneratorExp
+                | ast.DictComp,
+            ) -> None:
+                for generator in inner.generators:
+                    self.visit(generator.iter)
+                    for condition in generator.ifs:
+                        self.visit(condition)
+                if isinstance(inner, ast.DictComp):
+                    self.visit(inner.key)
+                    self.visit(inner.value)
+                else:
+                    self.visit(inner.elt)
+
+            visit_ListComp = _visit_comprehension
+            visit_SetComp = _visit_comprehension
+            visit_GeneratorExp = _visit_comprehension
+            visit_DictComp = _visit_comprehension
 
         scanner = DeclarationVisitor()
         for statement in node.body:
             scanner.visit(statement)
 
+        lexical_locals = bound_names.difference(global_names, nonlocal_names)
         declarations = {name: 0 for name in global_names}
         for name in nonlocal_names:
             candidates = [
@@ -1657,12 +1806,14 @@ class _SettingVisitor(ast.NodeVisitor):
                 (
                     index
                     for index in candidates
-                    if name in self.value_bindings[index] or name in self.aliases[index]
+                    if name in self.lexical_locals[index]
                 ),
                 candidates[0],
             )
             declarations[name] = bound
-        return declarations
+            if name in written_names:
+                self.volatile_bindings[bound].add(name)
+        return lexical_locals, declarations
 
     visit_FunctionDef = _visit_function
     visit_AsyncFunctionDef = _visit_function
@@ -1767,19 +1918,70 @@ class _SettingVisitor(ast.NodeVisitor):
         )
 
     def visit_Assign(self, node: ast.Assign) -> None:
-        self.visit(node.value)
-        rhs_state = self._capture_scope_state()
+        resolutions: dict[int, _AssignmentResolution] = {}
+        self._visit_assignment_value(node.value, resolutions)
         for target in node.targets:
-            self._assign_target(target, node.value, rhs_state)
+            self._visit_assignment_target(target)
+            self._assign_target(target, node.value, resolutions)
+
+    def _visit_assignment_target(self, target: ast.AST) -> None:
+        if isinstance(target, ast.Attribute):
+            self.visit(target.value)
+            return
+        if isinstance(target, ast.Subscript):
+            self.visit(target.value)
+            self.visit(target.slice)
+            return
+        if isinstance(target, (ast.Tuple, ast.List)):
+            for element in target.elts:
+                self._visit_assignment_target(element)
+            return
+        if isinstance(target, ast.Starred):
+            self._visit_assignment_target(target.value)
+
+    def _visit_assignment_value(
+        self,
+        value: ast.AST,
+        resolutions: dict[int, _AssignmentResolution],
+    ) -> None:
+        if isinstance(value, (ast.Tuple, ast.List, ast.Set)):
+            for element in value.elts:
+                resolved_element = (
+                    element.value if isinstance(element, ast.Starred) else element
+                )
+                self._visit_assignment_value(resolved_element, resolutions)
+                if isinstance(element, ast.Starred):
+                    resolutions[id(element)] = resolutions[id(resolved_element)]
+            element_resolutions = [resolutions[id(element)] for element in value.elts]
+            literals = (
+                tuple(
+                    literal
+                    for resolution in element_resolutions
+                    for literal in resolution.literals or ()
+                )
+                if all(resolution.literals is not None for resolution in element_resolutions)
+                else None
+            )
+            iterable = literals if not any(
+                isinstance(element, (ast.Tuple, ast.List, ast.Set))
+                for element in value.elts
+            ) else None
+            resolutions[id(value)] = _AssignmentResolution(None, literals, iterable)
+            return
+        self.visit(value)
+        resolved_value = value.value if isinstance(value, ast.NamedExpr) else value
+        resolutions[id(value)] = _AssignmentResolution(
+            self._container_kind(resolved_value),
+            _literal_strings(resolved_value, self.visible_values),
+            self._iterable_strings(resolved_value),
+        )
 
     def _assign_target(
         self,
         target: ast.AST,
         value: ast.AST,
-        rhs_state: tuple[_SettingState, ...] | None = None,
+        resolutions: dict[int, _AssignmentResolution],
     ) -> None:
-        if rhs_state is None:
-            rhs_state = self._capture_scope_state()
         if isinstance(target, (ast.Tuple, ast.List)):
             if not isinstance(value, (ast.Tuple, ast.List)):
                 self._bind_target_unknown(target)
@@ -1794,7 +1996,7 @@ class _SettingVisitor(ast.NodeVisitor):
                     self._bind_target_unknown(target)
                     return
                 for element, element_value in zip(target.elts, value.elts):
-                    self._assign_target(element, element_value, rhs_state)
+                    self._assign_target(element, element_value, resolutions)
                 return
             if len(starred) != 1:
                 self._bind_target_unknown(target)
@@ -1807,7 +2009,7 @@ class _SettingVisitor(ast.NodeVisitor):
             for element, element_value in zip(
                 target.elts[:star_index], value.elts[:star_index]
             ):
-                self._assign_target(element, element_value, rhs_state)
+                self._assign_target(element, element_value, resolutions)
             starred_target = target.elts[star_index]
             assert isinstance(starred_target, ast.Starred)
             middle_end = len(value.elts) - suffix_count
@@ -1815,27 +2017,49 @@ class _SettingVisitor(ast.NodeVisitor):
                 elts=value.elts[star_index:middle_end], ctx=ast.Load()
             )
             ast.copy_location(middle, value)
-            self._assign_target(starred_target.value, middle, rhs_state)
+            middle_resolutions = [
+                resolutions[id(element)]
+                for element in value.elts[star_index:middle_end]
+            ]
+            middle_literals = (
+                tuple(
+                    literal
+                    for resolution in middle_resolutions
+                    for literal in resolution.literals or ()
+                )
+                if all(resolution.literals is not None for resolution in middle_resolutions)
+                else None
+            )
+            resolutions[id(middle)] = _AssignmentResolution(
+                None, middle_literals, middle_literals
+            )
+            self._assign_target(starred_target.value, middle, resolutions)
             if suffix_count:
                 for element, element_value in zip(
                     target.elts[-suffix_count:], value.elts[-suffix_count:]
                 ):
-                    self._assign_target(element, element_value, rhs_state)
+                    self._assign_target(element, element_value, resolutions)
             return
         if isinstance(target, ast.Starred):
-            self._assign_target(target.value, value, rhs_state)
+            self._assign_target(target.value, value, resolutions)
             return
 
-        current_state = self._capture_scope_state()
-        self._restore_scope_state(rhs_state)
-        kind = self._container_kind(value)
-        literal_values = _literal_strings(value, self.visible_values)
-        iterable_values = self._iterable_strings(value)
-        self._restore_scope_state(current_state)
+        resolution = resolutions[id(value)]
+        kind = resolution.kind
+        literal_values = resolution.literals
+        iterable_values = resolution.iterable
         target_path = _attribute_path(target)
         if target_path is not None:
             target_frame = self._binding_frame(target_path.split(".", maxsplit=1)[0])
-            if kind is not None:
+            volatile = (
+                isinstance(target, ast.Name)
+                and target.id in self.volatile_bindings[target_frame]
+            )
+            if volatile and (
+                kind is not None or self._visible_alias_state(target_path) is not None
+            ):
+                self.aliases[target_frame][target_path] = "dynamic"
+            elif kind is not None:
                 self.aliases[target_frame][target_path] = kind
             elif isinstance(value, ast.Dict):
                 self.aliases[target_frame].pop(target_path, None)
@@ -1923,6 +2147,7 @@ class _SettingVisitor(ast.NodeVisitor):
 
     def visit_Delete(self, node: ast.Delete) -> None:
         for target in node.targets:
+            self._visit_assignment_target(target)
             self._bind_target_unknown(target)
 
     def visit_With(
@@ -1931,6 +2156,7 @@ class _SettingVisitor(ast.NodeVisitor):
         for item in node.items:
             self.visit(item.context_expr)
             if item.optional_vars is not None:
+                self._visit_assignment_target(item.optional_vars)
                 self._bind_target_unknown(item.optional_vars)
         return self._visit_statements(node.body)
 
@@ -2040,6 +2266,8 @@ class _SettingVisitor(ast.NodeVisitor):
             and _literal_strings(node.iter, self.visible_values) is not None
         ):
             raise self._error(node.iter, "iterable value shape is scalar")
+        if iterable is not None and not iterable:
+            return self._visit_statements(node.orelse)
 
         def finish_loop(
             body_flow: _StatementFlow,
@@ -2081,8 +2309,7 @@ class _SettingVisitor(ast.NodeVisitor):
             return _StatementFlow(True, tuple(propagated), tuple(prefixes))
 
         if isinstance(node.target, ast.Name) and iterable is not None:
-            if not iterable:
-                return self._visit_statements(node.orelse)
+            self._visit_assignment_target(node.target)
             self._bind_target_unknown(node.target)
             self._bind_literal(node.target.id, iterable)
             return finish_loop(
@@ -2100,6 +2327,7 @@ class _SettingVisitor(ast.NodeVisitor):
             if isinstance(node.target, (ast.Tuple, ast.List)) and len(node.target.elts) >= 2:
                 element_target = node.target.elts[1]
         element_kind = self._container_kind(iterated_value)
+        self._visit_assignment_target(node.target)
         if element_kind is not None:
             target_path = _attribute_path(element_target)
             if target_path is None:
@@ -2519,13 +2747,19 @@ class _SettingVisitor(ast.NodeVisitor):
         if isinstance(node.func, ast.Attribute) and node.func.attr in {"get_conf", "get_config"}:
             if not node.args:
                 raise self._error(node, f"{node.func.attr} call has no key")
+            self.visit(node.func)
+            self.visit(node.args[0])
+            keys = self._resolved_keys(node.args[0], node)
+            for argument in node.args[1:]:
+                self.visit(argument)
+            for keyword in node.keywords:
+                self.visit(keyword.value)
             default = node.args[1] if len(node.args) > 1 else next(
                 (keyword.value for keyword in node.keywords if keyword.arg == "default"),
                 None,
             )
-            for key in self._resolved_keys(node.args[0], node):
+            for key in keys:
                 self._add(node, key, node.func.attr, "core", default)
-            self._visit_call_children(node)
             return
 
         if isinstance(node.func, ast.Attribute) and node.func.attr == "get":
@@ -2950,22 +3184,165 @@ def discover_python_settings(
     facts: list[DiscoveredSetting] = []
     mutable_call_sites: dict[str, list[_MethodCall]] = {}
     mutable_method_references: dict[str, list[_MethodReference]] = {}
-    reflective_alias_cache: dict[int, frozenset[str]] = {}
+    reflective_alias_cache: dict[tuple[str, int], frozenset[str]] = {}
 
-    def reflective_aliases(function: _FunctionNode | None) -> frozenset[str]:
+    def collect_reflective_aliases(scope: ast.AST) -> frozenset[str]:
+        aliases: set[str] = set()
+
+        def is_identity(value: ast.AST | None) -> bool:
+            return value is not None and _attribute_path(value) in {
+                "getattr",
+                "builtins.getattr",
+                "object.__getattribute__",
+            }
+
+        def bind(target: ast.AST, value: ast.AST | None) -> None:
+            if isinstance(target, ast.Name):
+                if target.id in {"getattr", "builtins", "object"} or is_identity(value):
+                    aliases.add(target.id)
+                return
+            if isinstance(target, (ast.Tuple, ast.List)) and isinstance(
+                value, (ast.Tuple, ast.List)
+            ):
+                if len(target.elts) == len(value.elts):
+                    for target_element, value_element in zip(
+                        target.elts, value.elts
+                    ):
+                        bind(target_element, value_element)
+
+        class AliasVisitor(ast.NodeVisitor):
+            def visit_Module(self, node: ast.Module) -> None:
+                for statement in node.body:
+                    self.visit(statement)
+
+            def _visit_function(
+                self, node: ast.FunctionDef | ast.AsyncFunctionDef
+            ) -> None:
+                if node is not scope:
+                    return
+                positional = (*node.args.posonlyargs, *node.args.args)
+                aliases.update(
+                    argument.arg
+                    for argument in (
+                        *positional,
+                        *node.args.kwonlyargs,
+                        *(
+                            ()
+                            if node.args.vararg is None
+                            else (node.args.vararg,)
+                        ),
+                        *(
+                            ()
+                            if node.args.kwarg is None
+                            else (node.args.kwarg,)
+                        ),
+                    )
+                    if argument.arg in {"getattr", "builtins", "object"}
+                )
+                for argument, default in zip(
+                    positional[-len(node.args.defaults) :],
+                    node.args.defaults,
+                ):
+                    if is_identity(default):
+                        aliases.add(argument.arg)
+                for argument, default in zip(
+                    node.args.kwonlyargs, node.args.kw_defaults
+                ):
+                    if is_identity(default):
+                        aliases.add(argument.arg)
+                for statement in node.body:
+                    self.visit(statement)
+
+            visit_FunctionDef = _visit_function
+            visit_AsyncFunctionDef = _visit_function
+
+            def visit_Lambda(self, node: ast.Lambda) -> None:
+                if node is not scope:
+                    return
+                positional = (*node.args.posonlyargs, *node.args.args)
+                aliases.update(
+                    argument.arg
+                    for argument in (
+                        *positional,
+                        *node.args.kwonlyargs,
+                        *(
+                            ()
+                            if node.args.vararg is None
+                            else (node.args.vararg,)
+                        ),
+                        *(
+                            ()
+                            if node.args.kwarg is None
+                            else (node.args.kwarg,)
+                        ),
+                    )
+                    if argument.arg in {"getattr", "builtins", "object"}
+                )
+                for argument, default in zip(
+                    positional[-len(node.args.defaults) :],
+                    node.args.defaults,
+                ):
+                    if is_identity(default):
+                        aliases.add(argument.arg)
+                for argument, default in zip(
+                    node.args.kwonlyargs, node.args.kw_defaults
+                ):
+                    if is_identity(default):
+                        aliases.add(argument.arg)
+                self.visit(node.body)
+
+            def visit_ClassDef(self, node: ast.ClassDef) -> None:
+                return
+
+            def visit_Assign(self, node: ast.Assign) -> None:
+                for target in node.targets:
+                    bind(target, node.value)
+                self.visit(node.value)
+
+            def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+                bind(node.target, node.value)
+                if node.value is not None:
+                    self.visit(node.value)
+
+            def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
+                bind(node.target, node.value)
+                self.visit(node.value)
+
+            def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+                for imported in node.names:
+                    bound = imported.asname or imported.name
+                    if (
+                        node.module == "builtins"
+                        and imported.name == "getattr"
+                    ) or bound in {"getattr", "builtins", "object"}:
+                        aliases.add(bound)
+
+            def visit_Import(self, node: ast.Import) -> None:
+                for imported in node.names:
+                    bound = imported.asname or imported.name.split(".", maxsplit=1)[0]
+                    if bound in {"getattr", "builtins", "object"} and not (
+                        imported.name == bound == "builtins"
+                    ):
+                        aliases.add(bound)
+
+        AliasVisitor().visit(scope)
+        return frozenset(aliases)
+
+    module_aliases = {
+        source: collect_reflective_aliases(tree) for source, tree in parsed
+    }
+
+    def reflective_aliases(
+        function: _FunctionNode | None, source: str
+    ) -> frozenset[str]:
         if function is None:
-            return frozenset()
-        cache_key = id(function)
+            return module_aliases[source]
+        cache_key = (source, id(function))
         if cache_key in reflective_alias_cache:
             return reflective_alias_cache[cache_key]
         aliases = frozenset(
-            target.id
-            for inner in ast.walk(function)
-            if isinstance(inner, ast.Assign)
-            and _attribute_path(inner.value)
-            in {"getattr", "builtins.getattr", "object.__getattribute__"}
-            for target in inner.targets
-            if isinstance(target, ast.Name)
+            set(module_aliases[source])
+            | set(collect_reflective_aliases(function))
         )
         reflective_alias_cache[cache_key] = aliases
         return aliases
@@ -3094,7 +3471,7 @@ def discover_python_settings(
         )
         if isinstance(node, ast.Call):
             reflective_call = _reflective_method_lookup(
-                node.func, reflective_aliases(containing_function)
+                node.func, reflective_aliases(containing_function, source)
             )
             if reflective_call is not None:
                 method_names = reflective_names(reflective_call, caller)
@@ -3114,7 +3491,7 @@ def discover_python_settings(
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             mutable_call_sites.setdefault(node.func.attr, []).append((node, caller))
         reflective_reference = _reflective_method_lookup(
-            node, reflective_aliases(containing_function)
+            node, reflective_aliases(containing_function, source)
         )
         if reflective_reference is not None and not (
             isinstance(parent, ast.Call) and parent.func is node
