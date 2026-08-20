@@ -395,7 +395,14 @@ def _parameter_domains(
             ):
                 return None
             producer = methods.get(call.func.attr)
-            if producer is None:
+            if (
+                not isinstance(producer, ast.FunctionDef)
+                or producer.decorator_list
+                or any(
+                    isinstance(inner, (ast.Yield, ast.YieldFrom))
+                    for inner in ast.walk(producer)
+                )
+            ):
                 return None
             local_values: dict[str, tuple[str, ...]] = {}
             guard_positions: dict[str, int] = {}

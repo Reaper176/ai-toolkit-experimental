@@ -579,6 +579,49 @@ class Resolver:
                 with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
                     discover_python_settings(self.repository_root, (path,))
 
+    def test_discovery_rejects_ineligible_finite_value_producers(self):
+        producer_definitions = (
+            """    async def component(self):
+        component = input()
+        if component not in ("dit", "vae"):
+            raise ValueError(component)
+        return component
+""",
+            """    def component(self):
+        component = input()
+        if component not in ("dit", "vae"):
+            raise ValueError(component)
+        yield None
+        return component
+""",
+            """    @classmethod
+    def component(self):
+        component = input()
+        if component not in ("dit", "vae"):
+            raise ValueError(component)
+        return component
+""",
+        )
+        for index, producer_definition in enumerate(producer_definitions):
+            with self.subTest(producer_definition=producer_definition):
+                path = f"ineligible_producer_{index}.py"
+                self.write_source(
+                    path,
+                    """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+"""
+                    + producer_definition
+                    + """
+    def load(self):
+        return self.resolve(self.component())
+""",
+                )
+
+                with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+                    discover_python_settings(self.repository_root, (path,))
+
     def test_discovery_fails_closed_on_unresolved_dynamic_configuration_key(self):
         self.write_source(
             "dynamic.py",
