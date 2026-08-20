@@ -1,8 +1,23 @@
 #!/usr/bin/env python3
-"""Validate the canonical training-book manifest."""
+"""Validate the canonical training-book manifest and source inventory."""
 
+import argparse
+import json
+import tempfile
+from dataclasses import asdict
 from pathlib import Path
 
+from training_book.discovery import (
+    DiscoveredSetting,
+    DiscoveryError,
+    SourceClaim,
+    discover_python_settings,
+    load_exclusions,
+    load_source_catalog,
+    ownership_status,
+    validate_discovery_target,
+    validate_setting_ownership,
+)
 from training_book.manifest import load_book_manifest, validate_book_manifest
 
 
@@ -21,12 +36,197 @@ FULL_ARCHITECTURES = (
 )
 
 
+def _arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--inventory-json", type=Path)
+    parser.add_argument("--check-discovery", action="store_true")
+    parser.add_argument("--scope", action="append", default=[])
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument("--target-source")
+    target.add_argument("--target-symbol")
+    return parser.parse_args()
+
+
+def _python_globs(catalog) -> tuple[str, ...]:
+    return tuple(
+        pattern
+        for group in catalog.source_groups
+        if group.owner == "python-ast"
+        for pattern in group.globs
+    )
+
+
+def _declared_python_sources(
+    repository_root: Path, globs: tuple[str, ...]
+) -> tuple[str, ...]:
+    sources = {
+        path.relative_to(repository_root).as_posix()
+        for pattern in globs
+        for path in repository_root.glob(pattern)
+        if path.is_file() and path.suffix == ".py"
+    }
+    return tuple(sorted(sources))
+
+
+def _validate_inventory_declarations(discovered, claims, exclusions) -> None:
+    discovered_ids = {
+        (fact.source, fact.symbol, fact.key, fact.read_kind) for fact in discovered
+    }
+    claim_ids = {
+        (claim.source, claim.symbol, claim.key, claim.read_kind) for claim in claims
+    }
+    exclusion_ids = {
+        (item.source, item.symbol, item.key, item.read_kind) for item in exclusions
+    }
+    doubled = sorted(claim_ids.intersection(exclusion_ids))
+    if doubled:
+        raise DiscoveryError(f"inventory contains double-owned declarations: {doubled!r}")
+    vanished = sorted((claim_ids | exclusion_ids).difference(discovered_ids))
+    if vanished:
+        raise DiscoveryError(f"inventory contains vanished declared sources: {vanished!r}")
+
+
+def _major_group_counts(discovered) -> dict[str, int]:
+    config_facts = [
+        fact for fact in discovered if fact.source == "toolkit/config_modules.py"
+    ]
+    result = {"toolkit/config_modules.py": len(config_facts)}
+    for class_name in ("TrainConfig", "ModelConfig", "DatasetConfig", "AdapterConfig"):
+        result[class_name] = sum(
+            fact.symbol == f"{class_name}.__init__" for fact in config_facts
+        )
+    return result
+
+
+def _guard_inventory(counts: dict[str, int], total: int) -> None:
+    minimums = {
+        "toolkit/config_modules.py": 400,
+        "TrainConfig": 120,
+        "ModelConfig": 60,
+        "DatasetConfig": 70,
+        "AdapterConfig": 45,
+    }
+    if total < 500:
+        raise DiscoveryError(
+            f"discovery inventory abruptly reduced to {total} total Python facts"
+        )
+    for group, minimum in minimums.items():
+        if counts[group] < minimum:
+            raise DiscoveryError(
+                f"discovery inventory group {group} abruptly reduced to "
+                f"{counts[group]} facts (minimum {minimum})"
+            )
+
+
+def _write_inventory(path: Path, discovered, claims, exclusions) -> None:
+    _validate_inventory_declarations(discovered, claims, exclusions)
+    rows = ownership_status(discovered, claims, exclusions)
+    status_counts: dict[str, int] = {}
+    settings: list[dict[str, object]] = []
+    for fact, status in rows:
+        status_counts[status] = status_counts.get(status, 0) + 1
+        settings.append({**asdict(fact), "ownership": status})
+    major_groups = _major_group_counts(discovered)
+    _guard_inventory(major_groups, len(settings))
+    payload = {
+        "schema_version": 1,
+        "settings": settings,
+        "summary": {
+            "by_ownership": dict(sorted(status_counts.items())),
+            "major_groups": major_groups,
+            "total": len(settings),
+        },
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def _check_discovery_fixture() -> None:
+    source = """class Config:
+    def __init__(self, **kwargs):
+        self.steps = kwargs.get("steps", 3000)
+        for key in ("width", "height"):
+            kwargs.get(key, 512)
+"""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "sample.py").write_text(source, encoding="utf-8")
+        discovered = discover_python_settings(root, ("sample.py",))
+    expected = (
+        DiscoveredSetting(
+            "sample.py", "Config.__init__", 5, "height", "kwargs.get", "core", "512"
+        ),
+        DiscoveredSetting(
+            "sample.py", "Config.__init__", 3, "steps", "kwargs.get", "core", "3000"
+        ),
+        DiscoveredSetting(
+            "sample.py", "Config.__init__", 5, "width", "kwargs.get", "core", "512"
+        ),
+    )
+    if discovered != expected:
+        raise DiscoveryError(
+            f"discovery fixture drifted: expected {expected!r}, got {discovered!r}"
+        )
+    validate_setting_ownership(
+        discovered,
+        tuple(
+            SourceClaim(fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in expected
+        ),
+        (),
+    )
+
+
 def main() -> None:
+    arguments = _arguments()
     repository_root = Path(__file__).resolve().parents[1]
     manifest = load_book_manifest(repository_root / "docs/book/book-manifest.json")
     validate_book_manifest(
         manifest, expected_full_architectures=FULL_ARCHITECTURES
     )
+    if arguments.check_discovery:
+        if arguments.scope != ["discovery-fixtures"]:
+            raise DiscoveryError(
+                "--check-discovery requires exactly --scope discovery-fixtures"
+            )
+        _check_discovery_fixture()
+    elif arguments.scope:
+        raise DiscoveryError(
+            "--scope values are inactive without their matching check mode"
+        )
+
+    needs_production_discovery = bool(
+        arguments.inventory_json
+        or arguments.target_source is not None
+        or arguments.target_symbol is not None
+    )
+    if needs_production_discovery:
+        catalog = load_source_catalog(
+            repository_root / "docs/book/reference/settings-sources.json"
+        )
+        exclusions = load_exclusions(
+            repository_root / "docs/book/reference/settings-exclusions.json"
+        )
+        # Task 2 inventories only the python-ast group. The typescript-test
+        # group is already schema-validated, but Task 6 must emit its live AST
+        # facts before AI_TOOLKIT_AUTH/version/build/utility claims are added.
+        globs = _python_globs(catalog)
+        discovered = discover_python_settings(repository_root, globs)
+        if arguments.inventory_json:
+            _write_inventory(
+                arguments.inventory_json, discovered, catalog.claims, exclusions
+            )
+        if arguments.target_source is not None or arguments.target_symbol is not None:
+            validate_discovery_target(
+                discovered,
+                catalog.claims,
+                exclusions,
+                declared_sources=_declared_python_sources(repository_root, globs),
+                target_source=arguments.target_source,
+                target_symbol=arguments.target_symbol,
+            )
 
 
 if __name__ == "__main__":
