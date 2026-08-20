@@ -1,0 +1,682 @@
+{
+  "$defs": {
+    "Alias": {
+      "additionalProperties": false,
+      "properties": {
+        "location": {
+          "minLength": 1,
+          "title": "Location",
+          "type": "string"
+        },
+        "migration": {
+          "minLength": 1,
+          "title": "Migration",
+          "type": "string"
+        },
+        "precedence": {
+          "enum": [
+            "replacement-wins",
+            "alias-wins",
+            "error-on-both"
+          ],
+          "title": "Precedence",
+          "type": "string"
+        },
+        "replacement": {
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9*]+)*$",
+          "title": "Replacement",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "legacy",
+            "deprecated",
+            "removed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "location",
+        "replacement",
+        "precedence",
+        "migration",
+        "status"
+      ],
+      "title": "Alias",
+      "type": "object"
+    },
+    "Applicability": {
+      "additionalProperties": false,
+      "properties": {
+        "engine_architecture": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engine Architecture"
+        },
+        "job_type": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Job Type"
+        },
+        "process_type": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Process Type"
+        },
+        "ui_architecture": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Architecture"
+        }
+      },
+      "title": "Applicability",
+      "type": "object"
+    },
+    "CatalogLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "yaml",
+            "cli",
+            "environment",
+            "inline-prompt",
+            "ui-state"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ],
+      "title": "CatalogLocation",
+      "type": "object"
+    },
+    "CatalogSourceClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "read_kind": {
+          "minLength": 1,
+          "title": "Read Kind",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "symbol": {
+          "minLength": 1,
+          "title": "Symbol",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "symbol",
+        "key",
+        "read_kind"
+      ],
+      "title": "CatalogSourceClaim",
+      "type": "object"
+    },
+    "Interaction": {
+      "additionalProperties": false,
+      "properties": {
+        "applicability": {
+          "items": {
+            "$ref": "#/$defs/Applicability"
+          },
+          "title": "Applicability",
+          "type": "array"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "requires",
+            "conflicts",
+            "overrides",
+            "constrains",
+            "affects",
+            "fallback"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "setting": {
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9*]+)*$",
+          "title": "Setting",
+          "type": "string"
+        }
+      },
+      "required": [
+        "setting",
+        "kind",
+        "description",
+        "applicability"
+      ],
+      "title": "Interaction",
+      "type": "object"
+    },
+    "Normalization": {
+      "additionalProperties": false,
+      "properties": {
+        "applicability": {
+          "items": {
+            "$ref": "#/$defs/Applicability"
+          },
+          "title": "Applicability",
+          "type": "array"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "applicability"
+      ],
+      "title": "Normalization",
+      "type": "object"
+    },
+    "NumericRange": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Maximum"
+        },
+        "maximum_inclusive": {
+          "title": "Maximum Inclusive",
+          "type": "boolean"
+        },
+        "minimum": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Minimum"
+        },
+        "minimum_inclusive": {
+          "title": "Minimum Inclusive",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "minimum",
+        "maximum",
+        "minimum_inclusive",
+        "maximum_inclusive"
+      ],
+      "title": "NumericRange",
+      "type": "object"
+    },
+    "RenderMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "anchor": {
+          "minLength": 1,
+          "title": "Anchor",
+          "type": "string"
+        },
+        "benefits": {
+          "minLength": 1,
+          "title": "Benefits",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "drawbacks": {
+          "minLength": 1,
+          "title": "Drawbacks",
+          "type": "string"
+        },
+        "example": {
+          "minLength": 1,
+          "title": "Example",
+          "type": "string"
+        },
+        "page": {
+          "minLength": 1,
+          "title": "Page",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page",
+        "anchor",
+        "description",
+        "benefits",
+        "drawbacks",
+        "example"
+      ],
+      "title": "RenderMetadata",
+      "type": "object"
+    },
+    "Setting": {
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "items": {
+            "$ref": "#/$defs/Alias"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
+        "applicability": {
+          "items": {
+            "$ref": "#/$defs/Applicability"
+          },
+          "title": "Applicability",
+          "type": "array"
+        },
+        "authority": {
+          "enum": [
+            "user",
+            "ui-derived",
+            "server-overwritten",
+            "runtime-forced"
+          ],
+          "title": "Authority",
+          "type": "string"
+        },
+        "contract": {
+          "$ref": "#/$defs/SettingContract"
+        },
+        "defaults": {
+          "items": {
+            "$ref": "#/$defs/SettingDefault"
+          },
+          "title": "Defaults",
+          "type": "array"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9*]+)*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "interactions": {
+          "items": {
+            "$ref": "#/$defs/Interaction"
+          },
+          "title": "Interactions",
+          "type": "array"
+        },
+        "lifecycle": {
+          "enum": [
+            "supported",
+            "legacy",
+            "deprecated",
+            "experimental",
+            "unconsumed"
+          ],
+          "title": "Lifecycle",
+          "type": "string"
+        },
+        "locations": {
+          "items": {
+            "$ref": "#/$defs/CatalogLocation"
+          },
+          "minItems": 1,
+          "title": "Locations",
+          "type": "array"
+        },
+        "normalizations": {
+          "items": {
+            "$ref": "#/$defs/Normalization"
+          },
+          "title": "Normalizations",
+          "type": "array"
+        },
+        "persistence": {
+          "enum": [
+            "config",
+            "job-json",
+            "database",
+            "runtime",
+            "transient"
+          ],
+          "title": "Persistence",
+          "type": "string"
+        },
+        "render": {
+          "$ref": "#/$defs/RenderMetadata"
+        },
+        "scope": {
+          "enum": [
+            "root",
+            "job",
+            "process",
+            "model",
+            "network",
+            "train",
+            "dataset",
+            "save",
+            "sample",
+            "logging",
+            "optimizer",
+            "scheduler",
+            "cli",
+            "environment",
+            "ui-state"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "section": {
+          "minLength": 1,
+          "title": "Section",
+          "type": "string"
+        },
+        "source_claims": {
+          "items": {
+            "$ref": "#/$defs/CatalogSourceClaim"
+          },
+          "title": "Source Claims",
+          "type": "array"
+        },
+        "surfaces": {
+          "items": {
+            "enum": [
+              "simple-ui",
+              "advanced-yaml",
+              "cli"
+            ],
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Surfaces",
+          "type": "array"
+        },
+        "ui_label": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ui Label"
+        }
+      },
+      "required": [
+        "id",
+        "ui_label",
+        "scope",
+        "locations",
+        "surfaces",
+        "persistence",
+        "authority",
+        "lifecycle",
+        "applicability",
+        "contract",
+        "defaults",
+        "normalizations",
+        "interactions",
+        "aliases",
+        "section",
+        "source_claims",
+        "render"
+      ],
+      "title": "Setting",
+      "type": "object"
+    },
+    "SettingContract": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted_values": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Accepted Values"
+        },
+        "example_type": {
+          "enum": [
+            "boolean",
+            "integer",
+            "number",
+            "string",
+            "path",
+            "boolean-list",
+            "integer-list",
+            "number-list",
+            "string-list",
+            "object",
+            "object-list",
+            "null"
+          ],
+          "title": "Example Type",
+          "type": "string"
+        },
+        "null": {
+          "enum": [
+            "accepted",
+            "rejected",
+            "normalized-to-absent"
+          ],
+          "title": "Null",
+          "type": "string"
+        },
+        "parser_type": {
+          "minLength": 1,
+          "title": "Parser Type",
+          "type": "string"
+        },
+        "range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NumericRange"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "supported_type": {
+          "minLength": 1,
+          "title": "Supported Type",
+          "type": "string"
+        },
+        "ui_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "boolean",
+                "integer",
+                "number",
+                "string",
+                "path",
+                "boolean-list",
+                "integer-list",
+                "number-list",
+                "string-list",
+                "object",
+                "object-list",
+                "null"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ui Type"
+        }
+      },
+      "required": [
+        "parser_type",
+        "supported_type",
+        "ui_type",
+        "example_type",
+        "accepted_values",
+        "range",
+        "null"
+      ],
+      "title": "SettingContract",
+      "type": "object"
+    },
+    "SettingDefault": {
+      "additionalProperties": false,
+      "properties": {
+        "applicability": {
+          "items": {
+            "$ref": "#/$defs/Applicability"
+          },
+          "title": "Applicability",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "ui-created",
+            "engine-fallback",
+            "on-select",
+            "on-leave",
+            "runtime-forced"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "presence": {
+          "enum": [
+            "absent",
+            "present"
+          ],
+          "title": "Presence",
+          "type": "string"
+        },
+        "value": {
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "kind",
+        "presence",
+        "applicability"
+      ],
+      "title": "SettingDefault",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "settings": {
+      "items": {
+        "$ref": "#/$defs/Setting"
+      },
+      "title": "Settings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "settings"
+  ],
+  "title": "SettingsCatalog",
+  "type": "object"
+}

@@ -19,6 +19,7 @@ from training_book.discovery import (
     validate_inventory_baseline,
     validate_setting_ownership,
 )
+from training_book.catalog import catalog_source_claims, load_settings_catalog
 from training_book.manifest import load_book_manifest, validate_book_manifest
 
 
@@ -167,6 +168,11 @@ def main() -> None:
     validate_book_manifest(
         manifest, expected_full_architectures=FULL_ARCHITECTURES
     )
+    settings_catalog = load_settings_catalog(
+        repository_root / "docs/book/reference/settings-catalog.json",
+        repository_root / "docs/book/reference/settings-catalog.schema.json",
+        None,
+    )
     has_target = (
         arguments.target_source is not None or arguments.target_symbol is not None
     )
@@ -202,7 +208,7 @@ def main() -> None:
         or target_mode
     )
     if needs_production_discovery:
-        catalog = load_source_catalog(
+        source_catalog = load_source_catalog(
             repository_root / "docs/book/reference/settings-sources.json"
         )
         exclusions = load_exclusions(
@@ -211,16 +217,17 @@ def main() -> None:
         # Task 2 inventories only the python-ast group. The typescript-test
         # group is already schema-validated, but Task 6 must emit its live AST
         # facts before AI_TOOLKIT_AUTH/version/build/utility claims are added.
-        globs = _python_globs(catalog)
+        globs = _python_globs(source_catalog)
         discovered = discover_python_settings(repository_root, globs)
+        claims = source_catalog.claims + catalog_source_claims(settings_catalog)
         if arguments.inventory_json:
             _write_inventory(
-                arguments.inventory_json, discovered, catalog.claims, exclusions
+                arguments.inventory_json, discovered, claims, exclusions
             )
         if target_mode:
             validate_discovery_target(
                 discovered,
-                catalog.claims,
+                claims,
                 exclusions,
                 declared_sources=_declared_python_sources(repository_root, globs),
                 target_source=arguments.target_source,

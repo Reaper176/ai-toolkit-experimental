@@ -16,6 +16,12 @@ from scripts.training_book.manifest import (  # noqa: E402
     load_book_manifest,
     validate_book_manifest,
 )
+from scripts.training_book.catalog import (  # noqa: E402
+    CatalogError,
+    load_settings_catalog,
+    settings_catalog_schema,
+    validate_settings_catalog,
+)
 from scripts.training_book.discovery import (  # noqa: E402
     DiscoveredSetting,
     DiscoveryError,
@@ -423,6 +429,303 @@ class ManifestContractTests(unittest.TestCase):
 
                 with self.assertRaisesRegex(ValueError, "verified_date"):
                     load_book_manifest(self.write_manifest(data))
+
+
+class CatalogContractTests(unittest.TestCase):
+    def valid_catalog_entry(self):
+        return {
+            "id": "train.steps",
+            "ui_label": "Steps",
+            "scope": "train",
+            "locations": [
+                {"kind": "yaml", "path": "config.process[*].train.steps"}
+            ],
+            "surfaces": ["simple-ui", "advanced-yaml"],
+            "persistence": "config",
+            "authority": "user",
+            "lifecycle": "supported",
+            "applicability": [{"process_type": "diffusion_trainer"}],
+            "contract": {
+                "parser_type": "integer",
+                "supported_type": "positive-integer",
+                "ui_type": "number",
+                "example_type": "integer",
+                "accepted_values": None,
+                "range": {
+                    "minimum": 1,
+                    "maximum": None,
+                    "minimum_inclusive": True,
+                    "maximum_inclusive": True,
+                },
+                "null": "rejected",
+            },
+            "defaults": [
+                {
+                    "kind": "ui-created",
+                    "presence": "present",
+                    "value": 3000,
+                    "applicability": [],
+                },
+                {
+                    "kind": "engine-fallback",
+                    "presence": "present",
+                    "value": 2000,
+                    "applicability": [],
+                },
+            ],
+            "normalizations": [],
+            "interactions": [],
+            "aliases": [],
+            "section": "training",
+            "source_claims": [
+                {
+                    "source": "toolkit/config_modules.py",
+                    "symbol": "TrainConfig.__init__",
+                    "key": "steps",
+                    "read_kind": "kwargs.get",
+                }
+            ],
+            "render": {
+                "page": "reference/training.md",
+                "anchor": "train-steps",
+                "description": "Sets the total target optimizer step count.",
+                "benefits": "Controls training duration and checkpoint opportunities.",
+                "drawbacks": "Excessive steps can overfit a small dataset.",
+                "example": "steps: 3000",
+            },
+        }
+
+    def discovered_steps(self):
+        return (
+            DiscoveredSetting(
+                "toolkit/config_modules.py",
+                "TrainConfig.__init__",
+                10,
+                "steps",
+                "kwargs.get",
+                "core",
+                "2000",
+            ),
+        )
+
+    def test_catalog_contract_accepts_the_representative_shape_and_empty_catalog(self):
+        catalog = validate_settings_catalog(
+            {"schema_version": 1, "settings": [self.valid_catalog_entry()]},
+            self.discovered_steps(),
+        )
+        empty = validate_settings_catalog(
+            {"schema_version": 1, "settings": []}, ()
+        )
+
+        self.assertEqual(catalog.settings[0].id, "train.steps")
+        self.assertEqual(empty.settings, ())
+        self.assertEqual(settings_catalog_schema()["additionalProperties"], False)
+
+    def test_catalog_contract_rejects_missing_or_duplicate_stable_ids(self):
+        missing = self.valid_catalog_entry()
+        del missing["id"]
+        duplicate = deepcopy(self.valid_catalog_entry())
+        duplicate["source_claims"] = []
+
+        for settings, message in (
+            ([missing], "id"),
+            ([self.valid_catalog_entry(), duplicate], "duplicate.*train.steps"),
+        ):
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(CatalogError, message):
+                    validate_settings_catalog(
+                        {"schema_version": 1, "settings": settings},
+                        self.discovered_steps(),
+                    )
+
+    def test_catalog_contract_rejects_unsupported_or_noncanonical_locations_and_surfaces(self):
+        cases = (
+            ("locations", [{"kind": "database", "path": "jobs.name"}], "kind"),
+            (
+                "locations",
+                [{"kind": "yaml", "path": "config.process[0].train.steps"}],
+                r"canonical.*\[\*\]",
+            ),
+            ("surfaces", ["expert-ui"], "surfaces"),
+        )
+        for field, value, message in cases:
+            with self.subTest(field=field, value=value):
+                entry = self.valid_catalog_entry()
+                entry[field] = value
+                with self.assertRaisesRegex(CatalogError, message):
+                    validate_settings_catalog(
+                        {"schema_version": 1, "settings": [entry]},
+                        self.discovered_steps(),
+                    )
+
+    def test_catalog_contract_rejects_overlapping_location_applicability_claims(self):
+        overlapping = deepcopy(self.valid_catalog_entry())
+        overlapping["id"] = "train.steps-shadow"
+        overlapping["source_claims"] = []
+        disjoint = deepcopy(overlapping)
+        disjoint["applicability"] = [{"process_type": "other_trainer"}]
+
+        with self.assertRaisesRegex(CatalogError, "overlapping.*location"):
+            validate_settings_catalog(
+                {
+                    "schema_version": 1,
+                    "settings": [self.valid_catalog_entry(), overlapping],
+                },
+                self.discovered_steps(),
+            )
+        validate_settings_catalog(
+            {
+                "schema_version": 1,
+                "settings": [self.valid_catalog_entry(), disjoint],
+            },
+            self.discovered_steps(),
+        )
+
+    def test_catalog_contract_rejects_blank_teaching_prose(self):
+        entry = self.valid_catalog_entry()
+        entry["render"]["drawbacks"] = "   "
+
+        with self.assertRaisesRegex(CatalogError, "render.drawbacks"):
+            validate_settings_catalog(
+                {"schema_version": 1, "settings": [entry]},
+                self.discovered_steps(),
+            )
+
+    def test_catalog_contract_rejects_an_ambiguous_default_authority(self):
+        entry = self.valid_catalog_entry()
+        entry["defaults"][0]["kind"] = "default"
+
+        with self.assertRaisesRegex(CatalogError, "default.*authority"):
+            validate_settings_catalog(
+                {"schema_version": 1, "settings": [entry]},
+                self.discovered_steps(),
+            )
+
+    def test_catalog_contract_preserves_absent_and_explicit_null_defaults(self):
+        entry = self.valid_catalog_entry()
+        entry["defaults"] = [
+            {"kind": "engine-fallback", "presence": "absent", "applicability": []},
+            {
+                "kind": "ui-created",
+                "presence": "present",
+                "value": None,
+                "applicability": [],
+            },
+        ]
+        validate_settings_catalog(
+            {"schema_version": 1, "settings": [entry]}, self.discovered_steps()
+        )
+        entry["defaults"][0]["value"] = None
+        with self.assertRaisesRegex(CatalogError, "presence.*absent.*value"):
+            validate_settings_catalog(
+                {"schema_version": 1, "settings": [entry]},
+                self.discovered_steps(),
+            )
+
+    def test_catalog_contract_rejects_aliases_without_migration_policy(self):
+        entry = self.valid_catalog_entry()
+        entry["aliases"] = [
+            {
+                "location": "config.process[*].train.total_steps",
+                "replacement": "train.steps",
+                "precedence": "replacement-wins",
+                "status": "legacy",
+            }
+        ]
+
+        with self.assertRaisesRegex(CatalogError, "aliases.0.migration"):
+            validate_settings_catalog(
+                {"schema_version": 1, "settings": [entry]},
+                self.discovered_steps(),
+            )
+
+    def test_catalog_contract_rejects_stale_and_unowned_source_claims(self):
+        entry = self.valid_catalog_entry()
+        stale = deepcopy(entry)
+        stale["source_claims"][0]["key"] = "missing"
+        for candidate, discovered, message in (
+            (stale, self.discovered_steps(), "vanished"),
+            (entry, self.discovered_steps() + (
+                DiscoveredSetting(
+                    "toolkit/config_modules.py", "TrainConfig.__init__", 11,
+                    "unowned", "kwargs.get", "core", "None",
+                ),
+            ), "unowned"),
+        ):
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(CatalogError, message):
+                    validate_settings_catalog(
+                        {"schema_version": 1, "settings": [candidate]}, discovered
+                    )
+
+    def test_catalog_contract_is_strict_and_rejects_boolean_numbers(self):
+        cases = (
+            ("unknown", lambda entry: entry.update({"unknown": True})),
+            (
+                "contract.range.minimum",
+                lambda entry: entry["contract"]["range"].update({"minimum": True}),
+            ),
+        )
+        for message, mutate in cases:
+            with self.subTest(message=message):
+                entry = self.valid_catalog_entry()
+                mutate(entry)
+                with self.assertRaisesRegex(CatalogError, message):
+                    validate_settings_catalog(
+                        {"schema_version": 1, "settings": [entry]},
+                        self.discovered_steps(),
+                    )
+
+    def test_catalog_contract_checks_committed_schema_drift_before_catalog_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            schema_path = root / "settings-catalog.schema.json"
+            catalog_path = root / "settings-catalog.json"
+            schema_path.write_text(
+                json.dumps({"title": "stale"}), encoding="utf-8"
+            )
+            catalog_path.write_text("not json", encoding="utf-8")
+
+            with self.assertRaisesRegex(CatalogError, "schema drift"):
+                load_settings_catalog(
+                    catalog_path,
+                    schema_path,
+                    self.discovered_steps(),
+                )
+
+    def test_catalog_contract_canonical_artifacts_are_generated_and_empty(self):
+        schema_path = (
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json"
+        )
+        catalog_path = REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json"
+
+        catalog = load_settings_catalog(catalog_path, schema_path, ())
+
+        self.assertEqual(catalog.settings, ())
+        self.assertEqual(
+            json.loads(schema_path.read_text(encoding="utf-8")),
+            settings_catalog_schema(),
+        )
+
+    def test_catalog_contract_cli_rejects_committed_schema_drift(self):
+        schema_path = (
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json"
+        )
+        original = schema_path.read_bytes()
+        try:
+            schema_path.write_text("{}\n", encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, "scripts/validate_training_book.py"],
+                cwd=REPOSITORY_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            schema_path.write_bytes(original)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("schema drift", result.stderr)
 
 
 class DiscoveryContractTests(unittest.TestCase):
