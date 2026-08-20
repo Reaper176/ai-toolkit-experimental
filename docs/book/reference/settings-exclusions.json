@@ -1,4 +1,572 @@
 {
   "schema_version": 1,
-  "exclusions": []
+  "exclusions": [
+    {
+      "source": "jobs/ExtractJob.py",
+      "symbol": "ExtractJob.__init__",
+      "key": "base_model",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/ExtractJob.py",
+      "symbol": "ExtractJob.__init__",
+      "key": "device",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/ExtractJob.py",
+      "symbol": "ExtractJob.__init__",
+      "key": "dtype",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/ExtractJob.py",
+      "symbol": "ExtractJob.__init__",
+      "key": "extract_model",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/ExtractJob.py",
+      "symbol": "ExtractJob.__init__",
+      "key": "extract_text_encoder",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/ExtractJob.py",
+      "symbol": "ExtractJob.__init__",
+      "key": "extract_unet",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/ExtractJob.py",
+      "symbol": "ExtractJob.__init__",
+      "key": "is_v2",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/ExtractJob.py",
+      "symbol": "ExtractJob.__init__",
+      "key": "output_folder",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/GenerateJob.py",
+      "symbol": "GenerateJob.__init__",
+      "key": "device",
+      "read_kind": "get_conf",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/BaseExtractProcess.py",
+      "symbol": "BaseExtractProcess.__init__",
+      "key": "dtype",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/BaseExtractProcess.py",
+      "symbol": "BaseExtractProcess.__init__",
+      "key": "extract_text_encoder",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/BaseExtractProcess.py",
+      "symbol": "BaseExtractProcess.__init__",
+      "key": "extract_unet",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/BaseExtractProcess.py",
+      "symbol": "BaseExtractProcess.get_output_path",
+      "key": "filename",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/BaseExtractProcess.py",
+      "symbol": "BaseExtractProcess.get_output_path",
+      "key": "output_path",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/BaseExtractProcess.py",
+      "symbol": "BaseExtractProcess.get_output_path",
+      "key": "process",
+      "read_kind": "attribute[]",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoconProcess.py",
+      "symbol": "ExtractLoconProcess.__init__",
+      "key": "conv",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoconProcess.py",
+      "symbol": "ExtractLoconProcess.__init__",
+      "key": "disable_cp",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoconProcess.py",
+      "symbol": "ExtractLoconProcess.__init__",
+      "key": "linear",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoconProcess.py",
+      "symbol": "ExtractLoconProcess.__init__",
+      "key": "mode",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoconProcess.py",
+      "symbol": "ExtractLoconProcess.__init__",
+      "key": "sparsity",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoconProcess.py",
+      "symbol": "ExtractLoconProcess.__init__",
+      "key": "use_sparse_bias",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoraProcess.py",
+      "symbol": "ExtractLoraProcess.__init__",
+      "key": "conv",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoraProcess.py",
+      "symbol": "ExtractLoraProcess.__init__",
+      "key": "linear",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoraProcess.py",
+      "symbol": "ExtractLoraProcess.__init__",
+      "key": "mode",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoraProcess.py",
+      "symbol": "ExtractLoraProcess.__init__",
+      "key": "sparsity",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoraProcess.py",
+      "symbol": "ExtractLoraProcess.__init__",
+      "key": "use_sparse_bias",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "compile",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "ext",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "guidance_rescale",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "guidance_scale",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "height",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "max_images",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "max_random_per_prompt",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "neg",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "neg_2",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "num_repeats",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "prompt_2",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "prompt_file",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "prompts",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "random_prompts",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "sample_steps",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "sampler",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "seed",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "shuffle",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "size_list",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "width",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateProcess.__init__",
+      "key": "device",
+      "read_kind": "get_conf",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateProcess.__init__",
+      "key": "dtype",
+      "read_kind": "get_conf",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateProcess.__init__",
+      "key": "generate",
+      "read_kind": "get_conf",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateProcess.__init__",
+      "key": "model",
+      "read_kind": "get_conf",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateProcess.__init__",
+      "key": "output_folder",
+      "read_kind": "get_conf",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/TrainSliderProcess.py",
+      "symbol": "TrainSliderProcess.__init__",
+      "key": "device",
+      "read_kind": "get_conf",
+      "reason": "slider-only"
+    },
+    {
+      "source": "jobs/process/TrainSliderProcess.py",
+      "symbol": "TrainSliderProcess.__init__",
+      "key": "slider",
+      "read_kind": "get_conf",
+      "reason": "slider-only"
+    },
+    {
+      "source": "jobs/process/TrainSliderProcessOld.py",
+      "symbol": "TrainSliderProcessOld.__init__",
+      "key": "device",
+      "read_kind": "get_conf",
+      "reason": "slider-only"
+    },
+    {
+      "source": "jobs/process/TrainSliderProcessOld.py",
+      "symbol": "TrainSliderProcessOld.__init__",
+      "key": "slider",
+      "read_kind": "get_conf",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "ReferenceDatasetConfig.__init__",
+      "key": "neg_folder",
+      "read_kind": "kwargs.get",
+      "reason": "reference-dataset-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "ReferenceDatasetConfig.__init__",
+      "key": "neg_weight",
+      "read_kind": "kwargs.get",
+      "reason": "reference-dataset-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "ReferenceDatasetConfig.__init__",
+      "key": "network_weight",
+      "read_kind": "kwargs.get",
+      "reason": "reference-dataset-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "ReferenceDatasetConfig.__init__",
+      "key": "pair_folder",
+      "read_kind": "kwargs.get",
+      "reason": "reference-dataset-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "ReferenceDatasetConfig.__init__",
+      "key": "pos_folder",
+      "read_kind": "kwargs.get",
+      "reason": "reference-dataset-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "ReferenceDatasetConfig.__init__",
+      "key": "pos_weight",
+      "read_kind": "kwargs.get",
+      "reason": "reference-dataset-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "ReferenceDatasetConfig.__init__",
+      "key": "size",
+      "read_kind": "kwargs.get",
+      "reason": "reference-dataset-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "ReferenceDatasetConfig.__init__",
+      "key": "target_class",
+      "read_kind": "kwargs.get",
+      "reason": "reference-dataset-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "adapter_img_dir",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "anchors",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "batch_full_slide",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "low_ram",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "prompt_file",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "prompt_tensors",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "resolutions",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "targets",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "use_adapter",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfigAnchors.__init__",
+      "key": "multiplier",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfigAnchors.__init__",
+      "key": "neg_prompt",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfigAnchors.__init__",
+      "key": "prompt",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderTargetConfig.__init__",
+      "key": "multiplier",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderTargetConfig.__init__",
+      "key": "negative",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderTargetConfig.__init__",
+      "key": "positive",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderTargetConfig.__init__",
+      "key": "shuffle",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderTargetConfig.__init__",
+      "key": "target_class",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderTargetConfig.__init__",
+      "key": "weight",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    }
+  ]
 }

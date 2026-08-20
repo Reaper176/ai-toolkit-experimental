@@ -134,6 +134,59 @@ TYPESCRIPT_DISCOVERY_GLOBS = (
     "ui/src/types.ts",
 )
 
+INITIAL_EXCLUDED_SYMBOL_REASONS = {
+    ("jobs/ExtractJob.py", "ExtractJob.__init__"): "extraction-only",
+    (
+        "jobs/process/BaseExtractProcess.py",
+        "BaseExtractProcess.__init__",
+    ): "extraction-only",
+    (
+        "jobs/process/BaseExtractProcess.py",
+        "BaseExtractProcess.get_output_path",
+    ): "extraction-only",
+    (
+        "jobs/process/ExtractLoconProcess.py",
+        "ExtractLoconProcess.__init__",
+    ): "extraction-only",
+    (
+        "jobs/process/ExtractLoraProcess.py",
+        "ExtractLoraProcess.__init__",
+    ): "extraction-only",
+    ("jobs/GenerateJob.py", "GenerateJob.__init__"): "generation-only",
+    (
+        "jobs/process/GenerateProcess.py",
+        "GenerateConfig.__init__",
+    ): "generation-only",
+    (
+        "jobs/process/GenerateProcess.py",
+        "GenerateProcess.__init__",
+    ): "generation-only",
+    (
+        "jobs/process/TrainSliderProcess.py",
+        "TrainSliderProcess.__init__",
+    ): "slider-only",
+    (
+        "jobs/process/TrainSliderProcessOld.py",
+        "TrainSliderProcessOld.__init__",
+    ): "slider-only",
+    (
+        "toolkit/config_modules.py",
+        "ReferenceDatasetConfig.__init__",
+    ): "reference-dataset-only",
+    (
+        "toolkit/config_modules.py",
+        "SliderConfig.__init__",
+    ): "slider-only",
+    (
+        "toolkit/config_modules.py",
+        "SliderConfigAnchors.__init__",
+    ): "slider-only",
+    (
+        "toolkit/config_modules.py",
+        "SliderTargetConfig.__init__",
+    ): "slider-only",
+}
+
 
 class ManifestContractTests(unittest.TestCase):
     def valid_manifest(self):
@@ -4164,6 +4217,15 @@ def build(network_kwargs):
                 }]},
                 "exact identity",
             ),
+            (
+                {"schema_version": 1, "source_groups": [
+                    {"owner": "python-ast", "globs": ["x.py"]}
+                ], "claims": [{
+                    "source": "x.py", "symbol": "Config.__init__",
+                    "key": "steps", "read_kind": "attribute[*]",
+                }]},
+                "exact identity",
+            ),
         )
         for data, message in malformed_sources:
             with self.subTest(message=message):
@@ -4202,6 +4264,65 @@ def build(network_kwargs):
         # Task 6 adds AI_TOOLKIT_AUTH, version/build, utility, and other UI
         # claims only after its TS collector defines stable exact fact identities.
         self.assertEqual(catalog.claims, ())
+
+    def test_discovery_initial_exclusions_exactly_close_out_of_boundary_symbols(self):
+        discovered = discover_python_settings(
+            REPOSITORY_ROOT, PYTHON_DISCOVERY_GLOBS
+        )
+        exclusions = load_exclusions(
+            REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
+        )
+        expected = tuple(
+            Exclusion(
+                fact.source,
+                fact.symbol,
+                fact.key,
+                fact.read_kind,
+                INITIAL_EXCLUDED_SYMBOL_REASONS[(fact.source, fact.symbol)],
+            )
+            for fact in discovered
+            if (fact.source, fact.symbol) in INITIAL_EXCLUDED_SYMBOL_REASONS
+        )
+
+        self.assertEqual(len(expected), 81)
+        self.assertEqual(exclusions, expected)
+        selected = tuple(
+            fact
+            for fact in discovered
+            if (fact.source, fact.symbol) in INITIAL_EXCLUDED_SYMBOL_REASONS
+        )
+        validate_setting_ownership(selected, (), exclusions)
+
+        declared_sources = tuple(sorted({fact.source for fact in discovered}))
+        for source, symbol in INITIAL_EXCLUDED_SYMBOL_REASONS:
+            with self.subTest(source=source, symbol=symbol):
+                validate_discovery_target(
+                    discovered,
+                    (),
+                    exclusions,
+                    declared_sources=declared_sources,
+                    target_symbol=f"{source}::{symbol}",
+                )
+
+        future_fact = DiscoveredSetting(
+            "toolkit/config_modules.py",
+            "SliderConfig.__init__",
+            9999,
+            "new_slider_setting",
+            "kwargs.get",
+            "core",
+            "None",
+        )
+        with self.assertRaisesRegex(DiscoveryError, "unowned"):
+            validate_discovery_target(
+                discovered + (future_fact,),
+                (),
+                exclusions,
+                declared_sources=declared_sources,
+                target_symbol=(
+                    "toolkit/config_modules.py::SliderConfig.__init__"
+                ),
+            )
 
     def test_discovery_target_validation_is_exact_and_slice_closed(self):
         discovered = (
@@ -4297,8 +4418,36 @@ def build(network_kwargs):
         self.assertGreaterEqual(inventory["summary"]["major_groups"]["ModelConfig"], 60)
         self.assertGreaterEqual(inventory["summary"]["major_groups"]["DatasetConfig"], 78)
         self.assertGreaterEqual(inventory["summary"]["major_groups"]["AdapterConfig"], 49)
+        self.assertEqual(
+            inventory["summary"]["by_ownership"]["excluded"], 81
+        )
+        self.assertEqual(
+            inventory["summary"]["by_ownership"]["unowned"],
+            inventory["summary"]["total"] - 81,
+        )
+        excluded_identities = {
+            (row["source"], row["symbol"], row["key"], row["read_kind"])
+            for row in inventory["settings"]
+            if row["ownership"] == "excluded"
+        }
+        declared_exclusions = load_exclusions(
+            REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
+        )
+        self.assertEqual(
+            excluded_identities,
+            {
+                (item.source, item.symbol, item.key, item.read_kind)
+                for item in declared_exclusions
+            },
+        )
         self.assertTrue(
-            all(row["ownership"] == "unowned" for row in inventory["settings"])
+            all(
+                row["ownership"] == "excluded"
+                if (row["source"], row["symbol"])
+                in INITIAL_EXCLUDED_SYMBOL_REASONS
+                else row["ownership"] == "unowned"
+                for row in inventory["settings"]
+            )
         )
 
     def test_discovery_inventory_floor_rejects_each_one_row_reduction(self):

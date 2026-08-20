@@ -192,6 +192,11 @@ def _portable_declaration(value: object, label: str, *, glob: bool) -> str:
     return path
 
 
+def _contains_identity_glob(value: str, *, read_kind: bool = False) -> bool:
+    candidate = value[:-2] if read_kind and value.endswith("[]") else value
+    return any(character in candidate for character in "*?[")
+
+
 def _claim_from_json(value: object, label: str) -> SourceClaim:
     if type(value) is not dict:
         raise DiscoveryError(f"{label} must be an object")
@@ -199,10 +204,10 @@ def _claim_from_json(value: object, label: str) -> SourceClaim:
     symbol = _string(value["symbol"], f"{label}.symbol")
     key = _string(value["key"], f"{label}.key")
     read_kind = _string(value["read_kind"], f"{label}.read_kind")
-    if any(
-        metacharacter in field
-        for field in (symbol, key, read_kind)
-        for metacharacter in "*?["
+    if (
+        _contains_identity_glob(symbol)
+        or _contains_identity_glob(key)
+        or _contains_identity_glob(read_kind, read_kind=True)
     ):
         raise DiscoveryError(f"{label} requires an exact identity")
     return SourceClaim(
@@ -3704,9 +3709,8 @@ def validate_setting_ownership(
     for claim in catalog_claims:
         identity_fields = (claim.source, claim.symbol, claim.key, claim.read_kind)
         if not all(identity_fields) or any(
-            metacharacter in field
-            for field in identity_fields
-            for metacharacter in "*?["
+            _contains_identity_glob(field, read_kind=index == 3)
+            for index, field in enumerate(identity_fields)
         ):
             raise DiscoveryError(f"catalog claim requires exact identity: {claim!r}")
         _portable_declaration(claim.source, "catalog claim source", glob=False)
@@ -3718,10 +3722,11 @@ def validate_setting_ownership(
             raise DiscoveryError(f"exclusion requires an exact symbol: {exclusion!r}")
         if "*" in exclusion.key or "*" in exclusion.read_kind:
             raise DiscoveryError(f"blanket exclusion is forbidden: {exclusion!r}")
-        if any(
-            metacharacter in field
-            for field in (exclusion.source, exclusion.key, exclusion.read_kind)
-            for metacharacter in "?["):
+        if (
+            _contains_identity_glob(exclusion.source)
+            or _contains_identity_glob(exclusion.key)
+            or _contains_identity_glob(exclusion.read_kind, read_kind=True)
+        ):
             raise DiscoveryError(f"exclusion requires an exact identity: {exclusion!r}")
         _portable_declaration(exclusion.source, "exclusion source", glob=False)
         if not exclusion.reason or not exclusion.reason.strip():
