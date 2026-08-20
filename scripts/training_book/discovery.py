@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Iterable, Sequence
+from typing import Iterable, Iterator, Sequence
 
 
 class DiscoveryError(ValueError):
@@ -1177,6 +1177,8 @@ class _SettingVisitor(ast.NodeVisitor):
         terminals: list[tuple[str, _SettingState]] = []
         for statement in statements:
             result = self.visit(statement)
+            if isinstance(result, _StatementFlow):
+                prefixes.extend(result.prefixes)
             prefixes.append(self._capture_state())
             if isinstance(result, _StatementFlow):
                 terminals.extend(result.terminals)
@@ -1592,7 +1594,22 @@ class _SettingVisitor(ast.NodeVisitor):
                 elif isinstance(pattern, ast.MatchMapping):
                     reject_path(pattern.rest, pattern)
 
-        for inner in ast.walk(node):
+        def conditional_nodes(root: ast.AST) -> Iterator[ast.AST]:
+            yield root
+            for field, value in ast.iter_fields(root):
+                if (
+                    isinstance(root, (ast.Try, ast.TryStar))
+                    and field == "finalbody"
+                ):
+                    continue
+                if isinstance(value, ast.AST):
+                    yield from conditional_nodes(value)
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, ast.AST):
+                            yield from conditional_nodes(item)
+
+        for inner in conditional_nodes(node):
             if isinstance(inner, ast.Assign):
                 targets = inner.targets
             elif isinstance(inner, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
@@ -1643,6 +1660,7 @@ class _SettingVisitor(ast.NodeVisitor):
                 for kind, state in body_flow.terminals
                 if kind not in {"break", "continue"}
             ]
+            prefixes = list(body_flow.prefixes)
             if body_flow.falls_through:
                 iteration_states.append(self._capture_state())
             if zero_iteration:
@@ -1652,13 +1670,16 @@ class _SettingVisitor(ast.NodeVisitor):
             if iteration_states:
                 self._restore_state(self._merge_states(iteration_states))
                 else_flow = self._visit_statements(node.orelse)
+                prefixes.extend(else_flow.prefixes)
                 propagated.extend(else_flow.terminals)
                 if else_flow.falls_through:
                     post_states.append(self._capture_state())
             if not post_states:
-                return _StatementFlow(False, tuple(propagated))
+                return _StatementFlow(
+                    False, tuple(propagated), tuple(prefixes)
+                )
             self._restore_state(self._merge_states(post_states))
-            return _StatementFlow(True, tuple(propagated))
+            return _StatementFlow(True, tuple(propagated), tuple(prefixes))
 
         if isinstance(node.target, ast.Name) and iterable is not None:
             if not iterable:
@@ -1712,20 +1733,22 @@ class _SettingVisitor(ast.NodeVisitor):
             for kind, state in body_flow.terminals
             if kind not in {"break", "continue"}
         ]
+        prefixes = list(body_flow.prefixes)
         if body_flow.falls_through:
             normal_states.append(self._capture_state())
         normal_states.append(baseline)
 
         self._restore_state(self._merge_states(normal_states))
         else_flow = self._visit_statements(node.orelse)
+        prefixes.extend(else_flow.prefixes)
         propagated.extend(else_flow.terminals)
         post_states = list(break_states)
         if else_flow.falls_through:
             post_states.append(self._capture_state())
         if not post_states:
-            return _StatementFlow(False, tuple(propagated))
+            return _StatementFlow(False, tuple(propagated), tuple(prefixes))
         self._restore_state(self._merge_states(post_states))
-        return _StatementFlow(True, tuple(propagated))
+        return _StatementFlow(True, tuple(propagated), tuple(prefixes))
 
     def _merge_may_alias_states(
         self,
@@ -1776,10 +1799,12 @@ class _SettingVisitor(ast.NodeVisitor):
         self._reject_conditional_alias_reassignment(node)
         baseline = self._capture_state()
         body_flow = self._visit_statements(node.body)
+        prefixes = list(body_flow.prefixes)
         continuing_states: list[_SettingState] = []
         terminals = list(body_flow.terminals)
         if body_flow.falls_through:
             else_flow = self._visit_statements(node.orelse)
+            prefixes.extend(else_flow.prefixes)
             terminals.extend(else_flow.terminals)
             if else_flow.falls_through:
                 continuing_states.append(self._capture_state())
@@ -1798,6 +1823,7 @@ class _SettingVisitor(ast.NodeVisitor):
             if handler.name is not None:
                 self._bind_name_unknown(handler.name)
             handler_flow = self._visit_statements(handler.body)
+            prefixes.extend(handler_flow.prefixes)
             if handler.name is not None:
                 self._bind_name_unknown(handler.name)
             terminals.extend(handler_flow.terminals)
@@ -1805,26 +1831,52 @@ class _SettingVisitor(ast.NodeVisitor):
                 continuing_states.append(self._capture_state())
 
         if node.finalbody:
-            final_inputs = list(continuing_states)
-            final_inputs.extend(state for _, state in terminals)
-            self._restore_state(
-                self._merge_states(final_inputs or [handler_entry])
+            final_continuing: list[_SettingState] = []
+            final_terminals: list[tuple[str, _SettingState]] = []
+
+            for state in continuing_states:
+                self._restore_state(state)
+                final_flow = self._visit_statements(node.finalbody)
+                prefixes.extend(final_flow.prefixes)
+                final_terminals.extend(final_flow.terminals)
+                if final_flow.falls_through:
+                    final_continuing.append(self._capture_state())
+
+            for kind, state in terminals:
+                self._restore_state(state)
+                final_flow = self._visit_statements(node.finalbody)
+                prefixes.extend(final_flow.prefixes)
+                final_terminals.extend(final_flow.terminals)
+                if final_flow.falls_through:
+                    final_terminals.append((kind, self._capture_state()))
+
+            if not continuing_states and not terminals:
+                self._restore_state(handler_entry)
+                final_flow = self._visit_statements(node.finalbody)
+                prefixes.extend(final_flow.prefixes)
+                final_terminals.extend(final_flow.terminals)
+                if final_flow.falls_through:
+                    final_continuing.append(self._capture_state())
+
+            if final_continuing:
+                self._restore_state(self._merge_states(final_continuing))
+                return _StatementFlow(
+                    True, tuple(final_terminals), tuple(prefixes)
+                )
+            terminal_states = [state for _, state in final_terminals]
+            if terminal_states:
+                self._restore_state(self._merge_states(terminal_states))
+            return _StatementFlow(
+                False, tuple(final_terminals), tuple(prefixes)
             )
-            final_flow = self._visit_statements(node.finalbody)
-            if not final_flow.falls_through:
-                return final_flow
-            terminals.extend(final_flow.terminals)
-            if continuing_states:
-                return _StatementFlow(True, tuple(terminals))
-            return _StatementFlow(False, tuple(terminals))
 
         if continuing_states:
             self._restore_state(self._merge_states(continuing_states))
-            return _StatementFlow(True, tuple(terminals))
+            return _StatementFlow(True, tuple(terminals), tuple(prefixes))
         terminal_states = [state for _, state in terminals]
         if terminal_states:
             self._restore_state(self._merge_states(terminal_states))
-        return _StatementFlow(False, tuple(terminals))
+        return _StatementFlow(False, tuple(terminals), tuple(prefixes))
 
     visit_TryStar = visit_Try
 
@@ -1832,10 +1884,13 @@ class _SettingVisitor(ast.NodeVisitor):
         self._reject_conditional_alias_reassignment(node)
         self.visit(node.subject)
         baseline = self._capture_state()
-        continuing = [baseline]
+        pending_unmatched = [baseline]
+        continuing: list[_SettingState] = []
         terminals: list[tuple[str, _SettingState]] = []
+        prefixes: list[_SettingState] = []
         for case in node.cases:
-            self._restore_state(baseline)
+            entry = self._merge_states(pending_unmatched)
+            self._restore_state(entry)
             self.visit(case.pattern)
             for name in {
                 pattern.name
@@ -1851,12 +1906,17 @@ class _SettingVisitor(ast.NodeVisitor):
                 self._bind_name_unknown(name)
             if case.guard is not None:
                 self.visit(case.guard)
+                pending_unmatched = [entry, self._capture_state()]
+            else:
+                pending_unmatched = [entry]
             case_flow = self._visit_statements(case.body)
+            prefixes.extend(case_flow.prefixes)
             terminals.extend(case_flow.terminals)
             if case_flow.falls_through:
                 continuing.append(self._capture_state())
+        continuing.append(self._merge_states(pending_unmatched))
         self._restore_state(self._merge_states(continuing))
-        return _StatementFlow(True, tuple(terminals))
+        return _StatementFlow(True, tuple(terminals), tuple(prefixes))
 
     def visit_If(self, node: ast.If) -> _StatementFlow:
         self.visit(node.test)
@@ -1878,7 +1938,11 @@ class _SettingVisitor(ast.NodeVisitor):
             terminal_states = [state for _, state in terminals]
             if terminal_states:
                 self._restore_state(self._merge_states(terminal_states))
-            return _StatementFlow(False, terminals)
+            return _StatementFlow(
+                False,
+                terminals,
+                body_flow.prefixes + else_flow.prefixes,
+            )
         self._restore_state(self._merge_states(continuing))
         for name in baseline.aliases:
             if (
@@ -1888,7 +1952,11 @@ class _SettingVisitor(ast.NodeVisitor):
                 != (name in else_state.aliases)
             ):
                 self.current_aliases[name] = "dynamic"
-        return _StatementFlow(True, terminals)
+        return _StatementFlow(
+            True,
+            terminals,
+            body_flow.prefixes + else_flow.prefixes,
+        )
 
     def visit_Subscript(self, node: ast.Subscript) -> None:
         if not isinstance(node.ctx, ast.Load):

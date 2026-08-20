@@ -1914,6 +1914,170 @@ finally:
                 self.repository_root, ("try_prefix_finally.py",)
             )
 
+    def test_discovery_propagates_nested_compound_try_prefixes(self):
+        bodies = (
+            """component = "dit"
+try:
+    if external():
+        component = external()
+        risky()
+        component = "dit"
+except RuntimeError:
+    model_config.model_kwargs.get(f"{component}_path")
+""",
+            """settings = model_config.model_kwargs
+try:
+    for ignored in external():
+        settings = external()
+        risky()
+        settings = model_config.model_kwargs
+except RuntimeError:
+    settings.get("stale")
+""",
+        )
+        for index, body in enumerate(bodies):
+            with self.subTest(body=body):
+                path = f"nested_try_prefix_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(
+                    DiscoveryError,
+                    "dynamic configuration|branch-dependent configuration alias",
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_applies_finally_to_each_loop_terminal_state(self):
+        value_bodies = (
+            """component = "dit"
+for ignored in ["once"]:
+    try:
+        break
+    finally:
+        component = "vae"
+model_config.model_kwargs.get(f"{component}_path")
+""",
+            """component = "dit"
+for ignored in ["once"]:
+    try:
+        continue
+    finally:
+        component = "vae"
+model_config.model_kwargs.get(f"{component}_path")
+""",
+        )
+        for index, body in enumerate(value_bodies):
+            with self.subTest(body=body):
+                path = f"finally_loop_terminal_{index}.py"
+                self.write_source(path, body)
+                self.assertEqual(
+                    tuple(
+                        fact.key
+                        for fact in discover_python_settings(
+                            self.repository_root, (path,)
+                        )
+                    ),
+                    ("vae_path",),
+                )
+
+        alias_bodies = (
+            """settings = model_config.model_kwargs
+for ignored in ["once"]:
+    try:
+        break
+    finally:
+        settings = external()
+settings.get("stale")
+""",
+            """settings = model_config.model_kwargs
+for ignored in ["once"]:
+    try:
+        continue
+    finally:
+        settings = external()
+settings.get("stale")
+""",
+        )
+        for index, body in enumerate(alias_bodies):
+            with self.subTest(body=body):
+                path = f"finally_loop_alias_{index}.py"
+                self.write_source(path, body)
+                self.assertEqual(
+                    discover_python_settings(self.repository_root, (path,)), ()
+                )
+
+    def test_discovery_applies_finally_to_return_and_raise_states(self):
+        for index, terminal in enumerate(("return", "raise RuntimeError")):
+            with self.subTest(terminal=terminal):
+                path = f"finally_function_terminal_{index}.py"
+                self.write_source(
+                    path,
+                    f'''def load(model_config):
+    component = "dit"
+    try:
+        try:
+            {terminal}
+        finally:
+            component = "vae"
+    finally:
+        model_config.model_kwargs.get(f"{{component}}_path")
+''',
+                )
+                self.assertEqual(
+                    tuple(
+                        fact.key
+                        for fact in discover_python_settings(
+                            self.repository_root, (path,)
+                        )
+                    ),
+                    ("vae_path",),
+                )
+
+        for index, terminal in enumerate(("return", "raise RuntimeError")):
+            with self.subTest(terminal=f"alias-{terminal}"):
+                path = f"finally_function_alias_{index}.py"
+                self.write_source(
+                    path,
+                    f'''def load(model_config):
+    settings = model_config.model_kwargs
+    try:
+        try:
+            {terminal}
+        finally:
+            settings = external()
+    finally:
+        settings.get("stale")
+''',
+                )
+                self.assertEqual(
+                    discover_python_settings(self.repository_root, (path,)), ()
+                )
+
+    def test_discovery_carries_match_guard_false_side_effects(self):
+        bodies = (
+            """component = "dit"
+match external():
+    case _ if (component := external()):
+        pass
+    case _:
+        model_config.model_kwargs.get(f"{component}_path")
+""",
+            """settings = model_config.model_kwargs
+match external():
+    case _ if (settings := external()):
+        pass
+    case _:
+        settings.get("stale")
+""",
+        )
+        for index, body in enumerate(bodies):
+            with self.subTest(body=body):
+                path = f"match_guard_side_effect_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(
+                    DiscoveryError,
+                    "dynamic configuration|branch-dependent configuration alias",
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
     def test_discovery_supports_unconventional_bound_receiver_names(self):
         for index, signature in enumerate(("this", "this, /")):
             with self.subTest(signature=signature):
@@ -2631,11 +2795,6 @@ def build(network_kwargs):
             """    try:
         operate()
     except Exception:
-        mkw = {}
-""",
-            """    try:
-        operate()
-    finally:
         mkw = {}
 """,
             """    match token:
