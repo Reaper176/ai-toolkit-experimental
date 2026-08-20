@@ -693,15 +693,15 @@ class CatalogContractTests(unittest.TestCase):
                     self.discovered_steps(),
                 )
 
-    def test_catalog_contract_canonical_artifacts_are_generated_and_empty(self):
+    def test_catalog_contract_canonical_artifacts_are_generated(self):
         schema_path = (
             REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json"
         )
         catalog_path = REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json"
 
-        catalog = load_settings_catalog(catalog_path, schema_path, ())
+        catalog = load_settings_catalog(catalog_path, schema_path, None)
 
-        self.assertEqual(catalog.settings, ())
+        self.assertIsInstance(catalog.settings, tuple)
         self.assertEqual(
             json.loads(schema_path.read_text(encoding="utf-8")),
             settings_catalog_schema(),
@@ -726,6 +726,32 @@ class CatalogContractTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("schema drift", result.stderr)
+
+
+class CatalogProductionSliceTests(unittest.TestCase):
+    def assert_catalog_selector_green(self, *arguments):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/validate_training_book.py",
+                "--check-discovery",
+                *arguments,
+            ],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            result.stdout + result.stderr,
+        )
+
+    def test_catalog_base_job_source_is_exactly_owned(self):
+        self.assert_catalog_selector_green(
+            "--target-source", "jobs/BaseJob.py"
+        )
 
 
 class DiscoveryContractTests(unittest.TestCase):

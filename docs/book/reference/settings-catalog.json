@@ -1,4 +1,348 @@
 {
   "schema_version": 1,
-  "settings": []
+  "settings": [
+    {
+      "id": "root.config",
+      "ui_label": null,
+      "scope": "root",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "absent",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [
+        {
+          "source": "jobs/BaseJob.py",
+          "symbol": "BaseJob.__init__",
+          "key": "config",
+          "read_kind": "attribute[]"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "root-config",
+        "description": "Provides the job configuration object consumed by the selected job implementation.",
+        "benefits": "Makes the root.config configuration boundary explicit.",
+        "drawbacks": "An invalid root.config value stops job configuration or process loading.",
+        "example": "config: <value>"
+      }
+    },
+    {
+      "id": "root.job",
+      "ui_label": null,
+      "scope": "root",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "job"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "absent",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [
+        {
+          "source": "jobs/BaseJob.py",
+          "symbol": "BaseJob.__init__",
+          "key": "job",
+          "read_kind": "attribute[]"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "root-job",
+        "description": "Selects the top-level job implementation that consumes the configuration.",
+        "benefits": "Makes the root.job configuration boundary explicit.",
+        "drawbacks": "An invalid root.job value stops job configuration or process loading.",
+        "example": "job: <value>"
+      }
+    },
+    {
+      "id": "root.meta",
+      "ui_label": null,
+      "scope": "root",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "meta"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {},
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [
+        {
+          "source": "jobs/BaseJob.py",
+          "symbol": "BaseJob.__init__",
+          "key": "meta",
+          "read_kind": "attribute.contains"
+        },
+        {
+          "source": "jobs/BaseJob.py",
+          "symbol": "BaseJob.__init__",
+          "key": "meta",
+          "read_kind": "attribute[]"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "root-meta",
+        "description": "Carries optional metadata from the job envelope into each process.",
+        "benefits": "Makes the root.meta configuration boundary explicit.",
+        "drawbacks": "An invalid root.meta value stops job configuration or process loading.",
+        "example": "meta: <value>"
+      }
+    },
+    {
+      "id": "job.name",
+      "ui_label": null,
+      "scope": "job",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.name"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "absent",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [
+        {
+          "source": "jobs/BaseJob.py",
+          "symbol": "BaseJob.__init__",
+          "key": "name",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "job-name",
+        "description": "Names the job and supplies the inherited process name fallback.",
+        "benefits": "Makes the job.name configuration boundary explicit.",
+        "drawbacks": "An invalid job.name value stops job configuration or process loading.",
+        "example": "config.name: <value>"
+      }
+    },
+    {
+      "id": "job.processes",
+      "ui_label": null,
+      "scope": "job",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "object-list",
+        "supported_type": "object-list",
+        "ui_type": null,
+        "example_type": "object-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "absent",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [
+        {
+          "source": "jobs/BaseJob.py",
+          "symbol": "BaseJob.load_processes",
+          "key": "process",
+          "read_kind": "attribute.contains"
+        },
+        {
+          "source": "jobs/BaseJob.py",
+          "symbol": "BaseJob.load_processes",
+          "key": "process",
+          "read_kind": "attribute[]"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "job-processes",
+        "description": "Defines the nonempty ordered list of processes loaded for the job.",
+        "benefits": "Makes the job.processes configuration boundary explicit.",
+        "drawbacks": "An invalid job.processes value stops job configuration or process loading.",
+        "example": "config.process: <value>"
+      }
+    },
+    {
+      "id": "process.type",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].type"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "absent",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [
+        {
+          "source": "jobs/BaseJob.py",
+          "symbol": "BaseJob.load_processes",
+          "key": "type",
+          "read_kind": "attribute.contains"
+        },
+        {
+          "source": "jobs/BaseJob.py",
+          "symbol": "BaseJob.load_processes",
+          "key": "type",
+          "read_kind": "attribute[]"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "process-type",
+        "description": "Selects the registered implementation for each process entry.",
+        "benefits": "Makes the process.type configuration boundary explicit.",
+        "drawbacks": "An invalid process.type value stops job configuration or process loading.",
+        "example": "config.process[*].type: <value>"
+      }
+    }
+  ]
 }
