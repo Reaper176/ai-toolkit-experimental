@@ -398,26 +398,56 @@ def _parameter_domains(
             if producer is None:
                 return None
             local_values: dict[str, tuple[str, ...]] = {}
-            for inner in ast.walk(producer):
+            guard_positions: dict[str, int] = {}
+            for position, inner in enumerate(producer.body):
                 if (
-                    isinstance(inner, ast.Compare)
-                    and len(inner.ops) == 1
-                    and isinstance(inner.ops[0], (ast.In, ast.NotIn))
-                    and isinstance(inner.left, ast.Name)
-                    and len(inner.comparators) == 1
+                    isinstance(inner, ast.If)
+                    and not inner.orelse
+                    and inner.body
+                    and isinstance(inner.body[-1], ast.Raise)
+                    and isinstance(inner.test, ast.Compare)
+                    and len(inner.test.ops) == 1
+                    and isinstance(inner.test.ops[0], ast.NotIn)
+                    and isinstance(inner.test.left, ast.Name)
+                    and len(inner.test.comparators) == 1
                 ):
-                    values = _literal_strings(inner.comparators[0], {})
+                    values = _literal_strings(inner.test.comparators[0], {})
                     if values:
-                        local_values[inner.left.id] = values
+                        name = inner.test.left.id
+                        local_values[name] = values
+                        guard_positions[name] = position
             returns = [
-                inner for inner in ast.walk(producer) if isinstance(inner, ast.Return)
+                (position, statement)
+                for position, statement in enumerate(producer.body)
+                if isinstance(statement, ast.Return)
             ]
-            if not returns:
+            if not returns or len(returns) != sum(
+                isinstance(inner, ast.Return) for inner in ast.walk(producer)
+            ):
                 return None
             resolved: set[str] = set()
-            for statement in returns:
+            for return_position, statement in returns:
                 if statement.value is None:
                     return None
+                referenced_names = {
+                    inner.id
+                    for inner in ast.walk(statement.value)
+                    if isinstance(inner, ast.Name)
+                }
+                for name in referenced_names.intersection(local_values):
+                    guard_position = guard_positions[name]
+                    if guard_position >= return_position:
+                        return None
+                    if any(
+                        isinstance(inner, ast.Name)
+                        and inner.id == name
+                        and isinstance(inner.ctx, ast.Store)
+                        for intervening in producer.body[
+                            guard_position + 1 : return_position
+                        ]
+                        for inner in ast.walk(intervening)
+                    ):
+                        return None
                 values = _literal_strings(statement.value, local_values)
                 if values is None:
                     return None

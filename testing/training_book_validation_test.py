@@ -541,6 +541,44 @@ class Resolver:
                 self.repository_root, ("mixed_components.py",)
             )
 
+    def test_discovery_rejects_non_dominating_finite_return_guards(self):
+        producer_bodies = (
+            """        if component in ("dit", "vae"):
+            pass
+        return component
+""",
+            """        if component not in ("dit", "vae"):
+            component = normalize(component)
+        return component
+""",
+            """        if enabled():
+            if component not in ("dit", "vae"):
+                raise ValueError(component)
+        return component
+""",
+        )
+        for index, producer_body in enumerate(producer_bodies):
+            with self.subTest(producer_body=producer_body):
+                path = f"non_dominating_guard_{index}.py"
+                self.write_source(
+                    path,
+                    """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def component(self):
+        component = input()
+"""
+                    + producer_body
+                    + """
+    def load(self):
+        return self.resolve(self.component())
+""",
+                )
+
+                with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+                    discover_python_settings(self.repository_root, (path,))
+
     def test_discovery_fails_closed_on_unresolved_dynamic_configuration_key(self):
         self.write_source(
             "dynamic.py",
