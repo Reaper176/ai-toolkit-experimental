@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import json
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Iterable, Sequence
 
@@ -331,8 +332,52 @@ class _ClassInfo:
 
 
 _MethodOwner = tuple[str, str]
-_MethodCall = tuple[ast.Call, str, str | None]
-_MethodReference = tuple[ast.Attribute, str, str | None]
+_FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef
+
+
+@dataclass(frozen=True)
+class _CallerInfo:
+    source: str
+    class_name: str | None
+    function: _FunctionNode | None
+    direct_method: bool
+
+
+_MethodCall = tuple[ast.Call, _CallerInfo]
+_MethodReference = tuple[ast.Attribute, _CallerInfo]
+
+
+def _class_info(
+    classes: dict[str, list[_ClassInfo]], owner: _MethodOwner
+) -> _ClassInfo | None:
+    source, class_name = owner
+    candidates = [
+        info for info in classes.get(class_name, ()) if info.source == source
+    ]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _base_infos(
+    classes: dict[str, list[_ClassInfo]], info: _ClassInfo
+) -> tuple[list[_ClassInfo], bool]:
+    resolved: list[_ClassInfo] = []
+    uncertain = False
+    for base in info.node.bases:
+        if not isinstance(base, ast.Name):
+            uncertain = True
+            continue
+        candidates = [
+            candidate
+            for candidate in classes.get(base.id, ())
+            if candidate.source == info.source
+        ]
+        if not candidates:
+            candidates = list(classes.get(base.id, ()))
+        if len(candidates) != 1:
+            uncertain = True
+            continue
+        resolved.append(candidates[0])
+    return resolved, uncertain
 
 
 def _resolve_method_owners(
@@ -355,26 +400,6 @@ def _resolve_method_owners(
     if len(callers) != 1:
         return frozenset(), True
 
-    def base_infos(info: _ClassInfo) -> tuple[list[_ClassInfo], bool]:
-        resolved: list[_ClassInfo] = []
-        uncertain = False
-        for base in info.node.bases:
-            if not isinstance(base, ast.Name):
-                uncertain = True
-                continue
-            candidates = [
-                candidate
-                for candidate in classes.get(base.id, ())
-                if candidate.source == info.source
-            ]
-            if not candidates:
-                candidates = list(classes.get(base.id, ()))
-            if len(candidates) != 1:
-                uncertain = True
-                continue
-            resolved.append(candidates[0])
-        return resolved, uncertain
-
     def search(
         info: _ClassInfo,
         *,
@@ -391,7 +416,7 @@ def _resolve_method_owners(
             for node in info.node.body
         ):
             return {owner}, False
-        bases, uncertain = base_infos(info)
+        bases, uncertain = _base_infos(classes, info)
         owners: set[_MethodOwner] = set()
         for base in bases:
             base_owners, base_uncertain = search(
@@ -409,42 +434,160 @@ def _resolve_method_owners(
     return frozenset(owners), uncertain
 
 
-def _method_use_applies(
+@cache
+def _bound_receiver(
+    caller: _CallerInfo,
+) -> tuple[str | None, bool]:
+    function = caller.function
+    if not caller.direct_method or function is None:
+        return None, True
+    if function.decorator_list and not (
+        len(function.decorator_list) == 1
+        and isinstance(function.decorator_list[0], ast.Name)
+        and function.decorator_list[0].id == "classmethod"
+    ):
+        return None, True
+    positional = list(function.args.posonlyargs) + list(function.args.args)
+    if not positional:
+        return None, True
+    receiver = positional[0].arg
+    rebound = any(
+        (
+            isinstance(node, ast.Name)
+            and node.id == receiver
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+        )
+        or (
+            isinstance(node, (ast.Global, ast.Nonlocal))
+            and receiver in node.names
+        )
+        for statement in function.body
+        for node in ast.walk(statement)
+    )
+    return receiver, rebound
+
+
+def _receiver_method_owners(
     *,
     receiver: ast.AST,
-    caller_source: str,
-    caller_class: str | None,
-    target_owner: _MethodOwner,
+    caller: _CallerInfo,
     method_name: str,
     classes: dict[str, list[_ClassInfo]],
-) -> bool:
-    if isinstance(receiver, ast.Name) and receiver.id in {"self", "cls"}:
+) -> tuple[frozenset[_MethodOwner], bool, bool]:
+    bound_receiver, rebound = _bound_receiver(caller)
+    if (
+        isinstance(receiver, ast.Name)
+        and bound_receiver is not None
+        and receiver.id == bound_receiver
+    ):
+        if rebound:
+            return frozenset(), True, True
         owners, uncertain = _resolve_method_owners(
             classes=classes,
-            caller_source=caller_source,
-            caller_class=caller_class,
+            caller_source=caller.source,
+            caller_class=caller.class_name,
             method_name=method_name,
             super_only=False,
         )
-        return uncertain or target_owner in owners
+        return owners, uncertain, True
     if (
         isinstance(receiver, ast.Call)
         and isinstance(receiver.func, ast.Name)
         and receiver.func.id == "super"
     ):
-        if receiver.args or receiver.keywords:
-            return True
+        if receiver.args or receiver.keywords or bound_receiver is None or rebound:
+            return frozenset(), True, False
         owners, uncertain = _resolve_method_owners(
             classes=classes,
-            caller_source=caller_source,
-            caller_class=caller_class,
+            caller_source=caller.source,
+            caller_class=caller.class_name,
             method_name=method_name,
             super_only=True,
         )
-        return uncertain or target_owner in owners
-    # The static receiver type is unknown, so it may target any same-named
-    # method in the parsed source union.
-    return True
+        return owners, uncertain, False
+    return frozenset(), True, False
+
+
+def _method_use_applies(
+    *,
+    receiver: ast.AST,
+    caller: _CallerInfo,
+    target_owner: _MethodOwner,
+    method_name: str,
+    classes: dict[str, list[_ClassInfo]],
+) -> tuple[bool, bool]:
+    owners, uncertain, _ = _receiver_method_owners(
+        receiver=receiver,
+        caller=caller,
+        method_name=method_name,
+        classes=classes,
+    )
+    return uncertain or target_owner in owners, uncertain
+
+
+def _inherits_from(
+    *,
+    classes: dict[str, list[_ClassInfo]],
+    candidate: _ClassInfo,
+    ancestor: _MethodOwner,
+    seen: frozenset[_MethodOwner] = frozenset(),
+) -> bool:
+    owner = (candidate.source, candidate.node.name)
+    if owner in seen:
+        return False
+    seen = seen | {owner}
+    for base in _base_infos(classes, candidate)[0]:
+        base_owner = (base.source, base.node.name)
+        if base_owner == ancestor or _inherits_from(
+            classes=classes,
+            candidate=base,
+            ancestor=ancestor,
+            seen=seen,
+        ):
+            return True
+    return False
+
+
+def _inherited_caller_has_producer_override(
+    *,
+    classes: dict[str, list[_ClassInfo]],
+    caller: _CallerInfo,
+    producer_name: str,
+    producer_owner: _MethodOwner,
+) -> bool:
+    if caller.class_name is None or caller.function is None:
+        return True
+    caller_owner = (caller.source, caller.class_name)
+    for candidates in classes.values():
+        for candidate in candidates:
+            candidate_owner = (candidate.source, candidate.node.name)
+            if candidate_owner == caller_owner or not _inherits_from(
+                classes=classes,
+                candidate=candidate,
+                ancestor=caller_owner,
+            ):
+                continue
+            caller_owners, caller_uncertain = _resolve_method_owners(
+                classes=classes,
+                caller_source=candidate.source,
+                caller_class=candidate.node.name,
+                method_name=caller.function.name,
+                super_only=False,
+            )
+            if caller_uncertain:
+                return True
+            if caller_owners != {caller_owner}:
+                continue
+            producer_owners, producer_uncertain = _resolve_method_owners(
+                classes=classes,
+                caller_source=candidate.source,
+                caller_class=candidate.node.name,
+                method_name=producer_name,
+                super_only=False,
+            )
+            if producer_uncertain or producer_owners != {producer_owner}:
+                return True
+    return False
 
 
 def _parameter_domains(
@@ -453,6 +596,9 @@ def _parameter_domains(
     classes: dict[str, list[_ClassInfo]],
     call_sites: dict[str, tuple[_MethodCall, ...]],
     method_references: dict[str, tuple[_MethodReference, ...]],
+    inherited_override_cache: dict[
+        tuple[str, str, str, str, _MethodOwner], bool
+    ],
 ) -> tuple[
     dict[tuple[str, str, str], tuple[str, ...]],
     frozenset[tuple[str, str, str]],
@@ -472,8 +618,7 @@ def _parameter_domains(
         }
         def finite_method_return(
             call: ast.Call,
-            caller_source: str,
-            caller_class: str | None,
+            caller: _CallerInfo,
         ) -> tuple[str, ...] | None:
             if (
                 call.args
@@ -481,40 +626,44 @@ def _parameter_domains(
                 or not isinstance(call.func, ast.Attribute)
             ):
                 return None
-            receiver = call.func.value
-            if isinstance(receiver, ast.Name) and receiver.id in {"self", "cls"}:
-                super_only = False
-            elif (
-                isinstance(receiver, ast.Call)
-                and isinstance(receiver.func, ast.Name)
-                and receiver.func.id == "super"
-                and not receiver.args
-                and not receiver.keywords
-            ):
-                super_only = True
-            else:
-                return None
-            owners, uncertain = _resolve_method_owners(
-                classes=classes,
-                caller_source=caller_source,
-                caller_class=caller_class,
+            owners, uncertain, virtual = _receiver_method_owners(
+                receiver=call.func.value,
+                caller=caller,
                 method_name=call.func.attr,
-                super_only=super_only,
+                classes=classes,
             )
             if uncertain or len(owners) != 1:
                 return None
             producer_source, producer_class = next(iter(owners))
-            producer_classes = [
-                info
-                for info in classes.get(producer_class, ())
-                if info.source == producer_source
-            ]
-            if len(producer_classes) != 1:
+            producer_owner = (producer_source, producer_class)
+            if virtual:
+                assert caller.class_name is not None
+                assert caller.function is not None
+                cache_key = (
+                    caller.source,
+                    caller.class_name,
+                    caller.function.name,
+                    call.func.attr,
+                    producer_owner,
+                )
+                if cache_key not in inherited_override_cache:
+                    inherited_override_cache[cache_key] = (
+                        _inherited_caller_has_producer_override(
+                            classes=classes,
+                            caller=caller,
+                            producer_name=call.func.attr,
+                            producer_owner=producer_owner,
+                        )
+                    )
+                if inherited_override_cache[cache_key]:
+                    return None
+            producer_class_info = _class_info(classes, producer_owner)
+            if producer_class_info is None:
                 return None
             producer = next(
                 (
                     node
-                    for node in producer_classes[0].node.body
+                    for node in producer_class_info.node.body
                     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
                     and node.name == call.func.attr
                 ),
@@ -588,16 +737,13 @@ def _parameter_domains(
 
         def call_values(
             argument: ast.AST,
-            caller_source: str,
-            caller_class: str | None,
+            caller: _CallerInfo,
         ) -> tuple[str, ...] | None:
             values = _literal_strings(argument, {})
             if values is not None:
                 return values
             if isinstance(argument, ast.Call):
-                return finite_method_return(
-                    argument, caller_source, caller_class
-                )
+                return finite_method_return(argument, caller)
             return None
 
         for target_name, target in methods.items():
@@ -632,30 +778,36 @@ def _parameter_domains(
                     (class_name, target_name, parameter)
                     for parameter in target_parameters
                 )
-            for reference, caller_source, caller_class in method_references.get(
+            for reference, caller in method_references.get(
                 target_name, ()
             ):
-                if _method_use_applies(
+                applies, _ = _method_use_applies(
                     receiver=reference.value,
-                    caller_source=caller_source,
-                    caller_class=caller_class,
+                    caller=caller,
                     target_owner=target_owner,
                     method_name=target_name,
                     classes=classes,
-                ):
+                )
+                if applies:
                     unresolved.update(
                         (class_name, target_name, parameter)
                         for parameter in target_parameters
                     )
-            for call, caller_source, caller_class in call_sites.get(target_name, ()):
-                if not _method_use_applies(
+            for call, caller in call_sites.get(target_name, ()):
+                applies, uncertain_receiver = _method_use_applies(
                     receiver=call.func.value,
-                    caller_source=caller_source,
-                    caller_class=caller_class,
+                    caller=caller,
                     target_owner=target_owner,
                     method_name=target_name,
                     classes=classes,
-                ):
+                )
+                if not applies:
+                    continue
+                if uncertain_receiver:
+                    unresolved.update(
+                        (class_name, target_name, parameter)
+                        for parameter in target_parameters
+                    )
                     continue
                 supplied: set[str] = set()
                 if any(isinstance(argument, ast.Starred) for argument in call.args):
@@ -669,9 +821,7 @@ def _parameter_domains(
                     parameter = positional_parameters[index]
                     supplied.add(parameter)
                     key = (class_name, target_name, parameter)
-                    values = call_values(
-                        argument, caller_source, caller_class
-                    )
+                    values = call_values(argument, caller)
                     if values is not None:
                         result.setdefault(key, set()).update(values)
                     else:
@@ -685,9 +835,7 @@ def _parameter_domains(
                             )
                         supplied.add(keyword.arg)
                         key = (class_name, target_name, keyword.arg)
-                        values = call_values(
-                            keyword.value, caller_source, caller_class
-                        )
+                        values = call_values(keyword.value, caller)
                         if values is not None:
                             result.setdefault(key, set()).update(values)
                         else:
@@ -723,9 +871,7 @@ def _parameter_domains(
                                 )
                             supplied.add(parameter)
                             key = (class_name, target_name, parameter)
-                            values = call_values(
-                                value_node, caller_source, caller_class
-                            )
+                            values = call_values(value_node, caller)
                             if values is None:
                                 unresolved.add(key)
                             else:
@@ -743,7 +889,10 @@ def _parameter_domains(
                     if default is None:
                         unresolved.add(key)
                         continue
-                    values = call_values(default, source, class_name)
+                    values = call_values(
+                        default,
+                        _CallerInfo(source, class_name, target, False),
+                    )
                     if values is None:
                         unresolved.add(key)
                     else:
@@ -763,12 +912,20 @@ class _SettingVisitor(ast.NodeVisitor):
         classes: dict[str, list[_ClassInfo]],
         call_sites: dict[str, tuple[_MethodCall, ...]],
         method_references: dict[str, tuple[_MethodReference, ...]],
+        inherited_override_cache: dict[
+            tuple[str, str, str, str, _MethodOwner], bool
+        ],
     ) -> None:
         self.source = source
         self.tree = tree
         self.classes = classes
         self.parameter_domains, self.unresolved_parameter_calls = _parameter_domains(
-            source, tree, classes, call_sites, method_references
+            source,
+            tree,
+            classes,
+            call_sites,
+            method_references,
+            inherited_override_cache,
         )
         self.os_aliases = {"os"}
         self.os_aliases.update(
@@ -1736,6 +1893,7 @@ def discover_python_settings(
     root = Path(repository_root)
     if not root.is_dir():
         raise DiscoveryError(f"repository root is not a directory: {root}")
+    _bound_receiver.cache_clear()
     source_paths = _collect_source_paths(root, globs)
     parsed: list[tuple[str, ast.Module]] = []
     classes: dict[str, list[_ClassInfo]] = {}
@@ -1758,13 +1916,26 @@ def discover_python_settings(
         node: ast.AST,
         source: str,
         containing_class: str | None = None,
+        containing_function: _FunctionNode | None = None,
+        direct_method: bool = False,
         parent: ast.AST | None = None,
     ) -> None:
         if isinstance(node, ast.ClassDef):
             containing_class = node.name
+            containing_function = None
+            direct_method = False
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            containing_function = node
+            direct_method = isinstance(parent, ast.ClassDef)
+        caller = _CallerInfo(
+            source,
+            containing_class,
+            containing_function,
+            direct_method,
+        )
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             mutable_call_sites.setdefault(node.func.attr, []).append(
-                (node, source, containing_class)
+                (node, caller)
             )
         if (
             isinstance(node, ast.Attribute)
@@ -1775,10 +1946,17 @@ def discover_python_settings(
             )
         ):
             mutable_method_references.setdefault(node.attr, []).append(
-                (node, source, containing_class)
+                (node, caller)
             )
         for child in ast.iter_child_nodes(node):
-            collect_method_uses(child, source, containing_class, node)
+            collect_method_uses(
+                child,
+                source,
+                containing_class,
+                containing_function,
+                direct_method,
+                node,
+            )
 
     for source, tree in parsed:
         collect_method_uses(tree, source)
@@ -1789,6 +1967,9 @@ def discover_python_settings(
         name: tuple(references)
         for name, references in mutable_method_references.items()
     }
+    inherited_override_cache: dict[
+        tuple[str, str, str, str, _MethodOwner], bool
+    ] = {}
     for source, tree in parsed:
         visitor = _SettingVisitor(
             source=source,
@@ -1796,6 +1977,7 @@ def discover_python_settings(
             classes=classes,
             call_sites=call_sites,
             method_references=method_references,
+            inherited_override_cache=inherited_override_cache,
         )
         visitor.visit(tree)
         facts.extend(visitor.facts)

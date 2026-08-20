@@ -762,11 +762,11 @@ class ChildResolver(make_base()):
 
     def test_discovery_resolves_finite_producers_through_effective_mro(self):
         cases = (
-            ("self.component()", "vae_path"),
-            ("cls.component()", "vae_path"),
-            ("super().component()", "dit_path"),
+            ("self", "self.component()", "vae_path"),
+            ("cls", "cls.component()", "vae_path"),
+            ("self", "super().component()", "dit_path"),
         )
-        for index, (producer_call, expected_key) in enumerate(cases):
+        for index, (receiver, producer_call, expected_key) in enumerate(cases):
             with self.subTest(producer_call=producer_call):
                 path = f"finite_inherited_producer_{index}.py"
                 self.write_source(
@@ -782,8 +782,11 @@ class ChildResolver(BaseResolver):
     def component(self):
         return "vae"
 
-    def load(cls):
-        return cls.resolve("""
+    def load("""
+                    + receiver
+                    + "):\n        return "
+                    + receiver
+                    + ".resolve("
                     + producer_call
                     + ")\n",
                 )
@@ -834,8 +837,8 @@ class ChildResolver(BaseResolver):
         )
 
     def test_discovery_rejects_dynamic_effective_producer_overrides(self):
-        for index, producer_call in enumerate(
-            ("self.component()", "cls.component()")
+        for index, (receiver, producer_call) in enumerate(
+            (("self", "self.component()"), ("cls", "cls.component()"))
         ):
             with self.subTest(producer_call=producer_call):
                 path = f"dynamic_producer_override_{index}.py"
@@ -852,8 +855,11 @@ class ChildResolver(BaseResolver):
     def component(self):
         return input()
 
-    def load(cls):
-        return cls.resolve("""
+    def load("""
+                    + receiver
+                    + "):\n        return "
+                    + receiver
+                    + ".resolve("
                     + producer_call
                     + ")\n",
                 )
@@ -878,6 +884,88 @@ class ChildResolver(make_base()):
             discover_python_settings(
                 self.repository_root, ("unsupported_producer_inheritance.py",)
             )
+
+    def test_discovery_rejects_producer_overrides_of_inherited_callers(self):
+        self.write_source(
+            "inherited_caller_override.py",
+            """class BaseResolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def component(self):
+        return "dit"
+
+    def load(self):
+        return self.resolve(self.component())
+
+class ChildResolver(BaseResolver):
+    def component(self):
+        return input()
+""",
+        )
+        with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+            discover_python_settings(
+                self.repository_root, ("inherited_caller_override.py",)
+            )
+
+    def test_discovery_uses_only_the_actual_bound_receiver_parameter(self):
+        unsafe_methods = (
+            """    def load(self, cls):
+        return cls.resolve("dit")
+""",
+            """    def load(self):
+        def inner(self):
+            return self.resolve("dit")
+        return inner(external())
+""",
+            """    def load(this):
+        this = external()
+        return this.resolve("dit")
+""",
+        )
+        for index, unsafe_method in enumerate(unsafe_methods):
+            with self.subTest(unsafe_method=unsafe_method):
+                path = f"unsafe_receiver_{index}.py"
+                self.write_source(
+                    path,
+                    """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+"""
+                    + unsafe_method,
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_supports_unconventional_bound_receiver_names(self):
+        for index, signature in enumerate(("this", "this, /")):
+            with self.subTest(signature=signature):
+                path = f"unconventional_receiver_{index}.py"
+                self.write_source(
+                    path,
+                    """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def load("""
+                    + signature
+                    + '):\n        return this.resolve("vae")\n',
+                )
+                self.assertEqual(
+                    discover_python_settings(self.repository_root, (path,)),
+                    (
+                        DiscoveredSetting(
+                            path,
+                            "Resolver.resolve",
+                            3,
+                            "vae_path",
+                            "model_kwargs.get",
+                            "model",
+                            "None",
+                        ),
+                    ),
+                )
 
     def test_discovery_rejects_decorated_parameter_consumer_rewrites(self):
         path = "decorated_consumer_rewrite.py"
