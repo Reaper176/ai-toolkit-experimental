@@ -1704,6 +1704,143 @@
         "drawbacks": "An unsuitable or common trigger can entangle the learned concept with existing vocabulary.",
         "example": "trigger_word: null"
       }
+    },
+    {
+      "id": "environment.aitk_job_id",
+      "ui_label": null,
+      "scope": "environment",
+      "locations": [
+        {
+          "kind": "environment",
+          "path": "AITK_JOB_ID"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "transient",
+      "authority": "server-overwritten",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "nonblank-job-id",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "A present environment value is stripped of surrounding whitespace before use.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "process.sqlite_db_path",
+          "kind": "requires",
+          "description": "UI job status integration is active only when the configured database path exists as well.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/sd_trainer/DiffusionTrainer.py",
+          "symbol": "DiffusionTrainer.__init__",
+          "key": "AITK_JOB_ID",
+          "read_kind": "os.environ.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "environment-aitk-job-id",
+        "description": "Carries the server-assigned job identifier into a diffusion trainer process.",
+        "benefits": "Links process status and logs to the matching UI job record.",
+        "drawbacks": "Without a matching server job and database the process runs without UI-trainer status integration.",
+        "example": "AITK_JOB_ID=job_123"
+      }
+    },
+    {
+      "id": "process.sqlite_db_path",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sqlite_db_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "sqlite-database-path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "./aitk_db.db",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "environment.aitk_job_id",
+          "kind": "requires",
+          "description": "UI job status integration also requires a present server job identifier.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/sd_trainer/DiffusionTrainer.py",
+          "symbol": "DiffusionTrainer.__init__",
+          "key": "sqlite_db_path",
+          "read_kind": "attribute.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "process-sqlite-db-path",
+        "description": "Points the diffusion trainer at the SQLite database used for UI job status.",
+        "benefits": "Allows a launched process to report progress and stop state to the local UI database.",
+        "drawbacks": "A missing path disables UI-trainer integration; an incorrect existing database can target the wrong state store.",
+        "example": "sqlite_db_path: ./aitk_db.db"
+      }
     }
   ]
 }

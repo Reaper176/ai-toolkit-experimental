@@ -773,6 +773,15 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "--target-source", "jobs/process/BaseSDTrainProcess.py"
         )
 
+    def test_catalog_diffusion_trainer_source_is_exactly_owned(self):
+        self.assert_catalog_selector_green(
+            "--target-source",
+            "extensions_built_in/sd_trainer/DiffusionTrainer.py",
+        )
+
+    def test_catalog_core_process_scope_is_exactly_owned(self):
+        self.assert_catalog_selector_green("--scope", "core-process")
+
 
 class DiscoveryContractTests(unittest.TestCase):
     def setUp(self):

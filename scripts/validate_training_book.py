@@ -37,6 +37,17 @@ FULL_ARCHITECTURES = (
     "mageflow_edit", "boogu_image", "boogu_image_edit",
 )
 
+CORE_PROCESS_SOURCES = frozenset(
+    {
+        "jobs/BaseJob.py",
+        "jobs/ExtensionJob.py",
+        "jobs/process/BaseProcess.py",
+        "jobs/process/BaseTrainProcess.py",
+        "jobs/process/BaseSDTrainProcess.py",
+        "extensions_built_in/sd_trainer/DiffusionTrainer.py",
+    }
+)
+
 
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -177,6 +188,7 @@ def main() -> None:
         arguments.target_source is not None or arguments.target_symbol is not None
     )
     target_mode = False
+    production_scope = None
     if arguments.check_discovery:
         if arguments.inventory_json is not None:
             raise DiscoveryError(
@@ -188,6 +200,8 @@ def main() -> None:
                     "discovery mode cannot combine a target with --scope"
                 )
             target_mode = True
+        elif arguments.scope == ["core-process"]:
+            production_scope = "core-process"
         elif arguments.scope != ["discovery-fixtures"]:
             raise DiscoveryError(
                 "--check-discovery requires exactly --scope discovery-fixtures"
@@ -206,6 +220,7 @@ def main() -> None:
     needs_production_discovery = bool(
         arguments.inventory_json
         or target_mode
+        or production_scope
     )
     if needs_production_discovery:
         source_catalog = load_source_catalog(
@@ -232,6 +247,21 @@ def main() -> None:
                 declared_sources=_declared_python_sources(repository_root, globs),
                 target_source=arguments.target_source,
                 target_symbol=arguments.target_symbol,
+            )
+        if production_scope == "core-process":
+            validate_setting_ownership(
+                tuple(
+                    fact for fact in discovered
+                    if fact.source in CORE_PROCESS_SOURCES
+                ),
+                tuple(
+                    claim for claim in claims
+                    if claim.source in CORE_PROCESS_SOURCES
+                ),
+                tuple(
+                    item for item in exclusions
+                    if item.source in CORE_PROCESS_SOURCES
+                ),
             )
 
 
