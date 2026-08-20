@@ -2457,6 +2457,288 @@ class BaseJob:
                         self.repository_root, ("jobs/BaseJob.py",)
                     )
 
+    def test_discovery_captures_destructuring_rhs_before_binding(self):
+        self.write_source(
+            "destructure_swap.py",
+            """component = external()
+fallback = "dit"
+component, fallback = fallback, component
+model_config.model_kwargs.get(f"{fallback}_path")
+""",
+        )
+        with self.assertRaisesRegex(DiscoveryError, "dynamic configuration"):
+            discover_python_settings(self.repository_root, ("destructure_swap.py",))
+
+        self.write_source(
+            "destructure_alias_swap.py",
+            """settings = external()
+fallback = model_config.model_kwargs
+settings, fallback = fallback, settings
+fallback.get("stale")
+""",
+        )
+        self.assertEqual(
+            discover_python_settings(
+                self.repository_root, ("destructure_alias_swap.py",)
+            ),
+            (),
+        )
+
+    def test_discovery_models_chained_compare_and_assert_flow(self):
+        chained = (
+            """component = "vae"
+(component := external()) < risky() < (component := "dit")
+model_config.model_kwargs.get(f"{component}_path")
+""",
+            """settings = model_config.model_kwargs
+(settings := external()) < risky() < (settings := model_config.model_kwargs)
+settings.get("stale")
+""",
+        )
+        for index, body in enumerate(chained):
+            with self.subTest(kind=f"compare-{index}"):
+                path = f"chained_compare_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(
+                    DiscoveryError,
+                    "dynamic configuration|branch-dependent configuration alias",
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
+        assert_bodies = (
+            """component = "dit"
+assert external(), (component := external())
+model_config.model_kwargs.get(f"{component}_path")
+""",
+            """settings = model_config.model_kwargs
+assert external(), (settings := external())
+settings.get("stale")
+""",
+        )
+        expected = (("dit_path", "model_kwargs.get"), ("stale", "model_kwargs.get"))
+        for index, body in enumerate(assert_bodies):
+            with self.subTest(kind=f"assert-{index}"):
+                path = f"assert_message_{index}.py"
+                self.write_source(path, body)
+                self.assertEqual(
+                    tuple(
+                        (fact.key, fact.read_kind)
+                        for fact in discover_python_settings(
+                            self.repository_root, (path,)
+                        )
+                    ),
+                    (expected[index],),
+                )
+
+    def test_discovery_resolves_argparse_dest_in_evaluation_order(self):
+        self.write_source(
+            "argparse_evaluation_order.py",
+            """destination = external()
+parser.add_argument(
+    "--fallback",
+    default=(destination := "chosen"),
+    dest=destination,
+)
+""",
+        )
+        self.assertEqual(
+            tuple(
+                (fact.key, fact.read_kind, fact.default_expression)
+                for fact in discover_python_settings(
+                    self.repository_root, ("argparse_evaluation_order.py",)
+                )
+            ),
+            (("chosen", "argparse.add_argument", "(destination := 'chosen')"),),
+        )
+
+    def test_discovery_visits_non_sentinel_network_spreads(self):
+        self.write_source(
+            "network_spread_children.py",
+            """class Known:
+    def __init__(self, rate=1):
+        self.rate = rate
+
+def build(network_kwargs, kwargs):
+    return Known(
+        **network_kwargs,
+        **kwargs.get(external()),
+    )
+""",
+        )
+        with self.assertRaisesRegex(DiscoveryError, "dynamic configuration key"):
+            discover_python_settings(
+                self.repository_root, ("network_spread_children.py",)
+            )
+
+    def test_discovery_indexes_extended_reflective_method_forms(self):
+        positive = (
+            'getattr(self, "resolve", None)("dit")',
+            'builtins.getattr(self, "resolve")("dit")',
+            'object.__getattribute__(self, "resolve")("dit")',
+        )
+        for index, expression in enumerate(positive):
+            with self.subTest(expression=expression):
+                path = f"extended_reflective_{index}.py"
+                self.write_source(
+                    path,
+                    f"""import builtins
+class Loader:
+    def resolve(self, component):
+        return model_config.model_kwargs.get(f"{{component}}_path")
+    def load(self):
+        return {expression}
+""",
+                )
+                self.assertEqual(
+                    tuple(
+                        fact.key
+                        for fact in discover_python_settings(
+                            self.repository_root, (path,)
+                        )
+                    ),
+                    ("dit_path",),
+                )
+
+        ambiguous = (
+            "lookup = getattr\n        lookup(self, 'resolve')('vae')",
+            "lookup = builtins.getattr\n        lookup(self, 'resolve')('vae')",
+            "getattr(self, method, None)('vae')",
+            "getattr(other, 'resolve', None)('vae')",
+            "object.__getattribute__(other, 'resolve')('vae')",
+        )
+        for index, statements in enumerate(ambiguous):
+            with self.subTest(statements=statements):
+                path = f"ambiguous_reflective_{index}.py"
+                self.write_source(
+                    path,
+                    f"""import builtins
+class Loader:
+    def resolve(self, component):
+        return model_config.model_kwargs.get(f"{{component}}_path")
+    def load(self, method=None, other=None):
+        self.resolve("dit")
+        {statements}
+""",
+                )
+                with self.assertRaisesRegex(
+                    DiscoveryError, "dynamic parameter call site"
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_rejects_accessor_key_and_alias_mutations(self):
+        base = """class BaseJob:
+    def get_conf(self, key, default=None):
+        BODY
+    def load(self):
+        return self.get_conf("steps", 1)
+"""
+        rejecting = (
+            "key = external()\n        return self.config[key]",
+            "key, other = external()\n        return self.config[key]",
+            "alias = external()\n        return self.config[alias]",
+        )
+        for index, body in enumerate(rejecting):
+            with self.subTest(body=body):
+                self.write_source("jobs/BaseJob.py", base.replace("BODY", body))
+                with self.assertRaisesRegex(
+                    DiscoveryError, "dynamic configuration key"
+                ):
+                    discover_python_settings(self.repository_root, ("jobs/BaseJob.py",))
+
+        self.write_source(
+            "jobs/BaseJob.py",
+            base.replace(
+                "BODY",
+                "cfg = self.config\n        return cfg[key]",
+            ),
+        )
+        self.assertEqual(
+            tuple(
+                (fact.key, fact.read_kind)
+                for fact in discover_python_settings(
+                    self.repository_root, ("jobs/BaseJob.py",)
+                )
+            ),
+            (("steps", "attribute[]"), ("steps", "get_conf")),
+        )
+
+    def test_discovery_routes_global_and_nonlocal_bindings(self):
+        dynamic = (
+            """def outer(model_config):
+    component = "dit"
+    def mutate():
+        nonlocal component
+        component = external()
+    mutate()
+    return model_config.model_kwargs.get(f"{component}_path")
+""",
+            """component = "dit"
+def mutate():
+    global component
+    component = external()
+mutate()
+model_config.model_kwargs.get(f"{component}_path")
+""",
+        )
+        for index, body in enumerate(dynamic):
+            with self.subTest(index=index):
+                path = f"outer_binding_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(DiscoveryError, "dynamic configuration"):
+                    discover_python_settings(self.repository_root, (path,))
+
+        self.write_source(
+            "outer_binding_safe.py",
+            """def outer(model_config):
+    component = "dit"
+    unrelated = "vae"
+    def mutate():
+        nonlocal unrelated
+        unrelated = external()
+    mutate()
+    return model_config.model_kwargs.get(f"{component}_path")
+""",
+        )
+        self.assertEqual(
+            tuple(
+                fact.key
+                for fact in discover_python_settings(
+                    self.repository_root, ("outer_binding_safe.py",)
+                )
+            ),
+            ("dit_path",),
+        )
+
+        lexical_boundaries = (
+            """component = "dit"
+def outer():
+    global component
+    def inner():
+        component = external()
+model_config.model_kwargs.get(f"{component}_path")
+""",
+            """component = "dit"
+def outer():
+    global component
+    class Inner:
+        component = external()
+model_config.model_kwargs.get(f"{component}_path")
+""",
+        )
+        for index, body in enumerate(lexical_boundaries):
+            with self.subTest(boundary=index):
+                path = f"outer_binding_boundary_{index}.py"
+                self.write_source(path, body)
+                self.assertEqual(
+                    tuple(
+                        fact.key
+                        for fact in discover_python_settings(
+                            self.repository_root, (path,)
+                        )
+                    ),
+                    ("dit_path",),
+                )
+
     def test_discovery_supports_unconventional_bound_receiver_names(self):
         for index, signature in enumerate(("this", "this, /")):
             with self.subTest(signature=signature):

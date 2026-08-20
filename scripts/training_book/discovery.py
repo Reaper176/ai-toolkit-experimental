@@ -345,21 +345,34 @@ def _attribute_path(node: ast.AST) -> str | None:
 
 def _reflective_method_lookup(
     node: ast.AST,
-) -> tuple[ast.AST, str | None] | None:
+    aliases: frozenset[str] = frozenset(),
+) -> tuple[ast.AST, str | None, bool] | None:
     if not isinstance(node, ast.Call) or node.keywords:
         return None
-    if (
+    if _attribute_path(node.func) in {"getattr", "builtins.getattr"} and len(
+        node.args
+    ) in {2, 3}:
+        receiver, name = node.args[:2]
+        ambiguous = False
+    elif (
         isinstance(node.func, ast.Name)
-        and node.func.id == "getattr"
-        and len(node.args) == 2
+        and node.func.id in aliases
+        and len(node.args) >= 2
     ):
-        receiver, name = node.args
+        receiver, name = node.args[:2]
+        ambiguous = True
     elif (
         isinstance(node.func, ast.Attribute)
         and node.func.attr == "__getattribute__"
         and len(node.args) == 1
     ):
         receiver, name = node.func.value, node.args[0]
+        ambiguous = False
+    elif (
+        _attribute_path(node.func) == "object.__getattribute__" and len(node.args) == 2
+    ):
+        receiver, name = node.args
+        ambiguous = False
     else:
         return None
     method_name = (
@@ -367,7 +380,7 @@ def _reflective_method_lookup(
         if isinstance(name, ast.Constant) and isinstance(name.value, str)
         else None
     )
-    return receiver, method_name
+    return receiver, method_name, ambiguous
 
 
 def _class_method_symbol(class_name: str, method_name: str) -> str:
@@ -1021,9 +1034,8 @@ class _SettingVisitor(ast.NodeVisitor):
         self.value_bindings: list[set[str]] = [set()]
         self.scope_frames: list[str] = ["module"]
         self.pending_class_bindings: list[tuple[int, str]] = []
-        self.expression_prefix_frames: list[
-            tuple[int, list[_SettingState]]
-        ] = []
+        self.binding_declarations: list[dict[str, int]] = []
+        self.expression_prefix_frames: list[tuple[int, list[_SettingState]]] = []
         self.accessor_suppression_cache: dict[int, bool] = {}
         self.facts: list[DiscoveredSetting] = []
 
@@ -1149,7 +1161,14 @@ class _SettingVisitor(ast.NodeVisitor):
         self.values.pop()
         self.aliases.pop()
 
-    def _bind_unknown(self, name: str, frame_index: int = -1) -> None:
+    def _binding_frame(self, name: str, fallback: int = -1) -> int:
+        if self.binding_declarations and name in self.binding_declarations[-1]:
+            return self.binding_declarations[-1][name]
+        return fallback
+
+    def _bind_unknown(self, name: str, frame_index: int | None = None) -> None:
+        if frame_index is None:
+            frame_index = self._binding_frame(name)
         self.values[frame_index].pop(name, None)
         self.iterables[frame_index].pop(name, None)
         self.value_bindings[frame_index].add(name)
@@ -1158,9 +1177,11 @@ class _SettingVisitor(ast.NodeVisitor):
         self,
         name: str,
         values: tuple[str, ...],
-        frame_index: int = -1,
+        frame_index: int | None = None,
         iterable_values: tuple[str, ...] | None = None,
     ) -> None:
+        if frame_index is None:
+            frame_index = self._binding_frame(name)
         self.values[frame_index][name] = values
         if iterable_values is None:
             self.iterables[frame_index].pop(name, None)
@@ -1169,14 +1190,20 @@ class _SettingVisitor(ast.NodeVisitor):
         self.value_bindings[frame_index].add(name)
 
     def _bind_target_unknown(
-        self, target: ast.AST, frame_index: int = -1
+        self, target: ast.AST, frame_index: int | None = None
     ) -> None:
         if isinstance(target, ast.Name):
+            if frame_index is None:
+                frame_index = self._binding_frame(target.id)
             if self._visible_alias_state(target.id) is not None:
                 self.aliases[frame_index][target.id] = "shadowed"
             self._bind_unknown(target.id, frame_index)
             return
         if isinstance(target, ast.Attribute):
+            if frame_index is None:
+                path = _attribute_path(target)
+                head = None if path is None else path.split(".", maxsplit=1)[0]
+                frame_index = -1 if head is None else self._binding_frame(head)
             path = _attribute_path(target)
             if path is not None and self._container_kind(target) is not None:
                 self.aliases[frame_index][path] = "shadowed"
@@ -1187,10 +1214,8 @@ class _SettingVisitor(ast.NodeVisitor):
         elif isinstance(target, ast.Starred):
             self._bind_target_unknown(target.value, frame_index)
 
-    def _bind_name_unknown(self, name: str, frame_index: int = -1) -> None:
-        self._bind_target_unknown(
-            ast.Name(id=name, ctx=ast.Store()), frame_index
-        )
+    def _bind_name_unknown(self, name: str, frame_index: int | None = None) -> None:
+        self._bind_target_unknown(ast.Name(id=name, ctx=ast.Store()), frame_index)
 
     def _capture_state(self, frame_index: int = -1) -> _SettingState:
         return _SettingState(
@@ -1328,6 +1353,14 @@ class _SettingVisitor(ast.NodeVisitor):
         }
         if "key" not in parameters or not self.class_stack:
             return False
+        if any(
+            isinstance(inner, ast.Name)
+            and inner.id == "key"
+            and isinstance(inner.ctx, (ast.Store, ast.Del))
+            for statement in function.body
+            for inner in ast.walk(statement)
+        ):
+            return False
         domain_key = (self.class_stack[-1], function.name, "key")
         if (
             not self.parameter_domains.get(domain_key)
@@ -1338,6 +1371,10 @@ class _SettingVisitor(ast.NodeVisitor):
         derived_keys = {"key"}
         derived_collections: set[str] = set()
         containers = {"config", "self.config"}
+        allow_value_alias = (
+            self.source,
+            self.symbol,
+        ) == ("jobs/process/BaseProcess.py", "BaseProcess.get_conf")
         changed = True
         while changed:
             changed = False
@@ -1349,7 +1386,12 @@ class _SettingVisitor(ast.NodeVisitor):
                 ):
                     target = inner.targets[0].id
                     value_path = _attribute_path(inner.value)
-                    if value_path in containers and target not in containers:
+                    if (
+                        allow_value_alias
+                        and target == "value"
+                        and value_path in containers
+                        and target not in containers
+                    ):
                         containers.add(target)
                         changed = True
                     if (
@@ -1505,11 +1547,13 @@ class _SettingVisitor(ast.NodeVisitor):
             self.visit(expression)
         self.class_stack.append(node.name)
         self._push_scope("class")
+        self.binding_declarations.append({})
         self.pending_class_bindings.append(
             (len(self.scope_frames) - 1, node.name)
         )
         self._visit_statements(node.body)
         self.pending_class_bindings.pop()
+        self.binding_declarations.pop()
         self._pop_scope()
         self.class_stack.pop()
         self._bind_name_unknown(node.name)
@@ -1541,9 +1585,11 @@ class _SettingVisitor(ast.NodeVisitor):
         for expression in definition_expressions:
             self.visit(expression)
         self._bind_name_unknown(node.name)
+        declarations = self._function_binding_declarations(node)
         self.function_stack.append(node.name)
         self.function_nodes.append(node)
         self._push_scope("function")
+        self.binding_declarations.append(declarations)
         if node.args.kwarg is not None and node.args.kwarg.arg == "kwargs":
             self.current_aliases["kwargs"] = "kwargs"
         arguments = (
@@ -1556,18 +1602,67 @@ class _SettingVisitor(ast.NodeVisitor):
         for argument in arguments:
             if self._visible_alias(argument.arg) is not None:
                 self.current_aliases.setdefault(argument.arg, "shadowed")
-            self._bind_unknown(argument.arg)
+            self._bind_unknown(argument.arg, -1)
         if self.class_stack:
             for argument in arguments:
                 domain = self.parameter_domains.get(
                     (self.class_stack[-1], node.name, argument.arg)
                 )
                 if domain:
-                    self._bind_literal(argument.arg, domain)
+                    self._bind_literal(argument.arg, domain, -1)
         self._visit_statements(node.body)
+        self.binding_declarations.pop()
         self._pop_scope()
         self.function_nodes.pop()
         self.function_stack.pop()
+
+    def _function_binding_declarations(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> dict[str, int]:
+        global_names: set[str] = set()
+        nonlocal_names: set[str] = set()
+
+        class DeclarationVisitor(ast.NodeVisitor):
+            def visit_Global(self, declaration: ast.Global) -> None:
+                global_names.update(declaration.names)
+
+            def visit_Nonlocal(self, declaration: ast.Nonlocal) -> None:
+                nonlocal_names.update(declaration.names)
+
+            def visit_FunctionDef(self, inner: ast.FunctionDef) -> None:
+                return
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_Lambda(self, inner: ast.Lambda) -> None:
+                return
+
+            def visit_ClassDef(self, inner: ast.ClassDef) -> None:
+                return
+
+        scanner = DeclarationVisitor()
+        for statement in node.body:
+            scanner.visit(statement)
+
+        declarations = {name: 0 for name in global_names}
+        for name in nonlocal_names:
+            candidates = [
+                index
+                for index in range(len(self.scope_frames) - 1, -1, -1)
+                if self.scope_frames[index] in {"function", "lambda"}
+            ]
+            if not candidates:
+                continue
+            bound = next(
+                (
+                    index
+                    for index in candidates
+                    if name in self.value_bindings[index] or name in self.aliases[index]
+                ),
+                candidates[0],
+            )
+            declarations[name] = bound
+        return declarations
 
     visit_FunctionDef = _visit_function
     visit_AsyncFunctionDef = _visit_function
@@ -1579,6 +1674,7 @@ class _SettingVisitor(ast.NodeVisitor):
         ):
             self.visit(expression)
         self._push_scope("lambda")
+        self.binding_declarations.append({})
         arguments = (
             *node.args.posonlyargs,
             *node.args.args,
@@ -1589,8 +1685,9 @@ class _SettingVisitor(ast.NodeVisitor):
         for argument in arguments:
             if self._visible_alias(argument.arg) is not None:
                 self.current_aliases[argument.arg] = "shadowed"
-            self._bind_unknown(argument.arg)
+            self._bind_unknown(argument.arg, -1)
         self.visit(node.body)
+        self.binding_declarations.pop()
         self._pop_scope()
 
     def _visit_comprehension(
@@ -1613,9 +1710,9 @@ class _SettingVisitor(ast.NodeVisitor):
             generator: ast.comprehension,
             values: tuple[str, ...] | None,
         ) -> None:
-            self._bind_target_unknown(generator.target)
+            self._bind_target_unknown(generator.target, -1)
             if isinstance(generator.target, ast.Name) and values is not None:
-                self._bind_literal(generator.target.id, values)
+                self._bind_literal(generator.target.id, values, -1)
             for condition in generator.ifs:
                 self.visit(condition)
                 outer_paths.append(self._capture_scope_state()[:outer_depth])
@@ -1671,10 +1768,18 @@ class _SettingVisitor(ast.NodeVisitor):
 
     def visit_Assign(self, node: ast.Assign) -> None:
         self.visit(node.value)
+        rhs_state = self._capture_scope_state()
         for target in node.targets:
-            self._assign_target(target, node.value)
+            self._assign_target(target, node.value, rhs_state)
 
-    def _assign_target(self, target: ast.AST, value: ast.AST) -> None:
+    def _assign_target(
+        self,
+        target: ast.AST,
+        value: ast.AST,
+        rhs_state: tuple[_SettingState, ...] | None = None,
+    ) -> None:
+        if rhs_state is None:
+            rhs_state = self._capture_scope_state()
         if isinstance(target, (ast.Tuple, ast.List)):
             if not isinstance(value, (ast.Tuple, ast.List)):
                 self._bind_target_unknown(target)
@@ -1689,7 +1794,7 @@ class _SettingVisitor(ast.NodeVisitor):
                     self._bind_target_unknown(target)
                     return
                 for element, element_value in zip(target.elts, value.elts):
-                    self._assign_target(element, element_value)
+                    self._assign_target(element, element_value, rhs_state)
                 return
             if len(starred) != 1:
                 self._bind_target_unknown(target)
@@ -1702,7 +1807,7 @@ class _SettingVisitor(ast.NodeVisitor):
             for element, element_value in zip(
                 target.elts[:star_index], value.elts[:star_index]
             ):
-                self._assign_target(element, element_value)
+                self._assign_target(element, element_value, rhs_state)
             starred_target = target.elts[star_index]
             assert isinstance(starred_target, ast.Starred)
             middle_end = len(value.elts) - suffix_count
@@ -1710,30 +1815,34 @@ class _SettingVisitor(ast.NodeVisitor):
                 elts=value.elts[star_index:middle_end], ctx=ast.Load()
             )
             ast.copy_location(middle, value)
-            self._assign_target(starred_target.value, middle)
+            self._assign_target(starred_target.value, middle, rhs_state)
             if suffix_count:
                 for element, element_value in zip(
                     target.elts[-suffix_count:], value.elts[-suffix_count:]
                 ):
-                    self._assign_target(element, element_value)
+                    self._assign_target(element, element_value, rhs_state)
             return
         if isinstance(target, ast.Starred):
-            self._assign_target(target.value, value)
+            self._assign_target(target.value, value, rhs_state)
             return
 
+        current_state = self._capture_scope_state()
+        self._restore_scope_state(rhs_state)
         kind = self._container_kind(value)
         literal_values = _literal_strings(value, self.visible_values)
         iterable_values = self._iterable_strings(value)
+        self._restore_scope_state(current_state)
         target_path = _attribute_path(target)
         if target_path is not None:
+            target_frame = self._binding_frame(target_path.split(".", maxsplit=1)[0])
             if kind is not None:
-                self.current_aliases[target_path] = kind
+                self.aliases[target_frame][target_path] = kind
             elif isinstance(value, ast.Dict):
-                self.current_aliases.pop(target_path, None)
+                self.aliases[target_frame].pop(target_path, None)
             elif self._visible_alias_state(target_path) is not None:
-                self.current_aliases[target_path] = "shadowed"
+                self.aliases[target_frame][target_path] = "shadowed"
             else:
-                self.current_aliases.pop(target_path, None)
+                self.aliases[target_frame].pop(target_path, None)
         if isinstance(target, ast.Name):
             if literal_values is not None:
                 self._bind_literal(
@@ -1784,6 +1893,8 @@ class _SettingVisitor(ast.NodeVisitor):
             if self.scope_frames[index] != "comprehension"
         )
         target_path = _attribute_path(node.target)
+        if isinstance(node.target, ast.Name):
+            frame_index = self._binding_frame(node.target.id, frame_index)
         if target_path is not None and kind is not None:
             self.aliases[frame_index][target_path] = kind
         else:
@@ -2310,7 +2421,22 @@ class _SettingVisitor(ast.NodeVisitor):
                 self.visit(node.left)
                 self.visit(container)
                 return
-        self.generic_visit(node)
+        self.visit(node.left)
+        paths: list[tuple[_SettingState, ...]] = []
+        for comparator in node.comparators:
+            self.visit(comparator)
+            paths.append(self._capture_scope_state())
+        self._restore_scope_state(self._merge_scope_states(paths))
+
+    def visit_Assert(self, node: ast.Assert) -> _StatementFlow:
+        self.visit(node.test)
+        continuing = self._capture_scope_state()
+        terminals = (("raise", self._capture_state()),)
+        if node.msg is not None:
+            self.visit(node.msg)
+            terminals = (("raise", self._capture_state()),)
+            self._restore_scope_state(continuing)
+        return _StatementFlow(True, terminals)
 
     def _visit_call_children(self, node: ast.Call) -> None:
         self.visit(node.func)
@@ -2330,7 +2456,10 @@ class _SettingVisitor(ast.NodeVisitor):
             for argument in node.args:
                 self.visit(argument)
             for keyword in node.keywords:
-                if keyword.arg is not None:
+                if keyword.arg is not None or not (
+                    isinstance(keyword.value, ast.Name)
+                    and keyword.value.id == "network_kwargs"
+                ):
                     self.visit(keyword.value)
             return
 
@@ -2361,29 +2490,30 @@ class _SettingVisitor(ast.NodeVisitor):
             return
         if isinstance(node.func, ast.Attribute) and node.func.attr == "add_argument":
             if not node.args:
-                raise self._error(node, "argparse.add_argument call has no argument name")
-            option_values = tuple(
-                option
-                for argument in node.args
-                for option in self._resolved_keys(argument, node)
-            )
-            dest_keyword = next(
-                (keyword.value for keyword in node.keywords if keyword.arg == "dest"),
-                None,
-            )
-            if dest_keyword is not None:
-                keys = self._resolved_keys(dest_keyword, node)
-            else:
-                long_options = [value for value in option_values if value.startswith("--")]
+                raise self._error(
+                    node, "argparse.add_argument call has no argument name"
+                )
+            self.visit(node.func)
+            option_values: list[str] = []
+            for argument in node.args:
+                self.visit(argument)
+                option_values.extend(self._resolved_keys(argument, node))
+            keys: tuple[str, ...] | None = None
+            default: ast.AST | None = None
+            for keyword in node.keywords:
+                self.visit(keyword.value)
+                if keyword.arg == "dest":
+                    keys = self._resolved_keys(keyword.value, node)
+                elif keyword.arg == "default":
+                    default = keyword.value
+            if keys is None:
+                long_options = [
+                    value for value in option_values if value.startswith("--")
+                ]
                 selected = long_options[0] if long_options else option_values[0]
                 keys = (selected.lstrip("-").replace("-", "_"),)
-            default = next(
-                (keyword.value for keyword in node.keywords if keyword.arg == "default"),
-                None,
-            )
             for key in keys:
                 self._add(node, key, "argparse.add_argument", "cli", default)
-            self._visit_call_children(node)
             return
 
         if isinstance(node.func, ast.Attribute) and node.func.attr in {"get_conf", "get_config"}:
@@ -2820,21 +2950,39 @@ def discover_python_settings(
     facts: list[DiscoveredSetting] = []
     mutable_call_sites: dict[str, list[_MethodCall]] = {}
     mutable_method_references: dict[str, list[_MethodReference]] = {}
-    def reflective_attribute(
-        lookup: tuple[ast.AST, str | None], method_name: str
-    ) -> ast.Attribute:
-        receiver, literal_name = lookup
-        attribute = ast.Attribute(
-            value=receiver, attr=method_name, ctx=ast.Load()
+    reflective_alias_cache: dict[int, frozenset[str]] = {}
+
+    def reflective_aliases(function: _FunctionNode | None) -> frozenset[str]:
+        if function is None:
+            return frozenset()
+        cache_key = id(function)
+        if cache_key in reflective_alias_cache:
+            return reflective_alias_cache[cache_key]
+        aliases = frozenset(
+            target.id
+            for inner in ast.walk(function)
+            if isinstance(inner, ast.Assign)
+            and _attribute_path(inner.value)
+            in {"getattr", "builtins.getattr", "object.__getattribute__"}
+            for target in inner.targets
+            if isinstance(target, ast.Name)
         )
-        if literal_name is None:
+        reflective_alias_cache[cache_key] = aliases
+        return aliases
+
+    def reflective_attribute(
+        lookup: tuple[ast.AST, str | None, bool], method_name: str
+    ) -> ast.Attribute:
+        receiver, literal_name, ambiguous = lookup
+        attribute = ast.Attribute(value=receiver, attr=method_name, ctx=ast.Load())
+        if literal_name is None or ambiguous:
             attribute._dynamic_reflective_name = True
         return attribute
 
     def reflective_names(
-        lookup: tuple[ast.AST, str | None], caller: _CallerInfo
+        lookup: tuple[ast.AST, str | None, bool], caller: _CallerInfo
     ) -> tuple[str, ...]:
-        receiver, literal_name = lookup
+        receiver, literal_name, _ = lookup
         if literal_name is not None:
             return (literal_name,)
         bound_receiver, rebound = _bound_receiver(caller)
@@ -2945,7 +3093,9 @@ def discover_python_settings(
             direct_method,
         )
         if isinstance(node, ast.Call):
-            reflective_call = _reflective_method_lookup(node.func)
+            reflective_call = _reflective_method_lookup(
+                node.func, reflective_aliases(containing_function)
+            )
             if reflective_call is not None:
                 method_names = reflective_names(reflective_call, caller)
                 for method_name in method_names:
@@ -2962,10 +3112,10 @@ def discover_python_settings(
                         (synthetic, caller)
                     )
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            mutable_call_sites.setdefault(node.func.attr, []).append(
-                (node, caller)
-            )
-        reflective_reference = _reflective_method_lookup(node)
+            mutable_call_sites.setdefault(node.func.attr, []).append((node, caller))
+        reflective_reference = _reflective_method_lookup(
+            node, reflective_aliases(containing_function)
+        )
         if reflective_reference is not None and not (
             isinstance(parent, ast.Call) and parent.func is node
         ):
