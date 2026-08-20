@@ -672,6 +672,169 @@ def external_load(resolver, params):
             ),
         )
 
+    def test_discovery_binds_inherited_self_and_super_calls(self):
+        self.write_source(
+            "inheritance_base.py",
+            """class BaseResolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+""",
+        )
+        callers = (
+            "return self.resolve(\"dit\")",
+            "return super().resolve(\"vae\")",
+        )
+        expected_keys = ("dit_path", "vae_path")
+        for index, (call, expected_key) in enumerate(zip(callers, expected_keys)):
+            with self.subTest(call=call):
+                child_path = f"inheritance_child_{index}.py"
+                self.write_source(
+                    child_path,
+                    """from inheritance_base import BaseResolver
+class ChildResolver(BaseResolver):
+    def load(self):
+        """
+                    + call
+                    + "\n",
+                )
+                self.assertEqual(
+                    discover_python_settings(
+                        self.repository_root,
+                        ("inheritance_base.py", child_path),
+                    ),
+                    (
+                        DiscoveredSetting(
+                            "inheritance_base.py",
+                            "BaseResolver.resolve",
+                            3,
+                            expected_key,
+                            "model_kwargs.get",
+                            "model",
+                            "None",
+                        ),
+                    ),
+                )
+
+    def test_discovery_rejects_dynamic_inherited_method_calls(self):
+        child_calls = (
+            "return self.resolve(component)",
+            "return super().resolve(component)",
+        )
+        for index, child_call in enumerate(child_calls):
+            with self.subTest(child_call=child_call):
+                path = f"dynamic_inheritance_{index}.py"
+                self.write_source(
+                    path,
+                    """class BaseResolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def load(self):
+        return self.resolve("dit")
+
+class ChildResolver(BaseResolver):
+    def load_dynamic(self, component):
+        """
+                    + child_call
+                    + "\n",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+                    discover_python_settings(self.repository_root, (path,))
+
+        self.write_source(
+            "dynamic_inheritance_factory.py",
+            """class BaseResolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def load(self):
+        return self.resolve("dit")
+
+class ChildResolver(make_base()):
+    def load_dynamic(self, component):
+        return self.resolve(component)
+""",
+        )
+        with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+            discover_python_settings(
+                self.repository_root, ("dynamic_inheritance_factory.py",)
+            )
+
+    def test_discovery_rejects_escaping_finite_producer_methods(self):
+        escaping_statements = (
+            "callback = self.resolve",
+            "register(self.resolve)",
+            "callbacks = [self.resolve]",
+        )
+        for index, escaping_statement in enumerate(escaping_statements):
+            with self.subTest(escaping_statement=escaping_statement):
+                path = f"escaping_method_{index}.py"
+                self.write_source(
+                    path,
+                    """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def load(self):
+        self.resolve("dit")
+        """
+                    + escaping_statement
+                    + "\n",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_binds_omitted_finite_parameter_defaults(self):
+        for call in ("self.resolve()", 'self.resolve(**{})'):
+            with self.subTest(call=call):
+                self.write_source(
+                    "finite_default.py",
+                    """class Resolver:
+    def resolve(self, component="dit"):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def load(self):
+        return """
+                    + call
+                    + "\n",
+                )
+                self.assertEqual(
+                    discover_python_settings(
+                        self.repository_root, ("finite_default.py",)
+                    ),
+                    (
+                        DiscoveredSetting(
+                            "finite_default.py",
+                            "Resolver.resolve",
+                            3,
+                            "dit_path",
+                            "model_kwargs.get",
+                            "model",
+                            "None",
+                        ),
+                    ),
+                )
+
+    def test_discovery_rejects_omitted_nonfinite_parameter_defaults(self):
+        for call in ("self.resolve()", 'self.resolve(**{})'):
+            with self.subTest(call=call):
+                self.write_source(
+                    "dynamic_default.py",
+                    """class Resolver:
+    def resolve(self, component=default_component()):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def load(self):
+        self.resolve("dit")
+        return """
+                    + call
+                    + "\n",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+                    discover_python_settings(
+                        self.repository_root, ("dynamic_default.py",)
+                    )
+
     def test_discovery_rejects_formatted_fstring_configuration_keys(self):
         formatted_keys = (
             'f"{component!r}_path"',

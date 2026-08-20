@@ -328,10 +328,131 @@ def _class_method_symbol(class_name: str, method_name: str) -> str:
 class _ClassInfo:
     source: str
     node: ast.ClassDef
+
+
+_MethodOwner = tuple[str, str]
+_MethodCall = tuple[ast.Call, str, str | None]
+_MethodReference = tuple[ast.Attribute, str, str | None]
+
+
+def _resolve_method_owners(
+    *,
+    classes: dict[str, list[_ClassInfo]],
+    caller_source: str,
+    caller_class: str | None,
+    method_name: str,
+    super_only: bool,
+) -> tuple[frozenset[_MethodOwner], bool]:
+    """Return finite candidate owners and whether inheritance is ambiguous."""
+
+    if caller_class is None:
+        return frozenset(), True
+    callers = [
+        info
+        for info in classes.get(caller_class, ())
+        if info.source == caller_source
+    ]
+    if len(callers) != 1:
+        return frozenset(), True
+
+    def base_infos(info: _ClassInfo) -> tuple[list[_ClassInfo], bool]:
+        resolved: list[_ClassInfo] = []
+        uncertain = False
+        for base in info.node.bases:
+            if not isinstance(base, ast.Name):
+                uncertain = True
+                continue
+            candidates = [
+                candidate
+                for candidate in classes.get(base.id, ())
+                if candidate.source == info.source
+            ]
+            if not candidates:
+                candidates = list(classes.get(base.id, ()))
+            if len(candidates) != 1:
+                uncertain = True
+                continue
+            resolved.append(candidates[0])
+        return resolved, uncertain
+
+    def search(
+        info: _ClassInfo,
+        *,
+        include_self: bool,
+        seen: frozenset[_MethodOwner],
+    ) -> tuple[set[_MethodOwner], bool]:
+        owner = (info.source, info.node.name)
+        if owner in seen:
+            return set(), True
+        seen = seen | {owner}
+        if include_self and any(
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == method_name
+            for node in info.node.body
+        ):
+            return {owner}, False
+        bases, uncertain = base_infos(info)
+        owners: set[_MethodOwner] = set()
+        for base in bases:
+            base_owners, base_uncertain = search(
+                base, include_self=True, seen=seen
+            )
+            owners.update(base_owners)
+            uncertain = uncertain or base_uncertain
+        if len(owners) > 1:
+            uncertain = True
+        return owners, uncertain
+
+    owners, uncertain = search(
+        callers[0], include_self=not super_only, seen=frozenset()
+    )
+    return frozenset(owners), uncertain
+
+
+def _method_use_applies(
+    *,
+    receiver: ast.AST,
+    caller_source: str,
+    caller_class: str | None,
+    target_owner: _MethodOwner,
+    method_name: str,
+    classes: dict[str, list[_ClassInfo]],
+) -> bool:
+    if isinstance(receiver, ast.Name) and receiver.id in {"self", "cls"}:
+        owners, uncertain = _resolve_method_owners(
+            classes=classes,
+            caller_source=caller_source,
+            caller_class=caller_class,
+            method_name=method_name,
+            super_only=False,
+        )
+        return uncertain or target_owner in owners
+    if (
+        isinstance(receiver, ast.Call)
+        and isinstance(receiver.func, ast.Name)
+        and receiver.func.id == "super"
+    ):
+        if receiver.args or receiver.keywords:
+            return True
+        owners, uncertain = _resolve_method_owners(
+            classes=classes,
+            caller_source=caller_source,
+            caller_class=caller_class,
+            method_name=method_name,
+            super_only=True,
+        )
+        return uncertain or target_owner in owners
+    # The static receiver type is unknown, so it may target any same-named
+    # method in the parsed source union.
+    return True
+
+
 def _parameter_domains(
     source: str,
     tree: ast.Module,
-    call_sites: dict[str, tuple[tuple[ast.Call, str, str | None], ...]],
+    classes: dict[str, list[_ClassInfo]],
+    call_sites: dict[str, tuple[_MethodCall, ...]],
+    method_references: dict[str, tuple[_MethodReference, ...]],
 ) -> tuple[
     dict[tuple[str, str, str], tuple[str, ...]],
     frozenset[tuple[str, str, str]],
@@ -340,10 +461,10 @@ def _parameter_domains(
 
     result: dict[tuple[str, str, str], set[str]] = {}
     unresolved: set[tuple[str, str, str]] = set()
-    classes = {
+    local_classes = {
         node.name: node for node in tree.body if isinstance(node, ast.ClassDef)
     }
-    for class_name, class_node in classes.items():
+    for class_name, class_node in local_classes.items():
         methods = {
             node.name: node
             for node in class_node.body
@@ -434,22 +555,62 @@ def _parameter_domains(
             return None
 
         for target_name, target in methods.items():
+            positional_nodes = list(target.args.posonlyargs) + list(target.args.args)
+            positional_parameters = [argument.arg for argument in positional_nodes]
+            defaults: dict[str, ast.AST] = {}
+            positional_offset = len(positional_nodes) - len(target.args.defaults)
+            for argument, default in zip(
+                positional_nodes[positional_offset:], target.args.defaults
+            ):
+                defaults[argument.arg] = default
+            for argument, default in zip(
+                target.args.kwonlyargs, target.args.kw_defaults
+            ):
+                if default is not None:
+                    defaults[argument.arg] = default
+            if positional_parameters and positional_parameters[0] in {"self", "cls"}:
+                positional_parameters = positional_parameters[1:]
+            target_parameters = positional_parameters + [
+                argument.arg for argument in target.args.kwonlyargs
+            ]
+            target_owner = (source, class_name)
+            for reference, caller_source, caller_class in method_references.get(
+                target_name, ()
+            ):
+                if _method_use_applies(
+                    receiver=reference.value,
+                    caller_source=caller_source,
+                    caller_class=caller_class,
+                    target_owner=target_owner,
+                    method_name=target_name,
+                    classes=classes,
+                ):
+                    unresolved.update(
+                        (class_name, target_name, parameter)
+                        for parameter in target_parameters
+                    )
             for call, caller_source, caller_class in call_sites.get(target_name, ()):
-                if (
-                    isinstance(call.func.value, ast.Name)
-                    and call.func.value.id in {"self", "cls"}
-                    and (caller_source, caller_class) != (source, class_name)
+                if not _method_use_applies(
+                    receiver=call.func.value,
+                    caller_source=caller_source,
+                    caller_class=caller_class,
+                    target_owner=target_owner,
+                    method_name=target_name,
+                    classes=classes,
                 ):
                     continue
-                if not isinstance(call.func.value, (ast.Name, ast.Attribute)):
-                    continue
-                target_parameters = [argument.arg for argument in target.args.args]
-                if target_parameters and target_parameters[0] in {"self", "cls"}:
-                    target_parameters = target_parameters[1:]
+                supplied: set[str] = set()
+                if any(isinstance(argument, ast.Starred) for argument in call.args):
+                    unresolved.update(
+                        (class_name, target_name, parameter)
+                        for parameter in target_parameters
+                    )
                 for index, argument in enumerate(call.args):
-                    if index >= len(target_parameters):
+                    if index >= len(positional_parameters):
                         break
-                    key = (class_name, target_name, target_parameters[index])
+                    parameter = positional_parameters[index]
+                    supplied.add(parameter)
+                    key = (class_name, target_name, parameter)
                     values = call_values(argument)
                     if values is not None:
                         result.setdefault(key, set()).update(values)
@@ -457,6 +618,12 @@ def _parameter_domains(
                         unresolved.add(key)
                 for keyword in call.keywords:
                     if keyword.arg in target_parameters:
+                        if keyword.arg in supplied:
+                            unresolved.update(
+                                (class_name, target_name, parameter)
+                                for parameter in target_parameters
+                            )
+                        supplied.add(keyword.arg)
                         key = (class_name, target_name, keyword.arg)
                         values = call_values(keyword.value)
                         if values is not None:
@@ -487,12 +654,36 @@ def _parameter_domains(
                                     for name in target_parameters
                                 )
                                 continue
+                            if parameter in supplied:
+                                unresolved.update(
+                                    (class_name, target_name, name)
+                                    for name in target_parameters
+                                )
+                            supplied.add(parameter)
                             key = (class_name, target_name, parameter)
                             values = call_values(value_node)
                             if values is None:
                                 unresolved.add(key)
                             else:
                                 result.setdefault(key, set()).update(values)
+                    else:
+                        unresolved.update(
+                            (class_name, target_name, parameter)
+                            for parameter in target_parameters
+                        )
+                for parameter in target_parameters:
+                    if parameter in supplied:
+                        continue
+                    key = (class_name, target_name, parameter)
+                    default = defaults.get(parameter)
+                    if default is None:
+                        unresolved.add(key)
+                        continue
+                    values = call_values(default)
+                    if values is None:
+                        unresolved.add(key)
+                    else:
+                        result.setdefault(key, set()).update(values)
     return (
         {key: tuple(sorted(values)) for key, values in result.items()},
         frozenset(unresolved),
@@ -506,13 +697,14 @@ class _SettingVisitor(ast.NodeVisitor):
         source: str,
         tree: ast.Module,
         classes: dict[str, list[_ClassInfo]],
-        call_sites: dict[str, tuple[tuple[ast.Call, str, str | None], ...]],
+        call_sites: dict[str, tuple[_MethodCall, ...]],
+        method_references: dict[str, tuple[_MethodReference, ...]],
     ) -> None:
         self.source = source
         self.tree = tree
         self.classes = classes
         self.parameter_domains, self.unresolved_parameter_calls = _parameter_domains(
-            source, tree, call_sites
+            source, tree, classes, call_sites, method_references
         )
         self.os_aliases = {"os"}
         self.os_aliases.update(
@@ -1495,14 +1687,14 @@ def discover_python_settings(
                 classes.setdefault(node.name, []).append(_ClassInfo(source, node))
 
     facts: list[DiscoveredSetting] = []
-    mutable_call_sites: dict[
-        str, list[tuple[ast.Call, str, str | None]]
-    ] = {}
+    mutable_call_sites: dict[str, list[_MethodCall]] = {}
+    mutable_method_references: dict[str, list[_MethodReference]] = {}
 
-    def collect_calls(
+    def collect_method_uses(
         node: ast.AST,
         source: str,
         containing_class: str | None = None,
+        parent: ast.AST | None = None,
     ) -> None:
         if isinstance(node, ast.ClassDef):
             containing_class = node.name
@@ -1510,17 +1702,36 @@ def discover_python_settings(
             mutable_call_sites.setdefault(node.func.attr, []).append(
                 (node, source, containing_class)
             )
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.ctx, ast.Load)
+            and not (
+                isinstance(parent, ast.Call)
+                and parent.func is node
+            )
+        ):
+            mutable_method_references.setdefault(node.attr, []).append(
+                (node, source, containing_class)
+            )
         for child in ast.iter_child_nodes(node):
-            collect_calls(child, source, containing_class)
+            collect_method_uses(child, source, containing_class, node)
 
     for source, tree in parsed:
-        collect_calls(tree, source)
+        collect_method_uses(tree, source)
     call_sites = {
         name: tuple(calls) for name, calls in mutable_call_sites.items()
     }
+    method_references = {
+        name: tuple(references)
+        for name, references in mutable_method_references.items()
+    }
     for source, tree in parsed:
         visitor = _SettingVisitor(
-            source=source, tree=tree, classes=classes, call_sites=call_sites
+            source=source,
+            tree=tree,
+            classes=classes,
+            call_sites=call_sites,
+            method_references=method_references,
         )
         visitor.visit(tree)
         facts.extend(visitor.facts)
