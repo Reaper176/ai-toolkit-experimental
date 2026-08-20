@@ -2280,6 +2280,365 @@
         "drawbacks": "Diffusers output uses multiple files, while safetensors may not fit every full-model workflow.",
         "example": "save_format: safetensors"
       }
+    },
+    {
+      "id": "logging.log_every",
+      "ui_label": null,
+      "scope": "logging",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].logging.log_every"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 100,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "LoggingConfig.__init__",
+          "key": "log_every",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "logging-log-every",
+        "description": "Sets the optimizer-step interval between metric log updates.",
+        "benefits": "Balances metric visibility against logging overhead.",
+        "drawbacks": "Very frequent updates add output and external-logger traffic.",
+        "example": "log_every: 100"
+      }
+    },
+    {
+      "id": "logging.project_name",
+      "ui_label": null,
+      "scope": "logging",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].logging.project_name"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "ai-toolkit",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "LoggingConfig.__init__",
+          "key": "project_name",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "logging-project-name",
+        "description": "Names the external experiment project used by configured loggers.",
+        "benefits": "Groups related training runs in experiment tracking.",
+        "drawbacks": "Changing it can fragment runs across multiple projects.",
+        "example": "project_name: ai-toolkit"
+      }
+    },
+    {
+      "id": "logging.run_name",
+      "ui_label": null,
+      "scope": "logging",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].logging.run_name"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "LoggingConfig.__init__",
+          "key": "run_name",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "logging-run-name",
+        "description": "Overrides the run name sent to experiment logging.",
+        "benefits": "Makes runs easier to identify and compare.",
+        "drawbacks": "Duplicate or vague names make experiment history harder to interpret.",
+        "example": "run_name: character-v2"
+      }
+    },
+    {
+      "id": "logging.use_ui_logger",
+      "ui_label": null,
+      "scope": "logging",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].logging.use_ui_logger"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "LoggingConfig.__init__",
+          "key": "use_ui_logger",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "logging-use-ui-logger",
+        "description": "Enables metric delivery through the toolkit UI logger.",
+        "benefits": "Shows training metrics in the local job interface.",
+        "drawbacks": "It depends on the UI job integration and adds logging work.",
+        "example": "use_ui_logger: true"
+      }
+    },
+    {
+      "id": "logging.use_wandb",
+      "ui_label": null,
+      "scope": "logging",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].logging.use_wandb"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "LoggingConfig.__init__",
+          "key": "use_wandb",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "logging-use-wandb",
+        "description": "Enables Weights & Biases experiment logging.",
+        "benefits": "Provides remote metric history and run comparison.",
+        "drawbacks": "Requires the dependency, credentials, and network access.",
+        "example": "use_wandb: true"
+      }
+    },
+    {
+      "id": "logging.verbose",
+      "ui_label": null,
+      "scope": "logging",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].logging.verbose"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "LoggingConfig.__init__",
+          "key": "verbose",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "logging-verbose",
+        "description": "Enables verbose logger output.",
+        "benefits": "Provides more diagnostic context while troubleshooting.",
+        "drawbacks": "Produces substantially noisier logs.",
+        "example": "verbose: true"
+      }
     }
   ]
 }
