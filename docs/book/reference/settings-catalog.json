@@ -691,6 +691,1019 @@
         "drawbacks": "It does not make nondeterministic kernels or every external component deterministic.",
         "example": "training_seed: 42"
       }
+    },
+    {
+      "id": "process.adapter",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "adapter",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-adapter",
+        "description": "Optional adapter configuration; a present object initializes AdapterConfig.",
+        "benefits": "Enables adapter training alongside or instead of a network.",
+        "drawbacks": "Unsupported adapter/model combinations fail or alter the trainable module set.",
+        "example": "adapter: null"
+      }
+    },
+    {
+      "id": "process.datasets",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object-list",
+        "supported_type": "object-list",
+        "ui_type": null,
+        "example_type": "object-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "datasets",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-datasets",
+        "description": "Dataset configuration list passed through preprocessing and DatasetConfig.",
+        "benefits": "Allows one process to combine training and regularization datasets.",
+        "drawbacks": "An empty or incompatible dataset list leaves the trainer without usable training data.",
+        "example": "datasets: null"
+      }
+    },
+    {
+      "id": "process.decorator",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].decorator"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "decorator",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-decorator",
+        "description": "Optional decorator configuration used by supported Flux models.",
+        "benefits": "Enables decorator-token training when the model supports it.",
+        "drawbacks": "The process rejects decorator configuration for non-Flux models.",
+        "example": "decorator: null"
+      }
+    },
+    {
+      "id": "process.do_lorm",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].do_lorm"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "do_lorm",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-do-lorm",
+        "description": "Enables LoRM extraction behavior in the process.",
+        "benefits": "Allows low-rank module extraction for the LoRM workflow.",
+        "drawbacks": "It changes network construction and is not appropriate for ordinary LoRA runs.",
+        "example": "do_lorm: false"
+      }
+    },
+    {
+      "id": "process.embedding",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].embedding"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "embedding",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-embedding",
+        "description": "Optional embedding configuration used to create trainable tokens.",
+        "benefits": "Enables embedding training within the diffusion trainer.",
+        "drawbacks": "Trigger and token settings must be compatible with the selected text encoders.",
+        "example": "embedding: null"
+      }
+    },
+    {
+      "id": "process.first_sample",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].first_sample"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "first_sample",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "process-first-sample",
+        "description": "Optional sampling overrides used only for the initial sample.",
+        "benefits": "Lets the first baseline sample differ from recurring samples.",
+        "drawbacks": "A second sample configuration increases the chance of incomparable evaluation settings.",
+        "example": "first_sample: null"
+      }
+    },
+    {
+      "id": "process.guidance",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].guidance"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "guidance",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-guidance",
+        "description": "Optional training-guidance configuration.",
+        "benefits": "Enables class-targeted guidance when the process supports it.",
+        "drawbacks": "Guidance adds computation and requires compatible prompts and targets.",
+        "example": "guidance: null"
+      }
+    },
+    {
+      "id": "process.logging",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].logging"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {},
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "logging",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-logging",
+        "description": "Logging configuration forwarded to LoggingConfig.",
+        "benefits": "Controls console, UI, and external experiment logging.",
+        "drawbacks": "External logging can add latency or require credentials.",
+        "example": "logging: {}"
+      }
+    },
+    {
+      "id": "process.lorm_extract_mode",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].lorm_extract_mode"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "fixed",
+          "threshold",
+          "ratio",
+          "quantile"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "ratio",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "lorm_extract_mode",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-lorm-extract-mode",
+        "description": "Chooses the LoRM extraction rule.",
+        "benefits": "Supports fixed, threshold, ratio, or quantile rank selection.",
+        "drawbacks": "The wrong rule or parameter can retain too much or too little information.",
+        "example": "lorm_extract_mode: ratio"
+      }
+    },
+    {
+      "id": "process.lorm_extract_mode_param",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].lorm_extract_mode_param"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "mode-dependent-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0.25,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "lorm_extract_mode_param",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-lorm-extract-mode-param",
+        "description": "Supplies the numeric parameter interpreted by the selected LoRM extraction mode.",
+        "benefits": "Tunes how aggressively LoRM components are retained.",
+        "drawbacks": "Its meaning changes with lorm_extract_mode and unsuitable values degrade extraction.",
+        "example": "lorm_extract_mode_param: 0.25"
+      }
+    },
+    {
+      "id": "process.model",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {},
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "The process overwrites model.dtype with the parsed training dtype before ModelConfig is created.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "model",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-model",
+        "description": "Model configuration forwarded to ModelConfig after dtype synchronization.",
+        "benefits": "Selects and configures the base diffusion model.",
+        "drawbacks": "An incompatible model configuration prevents loading or changes memory requirements.",
+        "example": "model: {}"
+      }
+    },
+    {
+      "id": "process.network",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "network",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-network",
+        "description": "Optional network configuration forwarded to NetworkConfig.",
+        "benefits": "Enables LoRA, LyCORIS, and related trainable network types.",
+        "drawbacks": "Network shape choices affect capacity, memory use, and checkpoint compatibility.",
+        "example": "network: null"
+      }
+    },
+    {
+      "id": "process.sample",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].sample"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {},
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "saving-and-sampling",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "sample",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "process-sample",
+        "description": "Recurring sample configuration forwarded to SampleConfig.",
+        "benefits": "Provides comparable progress images or media during training.",
+        "drawbacks": "Sampling pauses training work and consumes memory and compute.",
+        "example": "sample: {}"
+      }
+    },
+    {
+      "id": "process.save",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].save"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {},
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "save",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/saving-and-sampling.md",
+        "anchor": "process-save",
+        "description": "Checkpoint configuration forwarded to SaveConfig.",
+        "benefits": "Controls checkpoint cadence and serialization.",
+        "drawbacks": "Frequent or retained checkpoints consume storage and time.",
+        "example": "save: {}"
+      }
+    },
+    {
+      "id": "process.torch_profiler",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].torch_profiler"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "torch_profiler",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-torch-profiler",
+        "description": "Enables a PyTorch profiler around the training loop.",
+        "benefits": "Can identify expensive operations during diagnosis.",
+        "drawbacks": "Profiling adds substantial overhead and verbose output.",
+        "example": "torch_profiler: false"
+      }
+    },
+    {
+      "id": "process.train",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {},
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "train",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-train",
+        "description": "Training configuration forwarded to TrainConfig.",
+        "benefits": "Controls the optimizer-step and precision behavior of the process.",
+        "drawbacks": "Invalid combinations can fail validation or produce poor training behavior.",
+        "example": "train: {}"
+      }
+    },
+    {
+      "id": "process.trigger_word",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].trigger_word"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseSDTrainProcess.py",
+          "symbol": "BaseSDTrainProcess.__init__",
+          "key": "trigger_word",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-trigger-word",
+        "description": "Defines a process-level trigger inherited by datasets and sample prompts when applicable.",
+        "benefits": "Keeps concept activation consistent across training data and evaluation prompts.",
+        "drawbacks": "An unsuitable or common trigger can entangle the learned concept with existing vocabulary.",
+        "example": "trigger_word: null"
+      }
     }
   ]
 }
