@@ -968,6 +968,7 @@ class _SettingVisitor(ast.NodeVisitor):
         self.values: list[dict[str, tuple[str, ...]]] = [{}]
         self.value_bindings: list[set[str]] = [set()]
         self.scope_frames: list[str] = ["module"]
+        self.pending_class_bindings: list[tuple[int, str]] = []
         self.facts: list[DiscoveredSetting] = []
 
     @property
@@ -986,17 +987,18 @@ class _SettingVisitor(ast.NodeVisitor):
     def _visible_frame_indices(self) -> tuple[int, ...]:
         """Return lexical frames visible to the current expression.
 
-        A class body can read its enclosing scope, but its namespace is not a
-        closure for functions, lambdas, or comprehensions defined inside it.
+        A class body can read an enclosing module or function, but not an
+        enclosing class namespace. Its own namespace is likewise not a closure
+        for functions, lambdas, or comprehensions defined inside it.
         """
 
-        function_like = {"function", "lambda", "comprehension"}
+        namespace_barriers = {"class", "function", "lambda", "comprehension"}
         return tuple(
             index
             for index, frame in enumerate(self.scope_frames)
             if frame != "class"
             or not any(
-                inner in function_like
+                inner in namespace_barriers
                 for inner in self.scope_frames[index + 1 :]
             )
         )
@@ -1008,15 +1010,33 @@ class _SettingVisitor(ast.NodeVisitor):
             for name in self.value_bindings[index]:
                 visible.pop(name, None)
             visible.update(self.values[index])
+        for class_index, name in self.pending_class_bindings:
+            if any(
+                frame in {"function", "lambda"}
+                for frame in self.scope_frames[class_index + 1 :]
+            ):
+                visible.pop(name, None)
         return visible
 
-    def _visible_alias(self, path: str) -> str | None:
+    def _visible_alias_state(self, path: str) -> str | None:
+        if any(
+            (path == name or path.startswith(f"{name}."))
+            and any(
+                frame in {"function", "lambda"}
+                for frame in self.scope_frames[class_index + 1 :]
+            )
+            for class_index, name in self.pending_class_bindings
+        ):
+            return "shadowed"
         for index in reversed(self._visible_frame_indices()):
             if path not in self.aliases[index]:
                 continue
-            kind = self.aliases[index][path]
-            return None if kind == "shadowed" else kind
+            return self.aliases[index][path]
         return None
+
+    def _visible_alias(self, path: str) -> str | None:
+        kind = self._visible_alias_state(path)
+        return None if kind == "shadowed" else kind
 
     def _push_scope(self, frame: str) -> None:
         self.aliases.append({})
@@ -1030,25 +1050,42 @@ class _SettingVisitor(ast.NodeVisitor):
         self.values.pop()
         self.aliases.pop()
 
-    def _bind_unknown(self, name: str) -> None:
-        self.current_values.pop(name, None)
-        self.value_bindings[-1].add(name)
+    def _bind_unknown(self, name: str, frame_index: int = -1) -> None:
+        self.values[frame_index].pop(name, None)
+        self.value_bindings[frame_index].add(name)
 
-    def _bind_literal(self, name: str, values: tuple[str, ...]) -> None:
-        self.current_values[name] = values
-        self.value_bindings[-1].add(name)
+    def _bind_literal(
+        self,
+        name: str,
+        values: tuple[str, ...],
+        frame_index: int = -1,
+    ) -> None:
+        self.values[frame_index][name] = values
+        self.value_bindings[frame_index].add(name)
 
-    def _bind_target_unknown(self, target: ast.AST) -> None:
+    def _bind_target_unknown(
+        self, target: ast.AST, frame_index: int = -1
+    ) -> None:
         if isinstance(target, ast.Name):
-            if self._visible_alias(target.id) is not None:
-                self.current_aliases[target.id] = "shadowed"
-            self._bind_unknown(target.id)
+            if self._visible_alias_state(target.id) is not None:
+                self.aliases[frame_index][target.id] = "shadowed"
+            self._bind_unknown(target.id, frame_index)
+            return
+        if isinstance(target, ast.Attribute):
+            path = _attribute_path(target)
+            if path is not None and self._container_kind(target) is not None:
+                self.aliases[frame_index][path] = "shadowed"
             return
         if isinstance(target, (ast.Tuple, ast.List)):
             for element in target.elts:
-                self._bind_target_unknown(element)
+                self._bind_target_unknown(element, frame_index)
         elif isinstance(target, ast.Starred):
-            self._bind_target_unknown(target.value)
+            self._bind_target_unknown(target.value, frame_index)
+
+    def _bind_name_unknown(self, name: str, frame_index: int = -1) -> None:
+        self._bind_target_unknown(
+            ast.Name(id=name, ctx=ast.Store()), frame_index
+        )
 
     def _error(self, node: ast.AST, message: str) -> DiscoveryError:
         return DiscoveryError(
@@ -1081,7 +1118,9 @@ class _SettingVisitor(ast.NodeVisitor):
         path = _attribute_path(node)
         if path is None:
             return None
-        alias_kind = self._visible_alias(path)
+        alias_kind = self._visible_alias_state(path)
+        if alias_kind == "shadowed":
+            return None
         if alias_kind is not None:
             return alias_kind
         if path.endswith(".model_kwargs"):
@@ -1150,10 +1189,15 @@ class _SettingVisitor(ast.NodeVisitor):
             self.visit(expression)
         self.class_stack.append(node.name)
         self._push_scope("class")
+        self.pending_class_bindings.append(
+            (len(self.scope_frames) - 1, node.name)
+        )
         for statement in node.body:
             self.visit(statement)
+        self.pending_class_bindings.pop()
         self._pop_scope()
         self.class_stack.pop()
+        self._bind_name_unknown(node.name)
 
     def _visit_function(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef
@@ -1181,6 +1225,7 @@ class _SettingVisitor(ast.NodeVisitor):
                 definition_expressions.append(node.returns)
         for expression in definition_expressions:
             self.visit(expression)
+        self._bind_name_unknown(node.name)
         self.function_stack.append(node.name)
         self.function_nodes.append(node)
         self._push_scope("function")
@@ -1277,7 +1322,7 @@ class _SettingVisitor(ast.NodeVisitor):
                 if kind is not None:
                     self.current_aliases[target_path] = kind
                 else:
-                    if self._visible_alias(target_path) is not None:
+                    if self._visible_alias_state(target_path) is not None:
                         self.current_aliases[target_path] = "shadowed"
                     else:
                         self.current_aliases.pop(target_path, None)
@@ -1293,6 +1338,55 @@ class _SettingVisitor(ast.NodeVisitor):
         synthetic = ast.Assign(targets=[node.target], value=node.value)
         ast.copy_location(synthetic, node)
         self.visit_Assign(synthetic)
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        self.visit(node.value)
+        self._bind_target_unknown(node.target)
+
+    def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
+        self.visit(node.value)
+        kind = self._container_kind(node.value)
+        literal_values = _literal_strings(node.value, self.visible_values)
+        frame_index = next(
+            index
+            for index in range(len(self.scope_frames) - 1, -1, -1)
+            if self.scope_frames[index] != "comprehension"
+        )
+        target_path = _attribute_path(node.target)
+        if target_path is not None and kind is not None:
+            self.aliases[frame_index][target_path] = kind
+        else:
+            self._bind_target_unknown(node.target, frame_index)
+        if isinstance(node.target, ast.Name) and literal_values is not None:
+            self._bind_literal(node.target.id, literal_values, frame_index)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for imported in node.names:
+            self._bind_name_unknown(
+                imported.asname or imported.name.split(".", maxsplit=1)[0]
+            )
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        for imported in node.names:
+            if imported.name == "*":
+                for name in set(self.current_aliases) | set(self.current_values):
+                    self._bind_name_unknown(name)
+                continue
+            self._bind_name_unknown(imported.asname or imported.name)
+
+    def visit_Delete(self, node: ast.Delete) -> None:
+        for target in node.targets:
+            self._bind_target_unknown(target)
+
+    def visit_With(self, node: ast.With | ast.AsyncWith) -> None:
+        for item in node.items:
+            self.visit(item.context_expr)
+            if item.optional_vars is not None:
+                self._bind_target_unknown(item.optional_vars)
+        for statement in node.body:
+            self.visit(statement)
+
+    visit_AsyncWith = visit_With
 
     def _reject_conditional_alias_reassignment(self, node: ast.AST) -> None:
         if self.function_stack and self.function_stack[-1] in {
@@ -1378,19 +1472,20 @@ class _SettingVisitor(ast.NodeVisitor):
 
     def visit_For(self, node: ast.For) -> None:
         self._reject_conditional_alias_reassignment(node)
+        self.visit(node.iter)
+        baseline_aliases = dict(self.current_aliases)
+        baseline_values = dict(self.current_values)
+        baseline_bindings = set(self.value_bindings[-1])
         iterable = _literal_strings(node.iter, self.visible_values)
         if isinstance(node.target, ast.Name) and iterable is not None:
-            previous = self.current_values.get(node.target.id)
-            previously_bound = node.target.id in self.value_bindings[-1]
+            if not iterable:
+                for statement in node.orelse:
+                    self.visit(statement)
+                return
+            self._bind_target_unknown(node.target)
             self._bind_literal(node.target.id, iterable)
             for statement in node.body:
                 self.visit(statement)
-            if previous is None:
-                self.current_values.pop(node.target.id, None)
-            else:
-                self.current_values[node.target.id] = previous
-            if not previously_bound:
-                self.value_bindings[-1].discard(node.target.id)
             for statement in node.orelse:
                 self.visit(statement)
             return
@@ -1407,22 +1502,37 @@ class _SettingVisitor(ast.NodeVisitor):
                 element_target = node.target.elts[1]
         element_kind = self._container_kind(iterated_value)
         if element_kind is not None:
-            self.visit(node.iter)
             target_path = _attribute_path(element_target)
             if target_path is None:
                 raise self._error(node, "configuration loop target is not statically named")
-            previous = self.current_aliases.get(target_path)
+            self._bind_target_unknown(node.target)
             self.current_aliases[target_path] = element_kind
             for statement in node.body:
                 self.visit(statement)
-            if previous is None:
-                self.current_aliases.pop(target_path, None)
-            else:
-                self.current_aliases[target_path] = previous
+            iterated_aliases = dict(self.current_aliases)
+            iterated_values = dict(self.current_values)
+            iterated_bindings = set(self.value_bindings[-1])
+            self._merge_may_alias_states(
+                (baseline_aliases, iterated_aliases),
+                (baseline_values, iterated_values),
+                (baseline_bindings, iterated_bindings),
+            )
             for statement in node.orelse:
                 self.visit(statement)
             return
-        self.generic_visit(node)
+        self._bind_target_unknown(node.target)
+        for statement in node.body:
+            self.visit(statement)
+        iterated_aliases = dict(self.current_aliases)
+        iterated_values = dict(self.current_values)
+        iterated_bindings = set(self.value_bindings[-1])
+        self._merge_may_alias_states(
+            (baseline_aliases, iterated_aliases),
+            (baseline_values, iterated_values),
+            (baseline_bindings, iterated_bindings),
+        )
+        for statement in node.orelse:
+            self.visit(statement)
 
     visit_AsyncFor = visit_For
 
@@ -1501,6 +1611,8 @@ class _SettingVisitor(ast.NodeVisitor):
             self.value_bindings[-1] = set(baseline_bindings)
             if handler.type is not None:
                 self.visit(handler.type)
+            if handler.name is not None:
+                self._bind_name_unknown(handler.name)
             handler_aliases, handler_values, handler_bindings = (
                 self._visit_state_branch(
                     handler.body,
@@ -1509,6 +1621,14 @@ class _SettingVisitor(ast.NodeVisitor):
                     self.value_bindings[-1],
                 )
             )
+            if handler.name is not None:
+                self.aliases[-1] = dict(handler_aliases)
+                self.values[-1] = dict(handler_values)
+                self.value_bindings[-1] = set(handler_bindings)
+                self._bind_name_unknown(handler.name)
+                handler_aliases = dict(self.current_aliases)
+                handler_values = dict(self.current_values)
+                handler_bindings = set(self.value_bindings[-1])
             alias_states.append(handler_aliases)
             value_states.append(handler_values)
             binding_states.append(handler_bindings)
@@ -1535,6 +1655,18 @@ class _SettingVisitor(ast.NodeVisitor):
             self.values[-1] = dict(baseline_values)
             self.value_bindings[-1] = set(baseline_bindings)
             self.visit(case.pattern)
+            for name in {
+                pattern.name
+                for pattern in ast.walk(case.pattern)
+                if isinstance(pattern, (ast.MatchAs, ast.MatchStar))
+                and pattern.name is not None
+            } | {
+                pattern.rest
+                for pattern in ast.walk(case.pattern)
+                if isinstance(pattern, ast.MatchMapping)
+                and pattern.rest is not None
+            }:
+                self._bind_name_unknown(name)
             if case.guard is not None:
                 self.visit(case.guard)
             case_aliases, case_values, case_bindings = self._visit_state_branch(

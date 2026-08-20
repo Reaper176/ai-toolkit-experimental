@@ -1395,6 +1395,264 @@ def load(value=model_kwargs.get(key)):
                 with self.assertRaisesRegex(DiscoveryError, "dynamic configuration"):
                     discover_python_settings(self.repository_root, (path,))
 
+    def test_discovery_invalidates_dynamic_loop_targets(self):
+        bodies = (
+            """component = "dit"
+for component in external():
+    model_config.model_kwargs.get(f"{component}_path")
+""",
+            """component = "dit"
+for component in external():
+    pass
+model_config.model_kwargs.get(f"{component}_path")
+""",
+            """async def load(model_config):
+    component = "dit"
+    async for component in external():
+        model_config.model_kwargs.get(f"{component}_path")
+""",
+            """async def load(model_config):
+    component = "dit"
+    async for component in external():
+        pass
+    model_config.model_kwargs.get(f"{component}_path")
+""",
+        )
+        for index, body in enumerate(bodies):
+            with self.subTest(body=body):
+                path = f"dynamic_loop_target_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(DiscoveryError, "dynamic configuration"):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_invalidates_dynamic_with_targets(self):
+        bodies = (
+            """component = "dit"
+with external() as component:
+    model_config.model_kwargs.get(f"{component}_path")
+""",
+            """component = "dit"
+with external() as component:
+    pass
+model_config.model_kwargs.get(f"{component}_path")
+""",
+            """async def load(model_config):
+    component = "dit"
+    async with external() as component:
+        model_config.model_kwargs.get(f"{component}_path")
+""",
+        )
+        for index, body in enumerate(bodies):
+            with self.subTest(body=body):
+                path = f"dynamic_with_target_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(DiscoveryError, "dynamic configuration"):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_invalidates_exception_and_match_targets(self):
+        bodies = (
+            """component = "dit"
+try:
+    raise RuntimeError
+except RuntimeError as component:
+    model_config.model_kwargs.get(f"{component}_path")
+""",
+            """component = "dit"
+try:
+    raise RuntimeError
+except RuntimeError as component:
+    pass
+model_config.model_kwargs.get(f"{component}_path")
+""",
+            """component = "dit"
+match external():
+    case component:
+        model_config.model_kwargs.get(f"{component}_path")
+""",
+            """component = "dit"
+match external():
+    case {"value": component, **rest}:
+        pass
+model_config.model_kwargs.get(f"{component}_path")
+""",
+            """component = "dit"
+match external():
+    case [*component]:
+        model_config.model_kwargs.get(f"{component}_path")
+""",
+        )
+        for index, body in enumerate(bodies):
+            with self.subTest(body=body):
+                path = f"dynamic_pattern_target_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(DiscoveryError, "dynamic configuration"):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_invalidates_named_expression_targets(self):
+        bodies = (
+            """component = "dit"
+if component := external():
+    model_config.model_kwargs.get(f"{component}_path")
+""",
+            """component = "dit"
+if component := external():
+    pass
+model_config.model_kwargs.get(f"{component}_path")
+""",
+            """component = "dit"
+[(component := external()) for ignored in values]
+model_config.model_kwargs.get(f"{component}_path")
+""",
+        )
+        for index, body in enumerate(bodies):
+            with self.subTest(body=body):
+                path = f"dynamic_named_expression_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(DiscoveryError, "dynamic configuration"):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_invalidates_non_assignment_alias_binders(self):
+        bodies = (
+            """settings = model_config.model_kwargs
+for settings in external():
+    settings.get("stale")
+""",
+            """settings = model_config.model_kwargs
+with external() as settings:
+    pass
+settings.get("stale")
+""",
+            """settings = model_config.model_kwargs
+try:
+    raise RuntimeError
+except RuntimeError as settings:
+    pass
+settings.get("stale")
+""",
+            """settings = model_config.model_kwargs
+match external():
+    case settings:
+        pass
+settings.get("stale")
+""",
+            """settings = model_config.model_kwargs
+(settings := external())
+settings.get("stale")
+""",
+            """holder.settings = model_config.model_kwargs
+with external() as holder.settings:
+    pass
+holder.settings.get("stale")
+""",
+        )
+        for index, body in enumerate(bodies):
+            with self.subTest(body=body):
+                path = f"dynamic_alias_binder_{index}.py"
+                self.write_source(path, body)
+                if index in {2, 3}:
+                    with self.assertRaisesRegex(
+                        DiscoveryError, "branch-dependent configuration alias"
+                    ):
+                        discover_python_settings(self.repository_root, (path,))
+                else:
+                    self.assertEqual(
+                        discover_python_settings(self.repository_root, (path,)), ()
+                    )
+
+    def test_discovery_invalidates_import_definition_and_delete_binders(self):
+        value_bodies = (
+            """component = "dit"
+import package as component
+model_config.model_kwargs.get(f"{component}_path")
+""",
+            """component = "dit"
+from package import value as component
+model_config.model_kwargs.get(f"{component}_path")
+""",
+            """component = "dit"
+del component
+model_config.model_kwargs.get(f"{component}_path")
+""",
+        )
+        for index, body in enumerate(value_bodies):
+            with self.subTest(body=body):
+                path = f"other_value_binder_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(DiscoveryError, "dynamic configuration"):
+                    discover_python_settings(self.repository_root, (path,))
+
+        alias_bodies = (
+            """settings = model_config.model_kwargs
+def settings():
+    pass
+settings.get("stale")
+""",
+            """settings = model_config.model_kwargs
+async def settings():
+    pass
+settings.get("stale")
+""",
+            """settings = model_config.model_kwargs
+class settings:
+    def probe():
+        settings.get("inside")
+settings.get("stale")
+""",
+        )
+        for index, body in enumerate(alias_bodies):
+            with self.subTest(body=body):
+                path = f"other_alias_binder_{index}.py"
+                self.write_source(path, body)
+                self.assertEqual(
+                    discover_python_settings(self.repository_root, (path,)), ()
+                )
+
+    def test_discovery_nested_class_is_a_class_namespace_barrier(self):
+        self.write_source(
+            "nested_class_barrier.py",
+            """component = "module"
+settings = model_config.model_kwargs
+
+class Outer:
+    component = "outer"
+    settings = external()
+
+    class Inner:
+        settings.get("module_alias")
+        model_config.model_kwargs.get(f"{component}_path")
+""",
+        )
+        discovered = discover_python_settings(
+            self.repository_root, ("nested_class_barrier.py",)
+        )
+        self.assertEqual(
+            tuple((fact.symbol, fact.key) for fact in discovered),
+            (("Outer.Inner", "module_alias"), ("Outer.Inner", "module_path")),
+        )
+
+    def test_discovery_nested_class_retains_enclosing_function_scope(self):
+        self.write_source(
+            "nested_class_function_scope.py",
+            """def load(model_config):
+    component = "function"
+    settings = model_config.model_kwargs
+
+    class Outer:
+        component = "outer"
+        settings = external()
+
+        class Inner:
+            settings.get(f"{component}_path")
+""",
+        )
+        discovered = discover_python_settings(
+            self.repository_root, ("nested_class_function_scope.py",)
+        )
+        self.assertEqual(
+            tuple((fact.symbol, fact.key) for fact in discovered),
+            (("Outer.Inner.load", "function_path"),),
+        )
+
     def test_discovery_supports_unconventional_bound_receiver_names(self):
         for index, signature in enumerate(("this", "this, /")):
             with self.subTest(signature=signature):
