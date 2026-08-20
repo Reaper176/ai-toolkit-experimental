@@ -332,7 +332,7 @@ class _ClassInfo:
 
 
 _MethodOwner = tuple[str, str]
-_FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef
+_FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda
 
 
 @dataclass(frozen=True)
@@ -1944,9 +1944,11 @@ def discover_python_settings(
             containing_class = node.name
             containing_function = None
             direct_method = False
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
             containing_function = node
-            direct_method = isinstance(parent, ast.ClassDef)
+            direct_method = not isinstance(node, ast.Lambda) and isinstance(
+                parent, ast.ClassDef
+            )
         caller = _CallerInfo(
             source,
             containing_class,

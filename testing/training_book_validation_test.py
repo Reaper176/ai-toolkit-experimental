@@ -1029,6 +1029,38 @@ class ChildResolver(BaseResolver):
                 with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
                     discover_python_settings(self.repository_root, (path,))
 
+    def test_discovery_rejects_lambda_receiver_shadowing(self):
+        self.write_source(
+            "lambda_receiver_shadow.py",
+            """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def load(self):
+        return (lambda self: self.resolve("dit"))(external())
+""",
+        )
+        with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+            discover_python_settings(
+                self.repository_root, ("lambda_receiver_shadow.py",)
+            )
+
+    def test_discovery_rejects_nested_lambda_receiver_calls(self):
+        self.write_source(
+            "nested_lambda_receiver.py",
+            """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def load(self):
+        return (lambda: (lambda: self.resolve("dit"))())()
+""",
+        )
+        with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+            discover_python_settings(
+                self.repository_root, ("nested_lambda_receiver.py",)
+            )
+
     def test_discovery_supports_unconventional_bound_receiver_names(self):
         for index, signature in enumerate(("this", "this, /")):
             with self.subTest(signature=signature):
