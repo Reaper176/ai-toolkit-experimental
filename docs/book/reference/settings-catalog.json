@@ -4971,6 +4971,323 @@
         "drawbacks": "Larger sizes increase generation memory and time.",
         "example": "width: <inherited>"
       }
+    },
+    {
+      "id": "network.lorm.do_conv",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.lorm.do_conv"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "LoRMConfig.__init__",
+          "key": "do_conv",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-lorm-do-conv",
+        "description": "Enables LoRM attachment to eligible convolution modules.",
+        "benefits": "Extends extraction beyond linear layers when convolution adaptation is needed.",
+        "drawbacks": "Adds trainable capacity, memory use, and larger extracted output.",
+        "example": "do_conv: false"
+      }
+    },
+    {
+      "id": "network.lorm.extract_mode",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.lorm.extract_mode"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "extract-mode",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "fixed",
+          "threshold",
+          "ratio",
+          "quantile"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "ratio",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "LoRMConfig.__init__",
+          "key": "extract_mode",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-lorm-extract-mode",
+        "description": "Chooses the default rank-extraction rule for LoRM modules.",
+        "benefits": "Controls whether rank is selected by count, threshold, ratio, or quantile.",
+        "drawbacks": "The same numeric parameter has different meaning under each mode.",
+        "example": "extract_mode: \"ratio\""
+      }
+    },
+    {
+      "id": "network.lorm.extract_mode_param",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.lorm.extract_mode_param"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "mode-dependent-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0.25,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "network.lorm.extract_mode",
+          "kind": "requires",
+          "description": "Its interpretation is selected by extract_mode.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "LoRMConfig.__init__",
+          "key": "extract_mode_param",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-lorm-extract-mode-param",
+        "description": "Supplies the default numeric argument for the selected extraction mode.",
+        "benefits": "Tunes the compression/retention tradeoff.",
+        "drawbacks": "An unsuitable value can discard useful components or retain excessive rank.",
+        "example": "extract_mode_param: 0.25"
+      }
+    },
+    {
+      "id": "network.lorm.module_settings",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.lorm.module_settings"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object-list",
+        "supported_type": "lorm-module-rule-list",
+        "ui_type": null,
+        "example_type": "object-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": [],
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Each module rule is merged over the top-level extraction mode, parameter, and threshold defaults before parsing.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "LoRMConfig.__init__",
+          "key": "module_settings",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-lorm-module-settings",
+        "description": "Defines ordered module-name matching rules that override LoRM extraction defaults.",
+        "benefits": "Allows different rank extraction for distinct module groups.",
+        "drawbacks": "Broad or misordered patterns can apply an unintended override.",
+        "example": "module_settings: []"
+      }
+    },
+    {
+      "id": "network.lorm.parameter_threshold",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.lorm.parameter_threshold"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "nonnegative-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "LoRMConfig.__init__",
+          "key": "parameter_threshold",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-lorm-parameter-threshold",
+        "description": "Sets the default parameter-count threshold used when selecting eligible modules.",
+        "benefits": "Skips modules below the chosen size boundary.",
+        "drawbacks": "A high threshold can exclude layers needed by the concept.",
+        "example": "parameter_threshold: 0"
+      }
     }
   ]
 }
