@@ -343,6 +343,61 @@
         "drawbacks": "An invalid process.type value stops job configuration or process loading.",
         "example": "config.process[*].type: <value>"
       }
+    },
+    {
+      "id": "job.device",
+      "ui_label": null,
+      "scope": "job",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.device"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "torch-device",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "cpu",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [
+        {
+          "source": "jobs/ExtensionJob.py",
+          "symbol": "ExtensionJob.__init__",
+          "key": "device",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "job-device",
+        "description": "Selects the device string inherited by extension-job processes.",
+        "benefits": "Allows an extension job to target a specific available compute device.",
+        "drawbacks": "An unavailable or malformed device string prevents the process from running.",
+        "example": "device: cpu"
+      }
     }
   ]
 }
