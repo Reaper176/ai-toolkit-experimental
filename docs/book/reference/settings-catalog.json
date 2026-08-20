@@ -398,6 +398,123 @@
         "drawbacks": "An unavailable or malformed device string prevents the process from running.",
         "example": "device: cpu"
       }
+    },
+    {
+      "id": "process.name",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].name"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "job.name"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseProcess.py",
+          "symbol": "BaseProcess.__init__",
+          "key": "name",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "process-name",
+        "description": "Overrides the inherited job name for one process.",
+        "benefits": "Distinguishes process output folders and timing labels in multi-process jobs.",
+        "drawbacks": "Changing the name also changes name-derived output paths.",
+        "example": "name: refinement"
+      }
+    },
+    {
+      "id": "process.performance_log_every",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].performance_log_every"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "nonnegative-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [
+        {
+          "source": "jobs/process/BaseProcess.py",
+          "symbol": "BaseProcess.__init__",
+          "key": "performance_log_every",
+          "read_kind": "get_conf"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "process-performance-log-every",
+        "description": "Sets the interval used by process performance logging; zero disables periodic logging.",
+        "benefits": "Can expose timing trends during a long process.",
+        "drawbacks": "Frequent performance logging adds console noise and a small measurement overhead.",
+        "example": "performance_log_every: 100"
+      }
     }
   ]
 }

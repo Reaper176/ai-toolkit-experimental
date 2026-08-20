@@ -758,6 +758,11 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "--target-source", "jobs/ExtensionJob.py"
         )
 
+    def test_catalog_base_process_source_is_exactly_owned(self):
+        self.assert_catalog_selector_green(
+            "--target-source", "jobs/process/BaseProcess.py"
+        )
+
 
 class DiscoveryContractTests(unittest.TestCase):
     def setUp(self):
