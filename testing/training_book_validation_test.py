@@ -1164,6 +1164,88 @@ class Resolver:
                 with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
                     discover_python_settings(self.repository_root, (path,))
 
+    def test_discovery_emits_definition_time_setting_reads(self):
+        self.write_source(
+            "definition_time_reads.py",
+            """import os
+
+@decorate(os.getenv("function_decorator", "decorator"))
+def configured[T: os.getenv("function_type", "type")](
+    value=os.getenv("function_default", "default"),
+    annotated: os.getenv("function_annotation", "annotation") = None,
+) -> os.getenv("function_return", "return"):
+    pass
+
+@decorate(os.getenv("class_decorator", "decorator"))
+class Configured[T: os.getenv("class_type", "type")](
+    base(os.getenv("class_base", "base")),
+    metaclass=meta(os.getenv("class_keyword", "meta")),
+):
+    pass
+""",
+        )
+        self.assertEqual(
+            discover_python_settings(
+                self.repository_root, ("definition_time_reads.py",)
+            ),
+            (
+                DiscoveredSetting(
+                    "definition_time_reads.py", "<module>", 12, "class_base",
+                    "os.getenv", "environment", "'base'",
+                ),
+                DiscoveredSetting(
+                    "definition_time_reads.py", "<module>", 10,
+                    "class_decorator", "os.getenv", "environment", "'decorator'",
+                ),
+                DiscoveredSetting(
+                    "definition_time_reads.py", "<module>", 13,
+                    "class_keyword", "os.getenv", "environment", "'meta'",
+                ),
+                DiscoveredSetting(
+                    "definition_time_reads.py", "<module>", 11, "class_type",
+                    "os.getenv", "environment", "'type'",
+                ),
+                DiscoveredSetting(
+                    "definition_time_reads.py", "<module>", 6,
+                    "function_annotation", "os.getenv", "environment",
+                    "'annotation'",
+                ),
+                DiscoveredSetting(
+                    "definition_time_reads.py", "<module>", 3,
+                    "function_decorator", "os.getenv", "environment",
+                    "'decorator'",
+                ),
+                DiscoveredSetting(
+                    "definition_time_reads.py", "<module>", 5,
+                    "function_default", "os.getenv", "environment", "'default'",
+                ),
+                DiscoveredSetting(
+                    "definition_time_reads.py", "<module>", 7,
+                    "function_return", "os.getenv", "environment", "'return'",
+                ),
+                DiscoveredSetting(
+                    "definition_time_reads.py", "<module>", 4, "function_type",
+                    "os.getenv", "environment", "'type'",
+                ),
+            ),
+        )
+
+    def test_discovery_rejects_dynamic_definition_time_setting_reads(self):
+        definitions = (
+            '@decorate(os.getenv(key))\ndef configured():\n    pass',
+            'def configured(value=os.getenv(key)):\n    pass',
+            'def configured(value: os.getenv(key)):\n    pass',
+            '@decorate(os.getenv(key))\nclass Configured:\n    pass',
+            'class Configured(base(os.getenv(key))):\n    pass',
+            'class Configured(metaclass=meta(os.getenv(key))):\n    pass',
+        )
+        for index, definition in enumerate(definitions):
+            with self.subTest(definition=definition):
+                path = f"dynamic_definition_time_{index}.py"
+                self.write_source(path, "import os\n\n" + definition + "\n")
+                with self.assertRaisesRegex(DiscoveryError, "dynamic environment"):
+                    discover_python_settings(self.repository_root, (path,))
+
     def test_discovery_supports_unconventional_bound_receiver_names(self):
         for index, signature in enumerate(("this", "this, /")):
             with self.subTest(signature=signature):

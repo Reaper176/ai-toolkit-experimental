@@ -939,6 +939,12 @@ class _SettingVisitor(ast.NodeVisitor):
         self.source = source
         self.tree = tree
         self.classes = classes
+        self.postponed_annotations = any(
+            isinstance(node, ast.ImportFrom)
+            and node.module == "__future__"
+            and any(alias.name == "annotations" for alias in node.names)
+            for node in tree.body
+        )
         self.parameter_domains, self.unresolved_parameter_calls = _parameter_domains(
             source,
             tree,
@@ -1065,6 +1071,13 @@ class _SettingVisitor(ast.NodeVisitor):
         raise self._error(node, "dynamic environment key is not finite")
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        for expression in (
+            *node.decorator_list,
+            *node.bases,
+            *(keyword.value for keyword in node.keywords),
+            *getattr(node, "type_params", ()),
+        ):
+            self.visit(expression)
         self.class_stack.append(node.name)
         for statement in node.body:
             self.visit(statement)
@@ -1073,6 +1086,29 @@ class _SettingVisitor(ast.NodeVisitor):
     def _visit_function(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef
     ) -> None:
+        definition_expressions: list[ast.AST] = [
+            *node.decorator_list,
+            *node.args.defaults,
+            *(default for default in node.args.kw_defaults if default is not None),
+            *getattr(node, "type_params", ()),
+        ]
+        if not self.postponed_annotations:
+            definition_expressions.extend(
+                annotation
+                for argument in (
+                    *node.args.posonlyargs,
+                    *node.args.args,
+                    *node.args.kwonlyargs,
+                    node.args.vararg,
+                    node.args.kwarg,
+                )
+                if argument is not None
+                if (annotation := argument.annotation) is not None
+            )
+            if node.returns is not None:
+                definition_expressions.append(node.returns)
+        for expression in definition_expressions:
+            self.visit(expression)
         self.function_stack.append(node.name)
         self.function_nodes.append(node)
         aliases: dict[str, str] = {}
