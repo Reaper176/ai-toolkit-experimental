@@ -2078,6 +2078,145 @@ match external():
                 ):
                     discover_python_settings(self.repository_root, (path,))
 
+    def test_discovery_merges_short_circuit_expression_paths(self):
+        expressions = (
+            '(component := external()) and (component := "dit")',
+            '(component := external()) or (component := "dit")',
+        )
+        for index, expression in enumerate(expressions):
+            with self.subTest(expression=expression):
+                path = f"short_circuit_value_{index}.py"
+                self.write_source(
+                    path,
+                    f'''component = "vae"
+{expression}
+model_config.model_kwargs.get(f"{{component}}_path")
+''',
+                )
+                with self.assertRaisesRegex(
+                    DiscoveryError, "dynamic configuration"
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
+        alias_expressions = (
+            "(settings := external()) and "
+            "(settings := model_config.model_kwargs)",
+            "(settings := external()) or "
+            "(settings := model_config.model_kwargs)",
+        )
+        for index, expression in enumerate(alias_expressions):
+            with self.subTest(expression=expression):
+                path = f"short_circuit_alias_{index}.py"
+                self.write_source(
+                    path,
+                    "settings = model_config.model_kwargs\n"
+                    f"{expression}\nsettings.get('stale')\n",
+                )
+                with self.assertRaisesRegex(
+                    DiscoveryError, "branch-dependent configuration alias"
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_merges_conditional_expression_paths(self):
+        bodies = (
+            """component = "vae"
+(component := external()) if external() else (component := "dit")
+model_config.model_kwargs.get(f"{component}_path")
+""",
+            """settings = model_config.model_kwargs
+(settings := external()) if external() else (settings := model_config.model_kwargs)
+settings.get("stale")
+""",
+        )
+        for index, body in enumerate(bodies):
+            with self.subTest(body=body):
+                path = f"conditional_expression_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(
+                    DiscoveryError,
+                    "dynamic configuration|branch-dependent configuration alias",
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_merges_comprehension_execution_paths(self):
+        expressions = (
+            '[(component := "dit") for ignored in external()]',
+            '[(component := "dit") for ignored in ["once"] if external()]',
+            '[(component := "dit") for first in ["once"] for second in external()]',
+            '[((component := external()) and (component := "dit")) '
+            'for ignored in ["once"]]',
+            '[((component := external()) if external() else '
+            '(component := "dit")) for ignored in ["once"]]',
+        )
+        for index, expression in enumerate(expressions):
+            with self.subTest(expression=expression):
+                path = f"comprehension_path_value_{index}.py"
+                self.write_source(
+                    path,
+                    f'''component = {"external()" if index < 3 else '"vae"'}
+{expression}
+model_config.model_kwargs.get(f"{{component}}_path")
+''',
+                )
+                with self.assertRaisesRegex(
+                    DiscoveryError, "dynamic configuration"
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
+        self.write_source(
+            "comprehension_path_alias.py",
+            """settings = model_config.model_kwargs
+[(settings := external()) for ignored in external()]
+settings.get("stale")
+""",
+        )
+        with self.assertRaisesRegex(
+            DiscoveryError, "branch-dependent configuration alias"
+        ):
+            discover_python_settings(
+                self.repository_root, ("comprehension_path_alias.py",)
+            )
+
+        self.write_source(
+            "comprehension_nested_alias.py",
+            """settings = model_config.model_kwargs
+[((settings := external()) and (settings := model_config.model_kwargs))
+ for ignored in ["once"]]
+settings.get("stale")
+""",
+        )
+        with self.assertRaisesRegex(
+            DiscoveryError, "branch-dependent configuration alias"
+        ):
+            discover_python_settings(
+                self.repository_root, ("comprehension_nested_alias.py",)
+            )
+
+    def test_discovery_tracks_intra_expression_try_prefixes(self):
+        bodies = (
+            """component = "dit"
+try:
+    consume((component := external()), risky(), (component := "dit"))
+except RuntimeError:
+    model_config.model_kwargs.get(f"{component}_path")
+""",
+            """settings = model_config.model_kwargs
+try:
+    consume((settings := external()), risky(), (settings := model_config.model_kwargs))
+except RuntimeError:
+    settings.get("stale")
+""",
+        )
+        for index, body in enumerate(bodies):
+            with self.subTest(body=body):
+                path = f"expression_try_prefix_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(
+                    DiscoveryError,
+                    "dynamic configuration|branch-dependent configuration alias",
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
     def test_discovery_supports_unconventional_bound_receiver_names(self):
         for index, signature in enumerate(("this", "this, /")):
             with self.subTest(signature=signature):

@@ -985,7 +985,17 @@ class _SettingVisitor(ast.NodeVisitor):
         self.value_bindings: list[set[str]] = [set()]
         self.scope_frames: list[str] = ["module"]
         self.pending_class_bindings: list[tuple[int, str]] = []
+        self.expression_prefix_frames: list[
+            tuple[int, list[_SettingState]]
+        ] = []
         self.facts: list[DiscoveredSetting] = []
+
+    def visit(self, node: ast.AST) -> object:
+        result = super().visit(node)
+        if isinstance(node, ast.expr) and self.expression_prefix_frames:
+            frame_index, prefixes = self.expression_prefix_frames[-1]
+            prefixes.append(self._capture_state(frame_index))
+        return result
 
     @property
     def symbol(self) -> str:
@@ -1145,21 +1155,25 @@ class _SettingVisitor(ast.NodeVisitor):
             ast.Name(id=name, ctx=ast.Store()), frame_index
         )
 
-    def _capture_state(self) -> _SettingState:
+    def _capture_state(self, frame_index: int = -1) -> _SettingState:
         return _SettingState(
-            dict(self.current_aliases),
-            dict(self.current_values),
-            dict(self.current_iterables),
-            set(self.value_bindings[-1]),
+            dict(self.aliases[frame_index]),
+            dict(self.values[frame_index]),
+            dict(self.iterables[frame_index]),
+            set(self.value_bindings[frame_index]),
         )
 
-    def _restore_state(self, state: _SettingState) -> None:
-        self.aliases[-1] = dict(state.aliases)
-        self.values[-1] = dict(state.values)
-        self.iterables[-1] = dict(state.iterables)
-        self.value_bindings[-1] = set(state.bindings)
+    def _restore_state(
+        self, state: _SettingState, frame_index: int = -1
+    ) -> None:
+        self.aliases[frame_index] = dict(state.aliases)
+        self.values[frame_index] = dict(state.values)
+        self.iterables[frame_index] = dict(state.iterables)
+        self.value_bindings[frame_index] = set(state.bindings)
 
-    def _merge_states(self, states: Sequence[_SettingState]) -> _SettingState:
+    def _merge_states(
+        self, states: Sequence[_SettingState], frame_index: int = -1
+    ) -> _SettingState:
         if not states:
             raise ValueError("cannot merge an empty setting-state sequence")
         self._merge_may_alias_states(
@@ -1167,8 +1181,34 @@ class _SettingVisitor(ast.NodeVisitor):
             tuple(state.values for state in states),
             tuple(state.iterables for state in states),
             tuple(state.bindings for state in states),
+            frame_index,
         )
-        return self._capture_state()
+        return self._capture_state(frame_index)
+
+    def _capture_scope_state(self) -> tuple[_SettingState, ...]:
+        return tuple(
+            self._capture_state(index) for index in range(len(self.aliases))
+        )
+
+    def _restore_scope_state(
+        self, states: Sequence[_SettingState]
+    ) -> None:
+        if len(states) != len(self.aliases):
+            raise ValueError("setting scope depth changed across expression paths")
+        for index, state in enumerate(states):
+            self._restore_state(state, index)
+
+    def _merge_scope_states(
+        self, paths: Sequence[Sequence[_SettingState]]
+    ) -> tuple[_SettingState, ...]:
+        if not paths or any(len(path) != len(self.aliases) for path in paths):
+            raise ValueError("setting scope paths have inconsistent depths")
+        return tuple(
+            self._merge_states(
+                tuple(path[index] for path in paths), index
+            )
+            for index in range(len(self.aliases))
+        )
 
     def _visit_statements(
         self, statements: Sequence[ast.stmt]
@@ -1176,7 +1216,15 @@ class _SettingVisitor(ast.NodeVisitor):
         prefixes = [self._capture_state()]
         terminals: list[tuple[str, _SettingState]] = []
         for statement in statements:
-            result = self.visit(statement)
+            expression_prefixes: list[_SettingState] = []
+            self.expression_prefix_frames.append(
+                (len(self.scope_frames) - 1, expression_prefixes)
+            )
+            try:
+                result = self.visit(statement)
+            finally:
+                self.expression_prefix_frames.pop()
+            prefixes.extend(expression_prefixes)
             if isinstance(result, _StatementFlow):
                 prefixes.extend(result.prefixes)
             prefixes.append(self._capture_state())
@@ -1405,6 +1453,8 @@ class _SettingVisitor(ast.NodeVisitor):
     ) -> None:
         first, *remaining = node.generators
         self.visit(first.iter)
+        outer_depth = len(self.scope_frames)
+        outer_paths = [self._capture_scope_state()]
         first_values = self._iterable_strings(first.iter)
         if (
             first_values is None
@@ -1413,16 +1463,21 @@ class _SettingVisitor(ast.NodeVisitor):
             raise self._error(first.iter, "iterable value shape is scalar")
         self._push_scope("comprehension")
 
-        def bind_generator(generator: ast.comprehension, values: tuple[str, ...] | None) -> None:
+        def bind_generator(
+            generator: ast.comprehension,
+            values: tuple[str, ...] | None,
+        ) -> None:
             self._bind_target_unknown(generator.target)
             if isinstance(generator.target, ast.Name) and values is not None:
                 self._bind_literal(generator.target.id, values)
             for condition in generator.ifs:
                 self.visit(condition)
+                outer_paths.append(self._capture_scope_state()[:outer_depth])
 
         bind_generator(first, first_values)
         for generator in remaining:
             self.visit(generator.iter)
+            outer_paths.append(self._capture_scope_state()[:outer_depth])
             generator_values = self._iterable_strings(generator.iter)
             if (
                 generator_values is None
@@ -1437,12 +1492,36 @@ class _SettingVisitor(ast.NodeVisitor):
             self.visit(node.value)
         else:
             self.visit(node.elt)
+        outer_paths.append(self._capture_scope_state()[:outer_depth])
         self._pop_scope()
+        self._restore_scope_state(self._merge_scope_states(outer_paths))
 
     visit_ListComp = _visit_comprehension
     visit_SetComp = _visit_comprehension
     visit_GeneratorExp = _visit_comprehension
     visit_DictComp = _visit_comprehension
+
+    def visit_BoolOp(self, node: ast.BoolOp) -> None:
+        paths: list[tuple[_SettingState, ...]] = []
+        for value in node.values:
+            self.visit(value)
+            paths.append(self._capture_scope_state())
+        self._restore_scope_state(self._merge_scope_states(paths))
+
+    def visit_IfExp(self, node: ast.IfExp) -> None:
+        self.visit(node.test)
+        baseline = self._capture_scope_state()
+
+        self.visit(node.body)
+        body_state = self._capture_scope_state()
+
+        self._restore_scope_state(baseline)
+        self.visit(node.orelse)
+        else_state = self._capture_scope_state()
+
+        self._restore_scope_state(
+            self._merge_scope_states((body_state, else_state))
+        )
 
     def visit_Assign(self, node: ast.Assign) -> None:
         self.visit(node.value)
@@ -1756,6 +1835,7 @@ class _SettingVisitor(ast.NodeVisitor):
         value_states: Sequence[dict[str, tuple[str, ...]]],
         iterable_states: Sequence[dict[str, tuple[str, ...]]],
         binding_states: Sequence[set[str]],
+        frame_index: int = -1,
     ) -> None:
         merged_aliases: dict[str, str] = {}
         for name in set().union(*(state.keys() for state in alias_states)):
@@ -1777,9 +1857,9 @@ class _SettingVisitor(ast.NodeVisitor):
                         }
                     )
                 )
-        self.aliases[-1] = merged_aliases
-        self.values[-1] = merged_values
-        self.iterables[-1] = {
+        self.aliases[frame_index] = merged_aliases
+        self.values[frame_index] = merged_values
+        self.iterables[frame_index] = {
             name: tuple(
                 sorted(
                     {
@@ -1793,7 +1873,7 @@ class _SettingVisitor(ast.NodeVisitor):
                 *(set(state) for state in iterable_states)
             )
         }
-        self.value_bindings[-1] = merged_bindings
+        self.value_bindings[frame_index] = merged_bindings
 
     def visit_Try(self, node: ast.Try) -> _StatementFlow:
         self._reject_conditional_alias_reassignment(node)
