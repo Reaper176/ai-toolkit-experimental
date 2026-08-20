@@ -1246,6 +1246,155 @@ class Configured[T: os.getenv("class_type", "type")](
                 with self.assertRaisesRegex(DiscoveryError, "dynamic environment"):
                     discover_python_settings(self.repository_root, (path,))
 
+    def test_discovery_isolates_class_finite_value_state(self):
+        self.write_source(
+            "class_value_scope.py",
+            """def load(model_config):
+    component = external()
+    class Inner:
+        component = "dit"
+        model_config.model_kwargs.get(f"{component}_path", None)
+    return model_config.model_kwargs.get(f"{component}_path", None)
+""",
+        )
+        with self.assertRaisesRegex(
+            DiscoveryError, "dynamic configuration"
+        ) as error:
+            discover_python_settings(
+                self.repository_root, ("class_value_scope.py",)
+            )
+        self.assertIn("line 6", str(error.exception))
+
+    def test_discovery_isolates_lambda_finite_value_state(self):
+        self.write_source(
+            "lambda_value_scope.py",
+            """def load(model_config):
+    component = "dit"
+    return (lambda component: model_config.model_kwargs.get(
+        f"{component}_path", None
+    ))(external())
+""",
+        )
+        with self.assertRaisesRegex(DiscoveryError, "dynamic configuration"):
+            discover_python_settings(
+                self.repository_root, ("lambda_value_scope.py",)
+            )
+
+    def test_discovery_isolates_comprehension_finite_value_state(self):
+        expressions = (
+            """[
+        model_config.model_kwargs.get(f"{component}_path", None)
+        for component in external()
+    ]""",
+            """[
+        value
+        for value in [
+            model_config.model_kwargs.get(f"{component}_path", None)
+            for component in external()
+        ]
+    ]""",
+        )
+        for index, expression in enumerate(expressions):
+            with self.subTest(expression=expression):
+                path = f"comprehension_value_scope_{index}.py"
+                self.write_source(
+                    path,
+                    """def load(model_config):
+    component = "dit"
+    return """
+                    + expression
+                    + "\n",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dynamic configuration"):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_resolves_module_and_class_config_aliases(self):
+        self.write_source(
+            "enclosing_aliases.py",
+            """model_kwargs = model_config.model_kwargs
+
+def load(value=model_kwargs.get("module_default", None)):
+    model_kwargs.get("module_body", 1)
+
+class Loader:
+    model_kwargs = model_config.model_kwargs
+    class_value = model_kwargs.get("class_body", 2)
+
+    def load(self, value=model_kwargs.get("class_default", 3)):
+        self.model_kwargs.get("class_method", 4)
+
+model_kwargs.get("module_after", 5)
+
+class Unrelated:
+    private_kwargs = model_config.model_kwargs
+
+private_kwargs.get("leaked", 6)
+""",
+        )
+        self.assertEqual(
+            discover_python_settings(
+                self.repository_root, ("enclosing_aliases.py",)
+            ),
+            (
+                DiscoveredSetting(
+                    "enclosing_aliases.py", "<module>", 13, "module_after",
+                    "model_kwargs.get", "model", "5",
+                ),
+                DiscoveredSetting(
+                    "enclosing_aliases.py", "<module>", 3, "module_default",
+                    "model_kwargs.get", "model", "None",
+                ),
+                DiscoveredSetting(
+                    "enclosing_aliases.py", "Loader", 8, "class_body",
+                    "model_kwargs.get", "model", "2",
+                ),
+                DiscoveredSetting(
+                    "enclosing_aliases.py", "Loader", 10, "class_default",
+                    "model_kwargs.get", "model", "3",
+                ),
+                DiscoveredSetting(
+                    "enclosing_aliases.py", "Loader.load", 11, "class_method",
+                    "model_kwargs.get", "model", "4",
+                ),
+                DiscoveredSetting(
+                    "enclosing_aliases.py", "load", 4, "module_body",
+                    "model_kwargs.get", "model", "1",
+                ),
+            ),
+        )
+
+    def test_discovery_rejects_dynamic_enclosing_config_alias_reads(self):
+        bodies = (
+            """model_kwargs = model_config.model_kwargs
+def load(key):
+    model_kwargs.get(key)
+""",
+            """model_kwargs = model_config.model_kwargs
+def load(value=model_kwargs.get(key)):
+    pass
+""",
+            """class Loader:
+    model_kwargs = model_config.model_kwargs
+    value = model_kwargs.get(key)
+""",
+            """class Loader:
+    model_kwargs = model_config.model_kwargs
+    def load(self, value=model_kwargs.get(key)):
+        pass
+""",
+            """class Loader:
+    model_kwargs = model_config.model_kwargs
+    def load(self, key):
+        self.model_kwargs.get(key)
+""",
+        )
+        for index, body in enumerate(bodies):
+            with self.subTest(body=body):
+                path = f"dynamic_enclosing_alias_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(DiscoveryError, "dynamic configuration"):
+                    discover_python_settings(self.repository_root, (path,))
+
     def test_discovery_supports_unconventional_bound_receiver_names(self):
         for index, signature in enumerate(("this", "this, /")):
             with self.subTest(signature=signature):

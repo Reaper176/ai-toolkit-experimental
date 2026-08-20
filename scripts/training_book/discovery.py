@@ -964,8 +964,10 @@ class _SettingVisitor(ast.NodeVisitor):
         self.class_stack: list[str] = []
         self.function_stack: list[str] = []
         self.function_nodes: list[ast.FunctionDef | ast.AsyncFunctionDef] = []
-        self.aliases: list[dict[str, str]] = []
-        self.values: list[dict[str, tuple[str, ...]]] = []
+        self.aliases: list[dict[str, str]] = [{}]
+        self.values: list[dict[str, tuple[str, ...]]] = [{}]
+        self.value_bindings: list[set[str]] = [set()]
+        self.scope_frames: list[str] = ["module"]
         self.facts: list[DiscoveredSetting] = []
 
     @property
@@ -979,7 +981,74 @@ class _SettingVisitor(ast.NodeVisitor):
 
     @property
     def current_values(self) -> dict[str, tuple[str, ...]]:
-        return self.values[-1] if self.values else {}
+        return self.values[-1]
+
+    def _visible_frame_indices(self) -> tuple[int, ...]:
+        """Return lexical frames visible to the current expression.
+
+        A class body can read its enclosing scope, but its namespace is not a
+        closure for functions, lambdas, or comprehensions defined inside it.
+        """
+
+        function_like = {"function", "lambda", "comprehension"}
+        return tuple(
+            index
+            for index, frame in enumerate(self.scope_frames)
+            if frame != "class"
+            or not any(
+                inner in function_like
+                for inner in self.scope_frames[index + 1 :]
+            )
+        )
+
+    @property
+    def visible_values(self) -> dict[str, tuple[str, ...]]:
+        visible: dict[str, tuple[str, ...]] = {}
+        for index in self._visible_frame_indices():
+            for name in self.value_bindings[index]:
+                visible.pop(name, None)
+            visible.update(self.values[index])
+        return visible
+
+    def _visible_alias(self, path: str) -> str | None:
+        for index in reversed(self._visible_frame_indices()):
+            if path not in self.aliases[index]:
+                continue
+            kind = self.aliases[index][path]
+            return None if kind == "shadowed" else kind
+        return None
+
+    def _push_scope(self, frame: str) -> None:
+        self.aliases.append({})
+        self.values.append({})
+        self.value_bindings.append(set())
+        self.scope_frames.append(frame)
+
+    def _pop_scope(self) -> None:
+        self.scope_frames.pop()
+        self.value_bindings.pop()
+        self.values.pop()
+        self.aliases.pop()
+
+    def _bind_unknown(self, name: str) -> None:
+        self.current_values.pop(name, None)
+        self.value_bindings[-1].add(name)
+
+    def _bind_literal(self, name: str, values: tuple[str, ...]) -> None:
+        self.current_values[name] = values
+        self.value_bindings[-1].add(name)
+
+    def _bind_target_unknown(self, target: ast.AST) -> None:
+        if isinstance(target, ast.Name):
+            if self._visible_alias(target.id) is not None:
+                self.current_aliases[target.id] = "shadowed"
+            self._bind_unknown(target.id)
+            return
+        if isinstance(target, (ast.Tuple, ast.List)):
+            for element in target.elts:
+                self._bind_target_unknown(element)
+        elif isinstance(target, ast.Starred):
+            self._bind_target_unknown(target.value)
 
     def _error(self, node: ast.AST, message: str) -> DiscoveryError:
         return DiscoveryError(
@@ -1012,8 +1081,9 @@ class _SettingVisitor(ast.NodeVisitor):
         path = _attribute_path(node)
         if path is None:
             return None
-        if path in self.current_aliases:
-            return self.current_aliases[path]
+        alias_kind = self._visible_alias(path)
+        if alias_kind is not None:
+            return alias_kind
         if path.endswith(".model_kwargs"):
             return "model_kwargs"
         if path == "kwargs":
@@ -1035,7 +1105,7 @@ class _SettingVisitor(ast.NodeVisitor):
                 for inner in ast.walk(node)
             ):
                 raise self._error(owner, "dynamic parameter call site is not finite")
-        keys = _literal_strings(node, self.current_values)
+        keys = _literal_strings(node, self.visible_values)
         if keys is None:
             raise self._error(owner, "dynamic configuration key is not finite")
         if not keys or any(not key for key in keys):
@@ -1079,8 +1149,10 @@ class _SettingVisitor(ast.NodeVisitor):
         ):
             self.visit(expression)
         self.class_stack.append(node.name)
+        self._push_scope("class")
         for statement in node.body:
             self.visit(statement)
+        self._pop_scope()
         self.class_stack.pop()
 
     def _visit_function(
@@ -1111,49 +1183,109 @@ class _SettingVisitor(ast.NodeVisitor):
             self.visit(expression)
         self.function_stack.append(node.name)
         self.function_nodes.append(node)
-        aliases: dict[str, str] = {}
+        self._push_scope("function")
         if node.args.kwarg is not None and node.args.kwarg.arg == "kwargs":
-            aliases["kwargs"] = "kwargs"
-        values: dict[str, tuple[str, ...]] = {}
+            self.current_aliases["kwargs"] = "kwargs"
+        arguments = (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+            *(() if node.args.vararg is None else (node.args.vararg,)),
+            *(() if node.args.kwarg is None else (node.args.kwarg,)),
+        )
+        for argument in arguments:
+            if self._visible_alias(argument.arg) is not None:
+                self.current_aliases.setdefault(argument.arg, "shadowed")
+            self._bind_unknown(argument.arg)
         if self.class_stack:
-            for argument in (
-                list(node.args.posonlyargs)
-                + list(node.args.args)
-                + list(node.args.kwonlyargs)
-            ):
+            for argument in arguments:
                 domain = self.parameter_domains.get(
                     (self.class_stack[-1], node.name, argument.arg)
                 )
                 if domain:
-                    values[argument.arg] = domain
-        self.aliases.append(aliases)
-        self.values.append(values)
+                    self._bind_literal(argument.arg, domain)
         for statement in node.body:
             self.visit(statement)
-        self.values.pop()
-        self.aliases.pop()
+        self._pop_scope()
         self.function_nodes.pop()
         self.function_stack.pop()
 
     visit_FunctionDef = _visit_function
     visit_AsyncFunctionDef = _visit_function
 
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        for expression in (
+            *node.args.defaults,
+            *(default for default in node.args.kw_defaults if default is not None),
+        ):
+            self.visit(expression)
+        self._push_scope("lambda")
+        arguments = (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+            *(() if node.args.vararg is None else (node.args.vararg,)),
+            *(() if node.args.kwarg is None else (node.args.kwarg,)),
+        )
+        for argument in arguments:
+            if self._visible_alias(argument.arg) is not None:
+                self.current_aliases[argument.arg] = "shadowed"
+            self._bind_unknown(argument.arg)
+        self.visit(node.body)
+        self._pop_scope()
+
+    def _visit_comprehension(
+        self,
+        node: ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp,
+    ) -> None:
+        first, *remaining = node.generators
+        self.visit(first.iter)
+        first_values = _literal_strings(first.iter, self.visible_values)
+        self._push_scope("comprehension")
+
+        def bind_generator(generator: ast.comprehension, values: tuple[str, ...] | None) -> None:
+            self._bind_target_unknown(generator.target)
+            if isinstance(generator.target, ast.Name) and values is not None:
+                self._bind_literal(generator.target.id, values)
+            for condition in generator.ifs:
+                self.visit(condition)
+
+        bind_generator(first, first_values)
+        for generator in remaining:
+            self.visit(generator.iter)
+            generator_values = _literal_strings(generator.iter, self.visible_values)
+            bind_generator(generator, generator_values)
+        if isinstance(node, ast.DictComp):
+            self.visit(node.key)
+            self.visit(node.value)
+        else:
+            self.visit(node.elt)
+        self._pop_scope()
+
+    visit_ListComp = _visit_comprehension
+    visit_SetComp = _visit_comprehension
+    visit_GeneratorExp = _visit_comprehension
+    visit_DictComp = _visit_comprehension
+
     def visit_Assign(self, node: ast.Assign) -> None:
         self.visit(node.value)
         kind = self._container_kind(node.value)
-        literal_values = _literal_strings(node.value, self.current_values)
+        literal_values = _literal_strings(node.value, self.visible_values)
         for target in node.targets:
             target_path = _attribute_path(target)
             if target_path is not None:
                 if kind is not None:
                     self.current_aliases[target_path] = kind
                 else:
-                    self.current_aliases.pop(target_path, None)
+                    if self._visible_alias(target_path) is not None:
+                        self.current_aliases[target_path] = "shadowed"
+                    else:
+                        self.current_aliases.pop(target_path, None)
             if isinstance(target, ast.Name):
                 if literal_values is not None:
-                    self.current_values[target.id] = literal_values
+                    self._bind_literal(target.id, literal_values)
                 else:
-                    self.current_values.pop(target.id, None)
+                    self._bind_unknown(target.id)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if node.value is None:
@@ -1246,16 +1378,19 @@ class _SettingVisitor(ast.NodeVisitor):
 
     def visit_For(self, node: ast.For) -> None:
         self._reject_conditional_alias_reassignment(node)
-        iterable = _literal_strings(node.iter, self.current_values)
+        iterable = _literal_strings(node.iter, self.visible_values)
         if isinstance(node.target, ast.Name) and iterable is not None:
             previous = self.current_values.get(node.target.id)
-            self.current_values[node.target.id] = iterable
+            previously_bound = node.target.id in self.value_bindings[-1]
+            self._bind_literal(node.target.id, iterable)
             for statement in node.body:
                 self.visit(statement)
             if previous is None:
                 self.current_values.pop(node.target.id, None)
             else:
                 self.current_values[node.target.id] = previous
+            if not previously_bound:
+                self.value_bindings[-1].discard(node.target.id)
             for statement in node.orelse:
                 self.visit(statement)
             return
@@ -1300,31 +1435,48 @@ class _SettingVisitor(ast.NodeVisitor):
         statements: Sequence[ast.stmt],
         aliases: dict[str, str],
         values: dict[str, tuple[str, ...]],
-    ) -> tuple[dict[str, str], dict[str, tuple[str, ...]]]:
+        bindings: set[str],
+    ) -> tuple[dict[str, str], dict[str, tuple[str, ...]], set[str]]:
         self.aliases[-1] = dict(aliases)
         self.values[-1] = dict(values)
+        self.value_bindings[-1] = set(bindings)
         for statement in statements:
             self.visit(statement)
-        return dict(self.current_aliases), dict(self.current_values)
+        return (
+            dict(self.current_aliases),
+            dict(self.current_values),
+            set(self.value_bindings[-1]),
+        )
 
     def _merge_may_alias_states(
         self,
         alias_states: Sequence[dict[str, str]],
         value_states: Sequence[dict[str, tuple[str, ...]]],
+        binding_states: Sequence[set[str]],
     ) -> None:
         merged_aliases: dict[str, str] = {}
         for name in set().union(*(state.keys() for state in alias_states)):
             kinds = {state[name] for state in alias_states if name in state}
             merged_aliases[name] = kinds.pop() if len(kinds) == 1 else "dynamic"
         merged_values: dict[str, tuple[str, ...]] = {}
-        for name in set.intersection(
-            *(set(state) for state in value_states)
-        ):
-            merged_values[name] = tuple(
-                sorted({value for state in value_states for value in state[name]})
-            )
+        merged_bindings = set().union(*binding_states)
+        for name in merged_bindings:
+            if all(
+                name in bindings and name in values
+                for bindings, values in zip(binding_states, value_states)
+            ):
+                merged_values[name] = tuple(
+                    sorted(
+                        {
+                            value
+                            for state in value_states
+                            for value in state[name]
+                        }
+                    )
+                )
         self.aliases[-1] = merged_aliases
         self.values[-1] = merged_values
+        self.value_bindings[-1] = merged_bindings
 
     def visit_Try(self, node: ast.Try) -> None:
         self._reject_conditional_alias_reassignment(node)
@@ -1333,22 +1485,34 @@ class _SettingVisitor(ast.NodeVisitor):
             return
         baseline_aliases = dict(self.current_aliases)
         baseline_values = dict(self.current_values)
-        normal_aliases, normal_values = self._visit_state_branch(
-            (*node.body, *node.orelse), baseline_aliases, baseline_values
+        baseline_bindings = set(self.value_bindings[-1])
+        normal_aliases, normal_values, normal_bindings = self._visit_state_branch(
+            (*node.body, *node.orelse),
+            baseline_aliases,
+            baseline_values,
+            baseline_bindings,
         )
         alias_states = [normal_aliases]
         value_states = [normal_values]
+        binding_states = [normal_bindings]
         for handler in node.handlers:
             self.aliases[-1] = dict(baseline_aliases)
             self.values[-1] = dict(baseline_values)
+            self.value_bindings[-1] = set(baseline_bindings)
             if handler.type is not None:
                 self.visit(handler.type)
-            handler_aliases, handler_values = self._visit_state_branch(
-                handler.body, self.current_aliases, self.current_values
+            handler_aliases, handler_values, handler_bindings = (
+                self._visit_state_branch(
+                    handler.body,
+                    self.current_aliases,
+                    self.current_values,
+                    self.value_bindings[-1],
+                )
             )
             alias_states.append(handler_aliases)
             value_states.append(handler_values)
-        self._merge_may_alias_states(alias_states, value_states)
+            binding_states.append(handler_bindings)
+        self._merge_may_alias_states(alias_states, value_states, binding_states)
         for statement in node.finalbody:
             self.visit(statement)
 
@@ -1362,20 +1526,27 @@ class _SettingVisitor(ast.NodeVisitor):
         self.visit(node.subject)
         baseline_aliases = dict(self.current_aliases)
         baseline_values = dict(self.current_values)
+        baseline_bindings = set(self.value_bindings[-1])
         alias_states = [baseline_aliases]
         value_states = [baseline_values]
+        binding_states = [baseline_bindings]
         for case in node.cases:
             self.aliases[-1] = dict(baseline_aliases)
             self.values[-1] = dict(baseline_values)
+            self.value_bindings[-1] = set(baseline_bindings)
             self.visit(case.pattern)
             if case.guard is not None:
                 self.visit(case.guard)
-            case_aliases, case_values = self._visit_state_branch(
-                case.body, self.current_aliases, self.current_values
+            case_aliases, case_values, case_bindings = self._visit_state_branch(
+                case.body,
+                self.current_aliases,
+                self.current_values,
+                self.value_bindings[-1],
             )
             alias_states.append(case_aliases)
             value_states.append(case_values)
-        self._merge_may_alias_states(alias_states, value_states)
+            binding_states.append(case_bindings)
+        self._merge_may_alias_states(alias_states, value_states, binding_states)
 
     def visit_If(self, node: ast.If) -> None:
         if not self.aliases:
@@ -1384,37 +1555,30 @@ class _SettingVisitor(ast.NodeVisitor):
         self.visit(node.test)
         baseline_aliases = dict(self.current_aliases)
         baseline_values = dict(self.current_values)
+        baseline_bindings = set(self.value_bindings[-1])
 
         self.aliases[-1] = dict(baseline_aliases)
         self.values[-1] = dict(baseline_values)
+        self.value_bindings[-1] = set(baseline_bindings)
         for statement in node.body:
             self.visit(statement)
         body_aliases = dict(self.current_aliases)
         body_values = dict(self.current_values)
+        body_bindings = set(self.value_bindings[-1])
 
         self.aliases[-1] = dict(baseline_aliases)
         self.values[-1] = dict(baseline_values)
+        self.value_bindings[-1] = set(baseline_bindings)
         for statement in node.orelse:
             self.visit(statement)
         else_aliases = dict(self.current_aliases)
         else_values = dict(self.current_values)
-
-        merged_aliases: dict[str, str] = {}
-        for name in set(body_aliases) | set(else_aliases):
-            body_kind = body_aliases.get(name)
-            else_kind = else_aliases.get(name)
-            if body_kind == else_kind and body_kind is not None:
-                merged_aliases[name] = body_kind
-            elif body_kind is not None or else_kind is not None:
-                merged_aliases[name] = "dynamic"
-        merged_values: dict[str, tuple[str, ...]] = {}
-        for name in set(body_values) | set(else_values):
-            body_options = body_values.get(name)
-            else_options = else_values.get(name)
-            if body_options is not None and else_options is not None:
-                merged_values[name] = tuple(sorted(set(body_options + else_options)))
-        self.aliases[-1] = merged_aliases
-        self.values[-1] = merged_values
+        else_bindings = set(self.value_bindings[-1])
+        self._merge_may_alias_states(
+            (body_aliases, else_aliases),
+            (body_values, else_values),
+            (body_bindings, else_bindings),
+        )
 
     def visit_Subscript(self, node: ast.Subscript) -> None:
         if not isinstance(node.ctx, ast.Load):
@@ -1424,7 +1588,7 @@ class _SettingVisitor(ast.NodeVisitor):
             isinstance(node.value, ast.Attribute)
             and self._normalized_os_path(node.value) == "os.environ"
         ):
-            if _literal_strings(node.slice, self.current_values) is None:
+            if _literal_strings(node.slice, self.visible_values) is None:
                 self._dynamic_environment_read(node, "os.environ[]")
                 return
             for key in self._resolved_keys(node.slice, node):
@@ -1498,7 +1662,7 @@ class _SettingVisitor(ast.NodeVisitor):
         if path == "os.getenv":
             if not node.args:
                 raise self._error(node, "os.getenv call has no key")
-            if _literal_strings(node.args[0], self.current_values) is None:
+            if _literal_strings(node.args[0], self.visible_values) is None:
                 self._dynamic_environment_read(node, "os.getenv")
                 return
             default = node.args[1] if len(node.args) > 1 else None
@@ -1508,7 +1672,7 @@ class _SettingVisitor(ast.NodeVisitor):
         if path == "os.environ.get":
             if not node.args:
                 raise self._error(node, "os.environ.get call has no key")
-            if _literal_strings(node.args[0], self.current_values) is None:
+            if _literal_strings(node.args[0], self.visible_values) is None:
                 self._dynamic_environment_read(node, "os.environ.get")
                 return
             default = node.args[1] if len(node.args) > 1 else None
