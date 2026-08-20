@@ -1393,6 +1393,24 @@ class _SettingVisitor(ast.NodeVisitor):
             self.source,
             self.symbol,
         ) == ("jobs/process/BaseProcess.py", "BaseProcess.get_conf")
+
+        def safe_collection_reference(
+            reference: ast.Name, statement: ast.stmt
+        ) -> bool:
+            if isinstance(statement, (ast.If, ast.While, ast.Assert)) and (
+                statement.test is reference
+            ):
+                return True
+            return any(
+                isinstance(inner, ast.Call)
+                and isinstance(inner.func, ast.Name)
+                and inner.func.id == "len"
+                and len(inner.args) == 1
+                and inner.args[0] is reference
+                and not inner.keywords
+                for inner in ast.walk(statement)
+            )
+
         for statement in function.body:
             assigned_name: str | None = None
             assigned_value: ast.AST | None = None
@@ -1418,6 +1436,7 @@ class _SettingVisitor(ast.NodeVisitor):
                     if isinstance(inner, ast.Name)
                     and isinstance(inner.ctx, ast.Load)
                     and inner.id in derived_collections
+                    and not safe_collection_reference(inner, statement)
                 }
                 derived_collections.difference_update(loaded_collections)
                 value_path = _attribute_path(assigned_value)
@@ -1445,6 +1464,15 @@ class _SettingVisitor(ast.NodeVisitor):
                 and isinstance(statement.iter, ast.Name)
                 and statement.iter.id in derived_collections
             ):
+                collection = statement.iter.id
+                if any(
+                    isinstance(inner, ast.Name)
+                    and inner.id == collection
+                    for body_statement in statement.body
+                    for inner in ast.walk(body_statement)
+                ):
+                    derived_collections.discard(collection)
+                    continue
                 target = statement.target.id
                 rebound_target = any(
                     isinstance(inner, ast.Name)
@@ -1465,6 +1493,15 @@ class _SettingVisitor(ast.NodeVisitor):
                     )
                 continue
 
+            escaped_collections = {
+                inner.id
+                for inner in ast.walk(statement)
+                if isinstance(inner, ast.Name)
+                and isinstance(inner.ctx, ast.Load)
+                and inner.id in derived_collections
+                and not safe_collection_reference(inner, statement)
+            }
+            derived_collections.difference_update(escaped_collections)
             rebound = {
                 inner.id
                 for inner in ast.walk(statement)
@@ -1607,9 +1644,10 @@ class _SettingVisitor(ast.NodeVisitor):
             *getattr(node, "type_params", ()),
         ):
             self.visit(expression)
+        declarations = self._class_binding_declarations(node)
         self.class_stack.append(node.name)
         self._push_scope("class")
-        self.binding_declarations.append({})
+        self.binding_declarations.append(declarations)
         self.pending_class_bindings.append(
             (len(self.scope_frames) - 1, node.name)
         )
@@ -1619,6 +1657,53 @@ class _SettingVisitor(ast.NodeVisitor):
         self._pop_scope()
         self.class_stack.pop()
         self._bind_name_unknown(node.name)
+
+    def _class_binding_declarations(
+        self, node: ast.ClassDef
+    ) -> dict[str, int]:
+        global_names: set[str] = set()
+        nonlocal_names: set[str] = set()
+
+        class DeclarationVisitor(ast.NodeVisitor):
+            def visit_Global(self, declaration: ast.Global) -> None:
+                global_names.update(declaration.names)
+
+            def visit_Nonlocal(self, declaration: ast.Nonlocal) -> None:
+                nonlocal_names.update(declaration.names)
+
+            def visit_FunctionDef(self, inner: ast.FunctionDef) -> None:
+                return
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_Lambda(self, inner: ast.Lambda) -> None:
+                return
+
+            def visit_ClassDef(self, inner: ast.ClassDef) -> None:
+                return
+
+        scanner = DeclarationVisitor()
+        for statement in node.body:
+            scanner.visit(statement)
+
+        declarations = {name: 0 for name in global_names}
+        candidates = [
+            index
+            for index in range(len(self.scope_frames) - 1, -1, -1)
+            if self.scope_frames[index] in {"function", "lambda"}
+        ]
+        for name in nonlocal_names:
+            if not candidates:
+                continue
+            declarations[name] = next(
+                (
+                    index
+                    for index in candidates
+                    if name in self.lexical_locals[index]
+                ),
+                candidates[0],
+            )
+        return declarations
 
     def _visit_function(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef
@@ -1921,7 +2006,6 @@ class _SettingVisitor(ast.NodeVisitor):
         resolutions: dict[int, _AssignmentResolution] = {}
         self._visit_assignment_value(node.value, resolutions)
         for target in node.targets:
-            self._visit_assignment_target(target)
             self._assign_target(target, node.value, resolutions)
 
     def _visit_assignment_target(self, target: ast.AST) -> None:
@@ -1938,6 +2022,17 @@ class _SettingVisitor(ast.NodeVisitor):
             return
         if isinstance(target, ast.Starred):
             self._visit_assignment_target(target.value)
+
+    def _visit_and_bind_target_unknown(self, target: ast.AST) -> None:
+        if isinstance(target, (ast.Tuple, ast.List)):
+            for element in target.elts:
+                self._visit_and_bind_target_unknown(element)
+            return
+        if isinstance(target, ast.Starred):
+            self._visit_and_bind_target_unknown(target.value)
+            return
+        self._visit_assignment_target(target)
+        self._bind_target_unknown(target)
 
     def _visit_assignment_value(
         self,
@@ -1984,7 +2079,7 @@ class _SettingVisitor(ast.NodeVisitor):
     ) -> None:
         if isinstance(target, (ast.Tuple, ast.List)):
             if not isinstance(value, (ast.Tuple, ast.List)):
-                self._bind_target_unknown(target)
+                self._visit_and_bind_target_unknown(target)
                 return
             starred = [
                 index
@@ -2044,6 +2139,7 @@ class _SettingVisitor(ast.NodeVisitor):
             self._assign_target(target.value, value, resolutions)
             return
 
+        self._visit_assignment_target(target)
         resolution = resolutions[id(value)]
         kind = resolution.kind
         literal_values = resolution.literals
@@ -2147,8 +2243,7 @@ class _SettingVisitor(ast.NodeVisitor):
 
     def visit_Delete(self, node: ast.Delete) -> None:
         for target in node.targets:
-            self._visit_assignment_target(target)
-            self._bind_target_unknown(target)
+            self._visit_and_bind_target_unknown(target)
 
     def visit_With(
         self, node: ast.With | ast.AsyncWith
@@ -2156,8 +2251,7 @@ class _SettingVisitor(ast.NodeVisitor):
         for item in node.items:
             self.visit(item.context_expr)
             if item.optional_vars is not None:
-                self._visit_assignment_target(item.optional_vars)
-                self._bind_target_unknown(item.optional_vars)
+                self._visit_and_bind_target_unknown(item.optional_vars)
         return self._visit_statements(node.body)
 
     visit_AsyncWith = visit_With
@@ -2290,6 +2384,13 @@ class _SettingVisitor(ast.NodeVisitor):
             prefixes = list(body_flow.prefixes)
             if body_flow.falls_through:
                 iteration_states.append(self._capture_state())
+            repeat_states = list(iteration_states)
+            if (
+                repeat_states
+                and (iterable is None or len(iterable) > 1)
+            ):
+                self._restore_state(self._merge_states(repeat_states))
+                self._visit_and_bind_target_unknown(node.target)
             if zero_iteration:
                 iteration_states.append(baseline)
 
@@ -2327,17 +2428,16 @@ class _SettingVisitor(ast.NodeVisitor):
             if isinstance(node.target, (ast.Tuple, ast.List)) and len(node.target.elts) >= 2:
                 element_target = node.target.elts[1]
         element_kind = self._container_kind(iterated_value)
-        self._visit_assignment_target(node.target)
         if element_kind is not None:
             target_path = _attribute_path(element_target)
             if target_path is None:
                 raise self._error(node, "configuration loop target is not statically named")
-            self._bind_target_unknown(node.target)
+            self._visit_and_bind_target_unknown(node.target)
             self.current_aliases[target_path] = element_kind
             return finish_loop(
                 self._visit_statements(node.body), zero_iteration=True
             )
-        self._bind_target_unknown(node.target)
+        self._visit_and_bind_target_unknown(node.target)
         return finish_loop(
             self._visit_statements(node.body), zero_iteration=True
         )
@@ -3186,8 +3286,11 @@ def discover_python_settings(
     mutable_method_references: dict[str, list[_MethodReference]] = {}
     reflective_alias_cache: dict[tuple[str, int], frozenset[str]] = {}
 
-    def collect_reflective_aliases(scope: ast.AST) -> frozenset[str]:
-        aliases: set[str] = set()
+    def collect_reflective_aliases(
+        scope: ast.AST, inherited: Iterable[str] = ()
+    ) -> frozenset[str]:
+        aliases = set(inherited)
+        dependencies: dict[str, set[str]] = {}
 
         def is_identity(value: ast.AST | None) -> bool:
             return value is not None and _attribute_path(value) in {
@@ -3200,6 +3303,8 @@ def discover_python_settings(
             if isinstance(target, ast.Name):
                 if target.id in {"getattr", "builtins", "object"} or is_identity(value):
                     aliases.add(target.id)
+                elif isinstance(value, ast.Name):
+                    dependencies.setdefault(target.id, set()).add(value.id)
                 return
             if isinstance(target, (ast.Tuple, ast.List)) and isinstance(
                 value, (ast.Tuple, ast.List)
@@ -3243,13 +3348,11 @@ def discover_python_settings(
                     positional[-len(node.args.defaults) :],
                     node.args.defaults,
                 ):
-                    if is_identity(default):
-                        aliases.add(argument.arg)
+                    bind(ast.Name(id=argument.arg, ctx=ast.Store()), default)
                 for argument, default in zip(
                     node.args.kwonlyargs, node.args.kw_defaults
                 ):
-                    if is_identity(default):
-                        aliases.add(argument.arg)
+                    bind(ast.Name(id=argument.arg, ctx=ast.Store()), default)
                 for statement in node.body:
                     self.visit(statement)
 
@@ -3282,13 +3385,11 @@ def discover_python_settings(
                     positional[-len(node.args.defaults) :],
                     node.args.defaults,
                 ):
-                    if is_identity(default):
-                        aliases.add(argument.arg)
+                    bind(ast.Name(id=argument.arg, ctx=ast.Store()), default)
                 for argument, default in zip(
                     node.args.kwonlyargs, node.args.kw_defaults
                 ):
-                    if is_identity(default):
-                        aliases.add(argument.arg)
+                    bind(ast.Name(id=argument.arg, ctx=ast.Store()), default)
                 self.visit(node.body)
 
             def visit_ClassDef(self, node: ast.ClassDef) -> None:
@@ -3326,6 +3427,13 @@ def discover_python_settings(
                         aliases.add(bound)
 
         AliasVisitor().visit(scope)
+        changed = True
+        while changed:
+            changed = False
+            for target, sources in dependencies.items():
+                if target not in aliases and aliases.intersection(sources):
+                    aliases.add(target)
+                    changed = True
         return frozenset(aliases)
 
     module_aliases = {
@@ -3341,8 +3449,7 @@ def discover_python_settings(
         if cache_key in reflective_alias_cache:
             return reflective_alias_cache[cache_key]
         aliases = frozenset(
-            set(module_aliases[source])
-            | set(collect_reflective_aliases(function))
+            collect_reflective_aliases(function, module_aliases[source])
         )
         reflective_alias_cache[cache_key] = aliases
         return aliases
