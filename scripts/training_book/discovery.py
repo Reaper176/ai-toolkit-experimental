@@ -1917,6 +1917,7 @@ def discover_python_settings(
     source_paths = _collect_source_paths(root, globs)
     parsed: list[tuple[str, ast.Module]] = []
     classes: dict[str, list[_ClassInfo]] = {}
+    postponed_annotation_sources: set[str] = set()
     for source_path in source_paths:
         source = _portable_path(root, source_path)
         try:
@@ -1924,6 +1925,13 @@ def discover_python_settings(
         except (OSError, UnicodeError, SyntaxError) as error:
             raise DiscoveryError(f"cannot parse {source}: {error}") from error
         parsed.append((source, tree))
+        if any(
+            isinstance(node, ast.ImportFrom)
+            and node.module == "__future__"
+            and any(alias.name == "annotations" for alias in node.names)
+            for node in tree.body
+        ):
+            postponed_annotation_sources.add(source)
         for node in tree.body:
             if isinstance(node, ast.ClassDef):
                 classes.setdefault(node.name, []).append(_ClassInfo(source, node))
@@ -1940,15 +1948,59 @@ def discover_python_settings(
         direct_method: bool = False,
         parent: ast.AST | None = None,
     ) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            definition_expressions: list[ast.AST] = [
+                *node.decorator_list,
+                *node.args.defaults,
+                *(
+                    default
+                    for default in node.args.kw_defaults
+                    if default is not None
+                ),
+                *getattr(node, "type_params", ()),
+            ]
+            if source not in postponed_annotation_sources:
+                definition_expressions.extend(
+                    annotation
+                    for argument in (
+                        *node.args.posonlyargs,
+                        *node.args.args,
+                        *node.args.kwonlyargs,
+                        node.args.vararg,
+                        node.args.kwarg,
+                    )
+                    if argument is not None
+                    if (annotation := argument.annotation) is not None
+                )
+                if node.returns is not None:
+                    definition_expressions.append(node.returns)
+            for expression in definition_expressions:
+                collect_method_uses(
+                    expression,
+                    source,
+                    containing_class,
+                    containing_function,
+                    direct_method,
+                    node,
+                )
+            method_scope = isinstance(parent, ast.ClassDef)
+            for statement in node.body:
+                collect_method_uses(
+                    statement,
+                    source,
+                    containing_class,
+                    node,
+                    method_scope,
+                    node,
+                )
+            return
         if isinstance(node, ast.ClassDef):
             containing_class = node.name
             containing_function = None
             direct_method = False
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        elif isinstance(node, ast.Lambda):
             containing_function = node
-            direct_method = not isinstance(node, ast.Lambda) and isinstance(
-                parent, ast.ClassDef
-            )
+            direct_method = False
         caller = _CallerInfo(
             source,
             containing_class,

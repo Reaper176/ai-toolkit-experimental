@@ -1061,6 +1061,109 @@ class ChildResolver(BaseResolver):
                 self.repository_root, ("nested_lambda_receiver.py",)
             )
 
+    def test_discovery_uses_enclosing_scope_for_function_defaults(self):
+        definitions = (
+            'def consumer(self, value=self.resolve("dit")):',
+            'def consumer(self, *, value=self.resolve("dit")):',
+            'async def consumer(self, value=self.resolve("dit")):',
+        )
+        for index, definition in enumerate(definitions):
+            with self.subTest(definition=definition):
+                path = f"function_default_scope_{index}.py"
+                self.write_source(
+                    path,
+                    """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    """
+                    + definition
+                    + "\n        pass\n",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_uses_enclosing_scope_for_eager_annotations(self):
+        definitions = (
+            'def consumer(self, value: self.resolve("dit")):',
+            'def consumer(self) -> self.resolve("dit"):',
+            'def consumer(self, *, value: self.resolve("dit")):',
+        )
+        for index, definition in enumerate(definitions):
+            with self.subTest(definition=definition):
+                path = f"function_annotation_scope_{index}.py"
+                self.write_source(
+                    path,
+                    """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    """
+                    + definition
+                    + "\n        pass\n",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_skips_postponed_annotation_call_sites(self):
+        self.write_source(
+            "postponed_annotations.py",
+            """from __future__ import annotations
+
+class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    def consumer(
+        self,
+        value: self.resolve("dit"),
+        *,
+        other: self.resolve("text_encoder"),
+    ) -> self.resolve("audio_vae"):
+        pass
+
+    def load(self):
+        return self.resolve("vae")
+""",
+        )
+        self.assertEqual(
+            discover_python_settings(
+                self.repository_root, ("postponed_annotations.py",)
+            ),
+            (
+                DiscoveredSetting(
+                    "postponed_annotations.py",
+                    "Resolver.resolve",
+                    5,
+                    "vae_path",
+                    "model_kwargs.get",
+                    "model",
+                    "None",
+                ),
+            ),
+        )
+
+    def test_discovery_uses_enclosing_scope_for_function_decorators_and_types(self):
+        definitions = (
+            '@self.resolve("dit")\n    def consumer(self):',
+            'def consumer[T: self.resolve("dit")](self):',
+        )
+        for index, definition in enumerate(definitions):
+            with self.subTest(definition=definition):
+                path = f"function_definition_scope_{index}.py"
+                self.write_source(
+                    path,
+                    """class Resolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+
+    """
+                    + definition
+                    + "\n        pass\n",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+                    discover_python_settings(self.repository_root, (path,))
+
     def test_discovery_supports_unconventional_bound_receiver_names(self):
         for index, signature in enumerate(("this", "this, /")):
             with self.subTest(signature=signature):
