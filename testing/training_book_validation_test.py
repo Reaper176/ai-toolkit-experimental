@@ -2217,6 +2217,246 @@ except RuntimeError:
                 ):
                     discover_python_settings(self.repository_root, (path,))
 
+    def test_discovery_invalidates_recursive_destructuring_targets(self):
+        invalid = (
+            """component = "dit"
+(component, other) = external()
+model_config.model_kwargs.get(f"{component}_path")
+""",
+            """component = "dit"
+[other, (component, *rest)] = external()
+model_config.model_kwargs.get(f"{component}_path")
+""",
+        )
+        for index, body in enumerate(invalid):
+            with self.subTest(body=body):
+                path = f"destructure_dynamic_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(
+                    DiscoveryError, "dynamic configuration"
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
+        self.write_source(
+            "destructure_alias_dynamic.py",
+            """settings = model_config.model_kwargs
+(settings, other) = external()
+settings.get("stale")
+""",
+        )
+        self.assertEqual(
+            discover_python_settings(
+                self.repository_root, ("destructure_alias_dynamic.py",)
+            ),
+            (),
+        )
+
+        self.write_source(
+            "destructure_finite.py",
+            """(component, (settings, other)) = (
+    "dit", (model_config.model_kwargs, external())
+)
+model_config.model_kwargs.get(f"{component}_path")
+settings.get("rank")
+""",
+        )
+        self.assertEqual(
+            tuple(
+                (fact.key, fact.read_kind)
+                for fact in discover_python_settings(
+                    self.repository_root, ("destructure_finite.py",)
+                )
+            ),
+            (("dit_path", "model_kwargs.get"), ("rank", "model_kwargs.get")),
+        )
+
+    def test_discovery_visits_specialized_call_children_once(self):
+        self.write_source(
+            "nested_specialized_reads.py",
+            """import os
+def load(kwargs, model_config, parser, loader):
+    os.getenv("OUTER_ENV", os.environ.get("INNER_ENV", "fallback"))
+    parser.add_argument("--steps", default=kwargs.get("inner_steps", 1))
+    loader.get_conf("outer_conf", model_config.model_kwargs.get("inner_model", 2))
+    kwargs.get("outer_kw", kwargs.get("inner_kw", 3))
+    kwargs["bucket"]["leaf"]
+""",
+        )
+        discovered = discover_python_settings(
+            self.repository_root, ("nested_specialized_reads.py",)
+        )
+        self.assertEqual(
+            tuple((fact.key, fact.read_kind) for fact in discovered),
+            (
+                ("INNER_ENV", "os.environ.get"),
+                ("OUTER_ENV", "os.getenv"),
+                ("bucket", "kwargs[]"),
+                ("inner_kw", "kwargs.get"),
+                ("inner_model", "model_kwargs.get"),
+                ("inner_steps", "kwargs.get"),
+                ("leaf", "kwargs[]"),
+                ("outer_conf", "get_conf"),
+                ("outer_kw", "kwargs.get"),
+                ("steps", "argparse.add_argument"),
+            ),
+        )
+
+        dynamic_bodies = (
+            'os.getenv("OUTER", os.getenv(external()))',
+            'parser.add_argument("--outer", default=os.getenv(external()))',
+            'loader.get_config("outer", kwargs.get(external()))',
+            'kwargs.get("outer", model_config.model_kwargs.get(external()))',
+        )
+        for index, expression in enumerate(dynamic_bodies):
+            with self.subTest(expression=expression):
+                path = f"nested_specialized_dynamic_{index}.py"
+                self.write_source(
+                    path,
+                    "import os\n"
+                    "def load(kwargs, model_config, parser, loader):\n"
+                    f"    {expression}\n",
+                )
+                with self.assertRaisesRegex(
+                    DiscoveryError, "dynamic .*key|dynamic configuration key"
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_reads_augmented_assignment_targets(self):
+        self.write_source(
+            "augmented_reads.py",
+            """def load(kwargs, model_config):
+    kwargs["steps"] += 1
+    self.config["retries"] |= 2
+    model_config.model_kwargs["rank"] += 4
+""",
+        )
+        self.assertEqual(
+            tuple(
+                (fact.key, fact.read_kind)
+                for fact in discover_python_settings(
+                    self.repository_root, ("augmented_reads.py",)
+                )
+            ),
+            (
+                ("rank", "model_kwargs[]"),
+                ("retries", "attribute[]"),
+                ("steps", "kwargs[]"),
+            ),
+        )
+
+    def test_discovery_indexes_reflective_method_uses(self):
+        positive_calls = (
+            'getattr(self, "resolve")("dit")',
+            'self.__getattribute__("resolve")("dit")',
+        )
+        for index, expression in enumerate(positive_calls):
+            with self.subTest(expression=expression):
+                path = f"reflective_finite_{index}.py"
+                self.write_source(
+                    path,
+                    f'''class Loader:
+    def resolve(self, component):
+        return model_config.model_kwargs.get(f"{{component}}_path")
+    def load(self):
+        return {expression}
+''',
+                )
+                self.assertEqual(
+                    tuple(
+                        fact.key
+                        for fact in discover_python_settings(
+                            self.repository_root, (path,)
+                        )
+                    ),
+                    ("dit_path",),
+                )
+
+        unsafe_uses = (
+            'getattr(self, method)("vae")',
+            'callback = getattr(self, "resolve")',
+            'callback = self.__getattribute__("resolve")',
+            'register(getattr(self, "resolve"))',
+            'getattr(factory(), "resolve")("vae")',
+        )
+        for index, statement in enumerate(unsafe_uses):
+            with self.subTest(statement=statement):
+                path = f"reflective_unsafe_{index}.py"
+                self.write_source(
+                    path,
+                    f'''class Loader:
+    def resolve(self, component):
+        return model_config.model_kwargs.get(f"{{component}}_path")
+    def load(self, method=None):
+        self.resolve("dit")
+        {statement}
+''',
+                )
+                with self.assertRaisesRegex(
+                    DiscoveryError, "dynamic parameter call site"
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_discovery_limits_accessor_body_suppression(self):
+        malicious = (
+            """def get_config(config, key):
+    return config[key]
+""",
+            """class Evil:
+    def get_conf(self, key):
+        return self.config[key]
+""",
+        )
+        for index, body in enumerate(malicious):
+            with self.subTest(body=body):
+                path = f"malicious_accessor_{index}.py"
+                self.write_source(path, body)
+                with self.assertRaisesRegex(
+                    DiscoveryError, "dynamic configuration key"
+                ):
+                    discover_python_settings(self.repository_root, (path,))
+
+        approved = """import os
+class BaseJob:
+    def get_conf(self, key, default=None, required=False):
+        self.config.get(key, os.getenv("ACCESSOR_DEFAULT"))
+        if key in self.config:
+            return self.config[key]
+        return default
+    def load(self):
+        return self.get_conf("steps", 1)
+"""
+        self.write_source("jobs/BaseJob.py", approved)
+        self.assertEqual(
+            tuple(
+                (fact.key, fact.read_kind)
+                for fact in discover_python_settings(
+                    self.repository_root, ("jobs/BaseJob.py",)
+                )
+            ),
+            (("ACCESSOR_DEFAULT", "os.getenv"), ("steps", "get_conf")),
+        )
+
+        mutations = (
+            approved.replace(
+                "return self.config[key]",
+                "return self.config[external()]",
+            ),
+            approved.replace(
+                'return self.get_conf("steps", 1)',
+                'callback = self.get_conf\n        return self.get_conf("steps", 1)',
+            ),
+        )
+        for index, body in enumerate(mutations):
+            with self.subTest(index=index):
+                self.write_source("jobs/BaseJob.py", body)
+                with self.assertRaisesRegex(
+                    DiscoveryError,
+                    "dynamic configuration key|dynamic parameter call site",
+                ):
+                    discover_python_settings(
+                        self.repository_root, ("jobs/BaseJob.py",)
+                    )
+
     def test_discovery_supports_unconventional_bound_receiver_names(self):
         for index, signature in enumerate(("this", "this, /")):
             with self.subTest(signature=signature):
@@ -2502,8 +2742,8 @@ except RuntimeError:
 
     def test_discovery_catalogs_accessor_calls_not_dynamic_accessor_internals(self):
         self.write_source(
-            "accessor.py",
-            """class Process:
+            "jobs/BaseJob.py",
+            """class BaseJob:
     def __init__(self):
         self.steps = self.get_conf("steps", 3000)
 
@@ -2514,10 +2754,12 @@ except RuntimeError:
         )
 
         self.assertEqual(
-            discover_python_settings(self.repository_root, ("accessor.py",)),
+            discover_python_settings(
+                self.repository_root, ("jobs/BaseJob.py",)
+            ),
             (
                 DiscoveredSetting(
-                    "accessor.py", "Process.__init__", 3, "steps",
+                    "jobs/BaseJob.py", "BaseJob.__init__", 3, "steps",
                     "get_conf", "core", "3000",
                 ),
             ),

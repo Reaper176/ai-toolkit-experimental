@@ -88,6 +88,13 @@ _INVENTORY_BASELINE_GROUPS = {
     "DatasetConfig": 78,
     "AdapterConfig": 49,
 }
+_APPROVED_ACCESSOR_SYMBOLS = {
+    ("jobs/BaseJob.py", "BaseJob.get_conf"),
+    ("jobs/process/BaseProcess.py", "BaseProcess.get_conf"),
+    ("toolkit/config.py", "get_config"),
+    ("toolkit/data_loader.py", "ImageDataset.get_config"),
+    ("toolkit/data_loader.py", "PairedImageDataset.get_config"),
+}
 
 
 _Identity = tuple[str, str, str, str]
@@ -334,6 +341,33 @@ def _attribute_path(node: ast.AST) -> str | None:
         owner = _attribute_path(node.value)
         return None if owner is None else f"{owner}.{node.attr}"
     return None
+
+
+def _reflective_method_lookup(
+    node: ast.AST,
+) -> tuple[ast.AST, str | None] | None:
+    if not isinstance(node, ast.Call) or node.keywords:
+        return None
+    if (
+        isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) == 2
+    ):
+        receiver, name = node.args
+    elif (
+        isinstance(node.func, ast.Attribute)
+        and node.func.attr == "__getattribute__"
+        and len(node.args) == 1
+    ):
+        receiver, name = node.func.value, node.args[0]
+    else:
+        return None
+    method_name = (
+        name.value
+        if isinstance(name, ast.Constant) and isinstance(name.value, str)
+        else None
+    )
+    return receiver, method_name
 
 
 def _class_method_symbol(class_name: str, method_name: str) -> str:
@@ -838,7 +872,9 @@ def _parameter_domains(
                 )
                 if not applies:
                     continue
-                if uncertain_receiver:
+                if uncertain_receiver or getattr(
+                    call.func, "_dynamic_reflective_name", False
+                ):
                     unresolved.update(
                         (class_name, target_name, parameter)
                         for parameter in target_parameters
@@ -988,6 +1024,7 @@ class _SettingVisitor(ast.NodeVisitor):
         self.expression_prefix_frames: list[
             tuple[int, list[_SettingState]]
         ] = []
+        self.accessor_suppression_cache: dict[int, bool] = {}
         self.facts: list[DiscoveredSetting] = []
 
     def visit(self, node: ast.AST) -> object:
@@ -1262,6 +1299,115 @@ class _SettingVisitor(ast.NodeVisitor):
             f"{self.source}::{self.symbol} line {getattr(node, 'lineno', '?')}: {message}"
         )
 
+    def _suppress_accessor_body_reads(self) -> bool:
+        if not self.function_nodes or (
+            self.source, self.symbol
+        ) not in _APPROVED_ACCESSOR_SYMBOLS:
+            return False
+        function = self.function_nodes[-1]
+        cache_key = id(function)
+        cached = self.accessor_suppression_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        approved = self._prove_accessor_body(function)
+        self.accessor_suppression_cache[cache_key] = approved
+        return approved
+
+    def _prove_accessor_body(
+        self, function: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> bool:
+        if not isinstance(function, ast.FunctionDef) or function.decorator_list:
+            return False
+        parameters = {
+            argument.arg
+            for argument in (
+                *function.args.posonlyargs,
+                *function.args.args,
+                *function.args.kwonlyargs,
+            )
+        }
+        if "key" not in parameters or not self.class_stack:
+            return False
+        domain_key = (self.class_stack[-1], function.name, "key")
+        if (
+            not self.parameter_domains.get(domain_key)
+            or domain_key in self.unresolved_parameter_calls
+        ):
+            return False
+
+        derived_keys = {"key"}
+        derived_collections: set[str] = set()
+        containers = {"config", "self.config"}
+        changed = True
+        while changed:
+            changed = False
+            for inner in ast.walk(function):
+                if (
+                    isinstance(inner, ast.Assign)
+                    and len(inner.targets) == 1
+                    and isinstance(inner.targets[0], ast.Name)
+                ):
+                    target = inner.targets[0].id
+                    value_path = _attribute_path(inner.value)
+                    if value_path in containers and target not in containers:
+                        containers.add(target)
+                        changed = True
+                    if (
+                        isinstance(inner.value, ast.Call)
+                        and isinstance(inner.value.func, ast.Attribute)
+                        and inner.value.func.attr == "split"
+                        and isinstance(inner.value.func.value, ast.Name)
+                        and inner.value.func.value.id in derived_keys
+                        and target not in derived_collections
+                    ):
+                        derived_collections.add(target)
+                        changed = True
+                if (
+                    isinstance(inner, (ast.For, ast.AsyncFor))
+                    and isinstance(inner.target, ast.Name)
+                    and isinstance(inner.iter, ast.Name)
+                    and inner.iter.id in derived_collections
+                    and inner.target.id not in derived_keys
+                ):
+                    derived_keys.add(inner.target.id)
+                    changed = True
+
+        found_read = False
+        for inner in ast.walk(function):
+            key_node: ast.AST | None = None
+            if (
+                isinstance(inner, ast.Subscript)
+                and isinstance(inner.ctx, ast.Load)
+                and _attribute_path(inner.value) in containers
+            ):
+                key_node = inner.slice
+            elif (
+                isinstance(inner, ast.Compare)
+                and len(inner.ops) == 1
+                and isinstance(inner.ops[0], (ast.In, ast.NotIn))
+                and len(inner.comparators) == 1
+                and _attribute_path(inner.comparators[0]) in containers
+            ):
+                key_node = inner.left
+            elif (
+                isinstance(inner, ast.Call)
+                and isinstance(inner.func, ast.Attribute)
+                and inner.func.attr == "get"
+                and _attribute_path(inner.func.value) in containers
+            ):
+                if not inner.args:
+                    return False
+                key_node = inner.args[0]
+            if key_node is None:
+                continue
+            found_read = True
+            if not (
+                isinstance(key_node, ast.Name)
+                and key_node.id in derived_keys
+            ):
+                return False
+        return found_read
+
     def _add(
         self,
         node: ast.AST,
@@ -1525,30 +1671,78 @@ class _SettingVisitor(ast.NodeVisitor):
 
     def visit_Assign(self, node: ast.Assign) -> None:
         self.visit(node.value)
-        kind = self._container_kind(node.value)
-        literal_values = _literal_strings(node.value, self.visible_values)
-        iterable_values = self._iterable_strings(node.value)
         for target in node.targets:
-            target_path = _attribute_path(target)
-            if target_path is not None:
-                if kind is not None:
-                    self.current_aliases[target_path] = kind
-                else:
-                    if isinstance(node.value, ast.Dict):
-                        self.current_aliases.pop(target_path, None)
-                    elif self._visible_alias_state(target_path) is not None:
-                        self.current_aliases[target_path] = "shadowed"
-                    else:
-                        self.current_aliases.pop(target_path, None)
-            if isinstance(target, ast.Name):
-                if literal_values is not None:
-                    self._bind_literal(
-                        target.id,
-                        literal_values,
-                        iterable_values=iterable_values,
-                    )
-                else:
-                    self._bind_unknown(target.id)
+            self._assign_target(target, node.value)
+
+    def _assign_target(self, target: ast.AST, value: ast.AST) -> None:
+        if isinstance(target, (ast.Tuple, ast.List)):
+            if not isinstance(value, (ast.Tuple, ast.List)):
+                self._bind_target_unknown(target)
+                return
+            starred = [
+                index
+                for index, element in enumerate(target.elts)
+                if isinstance(element, ast.Starred)
+            ]
+            if not starred:
+                if len(target.elts) != len(value.elts):
+                    self._bind_target_unknown(target)
+                    return
+                for element, element_value in zip(target.elts, value.elts):
+                    self._assign_target(element, element_value)
+                return
+            if len(starred) != 1:
+                self._bind_target_unknown(target)
+                return
+            star_index = starred[0]
+            suffix_count = len(target.elts) - star_index - 1
+            if len(value.elts) < star_index + suffix_count:
+                self._bind_target_unknown(target)
+                return
+            for element, element_value in zip(
+                target.elts[:star_index], value.elts[:star_index]
+            ):
+                self._assign_target(element, element_value)
+            starred_target = target.elts[star_index]
+            assert isinstance(starred_target, ast.Starred)
+            middle_end = len(value.elts) - suffix_count
+            middle = ast.List(
+                elts=value.elts[star_index:middle_end], ctx=ast.Load()
+            )
+            ast.copy_location(middle, value)
+            self._assign_target(starred_target.value, middle)
+            if suffix_count:
+                for element, element_value in zip(
+                    target.elts[-suffix_count:], value.elts[-suffix_count:]
+                ):
+                    self._assign_target(element, element_value)
+            return
+        if isinstance(target, ast.Starred):
+            self._assign_target(target.value, value)
+            return
+
+        kind = self._container_kind(value)
+        literal_values = _literal_strings(value, self.visible_values)
+        iterable_values = self._iterable_strings(value)
+        target_path = _attribute_path(target)
+        if target_path is not None:
+            if kind is not None:
+                self.current_aliases[target_path] = kind
+            elif isinstance(value, ast.Dict):
+                self.current_aliases.pop(target_path, None)
+            elif self._visible_alias_state(target_path) is not None:
+                self.current_aliases[target_path] = "shadowed"
+            else:
+                self.current_aliases.pop(target_path, None)
+        if isinstance(target, ast.Name):
+            if literal_values is not None:
+                self._bind_literal(
+                    target.id,
+                    literal_values,
+                    iterable_values=iterable_values,
+                )
+            else:
+                self._bind_unknown(target.id)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if node.value is None:
@@ -1558,6 +1752,24 @@ class _SettingVisitor(ast.NodeVisitor):
         self.visit_Assign(synthetic)
 
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        if isinstance(node.target, ast.Subscript):
+            read_target: ast.expr = ast.Subscript(
+                value=node.target.value,
+                slice=node.target.slice,
+                ctx=ast.Load(),
+            )
+        elif isinstance(node.target, ast.Attribute):
+            read_target = ast.Attribute(
+                value=node.target.value,
+                attr=node.target.attr,
+                ctx=ast.Load(),
+            )
+        else:
+            read_target = ast.Name(
+                id=node.target.id, ctx=ast.Load()
+            ) if isinstance(node.target, ast.Name) else node.target
+        ast.copy_location(read_target, node.target)
+        self.visit(read_target)
         self.visit(node.value)
         self._bind_target_unknown(node.target)
 
@@ -1614,10 +1826,7 @@ class _SettingVisitor(ast.NodeVisitor):
     visit_AsyncWith = visit_With
 
     def _reject_conditional_alias_reassignment(self, node: ast.AST) -> None:
-        if self.function_stack and self.function_stack[-1] in {
-            "get_conf",
-            "get_config",
-        }:
+        if self._suppress_accessor_body_reads():
             return
         tracked = set(self.current_aliases)
         if not tracked:
@@ -2048,18 +2257,21 @@ class _SettingVisitor(ast.NodeVisitor):
         ):
             if _literal_strings(node.slice, self.visible_values) is None:
                 self._dynamic_environment_read(node, "os.environ[]")
+                self.visit(node.value)
+                self.visit(node.slice)
                 return
             for key in self._resolved_keys(node.slice, node):
                 self._add(node, key, "os.environ[]", "environment", None)
+            self.visit(node.value)
+            self.visit(node.slice)
             return
         kind = self._container_kind(node.value)
         if kind is not None:
             if kind == "dynamic":
                 raise self._error(node, "branch-dependent configuration alias")
-            if (
-                self.function_stack
-                and self.function_stack[-1] in {"get_conf", "get_config"}
-            ):
+            if self._suppress_accessor_body_reads():
+                self.visit(node.value)
+                self.visit(node.slice)
                 return
             for key in self._resolved_keys(node.slice, node):
                 read_kind = "model_kwargs[]" if kind == "model_kwargs" else "kwargs[]"
@@ -2067,8 +2279,8 @@ class _SettingVisitor(ast.NodeVisitor):
                     read_kind = "attribute[]"
                 scope = "model" if kind == "model_kwargs" else "core"
                 self._add(node, key, read_kind, scope, None)
-            if isinstance(node.value, ast.Subscript):
-                self.visit(node.value)
+            self.visit(node.value)
+            self.visit(node.slice)
             return
         self.generic_visit(node)
 
@@ -2083,10 +2295,9 @@ class _SettingVisitor(ast.NodeVisitor):
             if kind is not None:
                 if kind == "dynamic":
                     raise self._error(node, "branch-dependent configuration alias")
-                if (
-                    self.function_stack
-                    and self.function_stack[-1] in {"get_conf", "get_config"}
-                ):
+                if self._suppress_accessor_body_reads():
+                    self.visit(node.left)
+                    self.visit(container)
                     return
                 if kind == "model_kwargs":
                     read_kind, scope = "model_kwargs.contains", "model"
@@ -2096,10 +2307,17 @@ class _SettingVisitor(ast.NodeVisitor):
                     read_kind, scope = "kwargs.contains", "core"
                 for key in self._resolved_keys(node.left, node):
                     self._add(node, key, read_kind, scope, None)
-                if isinstance(container, ast.Subscript):
-                    self.visit(container)
+                self.visit(node.left)
+                self.visit(container)
                 return
         self.generic_visit(node)
+
+    def _visit_call_children(self, node: ast.Call) -> None:
+        self.visit(node.func)
+        for argument in node.args:
+            self.visit(argument)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
 
     def visit_Call(self, node: ast.Call) -> None:
         if any(
@@ -2122,20 +2340,24 @@ class _SettingVisitor(ast.NodeVisitor):
                 raise self._error(node, "os.getenv call has no key")
             if _literal_strings(node.args[0], self.visible_values) is None:
                 self._dynamic_environment_read(node, "os.getenv")
+                self._visit_call_children(node)
                 return
             default = node.args[1] if len(node.args) > 1 else None
             for key in self._resolved_keys(node.args[0], node):
                 self._add(node, key, "os.getenv", "environment", default)
+            self._visit_call_children(node)
             return
         if path == "os.environ.get":
             if not node.args:
                 raise self._error(node, "os.environ.get call has no key")
             if _literal_strings(node.args[0], self.visible_values) is None:
                 self._dynamic_environment_read(node, "os.environ.get")
+                self._visit_call_children(node)
                 return
             default = node.args[1] if len(node.args) > 1 else None
             for key in self._resolved_keys(node.args[0], node):
                 self._add(node, key, "os.environ.get", "environment", default)
+            self._visit_call_children(node)
             return
         if isinstance(node.func, ast.Attribute) and node.func.attr == "add_argument":
             if not node.args:
@@ -2161,6 +2383,7 @@ class _SettingVisitor(ast.NodeVisitor):
             )
             for key in keys:
                 self._add(node, key, "argparse.add_argument", "cli", default)
+            self._visit_call_children(node)
             return
 
         if isinstance(node.func, ast.Attribute) and node.func.attr in {"get_conf", "get_config"}:
@@ -2172,6 +2395,7 @@ class _SettingVisitor(ast.NodeVisitor):
             )
             for key in self._resolved_keys(node.args[0], node):
                 self._add(node, key, node.func.attr, "core", default)
+            self._visit_call_children(node)
             return
 
         if isinstance(node.func, ast.Attribute) and node.func.attr == "get":
@@ -2183,10 +2407,8 @@ class _SettingVisitor(ast.NodeVisitor):
                     raise self._error(node, "configuration get call has no key")
                 # Accessor implementations deliberately accept a dynamic key; their
                 # finite public call sites are catalogued instead.
-                if (
-                    self.function_stack
-                    and self.function_stack[-1] in {"get_conf", "get_config"}
-                ):
+                if self._suppress_accessor_body_reads():
+                    self._visit_call_children(node)
                     return
                 default = node.args[1] if len(node.args) > 1 else None
                 for key in self._resolved_keys(node.args[0], node):
@@ -2197,6 +2419,7 @@ class _SettingVisitor(ast.NodeVisitor):
                     else:
                         read_kind, scope = "kwargs.get", "core"
                     self._add(node, key, read_kind, scope, default)
+                self._visit_call_children(node)
                 return
         self.generic_visit(node)
 
@@ -2597,6 +2820,62 @@ def discover_python_settings(
     facts: list[DiscoveredSetting] = []
     mutable_call_sites: dict[str, list[_MethodCall]] = {}
     mutable_method_references: dict[str, list[_MethodReference]] = {}
+    def reflective_attribute(
+        lookup: tuple[ast.AST, str | None], method_name: str
+    ) -> ast.Attribute:
+        receiver, literal_name = lookup
+        attribute = ast.Attribute(
+            value=receiver, attr=method_name, ctx=ast.Load()
+        )
+        if literal_name is None:
+            attribute._dynamic_reflective_name = True
+        return attribute
+
+    def reflective_names(
+        lookup: tuple[ast.AST, str | None], caller: _CallerInfo
+    ) -> tuple[str, ...]:
+        receiver, literal_name = lookup
+        if literal_name is not None:
+            return (literal_name,)
+        bound_receiver, rebound = _bound_receiver(caller)
+        if rebound or bound_receiver is None:
+            return ()
+        supported_receiver = (
+            isinstance(receiver, ast.Name) and receiver.id == bound_receiver
+        ) or (
+            isinstance(receiver, ast.Call)
+            and isinstance(receiver.func, ast.Name)
+            and receiver.func.id == "super"
+            and not receiver.args
+            and not receiver.keywords
+        )
+        if not supported_receiver or caller.class_name is None:
+            return ()
+        candidates = [
+            info
+            for info in classes.get(caller.class_name, ())
+            if info.source == caller.source
+        ]
+        if len(candidates) != 1:
+            return ()
+        names: set[str] = set()
+        pending = [candidates[0]]
+        seen: set[_MethodOwner] = set()
+        while pending:
+            info = pending.pop()
+            owner = (info.source, info.node.name)
+            if owner in seen:
+                continue
+            seen.add(owner)
+            names.update(
+                method.name
+                for method in info.node.body
+                if isinstance(
+                    method, (ast.FunctionDef, ast.AsyncFunctionDef)
+                )
+            )
+            pending.extend(_base_infos(classes, info)[0])
+        return tuple(sorted(names))
 
     def collect_method_uses(
         node: ast.AST,
@@ -2665,10 +2944,40 @@ def discover_python_settings(
             containing_function,
             direct_method,
         )
+        if isinstance(node, ast.Call):
+            reflective_call = _reflective_method_lookup(node.func)
+            if reflective_call is not None:
+                method_names = reflective_names(reflective_call, caller)
+                for method_name in method_names:
+                    synthetic = ast.Call(
+                        func=reflective_attribute(
+                            reflective_call, method_name
+                        ),
+                        args=node.args,
+                        keywords=node.keywords,
+                    )
+                    ast.copy_location(synthetic, node)
+                    ast.copy_location(synthetic.func, node.func)
+                    mutable_call_sites.setdefault(method_name, []).append(
+                        (synthetic, caller)
+                    )
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             mutable_call_sites.setdefault(node.func.attr, []).append(
                 (node, caller)
             )
+        reflective_reference = _reflective_method_lookup(node)
+        if reflective_reference is not None and not (
+            isinstance(parent, ast.Call) and parent.func is node
+        ):
+            method_names = reflective_names(reflective_reference, caller)
+            for method_name in method_names:
+                synthetic = reflective_attribute(
+                    reflective_reference, method_name
+                )
+                ast.copy_location(synthetic, node)
+                mutable_method_references.setdefault(method_name, []).append(
+                    (synthetic, caller)
+                )
         if (
             isinstance(node, ast.Attribute)
             and isinstance(node.ctx, ast.Load)
