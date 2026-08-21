@@ -2353,6 +2353,71 @@ class CatalogProductionSliceTests(unittest.TestCase):
         self.assertEqual(len({setting.render.benefits for setting in rows}), len(rows))
         self.assertEqual(len({setting.render.drawbacks for setting in rows}), len(rows))
 
+    def test_catalog_dispatch_boundary_teaching_matches_exact_choice_semantics(self):
+        optimizer_source = (REPOSITORY_ROOT / "toolkit/optimizer.py").read_text(encoding="utf-8")
+        process_source = (REPOSITORY_ROOT / "jobs/process/BaseSDTrainProcess.py").read_text(encoding="utf-8")
+        optimizer_sources = {
+            path.relative_to(REPOSITORY_ROOT).as_posix(): path.read_text(encoding="utf-8")
+            for path in (REPOSITORY_ROOT / "toolkit/optimizers").glob("*.py")
+        }
+        self.assertIn("Adam8bit(params, lr=learning_rate, eps=1e-6, **optimizer_params)", optimizer_source)
+        self.assertIn("Adam8bit(params, lr=learning_rate, eps=1e-6, decouple=True, **optimizer_params)", optimizer_source)
+        self.assertIn("lr_scheduler_params['total_iters'] = self.train_config.steps", process_source)
+        self.assertEqual(
+            [source for source, text in optimizer_sources.items() if "if min_lr > max_lr" in text],
+            ["toolkit/optimizers/automagic3.py"],
+        )
+
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+
+        adam8_decouple = settings["optimizer.adam8.param.decouple"]
+        adam8_text = " ".join(vars(adam8_decouple.render).values()).casefold()
+        self.assertNotIn("adamw8", adam8_text)
+        self.assertEqual(
+            {key for default in adam8_decouple.defaults for key in default.value},
+            {"Adam8bit.__init__.decouple"},
+        )
+        optimizer_text = " ".join(vars(settings["train.optimizer"].render).values()).casefold()
+        for phrase in ("adamw8", "optimizer_params.decouple", "duplicate", "typeerror"):
+            self.assertIn(phrase, optimizer_text)
+
+        runtime_forced = [setting for setting in catalog.settings if setting.authority == "runtime-forced"]
+        self.assertTrue(runtime_forced)
+        for setting in runtime_forced:
+            with self.subTest(runtime_forced=setting.id):
+                self.assertEqual(setting.contract.null, "rejected")
+
+        total_iters_rows = [
+            setting for setting in catalog.settings
+            if setting.id.startswith("scheduler.") and setting.id.endswith(".param.total_iters")
+        ]
+        self.assertEqual(len(total_iters_rows), 3)
+        for setting in total_iters_rows:
+            with self.subTest(total_iters=setting.id):
+                self.assertEqual(setting.contract.null, "accepted")
+                normalization = " ".join(item.description for item in setting.normalizations).casefold()
+                self.assertIn("explicit null", normalization)
+                self.assertIn("overwritten", normalization)
+                self.assertIn("train.steps", normalization)
+
+        min_lr_rows = {
+            choice: settings[f"optimizer.{choice}.param.min_lr"]
+            for choice in ("automagic", "automagic2", "automagic3", "automagicexperiment")
+        }
+        for choice, setting in min_lr_rows.items():
+            teaching = " ".join(vars(setting.render).values()).casefold()
+            has_max_constraint = any(
+                item.setting == f"optimizer.{choice}.param.max_lr" and item.kind == "constrains"
+                for item in setting.interactions
+            )
+            self.assertEqual("valueerror" in teaching, choice == "automagic3")
+            self.assertEqual(has_max_constraint, choice == "automagic3")
+
     def test_catalog_training_scope_is_exactly_owned(self):
         self.assert_catalog_selector_green("--scope", "training")
 

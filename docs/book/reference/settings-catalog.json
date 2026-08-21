@@ -21468,7 +21468,7 @@
         "anchor": "train-optimizer",
         "description": "Dispatches optimizer names exactly: dadaptationadam dispatches DAdaptLion, dadaptationlion also constructs DAdaptLion, while bare dadaptation constructs deprecated DAdaptAdam and prints a migration warning. Automagic2 is always fused into backward; Automagic3 and AutomagicEXPERIMENT default to fused but accept fused=false for ordinary optimizer stepping.",
         "benefits": "Makes optimizer algorithm, optional-library, and adaptive learning-rate behavior explicit.",
-        "drawbacks": "dadaptation, prodigyopt, bitsandbytes, and lion_pytorch choices fail when unavailable; Prodigy branches and DAdaptation replace train.lr below 0.1 with 1.0. Automagic2 always fused bypasses ordinary gradient accumulation and pre-step gradient clipping.",
+        "drawbacks": "dadaptation, prodigyopt, bitsandbytes, and lion_pytorch choices fail when unavailable; Prodigy branches and DAdaptation replace train.lr below 0.1 with 1.0. Automagic2 always fused bypasses ordinary gradient accumulation and pre-step gradient clipping. For AdamW8, optimizer_params.decouple duplicates the dispatcher-injected decouple keyword and raises TypeError.",
         "example": "optimizer: adamw"
       }
     },
@@ -22744,7 +22744,7 @@
           "minimum_inclusive": true,
           "maximum_inclusive": true
         },
-        "null": "accepted"
+        "null": "rejected"
       },
       "defaults": [
         {
@@ -23683,7 +23683,6 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": {
-            "get_optimizer.adamw8__decouple": "True",
             "Adam8bit.__init__.decouple": "True"
           },
           "applicability": []
@@ -23716,7 +23715,7 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adam8-param-decouple",
-        "description": "In adam8, selects decoupled or coupled weight decay; discovered defaults are get_optimizer.adamw8__decouple=True, Adam8bit.__init__.decouple=True.",
+        "description": "In adam8, selects decoupled or coupled weight decay; the Adam8bit constructor default is decouple=True.",
         "benefits": "For adam8, use this value to choose whether decay acts on weights or gradients.",
         "drawbacks": "With adam8, the wrong form risks changing the objective.",
         "example": "decouple: true"
@@ -25170,7 +25169,7 @@
         "anchor": "optimizer-automagic-param-min_lr",
         "description": "In automagic, floors adaptive learning rate; discovered defaults are Automagic.__init__.min_lr=1e-07.",
         "benefits": "For automagic, use this value to prevent the rate vanishing.",
-        "drawbacks": "With automagic, a floor above max_lr can raise ValueError.",
+        "drawbacks": "With automagic, a high floor risks preventing the adaptive rate from shrinking enough after unstable gradients.",
         "example": "min_lr: 1.0e-7"
       }
     },
@@ -25922,7 +25921,7 @@
         "anchor": "optimizer-automagic2-param-min_lr",
         "description": "In automagic2, floors adaptive learning rate; discovered defaults are Automagic2.__init__.min_lr=1e-07.",
         "benefits": "For automagic2, use this value to prevent the rate vanishing.",
-        "drawbacks": "With automagic2, a floor above max_lr can raise ValueError.",
+        "drawbacks": "With automagic2, a high floor risks preventing the adaptive rate from shrinking enough after direction changes.",
         "example": "min_lr: 1.0e-7"
       }
     },
@@ -27220,7 +27219,7 @@
         "anchor": "optimizer-automagicexperiment-param-min_lr",
         "description": "In automagicexperiment, floors adaptive learning rate; discovered defaults are AutomagicEXPERIMENT.__init__.min_lr=1e-30.",
         "benefits": "For automagicexperiment, use this value to prevent the rate vanishing.",
-        "drawbacks": "With automagicexperiment, a floor above max_lr can raise ValueError.",
+        "drawbacks": "With automagicexperiment, a high floor risks preventing its sign-history controller from reducing unstable rates.",
         "example": "min_lr: 1.0e-30"
       }
     },
@@ -29195,7 +29194,7 @@
           "minimum_inclusive": true,
           "maximum_inclusive": true
         },
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -29213,7 +29212,7 @@
           "applicability": []
         },
         {
-          "description": "When max_iterations is absent, BaseSDTrainProcess overwrites any supplied total_iters with train.steps before scheduler dispatch.",
+          "description": "When max_iterations is absent, any supplied total_iters, including explicit null, is overwritten with train.steps by BaseSDTrainProcess before scheduler dispatch.",
           "applicability": []
         },
         {
@@ -29374,7 +29373,7 @@
           "minimum_inclusive": true,
           "maximum_inclusive": true
         },
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -29392,7 +29391,7 @@
           "applicability": []
         },
         {
-          "description": "When max_iterations is absent, BaseSDTrainProcess overwrites any supplied total_iters with train.steps before scheduler dispatch.",
+          "description": "When max_iterations is absent, any supplied total_iters, including explicit null, is overwritten with train.steps by BaseSDTrainProcess before scheduler dispatch.",
           "applicability": []
         }
       ],
@@ -29463,7 +29462,7 @@
           "minimum_inclusive": true,
           "maximum_inclusive": true
         },
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -29482,7 +29481,7 @@
           "applicability": []
         },
         {
-          "description": "When max_iterations is absent, BaseSDTrainProcess overwrites any supplied total_iters with train.steps before scheduler dispatch.",
+          "description": "When max_iterations is absent, any supplied total_iters, including explicit null, is overwritten with train.steps by BaseSDTrainProcess before scheduler dispatch.",
           "applicability": []
         }
       ],
