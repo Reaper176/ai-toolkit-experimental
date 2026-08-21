@@ -112,6 +112,16 @@ TRAIN_NUMERIC_KEYS = frozenset(
     t0_velocity_equiv_weight target_noise_multiplier target_norm_std
     target_norm_std_value unconditional_prompt""".split()
 )
+DATASET_CORE_KEYS = frozenset(
+    """augmentations augments bucket_tolerance buckets caption_dropout_rate
+    caption_ext caption_type dataset_path default_caption diff_output_preservation
+    diff_output_preservation_class extra_values flip_x flip_y folder_path
+    guidance_type is_reg keep_tokens loss_multiplier network_weight num_repeats poi
+    prior_reg random_crop random_scale random_triggers random_triggers_max
+    replacements replay_transforms resolution scale shuffle_augmentations
+    shuffle_tokens square_crop standardize_images token_dropout_rate trigger_word
+    type use_short_captions""".split()
+)
 
 
 def _in_core_io_network(item) -> bool:
@@ -332,6 +342,7 @@ def main() -> None:
             ["core-process"], ["core-io-network"], ["core-modules"], ["core"],
             ["training"], ["train-schedule"], ["train-numerics"],
             ["train-components"], ["optimizers"], ["schedulers"],
+            ["dataset-core"],
         ):
             production_scope = arguments.scope[0]
         elif arguments.scope != ["discovery-fixtures"]:
@@ -425,6 +436,11 @@ def main() -> None:
             "train-components": lambda item: _in_train_config_keys(item, TRAIN_COMPONENT_KEYS),
             "optimizers": _in_optimizers,
             "schedulers": _in_schedulers,
+            "dataset-core": lambda item: (
+                item.source == "toolkit/config_modules.py"
+                and item.symbol == "DatasetConfig.__init__"
+                and item.key in DATASET_CORE_KEYS
+            ),
         }
         if production_scope in slice_predicates:
             predicate = slice_predicates[production_scope]

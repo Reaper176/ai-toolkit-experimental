@@ -1604,6 +1604,49 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "xformers",
         }
     )
+    DATASET_CORE_KEYS = frozenset(
+        {
+            "augmentations",
+            "augments",
+            "bucket_tolerance",
+            "buckets",
+            "caption_dropout_rate",
+            "caption_ext",
+            "caption_type",
+            "dataset_path",
+            "default_caption",
+            "diff_output_preservation",
+            "diff_output_preservation_class",
+            "extra_values",
+            "flip_x",
+            "flip_y",
+            "folder_path",
+            "guidance_type",
+            "is_reg",
+            "keep_tokens",
+            "loss_multiplier",
+            "network_weight",
+            "num_repeats",
+            "poi",
+            "prior_reg",
+            "random_crop",
+            "random_scale",
+            "random_triggers",
+            "random_triggers_max",
+            "replacements",
+            "replay_transforms",
+            "resolution",
+            "scale",
+            "shuffle_augmentations",
+            "shuffle_tokens",
+            "square_crop",
+            "standardize_images",
+            "token_dropout_rate",
+            "trigger_word",
+            "type",
+            "use_short_captions",
+        }
+    )
 
     @classmethod
     def setUpClass(cls):
@@ -1725,6 +1768,12 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 or item.source.startswith("toolkit/optimizers/")
                 or item.source == "toolkit/scheduler.py"
                 or item.source.startswith("toolkit/samplers/")
+            )
+        if scope == "dataset-core":
+            return (
+                item.source == "toolkit/config_modules.py"
+                and item.symbol == "DatasetConfig.__init__"
+                and item.key in cls.DATASET_CORE_KEYS
             )
         raise AssertionError(f"unknown catalog test scope {scope!r}")
 
@@ -2756,6 +2805,62 @@ class CatalogProductionSliceTests(unittest.TestCase):
 
     def test_catalog_training_scope_is_exactly_owned(self):
         self.assert_catalog_selector_green("--scope", "training")
+
+    def test_catalog_dataset_core_scope_is_exactly_owned(self):
+        self.assert_catalog_selector_green("--scope", "dataset-core")
+
+    def test_catalog_dataset_core_contracts_are_source_derived(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        facts = {
+            fact.key: fact
+            for fact in self.discovered
+            if self._in_scope(fact, "dataset-core")
+        }
+        self.assertEqual(set(facts), self.DATASET_CORE_KEYS)
+        self.assertEqual(
+            {setting_id.removeprefix("dataset.") for setting_id in settings if setting_id.startswith("dataset.")}
+            .intersection(self.DATASET_CORE_KEYS),
+            self.DATASET_CORE_KEYS,
+        )
+        for key, fact in facts.items():
+            with self.subTest(key=key):
+                setting = settings[f"dataset.{key}"]
+                fallback = [
+                    default for default in setting.defaults
+                    if default.kind == "engine-fallback"
+                ]
+                self.assertEqual(len(fallback), 1)
+                self.assertEqual(
+                    fallback[0].value,
+                    ast.literal_eval(fact.default_expression),
+                    f"dataset.{key} fallback drifted from DatasetConfig",
+                )
+
+        self.assertEqual(settings["dataset.folder_path"].contract.null, "accepted")
+        self.assertEqual(settings["dataset.dataset_path"].contract.null, "accepted")
+        self.assertEqual(settings["dataset.caption_dropout_rate"].contract.null, "rejected")
+        self.assertEqual(settings["dataset.poi"].lifecycle, "deprecated")
+        self.assertEqual(settings["dataset.caption_type"].aliases[0].replacement, "dataset.caption_ext")
+        preset_text = " ".join(
+            item.description for item in settings["dataset.folder_path"].normalizations
+        ).casefold()
+        for phrase in ("immutable", "version", "provenance", "manifest"):
+            self.assertIn(phrase, preset_text)
+
+        resolver = (
+            REPOSITORY_ROOT / "ui/src/server/jobDatasetPresetService.ts"
+        ).read_text(encoding="utf-8")
+        for source_contract in (
+            "dataset.folder_path = mediaRoot",
+            "version_id: authoritative.version.id",
+            "manifest_sha256: authoritative.version.manifest_sha256",
+        ):
+            self.assertIn(source_contract, resolver)
 
     def test_catalog_process_get_conf_null_semantics_are_exhaustive(self):
         catalog = load_settings_catalog(

@@ -29741,6 +29741,2435 @@
         "drawbacks": "Supplying max_iterations avoids the overwrite but leaks that unsupported key to the local cosine constructor and raises TypeError, so it is not a safe workaround.",
         "example": "lr_scheduler_params: {}"
       }
+    },
+    {
+      "id": "dataset.type",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].type"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "image"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "image",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "type",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-type",
+        "description": "Selects the dataset loader family.",
+        "benefits": "Use image for the diffusion LoRA loader supported by this training path.",
+        "drawbacks": "Other values are rejected by the diffusion dataloader factory.",
+        "example": "type: image"
+      }
+    },
+    {
+      "id": "dataset.folder_path",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].folder_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "For an immutable dataset preset version, the server verifies the authoritative snapshot, replaces folder_path with that version's managed media root, and retains version and manifest-digest provenance in the saved job usage.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "folder_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-folder-path",
+        "description": "Points to a directory containing the training media.",
+        "benefits": "Keeps a live dataset rooted at one explicit directory while preset-backed jobs resolve a verified immutable version.",
+        "drawbacks": "A missing or unreadable live directory prevents dataset construction; preset paths are server-resolved and must not be treated as portable user paths.",
+        "example": "folder_path: /datasets/my-concept"
+      }
+    },
+    {
+      "id": "dataset.dataset_path",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].dataset_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.folder_path",
+          "kind": "overrides",
+          "description": "A non-null dataset_path is the source selected instead of folder_path.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "dataset_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-dataset-path",
+        "description": "Selects either a media directory or a JSON caption map and takes precedence over folder_path.",
+        "benefits": "Supports a JSON-backed dataset while retaining folder_path compatibility.",
+        "drawbacks": "A wrong path is treated as a JSON file when it is not a directory and then fails to open.",
+        "example": "dataset_path: /datasets/my-concept"
+      }
+    },
+    {
+      "id": "dataset.default_caption",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].default_caption"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "default_caption",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-default-caption",
+        "description": "Provides caption text when an item has no usable caption file or map entry.",
+        "benefits": "Supplies a deterministic fallback for intentionally uncaptained media.",
+        "drawbacks": "A broad fallback repeated across many items can teach weak or misleading associations.",
+        "example": "default_caption: a photo of [trigger]"
+      }
+    },
+    {
+      "id": "dataset.trigger_word",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].trigger_word"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "trigger_word",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-trigger-word",
+        "description": "Overrides the process trigger word for this dataset.",
+        "benefits": "Allows separate concepts in multiple datasets to use distinct triggers.",
+        "drawbacks": "Inconsistent trigger usage across captions reduces controllability.",
+        "example": "trigger_word: sks_person"
+      }
+    },
+    {
+      "id": "dataset.diff_output_preservation",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].diff_output_preservation"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "runtime",
+      "authority": "runtime-forced",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.diff_output_preservation",
+          "kind": "requires",
+          "description": "The training setting enables the preservation pass and injects this dataset value.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "diff_output_preservation",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-diff-output-preservation",
+        "description": "Marks this dataset for differential-output-preservation caption handling.",
+        "benefits": "Lets the loader prepare the trigger-removed class caption requested by the training preservation mode.",
+        "drawbacks": "The training process overwrites this field when differential output preservation is enabled, so setting it alone does not enable the loss.",
+        "example": "diff_output_preservation: false"
+      }
+    },
+    {
+      "id": "dataset.diff_output_preservation_class",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].diff_output_preservation_class"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "runtime",
+      "authority": "runtime-forced",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.diff_output_preservation_class",
+          "kind": "requires",
+          "description": "The training setting is copied into each dataset when differential output preservation is active.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "diff_output_preservation_class",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-diff-output-preservation-class",
+        "description": "Stores the class phrase injected for differential-output-preservation captions.",
+        "benefits": "Keeps the loader's replacement caption aligned with the training preservation class.",
+        "drawbacks": "A mismatched class phrase compares against the wrong semantic baseline.",
+        "example": "diff_output_preservation_class: person"
+      }
+    },
+    {
+      "id": "dataset.random_triggers",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].random_triggers"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string-list",
+        "supported_type": "string-list",
+        "ui_type": null,
+        "example_type": "string-list",
+        "accepted_values": null,
+        "accepted_types": [
+          "string",
+          "string-list"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": [],
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "random_triggers",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-random-triggers",
+        "description": "Provides alternate trigger strings, or a path to a line-delimited trigger file.",
+        "benefits": "Can vary trigger wording across samples when that variation is intentional.",
+        "drawbacks": "Uncurated alternates weaken a stable activation phrase and a missing string path is treated as one literal trigger.",
+        "example": "random_triggers: [sks_person, subject_token]"
+      }
+    },
+    {
+      "id": "dataset.random_triggers_max",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].random_triggers_max"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "random_triggers_max",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-random-triggers-max",
+        "description": "Limits how many random trigger strings are inserted into one caption.",
+        "benefits": "Bounds trigger augmentation while permitting controlled variation.",
+        "drawbacks": "Large values can dominate short captions and blur the concept.",
+        "example": "random_triggers_max: 1"
+      }
+    },
+    {
+      "id": "dataset.caption_ext",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].caption_ext"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": ".txt",
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "A nonempty value without a leading dot is normalized by prepending one dot.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "caption_ext",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-caption-ext",
+        "description": "Selects the sidecar caption extension.",
+        "benefits": "Matches captions to media without changing media filenames.",
+        "drawbacks": "An incorrect extension silently leaves items on their default-caption path.",
+        "example": "caption_ext: txt"
+      }
+    },
+    {
+      "id": "dataset.caption_type",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].caption_type"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [
+        {
+          "location": "config.process[*].datasets[*].caption_type",
+          "replacement": "dataset.caption_ext",
+          "precedence": "alias-wins",
+          "migration": "Replace caption_type with caption_ext; the legacy truthy value currently wins.",
+          "status": "legacy"
+        }
+      ],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "caption_type",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-caption-type",
+        "description": "Provides the legacy caption extension alias.",
+        "benefits": "Keeps older dataset configurations loadable.",
+        "drawbacks": "It overrides caption_ext when truthy; new configurations should use caption_ext directly.",
+        "example": "caption_type: txt"
+      }
+    },
+    {
+      "id": "dataset.caption_dropout_rate",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].caption_dropout_rate"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0.0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "caption_dropout_rate",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-caption-dropout-rate",
+        "description": "Sets the probability of replacing an item's caption with an empty caption.",
+        "benefits": "Teaches some unconditional behavior and can reduce over-reliance on exact wording.",
+        "drawbacks": "Too much dropout weakens prompt alignment and trigger learning.",
+        "example": "caption_dropout_rate: 0.05"
+      }
+    },
+    {
+      "id": "dataset.token_dropout_rate",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].token_dropout_rate"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0.0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "token_dropout_rate",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-token-dropout-rate",
+        "description": "Sets the probability of dropping eligible caption tokens.",
+        "benefits": "Adds bounded caption robustness when text embeddings are computed live.",
+        "drawbacks": "High dropout removes useful supervision and is bypassed when text embeddings are cached.",
+        "example": "token_dropout_rate: 0.0"
+      }
+    },
+    {
+      "id": "dataset.shuffle_tokens",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].shuffle_tokens"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.keep_tokens",
+          "kind": "affects",
+          "description": "keep_tokens protects the leading tokens from shuffling.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "shuffle_tokens",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-shuffle-tokens",
+        "description": "Enables shuffling of caption tokens after the protected prefix.",
+        "benefits": "Reduces accidental dependence on tag order for comma-separated captions.",
+        "drawbacks": "Shuffling prose-like captions damages syntax and cached text embeddings freeze one ordering.",
+        "example": "shuffle_tokens: false"
+      }
+    },
+    {
+      "id": "dataset.keep_tokens",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].keep_tokens"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "keep_tokens",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-keep-tokens",
+        "description": "Keeps this many leading caption tokens fixed during shuffling.",
+        "benefits": "Preserves a trigger or subject phrase at the front of shuffled tag captions.",
+        "drawbacks": "A value larger than the useful prefix reduces the benefit of shuffling.",
+        "example": "keep_tokens: 1"
+      }
+    },
+    {
+      "id": "dataset.random_scale",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].random_scale"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.random_crop",
+          "kind": "overrides",
+          "description": "When random_scale is true, the loader uses random cropping regardless of random_crop.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "random_scale",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-random-scale",
+        "description": "Enables random pre-crop scale variation.",
+        "benefits": "Adds scale diversity for suitable datasets.",
+        "drawbacks": "It can crop away identity details and forces random cropping in the loader.",
+        "example": "random_scale: false"
+      }
+    },
+    {
+      "id": "dataset.random_crop",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].random_crop"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "random_crop",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-random-crop",
+        "description": "Uses random crops instead of deterministic centered crops where supported.",
+        "benefits": "Adds framing diversity when source images contain safe crop margins.",
+        "drawbacks": "Important features near the edges can be removed.",
+        "example": "random_crop: false"
+      }
+    },
+    {
+      "id": "dataset.resolution",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].resolution"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 512,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "resolution",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-resolution",
+        "description": "Sets the target dataset resolution used for bucket construction and preprocessing.",
+        "benefits": "Controls the spatial detail and memory tradeoff for training items.",
+        "drawbacks": "Upscaling cannot restore missing detail, while excessive resolution raises memory and preprocessing cost.",
+        "example": "resolution: 1024"
+      }
+    },
+    {
+      "id": "dataset.scale",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].scale"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": false,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1.0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "scale",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-scale",
+        "description": "Scales source dimensions before cropping and bucket preparation.",
+        "benefits": "Provides an explicit pre-crop size adjustment for specialized datasets.",
+        "drawbacks": "Values that shrink too far can cause items to be rejected or lose detail.",
+        "example": "scale: 1.0"
+      }
+    },
+    {
+      "id": "dataset.buckets",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].buckets"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "buckets",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-buckets",
+        "description": "Groups media by compatible aspect-ratio buckets.",
+        "benefits": "Preserves varied aspect ratios with less destructive cropping.",
+        "drawbacks": "All datasets in one loader must agree on bucket use and very sparse buckets can reduce batching efficiency.",
+        "example": "buckets: true"
+      }
+    },
+    {
+      "id": "dataset.bucket_tolerance",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].bucket_tolerance"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "runtime",
+      "authority": "runtime-forced",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 64,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "AiToolkitDataset replaces the configured value with sd.get_bucket_divisibility() before building buckets.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "bucket_tolerance",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-bucket-tolerance",
+        "description": "Stores the bucket divisibility used while sizing media.",
+        "benefits": "Keeps generated bucket dimensions compatible with the active model.",
+        "drawbacks": "The diffusion dataset loader overwrites this value with the model's divisibility, so a YAML value is not authoritative.",
+        "example": "bucket_tolerance: 64"
+      }
+    },
+    {
+      "id": "dataset.is_reg",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].is_reg"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "is_reg",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-is-reg",
+        "description": "Marks this dataset as a regularization dataset.",
+        "benefits": "Separates prior or class examples from concept examples in the training loader.",
+        "drawbacks": "Mislabeling concept images as regularization data changes their loss role.",
+        "example": "is_reg: false"
+      }
+    },
+    {
+      "id": "dataset.prior_reg",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].prior_reg"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "prior_reg",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-prior-reg",
+        "description": "Marks the dataset for prior-regularization handling in consumers that inspect this flag.",
+        "benefits": "Preserves an explicit prior-data distinction for compatible training paths.",
+        "drawbacks": "The main diffusion dataset split uses is_reg; prior_reg alone does not place the dataset in the regularization loader.",
+        "example": "prior_reg: false"
+      }
+    },
+    {
+      "id": "dataset.network_weight",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].network_weight"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1.0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "network_weight",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-network-weight",
+        "description": "Scales network training contribution for examples from this dataset.",
+        "benefits": "Balances multiple datasets without physically duplicating files.",
+        "drawbacks": "Large weights can make a small dataset dominate updates.",
+        "example": "network_weight: 1.0"
+      }
+    },
+    {
+      "id": "dataset.loss_multiplier",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].loss_multiplier"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1.0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "loss_multiplier",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-loss-multiplier",
+        "description": "Multiplies the per-item loss from this dataset.",
+        "benefits": "Provides a direct dataset-level loss weighting control.",
+        "drawbacks": "Large multipliers amplify noisy or mislabeled examples as well as useful ones.",
+        "example": "loss_multiplier: 1.0"
+      }
+    },
+    {
+      "id": "dataset.num_repeats",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].num_repeats"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "num_repeats",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-num-repeats",
+        "description": "Repeats the discovered file list this many times.",
+        "benefits": "Raises the sampling frequency of a smaller dataset relative to others.",
+        "drawbacks": "Repeats do not add information and can accelerate overfitting.",
+        "example": "num_repeats: 1"
+      }
+    },
+    {
+      "id": "dataset.flip_x",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].flip_x"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "flip_x",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-flip-x",
+        "description": "Adds a horizontally flipped copy of each dataset item.",
+        "benefits": "Doubles pose or composition variation when left-right orientation is not semantic.",
+        "drawbacks": "It is harmful for text, asymmetric identities, handed objects, and directional details.",
+        "example": "flip_x: false"
+      }
+    },
+    {
+      "id": "dataset.flip_y",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].flip_y"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "flip_y",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-flip-y",
+        "description": "Adds a vertically flipped copy of each dataset item.",
+        "benefits": "Can augment rare orientation-invariant textures.",
+        "drawbacks": "Upside-down subjects are usually invalid training examples.",
+        "example": "flip_y: false"
+      }
+    },
+    {
+      "id": "dataset.augments",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].augments"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string-list",
+        "supported_type": "string-list",
+        "ui_type": null,
+        "example_type": "string-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": [],
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.cache_latents",
+          "kind": "conflicts",
+          "description": "Nonempty augments disable both memory and disk latent caching.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "augments",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-augments",
+        "description": "Selects legacy named augmentation operations.",
+        "benefits": "Keeps older augmentation configurations available.",
+        "drawbacks": "Any active augmentation disables latent caching because cached latents would freeze one augmented result.",
+        "example": "augments: []"
+      }
+    },
+    {
+      "id": "dataset.augmentations",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].augmentations"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object-list",
+        "supported_type": "object-list",
+        "ui_type": null,
+        "example_type": "object-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.cache_latents",
+          "kind": "conflicts",
+          "description": "A nonempty augmentation list disables both memory and disk latent caching.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "augmentations",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-augmentations",
+        "description": "Defines structured Albumentations operations.",
+        "benefits": "Allows controlled image augmentation with explicit methods and parameters.",
+        "drawbacks": "Invalid method names fail and active augmentations disable latent caching.",
+        "example": "augmentations: null"
+      }
+    },
+    {
+      "id": "dataset.shuffle_augmentations",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].shuffle_augmentations"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "shuffle_augmentations",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-shuffle-augmentations",
+        "description": "Requests randomized ordering for configured image augmentations.",
+        "benefits": "Can vary composite transforms when the loader path supports shuffling.",
+        "drawbacks": "Order changes can create unrealistic images and this field has limited consumer coverage.",
+        "example": "shuffle_augmentations: false"
+      }
+    },
+    {
+      "id": "dataset.standardize_images",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].standardize_images"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "standardize_images",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-standardize-images",
+        "description": "Applies the model-family standardization transform after tensor conversion.",
+        "benefits": "Matches the specialized SD15 or SDXL normalization path when explicitly required.",
+        "drawbacks": "Using the wrong family normalization changes the data distribution.",
+        "example": "standardize_images: false"
+      }
+    },
+    {
+      "id": "dataset.use_short_captions",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].use_short_captions"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "use_short_captions",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-use-short-captions",
+        "description": "Selects caption_short from JSON-backed dataset records where supported.",
+        "benefits": "Lets a dataset retain both detailed and compact caption variants.",
+        "drawbacks": "Folder sidecars do not provide the JSON caption_short field.",
+        "example": "use_short_captions: false"
+      }
+    },
+    {
+      "id": "dataset.replacements",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].replacements"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string-list",
+        "supported_type": "string-list",
+        "ui_type": null,
+        "example_type": "string-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": [],
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "replacements",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-replacements",
+        "description": "Defines caption replacement rules consumed by compatible caption processing.",
+        "benefits": "Centralizes deterministic caption substitutions for a dataset.",
+        "drawbacks": "Ambiguous replacement pairs can rewrite unintended text.",
+        "example": "replacements: []"
+      }
+    },
+    {
+      "id": "dataset.guidance_type",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].guidance_type"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "targeted",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "guidance_type",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-guidance-type",
+        "description": "Selects the guidance interpretation attached to dataset items.",
+        "benefits": "Supports model-specific guidance training modes through one dataset contract.",
+        "drawbacks": "Unsupported values fail later in the model-specific guidance path.",
+        "example": "guidance_type: targeted"
+      }
+    },
+    {
+      "id": "dataset.extra_values",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].extra_values"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number-list",
+        "supported_type": "number-list",
+        "ui_type": null,
+        "example_type": "number-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": [],
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "extra_values",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-extra-values",
+        "description": "Supplies auxiliary numeric conditioning values for compatible adapters or models.",
+        "benefits": "Carries fixed dataset-level conditioning alongside each item.",
+        "drawbacks": "The length and meaning are model-specific, so mismatched values can fail or train the wrong condition.",
+        "example": "extra_values: []"
+      }
+    },
+    {
+      "id": "dataset.square_crop",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].square_crop"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "square_crop",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-square-crop",
+        "description": "Requests square cropping in loader paths that consume this flag.",
+        "benefits": "Provides an explicit square framing mode for compatible datasets.",
+        "drawbacks": "Square crops discard content from non-square sources and this flag is not universal.",
+        "example": "square_crop: false"
+      }
+    },
+    {
+      "id": "dataset.replay_transforms",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].replay_transforms"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "replay_transforms",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-replay-transforms",
+        "description": "Replays spatial transforms onto matched control images.",
+        "benefits": "Keeps control, mask, and target geometry aligned after augmentation.",
+        "drawbacks": "Disabling it can misalign paired supervision unless the consumer intentionally needs independent transforms.",
+        "example": "replay_transforms: true"
+      }
+    },
+    {
+      "id": "dataset.poi",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].poi"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "deprecated",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "poi",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-poi",
+        "description": "Names the removed point-of-interest dataset option.",
+        "benefits": "There is no supported benefit; null preserves compatibility with old files that omitted the feature.",
+        "drawbacks": "Any non-null value raises because point-of-interest training is no longer supported.",
+        "example": "poi: null"
+      }
     }
   ]
 }
