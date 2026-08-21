@@ -22590,9 +22590,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -22604,7 +22608,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by Python constructor assignment and remains falsey wherever this parameter is tested as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
@@ -22884,10 +22893,12 @@
         "ui_type": null,
         "example_type": "boolean",
         "accepted_values": [
-          false
+          true,
+          false,
+          null
         ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -22900,7 +22911,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by Python constructor assignment and remains falsey wherever this parameter is tested as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
@@ -22961,9 +22977,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -22976,7 +22996,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by Python constructor assignment and remains falsey wherever this parameter is tested as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
@@ -23037,9 +23062,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -23051,7 +23080,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by Python constructor assignment and remains falsey wherever this parameter is tested as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
@@ -23106,9 +23140,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -23120,7 +23158,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by Python constructor assignment and remains falsey wherever this parameter is tested as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
@@ -23176,10 +23219,12 @@
         "ui_type": null,
         "example_type": "boolean",
         "accepted_values": [
-          false
+          true,
+          false,
+          null
         ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -23192,7 +23237,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by Python constructor assignment and remains falsey wherever this parameter is tested as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
@@ -23622,9 +23672,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -23637,7 +23691,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by Python constructor assignment and remains falsey wherever this parameter is tested as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
@@ -24694,9 +24753,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -24708,7 +24771,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by Python constructor assignment and remains falsey wherever this parameter is tested as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
@@ -26183,9 +26251,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -26197,7 +26269,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by Python constructor assignment and remains falsey wherever this parameter is tested as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.gradient_accumulation",
@@ -26863,9 +26940,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -26877,7 +26958,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by Python constructor assignment and remains falsey wherever this parameter is tested as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.gradient_accumulation",
@@ -28387,9 +28473,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -28401,7 +28491,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by Python constructor assignment and remains falsey wherever this parameter is tested as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
@@ -28537,9 +28632,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -28551,7 +28650,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by Python constructor assignment and remains falsey wherever this parameter is tested as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
@@ -28770,9 +28874,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -28784,7 +28892,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by Python constructor assignment and remains falsey wherever this parameter is tested as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
@@ -28839,9 +28952,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -28853,7 +28970,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by Python constructor assignment and remains falsey wherever this parameter is tested as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
