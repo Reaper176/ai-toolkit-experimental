@@ -2054,7 +2054,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
         self.assertIn("removes", normalization_text)
         self.assertTrue(any("KeyError" in setting.render.drawbacks for setting in total_iters))
         self.assertIn(
-            ("train.steps", "fallback"),
+            ("train.steps", "overrides"),
             {
                 (item.setting, item.kind)
                 for setting in total_iters for item in setting.interactions

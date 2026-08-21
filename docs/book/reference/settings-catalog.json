@@ -29177,7 +29177,7 @@
         "advanced-yaml"
       ],
       "persistence": "config",
-      "authority": "user",
+      "authority": "server-overwritten",
       "lifecycle": "supported",
       "applicability": [
         {
@@ -29213,13 +29213,21 @@
         {
           "description": "constant_with_warmup removes total_iters before calling the Diffusers warmup helper.",
           "applicability": []
+        },
+        {
+          "description": "When max_iterations is absent, BaseSDTrainProcess overwrites any supplied total_iters with train.steps before scheduler dispatch.",
+          "applicability": []
+        },
+        {
+          "description": "constant_with_warmup deletes the server-supplied total_iters before calling the Diffusers warmup constructor.",
+          "applicability": []
         }
       ],
       "interactions": [
         {
           "setting": "train.steps",
-          "kind": "fallback",
-          "description": "BaseSDTrainProcess inserts train.steps as total_iters when max_iterations is absent from lr_scheduler_params.",
+          "kind": "overrides",
+          "description": "train.steps overwrites total_iters whenever max_iterations is absent.",
           "applicability": []
         },
         {
@@ -29242,10 +29250,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "scheduler-constant_with_warmup-param-total_iters",
-        "description": "Configures total_iters for the constant_with_warmup scheduler.",
-        "benefits": "Keeps total_iters scoped to the constant_with_warmup scheduler behavior.",
-        "drawbacks": "Omitting total_iters reaches an unconditional deletion and raises KeyError; invalid local constructor arguments otherwise propagate their native TypeError or ValueError.",
-        "example": "total_iters: 3000"
+        "description": "BaseSDTrainProcess overwrites total_iters with train.steps for constant_with_warmup whenever max_iterations is absent.",
+        "benefits": "Use train.steps to control the effective constant_with_warmup run length; leaving lr_scheduler_params empty follows the actual precedence.",
+        "drawbacks": "Supplying max_iterations is not a safe workaround: without total_iters the unconditional deletion raises KeyError, while with total_iters the unsupported max_iterations key leaks to the warmup constructor and raises TypeError.",
+        "example": "lr_scheduler_params: {}"
       }
     },
     {
@@ -29348,7 +29356,7 @@
         "advanced-yaml"
       ],
       "persistence": "config",
-      "authority": "user",
+      "authority": "server-overwritten",
       "lifecycle": "supported",
       "applicability": [
         {
@@ -29384,13 +29392,17 @@
         {
           "description": "cosine_with_restarts renames total_iters to the PyTorch constructor key T_0.",
           "applicability": []
+        },
+        {
+          "description": "When max_iterations is absent, BaseSDTrainProcess overwrites any supplied total_iters with train.steps before scheduler dispatch.",
+          "applicability": []
         }
       ],
       "interactions": [
         {
           "setting": "train.steps",
-          "kind": "fallback",
-          "description": "BaseSDTrainProcess inserts train.steps as total_iters when max_iterations is absent from lr_scheduler_params.",
+          "kind": "overrides",
+          "description": "train.steps overwrites total_iters whenever max_iterations is absent.",
           "applicability": []
         },
         {
@@ -29413,10 +29425,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "scheduler-cosine_with_restarts-param-total_iters",
-        "description": "Configures total_iters for the cosine_with_restarts scheduler.",
-        "benefits": "Keeps total_iters scoped to the cosine_with_restarts scheduler behavior.",
-        "drawbacks": "Invalid local constructor arguments propagate their native TypeError or ValueError.",
-        "example": "total_iters: 3000"
+        "description": "BaseSDTrainProcess overwrites total_iters with train.steps for cosine_with_restarts whenever max_iterations is absent.",
+        "benefits": "Use train.steps to control the effective cosine_with_restarts run length; leaving lr_scheduler_params empty follows the actual precedence.",
+        "drawbacks": "Supplying max_iterations avoids the overwrite but leaks that unsupported key to the local cosine_with_restarts constructor and raises TypeError, so it is not a safe workaround.",
+        "example": "lr_scheduler_params: {}"
       }
     },
     {
@@ -29433,7 +29445,7 @@
         "advanced-yaml"
       ],
       "persistence": "config",
-      "authority": "user",
+      "authority": "server-overwritten",
       "lifecycle": "supported",
       "applicability": [
         {
@@ -29470,13 +29482,17 @@
         {
           "description": "cosine renames total_iters to the PyTorch constructor key T_max.",
           "applicability": []
+        },
+        {
+          "description": "When max_iterations is absent, BaseSDTrainProcess overwrites any supplied total_iters with train.steps before scheduler dispatch.",
+          "applicability": []
         }
       ],
       "interactions": [
         {
           "setting": "train.steps",
-          "kind": "fallback",
-          "description": "BaseSDTrainProcess inserts train.steps as total_iters when max_iterations is absent from lr_scheduler_params.",
+          "kind": "overrides",
+          "description": "train.steps overwrites total_iters whenever max_iterations is absent.",
           "applicability": []
         },
         {
@@ -29505,10 +29521,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "scheduler-cosine-param-total_iters",
-        "description": "Configures total_iters for the cosine scheduler.",
-        "benefits": "Keeps total_iters scoped to the cosine scheduler behavior.",
-        "drawbacks": "Invalid local constructor arguments propagate their native TypeError or ValueError.",
-        "example": "total_iters: 3000"
+        "description": "BaseSDTrainProcess overwrites total_iters with train.steps for cosine whenever max_iterations is absent.",
+        "benefits": "Use train.steps to control the effective cosine run length; leaving lr_scheduler_params empty follows the actual precedence.",
+        "drawbacks": "Supplying max_iterations avoids the overwrite but leaks that unsupported key to the local cosine constructor and raises TypeError, so it is not a safe workaround.",
+        "example": "lr_scheduler_params: {}"
       }
     }
   ]
