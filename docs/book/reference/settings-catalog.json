@@ -11667,6 +11667,242 @@
         "drawbacks": "Feedback changes optimization dynamics and can destabilize an otherwise tuned run.",
         "example": "use_feedback: false"
       }
+    },
+    {
+      "id": "process.guidance.guidance_scale",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].guidance.guidance_scale"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "unconsumed",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "GuidanceConfig.__init__",
+          "key": "guidance_scale",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "process-guidance-guidance-scale",
+        "description": "Sets the scale stored for the optional process guidance configuration.",
+        "benefits": "Preserves the guidance scale field for compatibility with guidance-aware extensions.",
+        "drawbacks": "The current core trainer parses but does not consume this guidance object, so changing it has no runtime effect.",
+        "example": "guidance_scale: 1.0"
+      }
+    },
+    {
+      "id": "process.guidance.negative_prompt",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].guidance.negative_prompt"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "unconsumed",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "GuidanceConfig.__init__",
+          "key": "negative_prompt",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "process-guidance-negative-prompt",
+        "description": "Stores the negative prompt for optional training guidance.",
+        "benefits": "Preserves the negative prompt field for compatibility with guidance-aware extensions.",
+        "drawbacks": "The current core trainer parses but does not consume this guidance object.",
+        "example": "negative_prompt: low quality"
+      }
+    },
+    {
+      "id": "process.guidance.positive_prompt",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].guidance.positive_prompt"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "unconsumed",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "GuidanceConfig.__init__",
+          "key": "positive_prompt",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "process-guidance-positive-prompt",
+        "description": "Stores the positive prompt for optional training guidance.",
+        "benefits": "Preserves the positive prompt field for compatibility with guidance-aware extensions.",
+        "drawbacks": "The current core trainer parses but does not consume this guidance object.",
+        "example": "positive_prompt: a portrait"
+      }
+    },
+    {
+      "id": "process.guidance.target_class",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].guidance.target_class"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "unconsumed",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "GuidanceConfig.__init__",
+          "key": "target_class",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "process-guidance-target-class",
+        "description": "Stores the target class for optional training guidance.",
+        "benefits": "Preserves the target class field for compatibility with guidance-aware extensions.",
+        "drawbacks": "The current core trainer parses but does not consume this guidance object.",
+        "example": "target_class: person"
+      }
     }
   ]
 }

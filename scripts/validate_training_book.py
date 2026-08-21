@@ -60,6 +60,43 @@ CORE_IO_CONFIG_SYMBOLS = frozenset(
     }
 )
 CORE_IO_FACTORY_SOURCES = frozenset({"toolkit/kohya_lora.py"})
+CORE_MODULE_SYMBOLS = frozenset(
+    {
+        "AdapterConfig.__init__",
+        "ValidationConfig.__init__",
+        "ValidationItem.__init__",
+        "EmbeddingConfig.__init__",
+        "DecoratorConfig.__init__",
+        "EMAConfig.__init__",
+        "GuidanceConfig.__init__",
+    }
+)
+
+
+def _in_core_io_network(item) -> bool:
+    return (
+        (
+            item.source == "toolkit/config_modules.py"
+            and item.symbol in CORE_IO_CONFIG_SYMBOLS
+        )
+        or item.read_kind.startswith("network_kwargs.")
+        or item.source in CORE_IO_FACTORY_SOURCES
+    )
+
+
+def _in_core_modules(item) -> bool:
+    return (
+        item.source == "toolkit/config_modules.py"
+        and item.symbol in CORE_MODULE_SYMBOLS
+    )
+
+
+def _in_core(item) -> bool:
+    return (
+        item.source in CORE_PROCESS_SOURCES
+        or _in_core_io_network(item)
+        or _in_core_modules(item)
+    )
 
 
 def _arguments() -> argparse.Namespace:
@@ -213,7 +250,9 @@ def main() -> None:
                     "discovery mode cannot combine a target with --scope"
                 )
             target_mode = True
-        elif arguments.scope in (["core-process"], ["core-io-network"]):
+        elif arguments.scope in (
+            ["core-process"], ["core-io-network"], ["core-modules"], ["core"]
+        ):
             production_scope = arguments.scope[0]
         elif arguments.scope != ["discovery-fixtures"]:
             raise DiscoveryError(
@@ -277,20 +316,22 @@ def main() -> None:
                 ),
             )
         if production_scope == "core-io-network":
-            def in_core_io_network(item) -> bool:
-                return (
-                    (
-                        item.source == "toolkit/config_modules.py"
-                        and item.symbol in CORE_IO_CONFIG_SYMBOLS
-                    )
-                    or item.read_kind.startswith("network_kwargs.")
-                    or item.source in CORE_IO_FACTORY_SOURCES
-                )
-
             validate_setting_ownership(
-                tuple(fact for fact in discovered if in_core_io_network(fact)),
-                tuple(claim for claim in claims if in_core_io_network(claim)),
-                tuple(item for item in exclusions if in_core_io_network(item)),
+                tuple(fact for fact in discovered if _in_core_io_network(fact)),
+                tuple(claim for claim in claims if _in_core_io_network(claim)),
+                tuple(item for item in exclusions if _in_core_io_network(item)),
+            )
+        if production_scope == "core-modules":
+            validate_setting_ownership(
+                tuple(fact for fact in discovered if _in_core_modules(fact)),
+                tuple(claim for claim in claims if _in_core_modules(claim)),
+                tuple(item for item in exclusions if _in_core_modules(item)),
+            )
+        if production_scope == "core":
+            validate_setting_ownership(
+                tuple(fact for fact in discovered if _in_core(fact)),
+                tuple(claim for claim in claims if _in_core(claim)),
+                tuple(item for item in exclusions if _in_core(item)),
             )
 
 

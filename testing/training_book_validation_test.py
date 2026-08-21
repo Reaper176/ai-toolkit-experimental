@@ -929,6 +929,18 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "toolkit/config_modules.py::EMAConfig.__init__",
         )
 
+    def test_catalog_guidance_config_symbol_is_exactly_owned(self):
+        self.assert_catalog_selector_green(
+            "--target-symbol",
+            "toolkit/config_modules.py::GuidanceConfig.__init__",
+        )
+
+    def test_catalog_core_modules_scope_is_exactly_owned(self):
+        self.assert_catalog_selector_green("--scope", "core-modules")
+
+    def test_catalog_combined_core_scope_is_exactly_owned(self):
+        self.assert_catalog_selector_green("--scope", "core")
+
 
 class DiscoveryContractTests(unittest.TestCase):
     def setUp(self):
