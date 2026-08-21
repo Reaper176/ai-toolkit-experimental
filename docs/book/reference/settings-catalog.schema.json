@@ -103,6 +103,22 @@
           "default": null,
           "title": "Process Type"
         },
+        "optimizer": {
+          "anyOf": [
+            {"minLength": 1, "type": "string"},
+            {"type": "null"}
+          ],
+          "default": null,
+          "title": "Optimizer"
+        },
+        "scheduler": {
+          "anyOf": [
+            {"minLength": 1, "type": "string"},
+            {"type": "null"}
+          ],
+          "default": null,
+          "title": "Scheduler"
+        },
         "ui_architecture": {
           "anyOf": [
             {

@@ -640,6 +640,39 @@ class CatalogContractTests(unittest.TestCase):
             ),
         )
 
+    def test_catalog_contract_optimizer_and_scheduler_discriminators_are_disjoint(self):
+        adam = deepcopy(self.valid_catalog_entry())
+        adam["id"] = "optimizer.adam.param.eps"
+        adam["locations"] = [
+            {"kind": "yaml", "path": "config.process[*].train.optimizer_params.eps"}
+        ]
+        adam["applicability"] = [
+            {"process_type": "diffusion_trainer", "optimizer": "adam"}
+        ]
+        adam["source_claims"][0]["key"] = "eps_adam"
+        adamw = deepcopy(adam)
+        adamw["id"] = "optimizer.adamw.param.eps"
+        adamw["applicability"] = [
+            {"process_type": "diffusion_trainer", "optimizer": "adamw"}
+        ]
+        adamw["source_claims"][0]["key"] = "eps_adamw"
+        discovered = (
+            DiscoveredSetting("toolkit/config_modules.py", "TrainConfig.__init__", 1, "eps_adam", "kwargs.get", "core", "2000"),
+            DiscoveredSetting("toolkit/config_modules.py", "TrainConfig.__init__", 2, "eps_adamw", "kwargs.get", "core", "2000"),
+        )
+        validate_settings_catalog(
+            {"schema_version": 1, "settings": [adam, adamw]}, discovered
+        )
+
+        duplicate = deepcopy(adamw)
+        duplicate["applicability"] = [
+            {"process_type": "diffusion_trainer", "optimizer": "adam"}
+        ]
+        with self.assertRaisesRegex(CatalogError, "overlapping.*location"):
+            validate_settings_catalog(
+                {"schema_version": 1, "settings": [adam, duplicate]}, discovered
+            )
+
     def test_catalog_contract_uses_network_type_to_disambiguate_locations(self):
         lora = self.valid_catalog_entry()
         lora["applicability"] = [{"network_type": "lora"}]
@@ -1863,12 +1896,10 @@ class CatalogProductionSliceTests(unittest.TestCase):
         parameter_settings = {
             setting.id: setting
             for setting in catalog.settings
-            if setting.id.startswith("optimizer.param.")
+            if setting.scope == "optimizer"
+            and any("optimizer_params." in location.path for location in setting.locations)
         }
-        self.assertEqual(
-            set(parameter_settings),
-            {f"optimizer.param.{fact.key.split('__')[-1]}" for fact in parameter_facts},
-        )
+        self.assertTrue(parameter_settings)
         for setting in parameter_settings.values():
             with self.subTest(setting=setting.id):
                 self.assertEqual(len(setting.defaults), 1)
@@ -1885,6 +1916,70 @@ class CatalogProductionSliceTests(unittest.TestCase):
             if item.reason == "arbitrary third-party constructor surface"
         }
         self.assertEqual(boundary_exclusions, boundary_ids)
+
+    def test_catalog_optimizer_parameter_matrix_is_discriminator_scoped_and_exhaustive(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        parameter_settings = tuple(
+            setting for setting in catalog.settings
+            if setting.scope == "optimizer"
+            and any("optimizer_params." in location.path for location in setting.locations)
+        )
+        self.assertTrue(parameter_settings)
+        for setting in parameter_settings:
+            with self.subTest(setting=setting.id):
+                self.assertRegex(setting.id, r"^optimizer\.[a-z0-9*-]+\.param\.[a-z0-9_]+$")
+                self.assertTrue(setting.applicability)
+                self.assertTrue(all(item.optimizer for item in setting.applicability))
+        discovered = {
+            (fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in self.discovered
+            if fact.read_kind in {"optimizer.parameter", "optimizer.injected"}
+        }
+        claimed = [
+            (claim.source, claim.symbol, claim.key, claim.read_kind)
+            for setting in parameter_settings
+            for claim in setting.source_claims
+        ]
+        self.assertEqual(set(claimed), discovered)
+        self.assertEqual(len(claimed), len(set(claimed)))
+        eps_rows = {setting.id: setting for setting in parameter_settings if setting.id.endswith(".param.eps")}
+        self.assertEqual(eps_rows["optimizer.adafactor.param.eps"].contract.parser_type, "number-pair")
+        self.assertEqual(eps_rows["optimizer.automagic.param.eps"].contract.parser_type, "number-pair")
+        for setting_id, setting in eps_rows.items():
+            if setting_id not in {"optimizer.adafactor.param.eps", "optimizer.automagic.param.eps"}:
+                self.assertEqual(setting.contract.parser_type, "number")
+
+    def test_catalog_optimizer_dispatch_semantics_match_source_branches(self):
+        source = (REPOSITORY_ROOT / "toolkit/optimizer.py").read_text(encoding="utf-8")
+        self.assertIn("if use_lr < 0.1", source)
+        self.assertEqual(source.count("use_lr = 1.0"), 3)
+        self.assertIn("lower_type.endswith('adam')", source)
+        self.assertIn("DAdaptLion(params", source)
+        self.assertIn("lower_type == 'dadaptation'", source)
+        self.assertIn("DAdaptAdam(params", source)
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        optimizer_text = " ".join(vars(settings["train.optimizer"].render).values()).casefold()
+        for phrase in ("dadaptationadam dispatches dadaptlion", "bare dadaptation", "deprecated"):
+            self.assertIn(phrase, optimizer_text)
+        for choice in ("dadaptation", "dadaptationadam", "dadaptationlion", "prodigy*", "prodigy8bit*"):
+            lr = settings[f"optimizer.{choice}.param.lr"]
+            normalization = " ".join(item.description for item in lr.normalizations)
+            self.assertIn("below 0.1", normalization)
+            self.assertIn("1.0", normalization)
+        for key in ("relative_step", "warmup_init"):
+            setting = settings[f"optimizer.adafactor.param.{key}"]
+            self.assertEqual(setting.contract.accepted_values, (False,))
+            self.assertIn("unusable", setting.render.drawbacks.casefold())
+            self.assertIn("manual", setting.render.drawbacks.casefold())
 
     def test_catalog_scheduler_registry_parameters_and_normalization_are_exactly_owned(self):
         try:
@@ -1923,29 +2018,67 @@ class CatalogProductionSliceTests(unittest.TestCase):
             if fact.source == "toolkit/scheduler.py"
             and fact.read_kind != "scheduler.registry"
         )
-        self.assertEqual(
-            {
-                f"scheduler.param.{fact.key.split('__')[-1]}"
-                for fact in parameter_facts
-            },
-            {
-                setting.id
-                for setting in catalog.settings
-                if setting.id.startswith("scheduler.param.")
-            },
+        parameter_settings = tuple(
+            setting for setting in catalog.settings
+            if setting.scope == "scheduler"
+            and any("lr_scheduler_params." in location.path for location in setting.locations)
         )
-        total_iters = settings["scheduler.param.total_iters"]
+        self.assertTrue(parameter_settings)
+        total_iters = tuple(
+            setting for setting in parameter_settings if setting.id.endswith(".param.total_iters")
+        )
         normalization_text = " ".join(
-            item.description for item in total_iters.normalizations
+            item.description for setting in total_iters for item in setting.normalizations
         )
         self.assertIn("T_max", normalization_text)
         self.assertIn("T_0", normalization_text)
         self.assertIn("removes", normalization_text)
-        self.assertIn("KeyError", total_iters.render.drawbacks)
+        self.assertTrue(any("KeyError" in setting.render.drawbacks for setting in total_iters))
         self.assertIn(
             ("train.steps", "fallback"),
-            {(item.setting, item.kind) for item in total_iters.interactions},
+            {
+                (item.setting, item.kind)
+                for setting in total_iters for item in setting.interactions
+            },
         )
+
+    def test_catalog_scheduler_parameter_matrix_and_failure_translation_are_exact(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        parameter_settings = tuple(
+            setting for setting in catalog.settings
+            if setting.scope == "scheduler"
+            and any("lr_scheduler_params." in location.path for location in setting.locations)
+        )
+        for setting in parameter_settings:
+            with self.subTest(setting=setting.id):
+                self.assertRegex(setting.id, r"^scheduler\.[a-z0-9_*-]+\.param\.[a-z0-9_]+$")
+                self.assertTrue(all(item.scheduler for item in setting.applicability))
+        discovered = {
+            (fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in self.discovered
+            if fact.read_kind in {
+                "kwargs.contains", "scheduler.injected", "scheduler.normalized",
+                "scheduler.consumed",
+            }
+            and fact.source == "toolkit/scheduler.py"
+        }
+        claimed = [
+            (claim.source, claim.symbol, claim.key, claim.read_kind)
+            for setting in parameter_settings for claim in setting.source_claims
+        ]
+        self.assertEqual(set(claimed), discovered)
+        self.assertEqual(len(claimed), len(set(claimed)))
+        scheduler_text = " ".join(
+            vars(next(s for s in catalog.settings if s.id == "train.lr_scheduler").render).values()
+        )
+        self.assertIn("TypeError", scheduler_text)
+        self.assertIn("ValueError", scheduler_text)
+        self.assertIn("Diffusers", scheduler_text)
+        self.assertIn("translated", scheduler_text)
 
     def test_catalog_training_scope_is_exactly_owned(self):
         self.assert_catalog_selector_green("--scope", "training")
@@ -2949,6 +3082,37 @@ class DiscoveryContractTests(unittest.TestCase):
             self.repository_root, ("toolkit/optimizer.py",)
         )
 
+        with self.assertRaisesRegex(DiscoveryError, "newmagic"):
+            validate_setting_ownership(changed, claims, ())
+
+    def test_training_dispatch_contract_new_scheduler_choice_is_unowned(self):
+        path = self.write_source(
+            "toolkit/scheduler.py",
+            """def get_lr_scheduler(name, optimizer, **kwargs):
+    if name == "constant":
+        return torch.optim.lr_scheduler.ConstantLR(optimizer, **kwargs)
+    raise ValueError(name)
+""",
+        )
+        baseline = discover_python_settings(
+            self.repository_root, ("toolkit/scheduler.py",)
+        )
+        claims = tuple(
+            SourceClaim(fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in baseline
+        )
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "    raise ValueError(name)",
+                "    elif name == 'newmagic':\n"
+                "        return torch.optim.lr_scheduler.StepLR(optimizer, **kwargs)\n"
+                "    raise ValueError(name)",
+            ),
+            encoding="utf-8",
+        )
+        changed = discover_python_settings(
+            self.repository_root, ("toolkit/scheduler.py",)
+        )
         with self.assertRaisesRegex(DiscoveryError, "newmagic"):
             validate_setting_ownership(changed, claims, ())
 

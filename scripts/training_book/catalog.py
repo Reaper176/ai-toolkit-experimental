@@ -157,6 +157,8 @@ class Applicability(_StrictModel):
     network_type: _NonBlank | None = None
     ui_architecture: _NonBlank | None = None
     engine_architecture: _NonBlank | None = None
+    optimizer: _NonBlank | None = None
+    scheduler: _NonBlank | None = None
 
     @model_validator(mode="after")
     def _not_empty(self) -> "Applicability":
@@ -168,6 +170,8 @@ class Applicability(_StrictModel):
                 self.network_type,
                 self.ui_architecture,
                 self.engine_architecture,
+                self.optimizer,
+                self.scheduler,
             )
         ):
             raise ValueError("applicability predicate must not be empty")
@@ -443,6 +447,8 @@ def _predicates_overlap(
         "network_type",
         "ui_architecture",
         "engine_architecture",
+        "optimizer",
+        "scheduler",
     )
     for left_clause in left_clauses:
         for right_clause in right_clauses:
