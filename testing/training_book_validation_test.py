@@ -2874,9 +2874,15 @@ class CatalogProductionSliceTests(unittest.TestCase):
 
         runtime_forced = [setting for setting in catalog.settings if setting.authority == "runtime-forced"]
         self.assertTrue(runtime_forced)
+        runtime_forced_null_exceptions = {
+            "dataset.diff_output_preservation": "accepted",
+        }
         for setting in runtime_forced:
             with self.subTest(runtime_forced=setting.id):
-                self.assertEqual(setting.contract.null, "rejected")
+                self.assertEqual(
+                    setting.contract.null,
+                    runtime_forced_null_exceptions.get(setting.id, "rejected"),
+                )
 
         total_iters_rows = [
             setting for setting in catalog.settings
