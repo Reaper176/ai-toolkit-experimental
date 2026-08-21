@@ -1946,6 +1946,19 @@ class CatalogProductionSliceTests(unittest.TestCase):
         ]
         self.assertEqual(set(claimed), discovered)
         self.assertEqual(len(claimed), len(set(claimed)))
+        discovered_defaults = {
+            (fact.source, fact.symbol, fact.key, fact.read_kind): fact.default_expression
+            for fact in self.discovered
+        }
+        for setting in parameter_settings:
+            defaults = setting.defaults[0].value
+            for claim in setting.source_claims:
+                default_key = f"{claim.symbol}.{claim.key}"
+                self.assertIn(default_key, defaults)
+                self.assertEqual(
+                    defaults[default_key],
+                    discovered_defaults[(claim.source, claim.symbol, claim.key, claim.read_kind)],
+                )
         eps_rows = {setting.id: setting for setting in parameter_settings if setting.id.endswith(".param.eps")}
         self.assertEqual(eps_rows["optimizer.adafactor.param.eps"].contract.parser_type, "number-pair")
         self.assertEqual(eps_rows["optimizer.automagic.param.eps"].contract.parser_type, "number-pair")
@@ -2072,6 +2085,19 @@ class CatalogProductionSliceTests(unittest.TestCase):
         ]
         self.assertEqual(set(claimed), discovered)
         self.assertEqual(len(claimed), len(set(claimed)))
+        discovered_defaults = {
+            (fact.source, fact.symbol, fact.key, fact.read_kind): fact.default_expression
+            for fact in self.discovered
+        }
+        for setting in parameter_settings:
+            defaults = setting.defaults[0].value
+            for claim in setting.source_claims:
+                default_key = f"{claim.symbol}.{claim.key}"
+                self.assertIn(default_key, defaults)
+                self.assertEqual(
+                    defaults[default_key],
+                    discovered_defaults[(claim.source, claim.symbol, claim.key, claim.read_kind)],
+                )
         scheduler_text = " ".join(
             vars(next(s for s in catalog.settings if s.id == "train.lr_scheduler").render).values()
         )

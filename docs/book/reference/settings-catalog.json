@@ -28973,7 +28973,8 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": {
-            "get_lr_scheduler.num_warmup_steps": "required"
+            "get_lr_scheduler.num_warmup_steps": null,
+            "get_lr_scheduler.constant_with_warmup__num_warmup_steps": "1000"
           },
           "applicability": []
         }
@@ -29057,7 +29058,9 @@
         {
           "kind": "engine-fallback",
           "presence": "present",
-          "value": {},
+          "value": {
+            "get_lr_scheduler.constant_with_warmup__total_iters": "removed"
+          },
           "applicability": []
         }
       ],
@@ -29141,7 +29144,8 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": {
-            "get_lr_scheduler.factor": "required"
+            "get_lr_scheduler.factor": null,
+            "get_lr_scheduler.constant__factor": "1.0"
           },
           "applicability": []
         }
@@ -29225,7 +29229,9 @@
         {
           "kind": "engine-fallback",
           "presence": "present",
-          "value": {},
+          "value": {
+            "get_lr_scheduler.cosine_with_restarts__total_iters": "T_0"
+          },
           "applicability": []
         }
       ],
@@ -29309,7 +29315,8 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": {
-            "get_lr_scheduler.total_iters": "required"
+            "get_lr_scheduler.total_iters": null,
+            "get_lr_scheduler.cosine__total_iters": "T_max"
           },
           "applicability": []
         }
