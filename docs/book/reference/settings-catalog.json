@@ -33950,6 +33950,722 @@
         "drawbacks": "Pitch-preserving transforms cost more processing and may add artifacts.",
         "example": "audio_preserve_pitch: false"
       }
+    },
+    {
+      "id": "dataset.cache_latents",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].cache_latents"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.augmentations",
+          "kind": "conflicts",
+          "description": "Any configured augmentation disables memory and disk latent caching.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "cache_latents",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-cache-latents",
+        "description": "Caches encoded latents in host memory after first-epoch preparation.",
+        "benefits": "Avoids repeated VAE encoding and disk reads on later epochs when memory is available.",
+        "drawbacks": "Consumes system memory and freezes pixel-space augmentations; active augmentations disable latent caching.",
+        "example": "cache_latents: false"
+      }
+    },
+    {
+      "id": "dataset.cache_latents_to_disk",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].cache_latents_to_disk"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "The cache filename hashes crop geometry, latent-space version, frame/audio options, and related preprocessing facts; immutable preset verification permits the version-local _latent_cache directory without treating it as manifest media. A source-missing file retained from a prior verified manifest is copied and hash-checked into the new immutable version, but runtime caches remain version-local provenance and may need regeneration there.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "dataset.augmentations",
+          "kind": "conflicts",
+          "description": "Any configured augmentation disables memory and disk latent caching.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "cache_latents_to_disk",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-cache-latents-to-disk",
+        "description": "Writes versioned, content-shape-specific latent safetensors beneath each media directory's _latent_cache.",
+        "benefits": "Reuses compatible encoded latents across later runs without keeping every latent in memory.",
+        "drawbacks": "Consumes disk space and cache identity is not a guarantee across model/VAE or preprocessing changes; incompatible hashes must be regenerated.",
+        "example": "cache_latents_to_disk: true"
+      }
+    },
+    {
+      "id": "dataset.cache_tensors_to_disk",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].cache_tensors_to_disk"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.cache_latents_to_disk",
+          "kind": "requires",
+          "description": "Tensor payloads are written through the disk latent-cache path.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "cache_tensors_to_disk",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-cache-tensors-to-disk",
+        "description": "Adds cleaned pixel, video, or audio tensors to the latent cache file.",
+        "benefits": "Allows compatible training paths to avoid decoding source media after caches are prepared.",
+        "drawbacks": "Cache files grow and a cache created without this flag is invalid for tensor reuse.",
+        "example": "cache_tensors_to_disk: false"
+      }
+    },
+    {
+      "id": "dataset.cache_clip_vision_to_disk",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].cache_clip_vision_to_disk"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "cache_clip_vision_to_disk",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-cache-clip-vision-to-disk",
+        "description": "Caches CLIP-image embeddings as safetensors on disk.",
+        "benefits": "Avoids recomputing compatible visual-reference embeddings on later epochs or runs.",
+        "drawbacks": "Consumes disk space and must be regenerated when reference images, transforms, or the compatible embedding space changes.",
+        "example": "cache_clip_vision_to_disk: false"
+      }
+    },
+    {
+      "id": "dataset.cache_text_embeddings",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].cache_text_embeddings"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Text cache keys include the effective caption and text-embedding-space version plus supported control or first-frame conditioning; immutable preset verification permits the version-local _t_e_cache directory.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "cache_text_embeddings",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-cache-text-embeddings",
+        "description": "Caches caption embeddings in versioned, caption-hashed safetensors beneath _t_e_cache.",
+        "benefits": "Avoids repeated text-encoder work and can allow the text encoder to unload when it is not being trained.",
+        "drawbacks": "Caption, trigger, control, first-frame, or text-embedding-space changes create different cache identities; text-encoder training is incompatible with fixed cached embeddings.",
+        "example": "cache_text_embeddings: true"
+      }
+    },
+    {
+      "id": "dataset.load_image_when_caching_latents",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].load_image_when_caching_latents"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.cache_latents",
+          "kind": "requires",
+          "description": "This override is meaningful only on latent-caching paths.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "load_image_when_caching_latents",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-load-image-when-caching-latents",
+        "description": "Keeps source-image loading enabled while cached latents are prepared or consumed.",
+        "benefits": "Supports paths that still need pixel data alongside latents.",
+        "drawbacks": "Adds decode and memory cost that latent caching usually avoids.",
+        "example": "load_image_when_caching_latents: false"
+      }
+    },
+    {
+      "id": "dataset.cache_latents_num_workers",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].cache_latents_num_workers"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "min(6, os.cpu_count() or 1)"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "cache_latents_num_workers",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-cache-latents-num-workers",
+        "description": "Sets the worker count used to decode and prepare latent-cache inputs.",
+        "benefits": "Parallel preparation can shorten the initial cache-building phase.",
+        "drawbacks": "Too many workers increase memory, I/O contention, and process overhead.",
+        "example": "cache_latents_num_workers: 4"
+      }
+    },
+    {
+      "id": "dataset.num_workers",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].num_workers"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 2,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "num_workers",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-num-workers",
+        "description": "Sets the training DataLoader worker-process count.",
+        "benefits": "Parallel workers can overlap item preparation with GPU work.",
+        "drawbacks": "High counts consume memory and increase startup overhead; zero disables prefetch_factor.",
+        "example": "num_workers: 2"
+      }
+    },
+    {
+      "id": "dataset.prefetch_factor",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].prefetch_factor"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 2,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.num_workers",
+          "kind": "requires",
+          "description": "The loader passes prefetch_factor only when num_workers is greater than zero.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "prefetch_factor",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-prefetch-factor",
+        "description": "Sets batches prefetched per DataLoader worker when workers are enabled.",
+        "benefits": "Can hide storage and preprocessing latency.",
+        "drawbacks": "Large values multiply host-memory use and have no effect when num_workers is zero.",
+        "example": "prefetch_factor: 2"
+      }
+    },
+    {
+      "id": "dataset.fast_image_size",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].fast_image_size"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "AiToolkitDataset maintains .aitk_size.json with a dataloader schema version and per-file quick signature; mismatched versions or signatures force size metadata to be rebuilt.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "fast_image_size",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-fast-image-size",
+        "description": "Requests the faster image-dimension probing path.",
+        "benefits": "Can reduce metadata scan time on compatible files.",
+        "drawbacks": "The source warns that the fast method can return errors; leave it disabled unless the dataset format is known safe.",
+        "example": "fast_image_size: false"
+      }
+    },
+    {
+      "id": "dataset.debug",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].debug"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "debug",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-debug",
+        "description": "Enables dataset frame-count and selection diagnostics.",
+        "benefits": "Provides extra evidence when video frame selection is unexpected.",
+        "drawbacks": "Verbose diagnostics slow and clutter normal training runs.",
+        "example": "debug: false"
+      }
     }
   ]
 }

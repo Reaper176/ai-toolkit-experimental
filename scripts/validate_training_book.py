@@ -131,6 +131,19 @@ DATASET_MODALITY_KEYS = frozenset(
     mask_min_value mask_path num_controls_from_same_folder num_frames
     shrink_video_to_frames trim_auto_frame_count_tail unconditional_path""".split()
 )
+DATASET_CACHE_KEYS = frozenset(
+    """cache_clip_vision_to_disk cache_latents cache_latents_num_workers
+    cache_latents_to_disk cache_tensors_to_disk cache_text_embeddings debug
+    fast_image_size load_image_when_caching_latents num_workers
+    prefetch_factor""".split()
+)
+DATA_LOADER_SOURCES = frozenset(
+    {
+        "toolkit/data_loader.py",
+        "toolkit/dataloader_mixins.py",
+        "toolkit/data_transfer_object/data_loader.py",
+    }
+)
 
 
 def _in_core_io_network(item) -> bool:
@@ -351,7 +364,7 @@ def main() -> None:
             ["core-process"], ["core-io-network"], ["core-modules"], ["core"],
             ["training"], ["train-schedule"], ["train-numerics"],
             ["train-components"], ["optimizers"], ["schedulers"],
-            ["dataset-core"], ["dataset-modalities"],
+            ["dataset-core"], ["dataset-modalities"], ["data-loader-cache"],
         ):
             production_scope = arguments.scope[0]
         elif arguments.scope != ["discovery-fixtures"]:
@@ -454,6 +467,14 @@ def main() -> None:
                 item.source == "toolkit/config_modules.py"
                 and item.symbol == "DatasetConfig.__init__"
                 and item.key in DATASET_MODALITY_KEYS
+            ),
+            "data-loader-cache": lambda item: (
+                item.source in DATA_LOADER_SOURCES
+                or (
+                    item.source == "toolkit/config_modules.py"
+                    and item.symbol == "DatasetConfig.__init__"
+                    and item.key in DATASET_CACHE_KEYS
+                )
             ),
         }
         if production_scope in slice_predicates:

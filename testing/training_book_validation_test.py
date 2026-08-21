@@ -1679,6 +1679,28 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "unconditional_path",
         }
     )
+    DATASET_CACHE_KEYS = frozenset(
+        {
+            "cache_clip_vision_to_disk",
+            "cache_latents",
+            "cache_latents_num_workers",
+            "cache_latents_to_disk",
+            "cache_tensors_to_disk",
+            "cache_text_embeddings",
+            "debug",
+            "fast_image_size",
+            "load_image_when_caching_latents",
+            "num_workers",
+            "prefetch_factor",
+        }
+    )
+    DATA_LOADER_SOURCES = frozenset(
+        {
+            "toolkit/data_loader.py",
+            "toolkit/dataloader_mixins.py",
+            "toolkit/data_transfer_object/data_loader.py",
+        }
+    )
 
     @classmethod
     def setUpClass(cls):
@@ -1812,6 +1834,12 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 item.source == "toolkit/config_modules.py"
                 and item.symbol == "DatasetConfig.__init__"
                 and item.key in cls.DATASET_MODALITY_KEYS
+            )
+        if scope == "data-loader-cache":
+            return item.source in cls.DATA_LOADER_SOURCES or (
+                item.source == "toolkit/config_modules.py"
+                and item.symbol == "DatasetConfig.__init__"
+                and item.key in cls.DATASET_CACHE_KEYS
             )
         raise AssertionError(f"unknown catalog test scope {scope!r}")
 
@@ -2980,6 +3008,132 @@ class CatalogProductionSliceTests(unittest.TestCase):
             for snippet in snippets:
                 with self.subTest(source=source, snippet=snippet):
                     self.assertIn(snippet, text)
+
+    def test_catalog_data_loader_cache_scope_is_exactly_owned(self):
+        self.assert_catalog_selector_green("--scope", "data-loader-cache")
+
+    def test_catalog_loader_cache_contracts_are_closed_and_provenant(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        dataset_facts = {
+            fact.key: fact
+            for fact in self.discovered
+            if fact.source == "toolkit/config_modules.py"
+            and fact.symbol == "DatasetConfig.__init__"
+        }
+        self.assertEqual(
+            self.DATASET_CORE_KEYS
+            | self.DATASET_MODALITY_KEYS
+            | self.DATASET_CACHE_KEYS,
+            set(dataset_facts),
+        )
+        self.assertEqual(len(dataset_facts), 78)
+        self.assertTrue(self.DATASET_CACHE_KEYS.isdisjoint(self.DATASET_CORE_KEYS))
+        self.assertTrue(self.DATASET_CACHE_KEYS.isdisjoint(self.DATASET_MODALITY_KEYS))
+        for key in self.DATASET_CACHE_KEYS:
+            with self.subTest(cache_key=key):
+                fact = dataset_facts[key]
+                fallback = [
+                    default for default in settings[f"dataset.{key}"].defaults
+                    if default.kind == "engine-fallback"
+                ]
+                self.assertEqual(len(fallback), 1)
+                expected = (
+                    {"expression": fact.default_expression}
+                    if key == "cache_latents_num_workers"
+                    else ast.literal_eval(fact.default_expression)
+                )
+                self.assertEqual(fallback[0].value, expected)
+
+        loader_facts = tuple(
+            fact for fact in self.discovered
+            if fact.source in self.DATA_LOADER_SOURCES
+        )
+        self.assertEqual(len(loader_facts), 57)
+        loader_exclusions = {
+            (item.source, item.symbol, item.key, item.read_kind): item
+            for item in self.exclusions
+            if item.source in self.DATA_LOADER_SOURCES
+        }
+        self.assertEqual(
+            set(loader_exclusions),
+            {
+                (fact.source, fact.symbol, fact.key, fact.read_kind)
+                for fact in loader_facts
+            },
+        )
+        for exclusion in loader_exclusions.values():
+            expected_reason = (
+                "slider-only"
+                if exclusion.symbol == "PairedImageDataset.__init__"
+                else "model-developer API"
+            )
+            self.assertEqual(exclusion.reason, expected_reason)
+
+        future = DiscoveredSetting(
+            "toolkit/data_loader.py",
+            "ImageDataset.__init__",
+            9999,
+            "new_cache_knob",
+            "get_config",
+            "core",
+            "False",
+        )
+        with self.assertRaisesRegex(DiscoveryError, "unowned.*new_cache_knob"):
+            validate_setting_ownership(
+                loader_facts + (future,),
+                tuple(
+                    claim for claim in self.claims
+                    if claim.source in self.DATA_LOADER_SOURCES
+                ),
+                tuple(loader_exclusions.values()),
+            )
+
+        cache_teaching = " ".join(
+            item.description
+            for setting_id in (
+                "dataset.cache_latents_to_disk",
+                "dataset.cache_text_embeddings",
+                "dataset.fast_image_size",
+            )
+            for item in settings[setting_id].normalizations
+        ).casefold()
+        for phrase in (
+            "immutable", "version-local", "source-missing", "provenance",
+            ".aitk_size.json", "signature", "_latent_cache", "_t_e_cache",
+        ):
+            self.assertIn(phrase, cache_teaching)
+
+        source_contracts = {
+            "toolkit/data_loader.py": (
+                "dataset_size_file = os.path.join(dataset_folder, '.aitk_size.json')",
+                'dataloader_version = "0.1.2"',
+            ),
+            "toolkit/data_transfer_object/data_loader.py": (
+                "file_signature = get_quick_signature_string(self.path)",
+                "db_entry[2] == file_signature",
+            ),
+            "toolkit/dataloader_mixins.py": (
+                "hash_input = json.dumps(hash_dict, sort_keys=True).encode('utf-8')",
+                "latent_dir = os.path.join(img_dir, '_latent_cache')",
+                "te_dir = os.path.join(img_dir, '_t_e_cache')",
+            ),
+            "ui/src/server/datasetPresetSnapshotService.ts": (
+                "portablePath === 'media/_latent_cache'",
+                "portablePath === 'media/_t_e_cache'",
+                "Retained media changed while copying",
+                "if (!/source not found/i.test(String(error))) throw error",
+            ),
+        }
+        for source, snippets in source_contracts.items():
+            source_text = (REPOSITORY_ROOT / source).read_text(encoding="utf-8")
+            for snippet in snippets:
+                with self.subTest(source=source, snippet=snippet):
+                    self.assertIn(snippet, source_text)
 
     def test_catalog_process_get_conf_null_semantics_are_exhaustive(self):
         catalog = load_settings_catalog(
