@@ -243,6 +243,8 @@ class SettingContract(_StrictModel):
     ui_type: _SemanticType | None
     example_type: _SemanticType
     accepted_values: tuple[_JsonScalar, ...] | None
+    accepted_types: tuple[_SemanticType, ...] | None = None
+    collection_length: StrictInt | None = None
     range: NumericRange | None
     null: Literal["accepted", "rejected", "normalized-to-absent"]
 
@@ -259,6 +261,32 @@ class SettingContract(_StrictModel):
 
     @model_validator(mode="after")
     def _accepted_values_and_range(self) -> "SettingContract":
+        if self.accepted_types is not None:
+            if not self.accepted_types or len(self.accepted_types) != len(
+                set(self.accepted_types)
+            ):
+                raise ValueError("accepted_types must be nonempty and unique")
+        if self.collection_length is not None:
+            if self.collection_length < 1:
+                raise ValueError("collection_length must be positive")
+            if self.accepted_types is None or not any(
+                value.endswith("-list") for value in self.accepted_types
+            ):
+                raise ValueError(
+                    "collection_length requires a list member in accepted_types"
+                )
+            scalar_types = {
+                value for value in self.accepted_types if not value.endswith("-list")
+            }
+            list_bases = {
+                value.removesuffix("-list")
+                for value in self.accepted_types
+                if value.endswith("-list")
+            }
+            if scalar_types and not list_bases.issubset(scalar_types):
+                raise ValueError(
+                    "collection_length list members must match accepted scalar types"
+                )
         if self.accepted_values is not None and self.range is not None:
             if not self.accepted_values or any(
                 isinstance(value, bool)

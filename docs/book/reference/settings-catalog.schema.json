@@ -579,6 +579,34 @@
     "SettingContract": {
       "additionalProperties": false,
       "properties": {
+        "accepted_types": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "boolean",
+                  "integer",
+                  "number",
+                  "string",
+                  "path",
+                  "boolean-list",
+                  "integer-list",
+                  "number-list",
+                  "string-list",
+                  "object",
+                  "object-list"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accepted Types"
+        },
         "accepted_values": {
           "anyOf": [
             {
@@ -608,6 +636,18 @@
             }
           ],
           "title": "Accepted Values"
+        },
+        "collection_length": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Collection Length"
         },
         "example_type": {
           "enum": [

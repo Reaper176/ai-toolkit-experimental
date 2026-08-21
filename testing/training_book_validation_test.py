@@ -898,6 +898,37 @@ class CatalogContractTests(unittest.TestCase):
                         self.discovered_steps(),
                     )
 
+    def test_catalog_contract_represents_scalar_or_fixed_length_numeric_pairs(self):
+        entry = self.valid_catalog_entry()
+        entry["contract"].update(
+            {
+                "parser_type": "number-or-number-pair",
+                "supported_type": "number or exactly two numbers",
+                "example_type": "number-list",
+                "accepted_types": ["number", "number-list"],
+                "collection_length": 2,
+            }
+        )
+        validate_settings_catalog(
+            {"schema_version": 1, "settings": [entry]},
+            self.discovered_steps(),
+        )
+
+        for label, accepted_types, length in (
+            ("missing list member", ["number"], 2),
+            ("zero length", ["number", "number-list"], 0),
+            ("boolean list", ["number", "boolean-list"], 2),
+        ):
+            with self.subTest(label=label):
+                invalid = deepcopy(entry)
+                invalid["contract"]["accepted_types"] = accepted_types
+                invalid["contract"]["collection_length"] = length
+                with self.assertRaisesRegex(CatalogError, "collection_length"):
+                    validate_settings_catalog(
+                        {"schema_version": 1, "settings": [invalid]},
+                        self.discovered_steps(),
+                    )
+
     def test_catalog_contract_constrains_every_numeric_enum_value_by_its_range(self):
         valid = self.valid_catalog_entry()
         valid["contract"]["accepted_values"] = [1, 3.5, 5]
@@ -1890,6 +1921,45 @@ class CatalogProductionSliceTests(unittest.TestCase):
             settings["train.ema_config"].defaults[0].value,
             None,
         )
+
+    def test_catalog_guidance_loss_target_has_scalar_or_exact_pair_contract(self):
+        config_source = (REPOSITORY_ROOT / "toolkit/config_modules.py").read_text(encoding="utf-8")
+        trainer_source = (
+            REPOSITORY_ROOT / "extensions_built_in/sd_trainer/SDTrainer.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("self.guidance_loss_target = list(self.guidance_loss_target)", config_source)
+        self.assertIn("self.train_config.guidance_loss_target[0]", trainer_source)
+        self.assertIn("self.train_config.guidance_loss_target[1]", trainer_source)
+        self.assertIn("random.uniform(", trainer_source)
+
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        setting = next(
+            item for item in catalog.settings
+            if item.id == "train.guidance_loss_target"
+        )
+        self.assertEqual(setting.contract.parser_type, "number-or-number-pair")
+        self.assertEqual(setting.contract.accepted_types, ("number", "number-list"))
+        self.assertEqual(setting.contract.collection_length, 2)
+        self.assertEqual(setting.contract.example_type, "number-list")
+        self.assertEqual(
+            yaml.safe_load(setting.render.example),
+            {"guidance_loss_target": [2.0, 5.0]},
+        )
+        normalization = " ".join(
+            item.description for item in setting.normalizations
+        ).casefold()
+        self.assertIn("tuple", normalization)
+        self.assertIn("list", normalization)
+        teaching = " ".join(vars(setting.render).values()).casefold()
+        for phrase in (
+            "guidance_loss_target: 3.0", "[2.0, 5.0]", "element 0",
+            "elements 0 and 1", "indexerror", "extra elements",
+        ):
+            self.assertIn(phrase, teaching)
 
     def test_catalog_train_components_scope_and_complete_train_config_are_exactly_owned(self):
         try:

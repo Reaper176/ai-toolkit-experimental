@@ -17872,11 +17872,16 @@
         }
       ],
       "contract": {
-        "parser_type": "number",
-        "supported_type": "number",
+        "parser_type": "number-or-number-pair",
+        "supported_type": "number or exactly two numbers in a tuple/list",
         "ui_type": null,
-        "example_type": "number",
+        "example_type": "number-list",
         "accepted_values": null,
+        "accepted_types": [
+          "number",
+          "number-list"
+        ],
+        "collection_length": 2,
         "range": null,
         "null": "rejected"
       },
@@ -17890,7 +17895,7 @@
       ],
       "normalizations": [
         {
-          "description": "A tuple guidance target is converted to a list after parsing.",
+          "description": "An exact two-number tuple guidance target is converted to a two-number list after parsing.",
           "applicability": []
         }
       ],
@@ -17915,10 +17920,10 @@
       "render": {
         "page": "reference/training.md",
         "anchor": "train-guidance-loss-target",
-        "description": "Sets the guidance target, optionally supplied as a list before normalization.",
-        "benefits": "Controls the endpoint used by the auxiliary guidance objective.",
-        "drawbacks": "An aggressive target can amplify unstable conditional differences.",
-        "example": "guidance_loss_target: 3.0"
+        "description": "A scalar such as guidance_loss_target: 3.0 stays constant. An exact pair such as [2.0, 5.0] uses element 0 initially, then randomizes each training batch between elements 0 and 1 while guidance loss is enabled.",
+        "benefits": "Use a scalar for one fixed auxiliary-guidance target or a two-number pair to sample a bounded target per training example.",
+        "drawbacks": "A one-element list reaches element 1 and raises IndexError during training. Extra elements are ignored by the runtime and are outside the supported exact-pair contract; aggressive targets can amplify unstable conditional differences.",
+        "example": "guidance_loss_target: [2.0, 5.0]"
       }
     },
     {
