@@ -1868,7 +1868,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
         optimizer = settings["train.optimizer"]
         registry_facts = tuple(
             fact for fact in self.discovered
-            if fact.read_kind in {"optimizer.registry", "optimizer.registry_prefix"}
+            if fact.read_kind.startswith("optimizer.registry")
         )
         registry_claims = {
             (claim.source, claim.symbol, claim.key, claim.read_kind)
@@ -1882,10 +1882,15 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 for fact in registry_facts
             },
         )
-        expected_choices = {
-            fact.key + ("*" if fact.read_kind == "optimizer.registry_prefix" else "")
-            for fact in registry_facts
-        }
+        def displayed_choice(fact):
+            if fact.read_kind == "optimizer.registry_prefix":
+                return fact.key + "*"
+            if fact.read_kind == "optimizer.registry_combined":
+                prefix, suffix = fact.key.split(";", maxsplit=1)
+                return prefix.removeprefix("prefix=") + "*" + suffix.removeprefix("suffix=")
+            return fact.key
+
+        expected_choices = {displayed_choice(fact) for fact in registry_facts}
         self.assertEqual(set(optimizer.contract.accepted_values or ()), expected_choices)
         for library in ("dadaptation", "prodigyopt", "bitsandbytes", "lion_pytorch"):
             self.assertIn(library, optimizer.render.drawbacks)
@@ -1916,6 +1921,48 @@ class CatalogProductionSliceTests(unittest.TestCase):
             if item.reason == "arbitrary third-party constructor surface"
         }
         self.assertEqual(boundary_exclusions, boundary_ids)
+
+    def test_catalog_dadaptation_combined_dispatch_patterns_are_exact(self):
+        combined_facts = {
+            (fact.key, fact.read_kind, fact.default_expression)
+            for fact in self.discovered
+            if fact.read_kind == "optimizer.registry_combined"
+        }
+        self.assertEqual(
+            combined_facts,
+            {
+                ("prefix=dadaptation;suffix=adam", "optimizer.registry_combined", "dadaptation.DAdaptLion"),
+                ("prefix=dadaptation;suffix=lion", "optimizer.registry_combined", "dadaptation.DAdaptLion"),
+            },
+        )
+        self.assertFalse(
+            any(
+                fact.key in {"dadaptationadam", "dadaptationlion"}
+                and fact.read_kind == "optimizer.registry"
+                for fact in self.discovered
+            )
+        )
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        optimizer = next(setting for setting in catalog.settings if setting.id == "train.optimizer")
+        combined_claims = {
+            (claim.key, claim.read_kind)
+            for claim in optimizer.source_claims
+            if claim.read_kind == "optimizer.registry_combined"
+        }
+        self.assertEqual(
+            combined_claims,
+            {
+                ("prefix=dadaptation;suffix=adam", "optimizer.registry_combined"),
+                ("prefix=dadaptation;suffix=lion", "optimizer.registry_combined"),
+            },
+        )
+        teaching = " ".join(vars(optimizer.render).values()).casefold()
+        for phrase in ("starts with dadaptation", "ends with adam", "ends with lion"):
+            self.assertIn(phrase, teaching)
 
     def test_catalog_optimizer_parameter_matrix_is_discriminator_scoped_and_exhaustive(self):
         catalog = load_settings_catalog(
@@ -1987,7 +2034,10 @@ class CatalogProductionSliceTests(unittest.TestCase):
         )
         settings = {setting.id: setting for setting in catalog.settings}
         optimizer_text = " ".join(vars(settings["train.optimizer"].render).values()).casefold()
-        for phrase in ("dadaptationadam dispatches dadaptlion", "bare dadaptation", "deprecated"):
+        for phrase in (
+            "starts with dadaptation", "ends with adam", "ends with lion",
+            "bare dadaptation", "deprecated",
+        ):
             self.assertIn(phrase, optimizer_text)
         for choice in ("dadaptation", "dadaptationadam", "dadaptationlion", "prodigy*", "prodigy8bit*"):
             lr = settings[f"optimizer.{choice}.param.lr"]
@@ -3353,6 +3403,62 @@ class DiscoveryContractTests(unittest.TestCase):
         }
         self.assertEqual(registry_keys, {"adam", "adamw"})
         with self.assertRaisesRegex(DiscoveryError, "adamw"):
+            validate_setting_ownership(changed, claims, ())
+
+    def test_training_dispatch_contract_preserves_combined_prefix_suffix_identity(self):
+        path = self.write_source(
+            "toolkit/optimizer.py",
+            """def get_optimizer(params, optimizer_type, optimizer_params):
+    lower_type = optimizer_type.lower()
+    if lower_type.startswith("family"):
+        from toolkit.optimizers.magic import Magic
+        if lower_type.endswith("lion"):
+            return Magic(params, lr=1.0, **optimizer_params)
+    raise ValueError(lower_type)
+""",
+        )
+        self.write_source(
+            "toolkit/optimizers/magic.py",
+            """class Magic:
+    def __init__(self, params, lr=1.0):
+        pass
+""",
+        )
+        baseline = discover_python_settings(
+            self.repository_root,
+            ("toolkit/optimizer.py", "toolkit/optimizers/*.py"),
+        )
+        self.assertEqual(
+            {
+                (fact.key, fact.read_kind)
+                for fact in baseline
+                if fact.read_kind.startswith("optimizer.registry")
+            },
+            {("prefix=family;suffix=lion", "optimizer.registry_combined")},
+        )
+        self.assertIn(
+            ("prefix=family;suffix=lion__lr", "optimizer.injected"),
+            {(fact.key, fact.read_kind) for fact in baseline},
+        )
+        self.assertFalse(any(fact.key.startswith("familylion") for fact in baseline))
+        claims = tuple(
+            SourceClaim(fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in baseline
+        )
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "            return Magic(params, lr=1.0, **optimizer_params)",
+                "            return Magic(params, lr=1.0, **optimizer_params)\n"
+                "        elif lower_type.endswith(\"adam\"):\n"
+                "            return Magic(params, lr=1.0, **optimizer_params)",
+            ),
+            encoding="utf-8",
+        )
+        changed = discover_python_settings(
+            self.repository_root,
+            ("toolkit/optimizer.py", "toolkit/optimizers/*.py"),
+        )
+        with self.assertRaisesRegex(DiscoveryError, r"prefix=family;suffix=adam"):
             validate_setting_ownership(changed, claims, ())
 
     def test_training_dispatch_contract_follows_optimizer_and_scheduler_spread_aliases(self):

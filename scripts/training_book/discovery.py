@@ -3260,6 +3260,15 @@ def _collect_source_paths(
 class _DispatchSelector:
     kind: str
     value: str
+    suffix: str | None = None
+
+    @property
+    def identity(self) -> str:
+        if self.kind == "combined":
+            if self.suffix is None:
+                raise DiscoveryError("combined dispatch selector is missing its suffix")
+            return f"prefix={self.value};suffix={self.suffix}"
+        return self.value
 
 
 def _dispatch_imports(tree: ast.Module) -> dict[str, str]:
@@ -3417,26 +3426,40 @@ def _combine_dispatch_selectors(
 ) -> _DispatchSelector | None:
     if outer is None:
         return inner
-    if inner.kind == "exact":
-        if outer.kind == "exact" and outer.value != inner.value:
-            return None
-        if outer.kind == "prefix" and not inner.value.startswith(outer.value):
-            return None
-        if outer.kind == "suffix" and not inner.value.endswith(outer.value):
-            return None
-        return inner
-    if outer.kind == "exact":
-        if inner.kind == "prefix" and outer.value.startswith(inner.value):
-            return outer
-        if inner.kind == "suffix" and outer.value.endswith(inner.value):
-            return outer
+
+    selectors = (outer, inner)
+    exacts = [selector.value for selector in selectors if selector.kind == "exact"]
+    prefixes = [
+        selector.value
+        for selector in selectors
+        if selector.kind in {"prefix", "combined"}
+    ]
+    suffixes = [
+        selector.suffix if selector.kind == "combined" else selector.value
+        for selector in selectors
+        if selector.kind in {"suffix", "combined"}
+    ]
+    if exacts and any(value != exacts[0] for value in exacts[1:]):
         return None
-    if {outer.kind, inner.kind} == {"prefix", "suffix"}:
-        prefix = outer.value if outer.kind == "prefix" else inner.value
-        suffix = outer.value if outer.kind == "suffix" else inner.value
-        return _DispatchSelector("exact", prefix + suffix)
-    if outer.kind == inner.kind and outer.value == inner.value:
-        return outer
+    prefix = max(prefixes, key=len) if prefixes else None
+    if prefix is not None and any(not prefix.startswith(value) for value in prefixes):
+        return None
+    suffix = max(suffixes, key=len) if suffixes else None
+    if suffix is not None and any(not suffix.endswith(value) for value in suffixes):
+        return None
+    if exacts:
+        exact = exacts[0]
+        if prefix is not None and not exact.startswith(prefix):
+            return None
+        if suffix is not None and not exact.endswith(suffix):
+            return None
+        return _DispatchSelector("exact", exact)
+    if prefix is not None and suffix is not None:
+        return _DispatchSelector("combined", prefix, suffix)
+    if prefix is not None:
+        return _DispatchSelector("prefix", prefix)
+    if suffix is not None:
+        return _DispatchSelector("suffix", suffix)
     return None
 
 
@@ -3454,8 +3477,8 @@ def _dispatch_subscript_key(node: ast.AST, name: str) -> str | None:
 
 def _dispatch_key(selector: _DispatchSelector, parameter: str | None = None) -> str:
     choice = "".join(
-        character if character.isalnum() or character in "_-" else "_"
-        for character in selector.value
+        character if character.isalnum() or character in "_=;-" else "_"
+        for character in selector.identity
     )
     return choice if parameter is None else f"{choice}__{parameter}"
 

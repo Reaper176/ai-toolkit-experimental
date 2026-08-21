@@ -21295,8 +21295,8 @@
           "automagic3",
           "automagicexperiment",
           "dadaptation",
-          "dadaptationadam",
-          "dadaptationlion",
+          "dadaptation*adam",
+          "dadaptation*lion",
           "lion",
           "lion8bit",
           "prodigy*",
@@ -21411,14 +21411,14 @@
         {
           "source": "toolkit/optimizer.py",
           "symbol": "get_optimizer",
-          "key": "dadaptationadam",
-          "read_kind": "optimizer.registry"
+          "key": "prefix=dadaptation;suffix=adam",
+          "read_kind": "optimizer.registry_combined"
         },
         {
           "source": "toolkit/optimizer.py",
           "symbol": "get_optimizer",
-          "key": "dadaptationlion",
-          "read_kind": "optimizer.registry"
+          "key": "prefix=dadaptation;suffix=lion",
+          "read_kind": "optimizer.registry_combined"
         },
         {
           "source": "toolkit/optimizer.py",
@@ -21466,7 +21466,7 @@
       "render": {
         "page": "reference/training.md",
         "anchor": "train-optimizer",
-        "description": "Dispatches optimizer names exactly: dadaptationadam dispatches DAdaptLion, dadaptationlion also constructs DAdaptLion, while bare dadaptation constructs deprecated DAdaptAdam and prints a migration warning. Automagic2 is always fused into backward; Automagic3 and AutomagicEXPERIMENT default to fused but accept fused=false for ordinary optimizer stepping.",
+        "description": "Dispatches optimizer names by closed selectors: any name that starts with dadaptation and ends with adam or ends with lion constructs DAdaptLion, while exact bare dadaptation constructs deprecated DAdaptAdam and prints a migration warning. Automagic2 is always fused into backward; Automagic3 and AutomagicEXPERIMENT default to fused but accept fused=false for ordinary optimizer stepping.",
         "benefits": "Makes optimizer algorithm, optional-library, and adaptive learning-rate behavior explicit.",
         "drawbacks": "dadaptation, prodigyopt, bitsandbytes, and lion_pytorch choices fail when unavailable; Prodigy branches and DAdaptation replace train.lr below 0.1 with 1.0. Automagic2 always fused bypasses ordinary gradient accumulation and pre-step gradient clipping. For AdamW8, optimizer_params.decouple duplicates the dispatcher-injected decouple keyword and raises TypeError.",
         "example": "optimizer: adamw"
@@ -27580,7 +27580,7 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": {
-            "get_optimizer.dadaptationadam__eps": "1e-06"
+            "get_optimizer.prefix=dadaptation;suffix=adam__eps": "1e-06"
           },
           "applicability": []
         }
@@ -27600,14 +27600,14 @@
         {
           "source": "toolkit/optimizer.py",
           "symbol": "get_optimizer",
-          "key": "dadaptationadam__eps",
+          "key": "prefix=dadaptation;suffix=adam__eps",
           "read_kind": "optimizer.injected"
         }
       ],
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-dadaptationadam-param-eps",
-        "description": "In dadaptationadam, adds a denominator stability floor; discovered defaults are get_optimizer.dadaptationadam__eps=1e-06.",
+        "description": "For the dadaptationadam example and every DAdaptation name ending in adam, the dispatcher injects eps=1e-6 into DAdaptLion.",
         "benefits": "For dadaptationadam, use train.lr and leave optimizer_params empty so eps is supplied once.",
         "drawbacks": "With dadaptationadam, large eps risks suppressing small gradients. For dadaptationadam, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
@@ -27654,7 +27654,7 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": {
-            "get_optimizer.dadaptationadam__lr": "use_lr"
+            "get_optimizer.prefix=dadaptation;suffix=adam__lr": "use_lr"
           },
           "applicability": []
         }
@@ -27683,14 +27683,14 @@
         {
           "source": "toolkit/optimizer.py",
           "symbol": "get_optimizer",
-          "key": "dadaptationadam__lr",
+          "key": "prefix=dadaptation;suffix=adam__lr",
           "read_kind": "optimizer.injected"
         }
       ],
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-dadaptationadam-param-lr",
-        "description": "In dadaptationadam, receives train.lr from the dispatcher; discovered defaults are get_optimizer.dadaptationadam__lr=use_lr.",
+        "description": "For the dadaptationadam example and every DAdaptation name ending in adam, the dispatcher passes normalized train.lr to DAdaptLion.",
         "benefits": "For dadaptationadam, use train.lr and leave optimizer_params empty so lr is supplied once.",
         "drawbacks": "With dadaptationadam, optimizer_params duplication raises TypeError. For dadaptationadam, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
@@ -27737,7 +27737,7 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": {
-            "get_optimizer.dadaptationlion__eps": "1e-06"
+            "get_optimizer.prefix=dadaptation;suffix=lion__eps": "1e-06"
           },
           "applicability": []
         }
@@ -27757,14 +27757,14 @@
         {
           "source": "toolkit/optimizer.py",
           "symbol": "get_optimizer",
-          "key": "dadaptationlion__eps",
+          "key": "prefix=dadaptation;suffix=lion__eps",
           "read_kind": "optimizer.injected"
         }
       ],
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-dadaptationlion-param-eps",
-        "description": "In dadaptationlion, adds a denominator stability floor; discovered defaults are get_optimizer.dadaptationlion__eps=1e-06.",
+        "description": "For the dadaptationlion example and every DAdaptation name ending in lion, the dispatcher injects eps=1e-6 into DAdaptLion.",
         "benefits": "For dadaptationlion, use train.lr and leave optimizer_params empty so eps is supplied once.",
         "drawbacks": "With dadaptationlion, large eps risks suppressing small gradients. For dadaptationlion, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
@@ -27811,7 +27811,7 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": {
-            "get_optimizer.dadaptationlion__lr": "use_lr"
+            "get_optimizer.prefix=dadaptation;suffix=lion__lr": "use_lr"
           },
           "applicability": []
         }
@@ -27840,14 +27840,14 @@
         {
           "source": "toolkit/optimizer.py",
           "symbol": "get_optimizer",
-          "key": "dadaptationlion__lr",
+          "key": "prefix=dadaptation;suffix=lion__lr",
           "read_kind": "optimizer.injected"
         }
       ],
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-dadaptationlion-param-lr",
-        "description": "In dadaptationlion, receives train.lr from the dispatcher; discovered defaults are get_optimizer.dadaptationlion__lr=use_lr.",
+        "description": "For the dadaptationlion example and every DAdaptation name ending in lion, the dispatcher passes normalized train.lr to DAdaptLion.",
         "benefits": "For dadaptationlion, use train.lr and leave optimizer_params empty so lr is supplied once.",
         "drawbacks": "With dadaptationlion, optimizer_params duplication raises TypeError. For dadaptationlion, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"

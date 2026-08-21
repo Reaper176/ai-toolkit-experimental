@@ -1068,14 +1068,14 @@
     {
       "source": "toolkit/optimizer.py",
       "symbol": "get_optimizer",
-      "key": "dadaptationadam",
+      "key": "prefix=dadaptation;suffix=adam",
       "read_kind": "optimizer.external_boundary",
       "reason": "arbitrary third-party constructor surface"
     },
     {
       "source": "toolkit/optimizer.py",
       "symbol": "get_optimizer",
-      "key": "dadaptationlion",
+      "key": "prefix=dadaptation;suffix=lion",
       "read_kind": "optimizer.external_boundary",
       "reason": "arbitrary third-party constructor surface"
     },
