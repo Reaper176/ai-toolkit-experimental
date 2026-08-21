@@ -1870,7 +1870,10 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 and item.key in {"first_sample", "sample", "save"}
             )
         if scope == "data":
-            return any(
+            return (
+                item.source == "toolkit/config_modules.py"
+                and item.symbol == "DatasetConfig.__init__"
+            ) or any(
                 cls._in_scope(item, slice_name)
                 for slice_name in (
                     "dataset-core",
@@ -3278,6 +3281,34 @@ class CatalogProductionSliceTests(unittest.TestCase):
 
     def test_catalog_combined_data_scope_is_exactly_owned(self):
         self.assert_catalog_selector_green("--scope", "data")
+
+    def test_catalog_combined_data_scope_rejects_future_dataset_config_keys(self):
+        future = DiscoveredSetting(
+            "toolkit/config_modules.py",
+            "DatasetConfig.__init__",
+            9999,
+            "future_dataset_knob",
+            "kwargs.get",
+            "core",
+            "False",
+        )
+        discovered = tuple(
+            item
+            for item in self.discovered + (future,)
+            if self._in_scope(item, "data")
+        )
+        with self.assertRaisesRegex(DiscoveryError, "unowned.*future_dataset_knob"):
+            validate_setting_ownership(
+                discovered,
+                tuple(
+                    item for item in self.claims
+                    if self._in_scope(item, "data")
+                ),
+                tuple(
+                    item for item in self.exclusions
+                    if self._in_scope(item, "data")
+                ),
+            )
 
     def test_catalog_data_slice_cli_scopes_are_public_and_exact(self):
         for scope in (

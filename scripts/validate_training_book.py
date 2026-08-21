@@ -255,7 +255,10 @@ def _in_save_sample_validation(item) -> bool:
 
 def _in_data(item) -> bool:
     return (
-        _in_dataset_keys(item, DATASET_CORE_KEYS | DATASET_MODALITY_KEYS)
+        (
+            item.source == "toolkit/config_modules.py"
+            and item.symbol == "DatasetConfig.__init__"
+        )
         or _in_data_loader_cache(item)
         or _in_save_sample_validation(item)
     )
