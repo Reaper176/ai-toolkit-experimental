@@ -2324,7 +2324,7 @@
           "minimum_inclusive": true,
           "maximum_inclusive": true
         },
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -2336,7 +2336,7 @@
       ],
       "normalizations": [
         {
-          "description": "Zero disables periodic save cadence; the unconditional final save still occurs at training completion. Each scheduled model/network save also attempts to serialize the active optimizer state to optimizer.pt at the save root; optimizer-state save failures are reported without making optimizer.pt a LoRA checkpoint.",
+          "description": "Zero or explicit null is preserved and falsey at the truthiness guard, so either value disables periodic save cadence; the unconditional final save still occurs at training completion. Each scheduled model/network save also attempts to serialize the active optimizer state to optimizer.pt at the save root; optimizer-state save failures are reported without making optimizer.pt a LoRA checkpoint.",
           "applicability": []
         }
       ],
@@ -3575,7 +3575,7 @@
           "minimum_inclusive": true,
           "maximum_inclusive": true
         },
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -3587,7 +3587,7 @@
       ],
       "normalizations": [
         {
-          "description": "Zero disables periodic sample cadence; sampling explicitly requested through first/final or manual paths is separate from this periodic truthiness check.",
+          "description": "Zero or explicit null is preserved and falsey at the truthiness guard, so either value disables periodic sample cadence; sampling explicitly requested through first/final or manual paths is separate from this periodic check.",
           "applicability": []
         }
       ],
@@ -12330,7 +12330,7 @@
           "minimum_inclusive": true,
           "maximum_inclusive": true
         },
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -12342,7 +12342,7 @@
       ],
       "normalizations": [
         {
-          "description": "Zero disables periodic validation cadence, but initial validation still runs when the current step equals start_step.",
+          "description": "Zero or explicit null is preserved and falsey at the truthiness guard, so either value disables periodic validation cadence, but initial validation still runs when the current step equals start_step.",
           "applicability": []
         }
       ],
@@ -30356,11 +30356,18 @@
       ],
       "normalizations": [
         {
-          "description": "Zero disables random-trigger insertion. One inserts one trigger whenever the trigger collection is truthy; values above one randomly choose a count from zero through the configured maximum before sampling.",
+          "description": "Zero disables random-trigger insertion. A positive maximum randomly chooses a count from zero through that maximum before sampling, and must be less than or equal to the resolved trigger population length; otherwise randint can intermittently choose an oversized count and random.sample raises ValueError.",
           "applicability": []
         }
       ],
-      "interactions": [],
+      "interactions": [
+        {
+          "setting": "dataset.random_triggers",
+          "kind": "constrains",
+          "description": "For a positive value, random_triggers_max must be less than or equal to the resolved trigger population length, including character population when a nonexistent path remains a string.",
+          "applicability": []
+        }
+      ],
       "aliases": [],
       "section": "dataset",
       "source_claims": [
@@ -30376,7 +30383,7 @@
         "anchor": "dataset-random-triggers-max",
         "description": "Limits how many random trigger strings are inserted into one caption.",
         "benefits": "Bounds trigger augmentation while permitting controlled variation.",
-        "drawbacks": "Large values can dominate short captions and blur the concept.",
+        "drawbacks": "A value larger than the resolved trigger population can fail intermittently with ValueError when randint chooses too many entries for random.sample.",
         "example": "random_triggers_max: 1"
       }
     },

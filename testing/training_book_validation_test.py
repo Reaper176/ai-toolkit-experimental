@@ -1,5 +1,6 @@
 import ast
 import json
+import random
 import re
 import shutil
 import subprocess
@@ -2992,12 +2993,22 @@ class CatalogProductionSliceTests(unittest.TestCase):
 
         maximum = settings["dataset.random_triggers_max"]
         self.assertEqual(maximum.contract.range.minimum, 0)
+        self.assertIsNone(maximum.contract.range.maximum)
         maximum_teaching = " ".join(
             [*vars(maximum.render).values()]
             + [item.description for item in maximum.normalizations]
+            + [item.description for item in maximum.interactions]
         ).casefold()
-        self.assertIn("zero", maximum_teaching)
-        self.assertIn("disables", maximum_teaching)
+        for phrase in (
+            "zero", "disables", "positive", "resolved trigger population",
+            "less than or equal", "valueerror", "intermittent",
+        ):
+            self.assertIn(phrase, maximum_teaching)
+        trigger_constraints = [
+            item for item in maximum.interactions
+            if item.setting == "dataset.random_triggers" and item.kind == "constrains"
+        ]
+        self.assertEqual(len(trigger_constraints), 1)
 
         config_source = (
             REPOSITORY_ROOT / "toolkit/config_modules.py"
@@ -3015,6 +3026,11 @@ class CatalogProductionSliceTests(unittest.TestCase):
             consumer_source,
         )
         self.assertIn("if num_triggers > 0:", consumer_source)
+        with mock.patch.object(random, "randint", return_value=2):
+            oversized_count = random.randint(0, 2)
+        self.assertEqual(oversized_count, 2)
+        with self.assertRaisesRegex(ValueError, "Sample larger than population"):
+            random.sample(["only-trigger"], oversized_count)
 
     def test_catalog_dataset_modalities_scope_is_exactly_owned(self):
         self.assert_catalog_selector_green("--scope", "dataset-modalities")
@@ -3588,9 +3604,11 @@ class CatalogProductionSliceTests(unittest.TestCase):
             with self.subTest(cadence=setting_id):
                 self.assertEqual(setting.contract.supported_type, "nonnegative-integer")
                 self.assertEqual(setting.contract.range.minimum, 0)
+                self.assertEqual(setting.contract.null, "accepted")
                 self.assertIn("zero", teaching)
                 self.assertIn("periodic", teaching)
                 self.assertIn("disables", teaching)
+                self.assertIn("explicit null", teaching)
 
         validation_teaching = " ".join(
             [*vars(settings["train.validation.validate_every_n_steps"].render).values()]
