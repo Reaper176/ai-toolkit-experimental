@@ -19745,6 +19745,1955 @@
         "drawbacks": "A semantically loaded baseline changes what the guidance difference means.",
         "example": "unconditional_prompt: low quality"
       }
+    },
+    {
+      "id": "train.adapter_assist_name_or_path",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.adapter_assist_name_or_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "path-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "adapter_assist_name_or_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-adapter-assist-name-or-path",
+        "description": "Loads an assistant adapter used during supported denoising passes.",
+        "benefits": "Reuses a pretrained adapter as auxiliary conditioning during training.",
+        "drawbacks": "The path must match the selected adapter type and loadable model format.",
+        "example": "adapter_assist_name_or_path: /models/adapter"
+      }
+    },
+    {
+      "id": "train.adapter_assist_type",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.adapter_assist_type"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "t2i",
+          "control_net"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "t2i",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.adapter_assist_name_or_path",
+          "kind": "requires",
+          "description": "The type selects how a configured assistant path is loaded.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "adapter_assist_type",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-adapter-assist-type",
+        "description": "Selects the t2i-adapter or control-net assistant loader.",
+        "benefits": "Routes the assistant path to the matching adapter implementation.",
+        "drawbacks": "Any other spelling raises an unknown adapter-assist type error.",
+        "example": "adapter_assist_type: t2i"
+      }
+    },
+    {
+      "id": "train.attention_backend",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.attention_backend"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "native",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.xformers",
+          "kind": "affects",
+          "description": "Both controls may be applied; actual precedence belongs to the model's attention implementation.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "attention_backend",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-attention-backend",
+        "description": "Requests an attention backend on components that expose set_attention_backend.",
+        "benefits": "Allows compatible models to select optimized attention implementations.",
+        "drawbacks": "Backend names and availability depend on installed Diffusers and hardware support.",
+        "example": "attention_backend: native"
+      }
+    },
+    {
+      "id": "train.bypass_guidance_embedding",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.bypass_guidance_embedding"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.do_guidance_loss",
+          "kind": "conflicts",
+          "description": "Configuration validation rejects bypassed guidance embeddings together with guidance loss.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "bypass_guidance_embedding",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-bypass-guidance-embedding",
+        "description": "Bypasses guidance embeddings on compatible guided models.",
+        "benefits": "Supports models or training objectives that do not use their guidance embedding.",
+        "drawbacks": "Configuration validation rejects this together with guidance loss.",
+        "example": "bypass_guidance_embedding: false"
+      }
+    },
+    {
+      "id": "train.cache_text_embeddings",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.cache_text_embeddings"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.train_text_encoder",
+          "kind": "conflicts",
+          "description": "Cached embeddings cannot track encoder updates and SDTrainer rejects this combination.",
+          "applicability": []
+        },
+        {
+          "setting": "train.unload_text_encoder",
+          "kind": "affects",
+          "description": "Any dataset text cache enters the same cache-and-unload path as unload_text_encoder.",
+          "applicability": []
+        },
+        {
+          "setting": "dataset.cache_latents",
+          "kind": "affects",
+          "description": "Text embedding caching is independent of latent caching; enabling one does not imply the other.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "cache_text_embeddings",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-cache-text-embeddings",
+        "description": "Forces every dataset to cache text embeddings.",
+        "benefits": "Avoids repeated text encoding and allows the encoder to be unloaded.",
+        "drawbacks": "Cached text cannot reflect text-encoder updates, so text-encoder training is rejected.",
+        "example": "cache_text_embeddings: false"
+      }
+    },
+    {
+      "id": "train.diffusion_feature_extractor_path",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.diffusion_feature_extractor_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "path-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "train.latent_feature_extractor_path"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission inherits latent_feature_extractor_path; explicit null disables extractor loading.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "train.latent_feature_extractor_path",
+          "kind": "fallback",
+          "description": "Omission inherits the legacy latent feature extractor path.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "diffusion_feature_extractor_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-diffusion-feature-extractor-path",
+        "description": "Loads the diffusion feature extractor used for auxiliary feature loss.",
+        "benefits": "Adds a learned perceptual target from the configured extractor.",
+        "drawbacks": "Loading another model costs memory and only supported extractor structures are checkpointed.",
+        "example": "diffusion_feature_extractor_path: /models/feature-extractor"
+      }
+    },
+    {
+      "id": "train.diffusion_feature_extractor_weight",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.diffusion_feature_extractor_weight"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "train.latent_feature_loss_weight"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission inherits latent_feature_loss_weight.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "train.latent_feature_loss_weight",
+          "kind": "fallback",
+          "description": "Omission inherits the legacy latent feature loss weight.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "diffusion_feature_extractor_weight",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-diffusion-feature-extractor-weight",
+        "description": "Scales auxiliary diffusion-feature loss.",
+        "benefits": "Balances feature similarity against the primary diffusion objective.",
+        "drawbacks": "A large weight can make extractor features dominate optimization.",
+        "example": "diffusion_feature_extractor_weight: 1.0"
+      }
+    },
+    {
+      "id": "train.do_paramiter_swapping",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.do_paramiter_swapping"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer must expose enable_paramiter_swapping and the wrapped optimizer must expose swap_paramiters.",
+          "applicability": []
+        },
+        {
+          "setting": "train.paramiter_swapping_factor",
+          "kind": "requires",
+          "description": "The factor sets the active parameter target when swapping is enabled.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "do_paramiter_swapping",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-do-paramiter-swapping",
+        "description": "Rotates which parameters require gradients during training.",
+        "benefits": "Can lower active-gradient memory by updating a subset at a time.",
+        "drawbacks": "The trainer calls optimizer-specific swapping hooks and unsupported optimizers fail.",
+        "example": "do_paramiter_swapping: false"
+      }
+    },
+    {
+      "id": "train.free_u",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.free_u"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "free_u",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-free-u",
+        "description": "Enables FreeU behavior around supported training and sampling passes.",
+        "benefits": "Can rebalance backbone and skip features without changing model weights.",
+        "drawbacks": "Only trainers and models implementing the FreeU hooks respond to this flag.",
+        "example": "free_u: false"
+      }
+    },
+    {
+      "id": "train.latent_feature_extractor_path",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.latent_feature_extractor_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "path-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.diffusion_feature_extractor_path",
+          "kind": "fallback",
+          "description": "This legacy value supplies the fallback for the replacement field.",
+          "applicability": []
+        }
+      ],
+      "aliases": [
+        {
+          "location": "config.process[*].train.latent_feature_extractor_path",
+          "replacement": "train.diffusion_feature_extractor_path",
+          "precedence": "replacement-wins",
+          "migration": "Rename latent_feature_extractor_path to diffusion_feature_extractor_path.",
+          "status": "legacy"
+        }
+      ],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "latent_feature_extractor_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-latent-feature-extractor-path",
+        "description": "Provides the legacy name for diffusion_feature_extractor_path.",
+        "benefits": "Keeps older configurations working as the fallback extractor path.",
+        "drawbacks": "The legacy name is less clear and loses precedence when the replacement is supplied.",
+        "example": "latent_feature_extractor_path: /models/feature-extractor"
+      }
+    },
+    {
+      "id": "train.latent_feature_loss_weight",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.latent_feature_loss_weight"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.diffusion_feature_extractor_weight",
+          "kind": "fallback",
+          "description": "This legacy value supplies the fallback for the replacement field.",
+          "applicability": []
+        }
+      ],
+      "aliases": [
+        {
+          "location": "config.process[*].train.latent_feature_loss_weight",
+          "replacement": "train.diffusion_feature_extractor_weight",
+          "precedence": "replacement-wins",
+          "migration": "Rename latent_feature_loss_weight to diffusion_feature_extractor_weight.",
+          "status": "legacy"
+        }
+      ],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "latent_feature_loss_weight",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-latent-feature-loss-weight",
+        "description": "Provides the legacy fallback for diffusion_feature_extractor_weight.",
+        "benefits": "Preserves auxiliary-loss strength in older configurations.",
+        "drawbacks": "The replacement weight takes precedence, so keeping both can be confusing.",
+        "example": "latent_feature_loss_weight: 1.0"
+      }
+    },
+    {
+      "id": "train.match_adapter_assist",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.match_adapter_assist"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "True changes a zero match_adapter_chance to 1.0; otherwise the parsed boolean is not retained.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "train.match_adapter_chance",
+          "kind": "overrides",
+          "description": "When true and match_adapter_chance is zero, parsing raises the chance to 1.0.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "match_adapter_assist",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-match-adapter-assist",
+        "description": "Enables the legacy shortcut that raises a zero adapter-match chance to one.",
+        "benefits": "Maintains previous always-match behavior without rewriting old files.",
+        "drawbacks": "It is not stored as a TrainConfig attribute and only normalizes match_adapter_chance.",
+        "example": "match_adapter_assist: false"
+      }
+    },
+    {
+      "id": "train.match_adapter_chance",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.match_adapter_chance"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "match_adapter_chance",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-match-adapter-chance",
+        "description": "Sets the probability of matching the assistant adapter on an eligible batch.",
+        "benefits": "Mixes assisted and unassisted passes within one run.",
+        "drawbacks": "High probability can make the network depend on auxiliary adapter residuals.",
+        "example": "match_adapter_chance: 0.5"
+      }
+    },
+    {
+      "id": "train.merge_network_on_save",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.merge_network_on_save"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "merge_network_on_save",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-merge-network-on-save",
+        "description": "Saves checkpoints with network weights merged into the base model.",
+        "benefits": "Produces a directly usable full-model checkpoint at save time.",
+        "drawbacks": "Merged saves are larger and change how later checkpoints and pretrained networks are loaded.",
+        "example": "merge_network_on_save: false"
+      }
+    },
+    {
+      "id": "train.merge_network_on_save_strength",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.merge_network_on_save_strength"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.merge_network_on_save",
+          "kind": "requires",
+          "description": "Merge strength is consumed while network weights are merged for saving.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "merge_network_on_save_strength",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-merge-network-on-save-strength",
+        "description": "Sets the network strength used during merge-on-save.",
+        "benefits": "Allows a merged checkpoint to bake in less than full adapter strength.",
+        "drawbacks": "A nonunit strength changes the exported model relative to training-time behavior.",
+        "example": "merge_network_on_save_strength: 1.0"
+      }
+    },
+    {
+      "id": "train.negative_prompt",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.negative_prompt"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string-or-path-or-null",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "negative_prompt",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-negative-prompt",
+        "description": "Provides one negative prompt or a file containing a prompt pool.",
+        "benefits": "Adds reusable unconditional text for CFG-oriented training paths.",
+        "drawbacks": "A file path is interpreted from the local filesystem and unsuitable negatives bias conditioning.",
+        "example": "negative_prompt: low quality"
+      }
+    },
+    {
+      "id": "train.optimizer",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "adamw",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "optimizer",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-optimizer",
+        "description": "Selects the optimizer dispatched by toolkit.optimizer.get_optimizer.",
+        "benefits": "Makes optimizer algorithm and state-memory tradeoffs configurable.",
+        "drawbacks": "Optional choices fail when their Python libraries are unavailable, and prefix dispatch accepts families.",
+        "example": "optimizer: adamw"
+      }
+    },
+    {
+      "id": "train.optimizer_params",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object-or-null",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {},
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines which keyword parameters are valid.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "optimizer_params",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-optimizer-params",
+        "description": "Passes optimizer-specific keyword arguments through dispatch.",
+        "benefits": "Exposes first-party optimizer controls without adding top-level TrainConfig fields.",
+        "drawbacks": "Unknown or duplicate injected arguments raise constructor errors; external constructor surfaces are not finite.",
+        "example": "optimizer_params: {weight_decay: 0.01}"
+      }
+    },
+    {
+      "id": "train.paramiter_swapping_factor",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.paramiter_swapping_factor"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0.1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.do_paramiter_swapping",
+          "kind": "requires",
+          "description": "The factor is consumed only when parameter swapping is active.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "paramiter_swapping_factor",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-paramiter-swapping-factor",
+        "description": "Sets the target fraction of parameters kept active during swapping.",
+        "benefits": "Trades active-gradient memory for sparser per-step parameter coverage.",
+        "drawbacks": "A small fraction slows coverage and is ignored unless parameter swapping is enabled.",
+        "example": "paramiter_swapping_factor: 0.1"
+      }
+    },
+    {
+      "id": "train.sdp",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.sdp"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "sdp",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-sdp",
+        "description": "Enables PyTorch math, flash, and memory-efficient SDP backends globally.",
+        "benefits": "Allows PyTorch to select among available scaled-dot-product attention kernels.",
+        "drawbacks": "Global backend changes are hardware-dependent and can overlap other attention controls.",
+        "example": "sdp: false"
+      }
+    },
+    {
+      "id": "train.short_and_long_captions",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.short_and_long_captions"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.batch_size",
+          "kind": "affects",
+          "description": "Eligible items are doubled, increasing the logical batch presented to training.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "short_and_long_captions",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-short-and-long-captions",
+        "description": "Duplicates eligible non-regularization items with short and long captions.",
+        "benefits": "Trains prompt behavior from both concise and detailed descriptions.",
+        "drawbacks": "It doubles the logical batch and requires datasets prepared with both caption forms.",
+        "example": "short_and_long_captions: false"
+      }
+    },
+    {
+      "id": "train.short_and_long_captions_encoder_split",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.short_and_long_captions_encoder_split"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.short_and_long_captions",
+          "kind": "affects",
+          "description": "Encoder splitting chooses caption forms per SDXL encoder and does not itself enable duplication.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "short_and_long_captions_encoder_split",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-short-and-long-captions-encoder-split",
+        "description": "Sends short and long caption forms to separate SDXL text encoders.",
+        "benefits": "Can specialize the two SDXL encoders on complementary caption lengths.",
+        "drawbacks": "The flag is limited to SDXL handling and does not duplicate captions by itself.",
+        "example": "short_and_long_captions_encoder_split: false"
+      }
+    },
+    {
+      "id": "train.train_refiner",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.train_refiner"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "train_refiner",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-train-refiner",
+        "description": "Includes an available refiner network in trainable parameter groups.",
+        "benefits": "Allows refiner behavior to adapt alongside the primary denoiser.",
+        "drawbacks": "It has no effect without a refiner and increases trainable state when one is loaded.",
+        "example": "train_refiner: true"
+      }
+    },
+    {
+      "id": "train.train_text_encoder",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.train_text_encoder"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.unload_text_encoder",
+          "kind": "conflicts",
+          "description": "A text encoder cannot be trained after it is moved out of the active training path.",
+          "applicability": []
+        },
+        {
+          "setting": "train.cache_text_embeddings",
+          "kind": "conflicts",
+          "description": "Static cached embeddings cannot reflect text-encoder parameter updates.",
+          "applicability": []
+        },
+        {
+          "setting": "train.diff_output_preservation",
+          "kind": "conflicts",
+          "description": "SDTrainer explicitly rejects differential preservation with text-encoder training.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "train_text_encoder",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-train-text-encoder",
+        "description": "Includes supported text-encoder parameters in training.",
+        "benefits": "Can adapt how prompts represent a new concept or trigger.",
+        "drawbacks": "It increases memory and conflicts with unloading, text-embedding caches, and differential preservation.",
+        "example": "train_text_encoder: false"
+      }
+    },
+    {
+      "id": "train.train_turbo",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.train_turbo"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.inverted_mask_prior",
+          "kind": "conflicts",
+          "description": "Inverted-mask prior code asserts that train_turbo is false.",
+          "applicability": []
+        },
+        {
+          "setting": "train.show_turbo_outputs",
+          "kind": "affects",
+          "description": "Raw Turbo output display is reached only when both settings are enabled.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "train_turbo",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-train-turbo",
+        "description": "Switches supported loss and target paths to Turbo training behavior.",
+        "benefits": "Enables fine-tuning recipes for compatible distilled Turbo models.",
+        "drawbacks": "Several ordinary targets assert against Turbo mode, including inverted-mask prior handling.",
+        "example": "train_turbo: false"
+      }
+    },
+    {
+      "id": "train.train_unet",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.train_unet"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "train_unet",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-train-unet",
+        "description": "Includes the primary denoising network in trainable parameter groups.",
+        "benefits": "Provides the usual target for LoRA and fine-tuning updates.",
+        "drawbacks": "Disabling it leaves learning to other explicitly enabled components.",
+        "example": "train_unet: true"
+      }
+    },
+    {
+      "id": "train.unload_text_encoder",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.unload_text_encoder"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.train_text_encoder",
+          "kind": "conflicts",
+          "description": "SDTrainer raises before unloading when text-encoder training is enabled.",
+          "applicability": []
+        },
+        {
+          "setting": "train.cache_text_embeddings",
+          "kind": "affects",
+          "description": "Dataset text caches also cause the text encoder to be unloaded after prompt caching.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "unload_text_encoder",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-unload-text-encoder",
+        "description": "Caches static prompt embeddings and moves the text encoder off the accelerator.",
+        "benefits": "Reduces VRAM use when prompt embeddings will not change.",
+        "drawbacks": "It rejects text-encoder training and limits dynamic prompt behavior to cached values.",
+        "example": "unload_text_encoder: false"
+      }
+    },
+    {
+      "id": "train.validation_config",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.validation_config"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object-or-null",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "validation_config",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-validation-config",
+        "description": "Constructs the optional in-training validation configuration.",
+        "benefits": "Runs configured validation items on a step interval after successful batches.",
+        "drawbacks": "Validation adds model work and an invalid nested object fails ValidationConfig construction.",
+        "example": "validation_config: {validate_every_n_steps: 10, resolution: 512}"
+      }
+    },
+    {
+      "id": "train.xformers",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.xformers"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.attention_backend",
+          "kind": "affects",
+          "description": "xFormers is enabled before an explicit non-native attention backend is requested.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "xformers",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-xformers",
+        "description": "Enables xFormers memory-efficient attention on supported modules.",
+        "benefits": "Can reduce attention memory on installations with compatible xFormers kernels.",
+        "drawbacks": "It requires xFormers support and can overlap the explicit attention-backend setting.",
+        "example": "xformers: false"
+      }
     }
   ]
 }

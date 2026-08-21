@@ -1426,6 +1426,39 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "unconditional_prompt",
         }
     )
+    TRAIN_COMPONENT_KEYS = frozenset(
+        {
+            "adapter_assist_name_or_path",
+            "adapter_assist_type",
+            "attention_backend",
+            "bypass_guidance_embedding",
+            "cache_text_embeddings",
+            "diffusion_feature_extractor_path",
+            "diffusion_feature_extractor_weight",
+            "do_paramiter_swapping",
+            "free_u",
+            "latent_feature_extractor_path",
+            "latent_feature_loss_weight",
+            "match_adapter_assist",
+            "match_adapter_chance",
+            "merge_network_on_save",
+            "merge_network_on_save_strength",
+            "negative_prompt",
+            "optimizer",
+            "optimizer_params",
+            "paramiter_swapping_factor",
+            "sdp",
+            "short_and_long_captions",
+            "short_and_long_captions_encoder_split",
+            "train_refiner",
+            "train_text_encoder",
+            "train_turbo",
+            "train_unet",
+            "unload_text_encoder",
+            "validation_config",
+            "xformers",
+        }
+    )
 
     @classmethod
     def setUpClass(cls):
@@ -1510,6 +1543,12 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 item.source == "toolkit/config_modules.py"
                 and item.symbol == "TrainConfig.__init__"
                 and item.key in cls.TRAIN_NUMERIC_KEYS
+            )
+        if scope == "train-components":
+            return (
+                item.source == "toolkit/config_modules.py"
+                and item.symbol == "TrainConfig.__init__"
+                and item.key in cls.TRAIN_COMPONENT_KEYS
             )
         raise AssertionError(f"unknown catalog test scope {scope!r}")
 
@@ -1638,6 +1677,50 @@ class CatalogProductionSliceTests(unittest.TestCase):
             settings["train.ema_config"].defaults[0].value,
             None,
         )
+
+    def test_catalog_train_components_scope_and_complete_train_config_are_exactly_owned(self):
+        try:
+            self.assert_catalog_selector_green("--scope", "train-components")
+            self.assert_catalog_selector_green(
+                "--target-symbol",
+                "toolkit/config_modules.py::TrainConfig.__init__",
+            )
+        except DiscoveryError as error:
+            self.fail(str(error))
+        self.assertEqual(
+            self.TRAIN_SCHEDULE_KEYS
+            | self.TRAIN_NUMERIC_KEYS
+            | self.TRAIN_COMPONENT_KEYS,
+            {
+                fact.key
+                for fact in self.discovered
+                if fact.source == "toolkit/config_modules.py"
+                and fact.symbol == "TrainConfig.__init__"
+            },
+        )
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        text_encoder_conflicts = {
+            (item.setting, item.kind)
+            for item in settings["train.train_text_encoder"].interactions
+        }
+        self.assertIn(("train.unload_text_encoder", "conflicts"), text_encoder_conflicts)
+        self.assertIn(("train.cache_text_embeddings", "conflicts"), text_encoder_conflicts)
+        cache_interactions = {
+            (item.setting, item.kind)
+            for item in settings["train.cache_text_embeddings"].interactions
+        }
+        self.assertIn(("train.unload_text_encoder", "affects"), cache_interactions)
+        self.assertIn(("dataset.cache_latents", "affects"), cache_interactions)
+        swapping_interactions = {
+            (item.setting, item.kind)
+            for item in settings["train.do_paramiter_swapping"].interactions
+        }
+        self.assertIn(("train.optimizer", "requires"), swapping_interactions)
 
     def test_catalog_process_get_conf_null_semantics_are_exhaustive(self):
         catalog = load_settings_catalog(
