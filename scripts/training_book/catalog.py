@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import math
-from pathlib import Path
+import re
+from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal, Sequence
 
 from pydantic import (
@@ -58,11 +59,84 @@ _SemanticType = Literal[
 ]
 
 
-def _require_canonical_array_tokens(value: str) -> str:
-    without_wildcards = value.replace("[*]", "")
-    if "[" in without_wildcards or "]" in without_wildcards:
-        raise ValueError("canonical repeated paths must use [*]")
+_YAML_PATH = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_-]*(?:\[\*\])?"
+    r"(?:\.[A-Za-z_][A-Za-z0-9_-]*(?:\[\*\])?)*$"
+)
+_ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_DOTTED_IDENTITY = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$"
+)
+_SOURCE_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
+_READ_KIND = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:\[\])?$"
+)
+
+
+def _require_canonical_location(value: str, kind: str = "yaml") -> str:
+    if kind == "yaml" and not _YAML_PATH.fullmatch(value):
+        raise ValueError(
+            "canonical YAML paths use dot-separated names and exact [*] array tokens"
+        )
+    if kind == "environment" and not _ENVIRONMENT_NAME.fullmatch(value):
+        raise ValueError("canonical environment locations use one exact variable name")
+    if kind not in {"yaml", "environment"}:
+        if (
+            any(token in value for token in ("*", "?", "[", "]", "{", "}", "\\"))
+            or ".." in value
+            or "//" in value
+        ):
+            raise ValueError("canonical locations must be exact and contain no wildcard")
     return value
+
+
+def _require_portable_source(value: str) -> str:
+    path = PurePosixPath(value)
+    if (
+        path.is_absolute()
+        or "\\" in value
+        or ":" in value
+        or any(part in {"", ".", ".."} for part in value.split("/"))
+        or path.as_posix() != value
+        or any(token in value for token in ("*", "?", "[", "]", "{", "}"))
+    ):
+        raise ValueError("source must be a portable confined repo-relative path")
+    return value
+
+
+def _require_exact_identity(value: str, *, read_kind: bool = False) -> str:
+    pattern = _READ_KIND if read_kind else _DOTTED_IDENTITY
+    if not pattern.fullmatch(value):
+        raise ValueError("identity must be exact and contain no wildcard or meta syntax")
+    return value
+
+
+def _require_finite_number(value: int | float) -> None:
+    try:
+        finite = math.isfinite(value)
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueError("numeric JSON values must be finite") from error
+    if not finite:
+        raise ValueError("numeric JSON values must be finite")
+
+
+def _require_finite_json(value: Any) -> Any:
+    if value is None or isinstance(value, (bool, str)):
+        return value
+    if isinstance(value, (int, float)):
+        _require_finite_number(value)
+        return value
+    if isinstance(value, list):
+        for item in value:
+            _require_finite_json(item)
+        return value
+    if isinstance(value, dict):
+        if not all(isinstance(key, str) for key in value):
+            raise ValueError("default values must contain only JSON string object keys")
+        for item in value.values():
+            _require_finite_json(item)
+        return value
+    raise ValueError("default values must contain only finite JSON values")
 
 
 class _StrictModel(BaseModel):
@@ -73,10 +147,10 @@ class CatalogLocation(_StrictModel):
     kind: Literal["yaml", "cli", "environment", "inline-prompt", "ui-state"]
     path: _NonBlank
 
-    @field_validator("path")
-    @classmethod
-    def _canonical_arrays(cls, value: str) -> str:
-        return _require_canonical_array_tokens(value)
+    @model_validator(mode="after")
+    def _canonical_identity(self) -> "CatalogLocation":
+        _require_canonical_location(self.path, self.kind)
+        return self
 
 
 class Applicability(_StrictModel):
@@ -108,6 +182,13 @@ class NumericRange(_StrictModel):
     minimum_inclusive: StrictBool
     maximum_inclusive: StrictBool
 
+    @field_validator("minimum", "maximum")
+    @classmethod
+    def _finite_endpoints(cls, value: int | float | None) -> int | float | None:
+        if value is not None:
+            _require_finite_number(value)
+        return value
+
     @model_validator(mode="after")
     def _ordered(self) -> "NumericRange":
         if (
@@ -127,6 +208,17 @@ class SettingContract(_StrictModel):
     accepted_values: tuple[_JsonScalar, ...] | None
     range: NumericRange | None
     null: Literal["accepted", "rejected", "normalized-to-absent"]
+
+    @field_validator("accepted_values")
+    @classmethod
+    def _finite_accepted_values(
+        cls, values: tuple[_JsonScalar, ...] | None
+    ) -> tuple[_JsonScalar, ...] | None:
+        if values is not None:
+            for value in values:
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    _require_finite_number(value)
+        return values
 
     @model_validator(mode="after")
     def _accepted_values_and_range(self) -> "SettingContract":
@@ -175,6 +267,11 @@ class SettingDefault(_StrictModel):
     value: Any = Field(default=None)
     applicability: tuple[Applicability, ...]
 
+    @field_validator("value")
+    @classmethod
+    def _finite_json_value(cls, value: Any) -> Any:
+        return _require_finite_json(value)
+
     @model_validator(mode="before")
     @classmethod
     def _authority_is_explicit(cls, data: Any) -> Any:
@@ -216,7 +313,7 @@ class Alias(_StrictModel):
     @field_validator("location")
     @classmethod
     def _canonical_arrays(cls, value: str) -> str:
-        return _require_canonical_array_tokens(value)
+        return _require_canonical_location(value)
 
 
 class CatalogSourceClaim(_StrictModel):
@@ -224,6 +321,30 @@ class CatalogSourceClaim(_StrictModel):
     symbol: _NonBlank
     key: _NonBlank
     read_kind: _NonBlank
+
+    @field_validator("source")
+    @classmethod
+    def _portable_source(cls, value: str) -> str:
+        return _require_portable_source(value)
+
+    @field_validator("symbol")
+    @classmethod
+    def _exact_identity(cls, value: str) -> str:
+        return _require_exact_identity(value)
+
+    @field_validator("key")
+    @classmethod
+    def _exact_key(cls, value: str) -> str:
+        if not _SOURCE_KEY.fullmatch(value):
+            raise ValueError(
+                "identity must be exact and contain no wildcard or meta syntax"
+            )
+        return value
+
+    @field_validator("read_kind")
+    @classmethod
+    def _exact_read_kind(cls, value: str) -> str:
+        return _require_exact_identity(value, read_kind=True)
 
 
 class RenderMetadata(_StrictModel):
@@ -394,9 +515,14 @@ def settings_catalog_schema() -> dict[str, object]:
 
 
 def _load_json(path: Path, label: str) -> object:
+    def reject_non_finite(constant: str) -> object:
+        raise ValueError(f"non-finite JSON constant {constant!r}")
+
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+        return json.loads(
+            path.read_text(encoding="utf-8"), parse_constant=reject_non_finite
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as error:
         raise CatalogError(f"could not load {label}: {error}") from error
 
 

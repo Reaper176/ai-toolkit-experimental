@@ -814,12 +814,159 @@ class CatalogContractTests(unittest.TestCase):
 
                 with self.assertRaisesRegex(
                     CatalogError,
-                    "accepted_values.*range",
+                    "accepted_values.*(?:range|finite)",
                 ):
                     validate_settings_catalog(
                         {"schema_version": 1, "settings": [entry]},
                         self.discovered_steps(),
                     )
+
+    def test_catalog_contract_rejects_non_finite_numbers_everywhere(self):
+        cases = (
+            (
+                "accepted value without range",
+                lambda entry, value: entry["contract"].update(
+                    {"accepted_values": [value], "range": None}
+                ),
+            ),
+            (
+                "range minimum",
+                lambda entry, value: entry["contract"]["range"].update(
+                    {"minimum": value}
+                ),
+            ),
+            (
+                "range maximum",
+                lambda entry, value: entry["contract"]["range"].update(
+                    {"maximum": value}
+                ),
+            ),
+            (
+                "nested default",
+                lambda entry, value: entry["defaults"][0].update(
+                    {"value": {"outer": [1, {"inner": value}]}}
+                ),
+            ),
+        )
+        for label, mutate in cases:
+            for value in (float("nan"), float("inf"), float("-inf"), 10**1000):
+                with self.subTest(label=label, value=repr(value)):
+                    entry = self.valid_catalog_entry()
+                    mutate(entry, value)
+                    with self.assertRaisesRegex(CatalogError, "finite|JSON"):
+                        validate_settings_catalog(
+                            {"schema_version": 1, "settings": [entry]},
+                            self.discovered_steps(),
+                        )
+
+    def test_catalog_disk_loader_rejects_json_non_finite_constants_recursively(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            schema_path = root / "settings-catalog.schema.json"
+            catalog_path = root / "settings-catalog.json"
+            schema_path.write_text(
+                json.dumps(settings_catalog_schema()), encoding="utf-8"
+            )
+            for constant in ("NaN", "Infinity", "-Infinity"):
+                with self.subTest(constant=constant):
+                    entry = self.valid_catalog_entry()
+                    entry["defaults"][0]["value"] = {
+                        "outer": [{"inner": 0.0}]
+                    }
+                    encoded = json.dumps(
+                        {"schema_version": 1, "settings": [entry]}
+                    ).replace("0.0", constant, 1)
+                    catalog_path.write_text(encoded, encoding="utf-8")
+                    with self.assertRaisesRegex(CatalogError, "non-finite"):
+                        load_settings_catalog(catalog_path, schema_path, None)
+
+    def test_catalog_paths_and_source_claims_are_intrinsically_exact(self):
+        mutations = (
+            (
+                "config.process*.train.steps",
+                lambda entry: entry["locations"][0].update(
+                    {"path": "config.process*.train.steps"}
+                ),
+            ),
+            (
+                "config.process[*].train.*",
+                lambda entry: entry["locations"][0].update(
+                    {"path": "config.process[*].train.*"}
+                ),
+            ),
+            (
+                "config.process?.train.steps",
+                lambda entry: entry["aliases"].append(
+                    {
+                        "location": "config.process?.train.steps",
+                        "replacement": "train.steps",
+                        "precedence": "replacement-wins",
+                        "migration": "Use train.steps.",
+                        "status": "legacy",
+                    }
+                ),
+            ),
+            (
+                "../outside.py",
+                lambda entry: entry["source_claims"][0].update(
+                    {"source": "../outside.py"}
+                ),
+            ),
+            (
+                "Config.*",
+                lambda entry: entry["source_claims"][0].update(
+                    {"symbol": "Config.*"}
+                ),
+            ),
+            (
+                "wildcard key",
+                lambda entry: entry["source_claims"][0].update({"key": "step*"}),
+            ),
+            (
+                "wildcard read kind",
+                lambda entry: entry["source_claims"][0].update(
+                    {"read_kind": "attribute.*"}
+                ),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            schema_path = root / "settings-catalog.schema.json"
+            catalog_path = root / "settings-catalog.json"
+            schema_path.write_text(
+                json.dumps(settings_catalog_schema()), encoding="utf-8"
+            )
+            for label, mutate in mutations:
+                with self.subTest(label=label):
+                    entry = self.valid_catalog_entry()
+                    mutate(entry)
+                    catalog_path.write_text(
+                        json.dumps({"schema_version": 1, "settings": [entry]}),
+                        encoding="utf-8",
+                    )
+                    with self.assertRaisesRegex(
+                        CatalogError, "canonical|portable|exact|wildcard"
+                    ):
+                        load_settings_catalog(catalog_path, schema_path, None)
+
+    def test_catalog_source_claim_allows_exact_attribute_subscription_read_kind(self):
+        entry = self.valid_catalog_entry()
+        entry["source_claims"][0]["read_kind"] = "attribute[]"
+        catalog = validate_settings_catalog(
+            {"schema_version": 1, "settings": [entry]},
+            (
+                DiscoveredSetting(
+                    "toolkit/config_modules.py",
+                    "TrainConfig.__init__",
+                    10,
+                    "steps",
+                    "attribute[]",
+                    "core",
+                    "2000",
+                ),
+            ),
+        )
+        self.assertEqual(catalog.settings[0].source_claims[0].read_kind, "attribute[]")
 
     def test_catalog_contract_checks_committed_schema_drift_before_catalog_data(self):
         with tempfile.TemporaryDirectory() as directory:
