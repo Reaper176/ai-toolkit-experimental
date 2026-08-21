@@ -122,6 +122,15 @@ DATASET_CORE_KEYS = frozenset(
     shuffle_tokens square_crop standardize_images token_dropout_rate trigger_word
     type use_short_captions""".split()
 )
+DATASET_MODALITY_KEYS = frozenset(
+    """alpha_mask audio_normalize audio_preserve_pitch auto_frame_count
+    clip_image_augmentations clip_image_from_same_folder clip_image_path
+    clip_image_shuffle_augmentations control_from_same_folder control_path
+    control_path_1 control_path_2 control_path_3 control_transparent_color controls
+    do_audio do_i2v fps full_size_control_images inpaint_path invert_mask
+    mask_min_value mask_path num_controls_from_same_folder num_frames
+    shrink_video_to_frames trim_auto_frame_count_tail unconditional_path""".split()
+)
 
 
 def _in_core_io_network(item) -> bool:
@@ -342,7 +351,7 @@ def main() -> None:
             ["core-process"], ["core-io-network"], ["core-modules"], ["core"],
             ["training"], ["train-schedule"], ["train-numerics"],
             ["train-components"], ["optimizers"], ["schedulers"],
-            ["dataset-core"],
+            ["dataset-core"], ["dataset-modalities"],
         ):
             production_scope = arguments.scope[0]
         elif arguments.scope != ["discovery-fixtures"]:
@@ -440,6 +449,11 @@ def main() -> None:
                 item.source == "toolkit/config_modules.py"
                 and item.symbol == "DatasetConfig.__init__"
                 and item.key in DATASET_CORE_KEYS
+            ),
+            "dataset-modalities": lambda item: (
+                item.source == "toolkit/config_modules.py"
+                and item.symbol == "DatasetConfig.__init__"
+                and item.key in DATASET_MODALITY_KEYS
             ),
         }
         if production_scope in slice_predicates:

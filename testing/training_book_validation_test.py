@@ -1647,6 +1647,38 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "use_short_captions",
         }
     )
+    DATASET_MODALITY_KEYS = frozenset(
+        {
+            "alpha_mask",
+            "audio_normalize",
+            "audio_preserve_pitch",
+            "auto_frame_count",
+            "clip_image_augmentations",
+            "clip_image_from_same_folder",
+            "clip_image_path",
+            "clip_image_shuffle_augmentations",
+            "control_from_same_folder",
+            "control_path",
+            "control_path_1",
+            "control_path_2",
+            "control_path_3",
+            "control_transparent_color",
+            "controls",
+            "do_audio",
+            "do_i2v",
+            "fps",
+            "full_size_control_images",
+            "inpaint_path",
+            "invert_mask",
+            "mask_min_value",
+            "mask_path",
+            "num_controls_from_same_folder",
+            "num_frames",
+            "shrink_video_to_frames",
+            "trim_auto_frame_count_tail",
+            "unconditional_path",
+        }
+    )
 
     @classmethod
     def setUpClass(cls):
@@ -1774,6 +1806,12 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 item.source == "toolkit/config_modules.py"
                 and item.symbol == "DatasetConfig.__init__"
                 and item.key in cls.DATASET_CORE_KEYS
+            )
+        if scope == "dataset-modalities":
+            return (
+                item.source == "toolkit/config_modules.py"
+                and item.symbol == "DatasetConfig.__init__"
+                and item.key in cls.DATASET_MODALITY_KEYS
             )
         raise AssertionError(f"unknown catalog test scope {scope!r}")
 
@@ -2861,6 +2899,87 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "manifest_sha256: authoritative.version.manifest_sha256",
         ):
             self.assertIn(source_contract, resolver)
+
+    def test_catalog_dataset_modalities_scope_is_exactly_owned(self):
+        self.assert_catalog_selector_green("--scope", "dataset-modalities")
+
+    def test_catalog_mask_control_video_and_audio_contracts_match_sources(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        facts = {
+            fact.key: fact
+            for fact in self.discovered
+            if self._in_scope(fact, "dataset-modalities")
+        }
+        self.assertEqual(set(facts), self.DATASET_MODALITY_KEYS)
+        self.assertTrue(self.DATASET_CORE_KEYS.isdisjoint(self.DATASET_MODALITY_KEYS))
+        for key, fact in facts.items():
+            with self.subTest(key=key):
+                fallback = [
+                    default for default in settings[f"dataset.{key}"].defaults
+                    if default.kind == "engine-fallback"
+                ]
+                self.assertEqual(len(fallback), 1)
+                self.assertEqual(
+                    fallback[0].value,
+                    ast.literal_eval(fact.default_expression),
+                )
+
+        mask_path = settings["dataset.mask_path"]
+        self.assertEqual(mask_path.authority, "server-overwritten")
+        mask_teaching = " ".join(
+            [*vars(mask_path.render).values()]
+            + [item.description for item in mask_path.normalizations]
+            + [item.description for item in mask_path.interactions]
+        ).casefold()
+        for phrase in (
+            "white", "black", "all-white", "no mask", "mask_min_value",
+            "client", "server", "complementary",
+        ):
+            self.assertIn(phrase, mask_teaching)
+
+        prior = settings["train.inverted_mask_prior"]
+        prior_teaching = " ".join(
+            [*vars(prior.render).values()]
+            + [item.description for item in prior.interactions]
+        ).casefold()
+        self.assertIn("turbo", prior_teaching)
+        self.assertIn("mask", prior_teaching)
+
+        source_contracts = {
+            "ui/src/helpers/jobDatasetPresetClient.ts": (
+                "return { ...persisted, mask_path: null }",
+            ),
+            "ui/src/app/api/jobs/route.ts": (
+                "if (hasClientMaskPath(body.job_config))",
+            ),
+            "ui/src/server/jobDatasetPresetService.ts": (
+                "dataset.mask_path = await resolveLiveMaskDirectory",
+                "dataset.mask_path = manifest.files.some",
+            ),
+            "ui/src/helpers/maskEditor.ts": (
+                "return isAllWhite(mask) ? 'DELETE' : 'PUT'",
+            ),
+            "toolkit/dataloader_mixins.py": (
+                "img = img.convert('L')",
+                "if self.dataset_config.invert_mask:",
+                "value_map(self.mask_tensor, 0, 1.0, self.mask_min_value, 1.0)",
+                "file_name_no_ext + ext",
+            ),
+            "extensions_built_in/sd_trainer/SDTrainer.py": (
+                "prior_mask_multiplier = 1.0 - prior_mask",
+                "assert not self.train_config.train_turbo",
+            ),
+        }
+        for source, snippets in source_contracts.items():
+            text = (REPOSITORY_ROOT / source).read_text(encoding="utf-8")
+            for snippet in snippets:
+                with self.subTest(source=source, snippet=snippet):
+                    self.assertIn(snippet, text)
 
     def test_catalog_process_get_conf_null_semantics_are_exhaustive(self):
         catalog = load_settings_catalog(

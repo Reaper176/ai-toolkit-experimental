@@ -32170,6 +32170,1786 @@
         "drawbacks": "Any non-null value raises because point-of-interest training is no longer supported.",
         "example": "poi: null"
       }
+    },
+    {
+      "id": "dataset.mask_path",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].mask_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "runtime",
+      "authority": "server-overwritten",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "The UI request builder writes mask_path as null, the jobs route rejects a nonempty client mask path, and the server resolves a trusted live-mask directory or immutable preset masks before training. The mask editor stores an all-white mask as DELETE, making that ordinary full-weight case maskless.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "dataset.mask_min_value",
+          "kind": "affects",
+          "description": "Black pixels map toward mask_min_value while white pixels map to 1.0.",
+          "applicability": []
+        },
+        {
+          "setting": "train.inverted_mask_prior",
+          "kind": "affects",
+          "description": "Resolved masks are required before the inverted outside-mask prior can run; it separately weights the complementary region.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "mask_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-mask-path",
+        "description": "Names the resolved directory of grayscale masks matched to source basenames; ordinary white receives full weight and black maps toward mask_min_value.",
+        "benefits": "Limits ordinary masked loss toward selected regions while preserving continuous grayscale weighting; after normalization, an all-white mask is equivalent to no mask for ordinary masked loss.",
+        "drawbacks": "UI save requests cannot supply this path; the server strips or rejects untrusted values and resolves managed live or preset masks.",
+        "example": "mask_path: null"
+      }
+    },
+    {
+      "id": "dataset.mask_min_value",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].mask_min_value"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0.0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.mask_path",
+          "kind": "requires",
+          "description": "The floor affects training only when a mask or alpha mask is resolved.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "mask_min_value",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-mask-min-value",
+        "description": "Sets the loss-weight floor assigned to black mask pixels before mask normalization.",
+        "benefits": "A small positive floor keeps unpainted regions weakly represented instead of dropping them completely.",
+        "drawbacks": "Zero with an all-black mask produces a zero mean before normalization; high floors reduce focus.",
+        "example": "mask_min_value: 0.1"
+      }
+    },
+    {
+      "id": "dataset.invert_mask",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].invert_mask"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.mask_min_value",
+          "kind": "affects",
+          "description": "Inversion occurs before black-to-floor and white-to-one remapping.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "invert_mask",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-invert-mask",
+        "description": "Inverts mask grayscale values before they are remapped to the configured floor.",
+        "benefits": "Switches focus between the painted and complementary regions without repainting files.",
+        "drawbacks": "Forgetting the inversion reverses which region receives the larger ordinary masked-loss weight.",
+        "example": "invert_mask: false"
+      }
+    },
+    {
+      "id": "dataset.alpha_mask",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].alpha_mask"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.mask_path",
+          "kind": "overrides",
+          "description": "When alpha_mask is true, the source path supplies the mask instead of mask_path matching.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "alpha_mask",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-alpha-mask",
+        "description": "Uses each source image's alpha channel as its mask.",
+        "benefits": "Keeps image and mask pixels in one filename and transform path.",
+        "drawbacks": "Sources without a meaningful alpha channel do not provide useful focus masks.",
+        "example": "alpha_mask: false"
+      }
+    },
+    {
+      "id": "dataset.control_path",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].control_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "accepted_types": [
+          "path",
+          "string-list"
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "control_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-control-path",
+        "description": "Names one control directory or a list of matched control directories.",
+        "benefits": "Pairs conditioning images with targets by filename basename.",
+        "drawbacks": "Missing or mismatched basenames leave items without the intended control and multiple paths increase preprocessing cost.",
+        "example": "control_path: /datasets/my-concept-controls"
+      }
+    },
+    {
+      "id": "dataset.control_path_1",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].control_path_1"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "When any numbered control path is truthy, the nonempty numbered paths replace control_path as an ordered list.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "control_path_1",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-control-path-1",
+        "description": "Provides UI-friendly control directory slot one.",
+        "benefits": "Lets the UI serialize the first member of a multi-control list.",
+        "drawbacks": "It is folded into control_path and has no separate runtime identity.",
+        "example": "control_path_1: /datasets/control-a"
+      }
+    },
+    {
+      "id": "dataset.control_path_2",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].control_path_2"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "When any numbered control path is truthy, the nonempty numbered paths replace control_path as an ordered list.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "control_path_2",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-control-path-2",
+        "description": "Provides UI-friendly control directory slot two.",
+        "benefits": "Adds a second filename-matched control stream.",
+        "drawbacks": "It requires a model that consumes multiple controls and is folded into control_path.",
+        "example": "control_path_2: /datasets/control-b"
+      }
+    },
+    {
+      "id": "dataset.control_path_3",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].control_path_3"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "When any numbered control path is truthy, the nonempty numbered paths replace control_path as an ordered list.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "control_path_3",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-control-path-3",
+        "description": "Provides UI-friendly control directory slot three.",
+        "benefits": "Adds a third filename-matched control stream.",
+        "drawbacks": "It requires a model that consumes multiple controls and is folded into control_path.",
+        "example": "control_path_3: /datasets/control-c"
+      }
+    },
+    {
+      "id": "dataset.control_from_same_folder",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].control_from_same_folder"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "control_from_same_folder",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-control-from-same-folder",
+        "description": "Selects random sibling images as controls instead of a separate matched directory.",
+        "benefits": "Supports grouped reference sets without duplicating files into control folders.",
+        "drawbacks": "The selected control varies randomly and can be semantically unrelated if folders are not curated.",
+        "example": "control_from_same_folder: false"
+      }
+    },
+    {
+      "id": "dataset.num_controls_from_same_folder",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].num_controls_from_same_folder"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.control_from_same_folder",
+          "kind": "requires",
+          "description": "This count is used only when same-folder controls are enabled.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "num_controls_from_same_folder",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-num-controls-from-same-folder",
+        "description": "Limits the number of sibling controls sampled from the source folder.",
+        "benefits": "Bounds multi-reference conditioning from grouped images.",
+        "drawbacks": "Large values increase memory and require enough valid sibling images.",
+        "example": "num_controls_from_same_folder: 1"
+      }
+    },
+    {
+      "id": "dataset.control_transparent_color",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].control_transparent_color"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer-list",
+        "supported_type": "integer-list",
+        "ui_type": null,
+        "example_type": "integer-list",
+        "accepted_values": null,
+        "accepted_types": [
+          "integer-list"
+        ],
+        "collection_length": 3,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": [
+            0,
+            0,
+            0
+          ],
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "control_transparent_color",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-control-transparent-color",
+        "description": "Sets the RGB fill used for transparent regions in control images.",
+        "benefits": "Makes alpha compositing deterministic for control preprocessing.",
+        "drawbacks": "The wrong fill color introduces unintended conditioning edges or tones.",
+        "example": "control_transparent_color: [0, 0, 0]"
+      }
+    },
+    {
+      "id": "dataset.full_size_control_images",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].full_size_control_images"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "full_size_control_images",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-full-size-control-images",
+        "description": "Keeps full control images instead of cropping them to the target crop where supported.",
+        "benefits": "Preserves complete reference content for CLIP-style and other full-image controls.",
+        "drawbacks": "Target and control geometry can diverge when a spatial control needed matched cropping.",
+        "example": "full_size_control_images: true"
+      }
+    },
+    {
+      "id": "dataset.inpaint_path",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].inpaint_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "inpaint_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-inpaint-path",
+        "description": "Names a directory of filename-matched RGBA inpaint controls.",
+        "benefits": "Supplies spatial inpaint conditioning aligned to each source.",
+        "drawbacks": "Only PNG or WebP matches with a meaningful alpha channel and bucketed geometry are supported.",
+        "example": "inpaint_path: /datasets/inpaint-controls"
+      }
+    },
+    {
+      "id": "dataset.unconditional_path",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].unconditional_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "unconditional_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-unconditional-path",
+        "description": "Names a directory of filename-matched unconditional reference images.",
+        "benefits": "Provides paired unconditional inputs for compatible preservation or conditioning paths.",
+        "drawbacks": "Missing matches remove the intended unconditional pair.",
+        "example": "unconditional_path: null"
+      }
+    },
+    {
+      "id": "dataset.clip_image_path",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].clip_image_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "clip_image_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-clip-image-path",
+        "description": "Names a directory of filename-matched CLIP or reference images.",
+        "benefits": "Provides visual-reference embeddings alongside training targets.",
+        "drawbacks": "It is meaningful only for adapters or models that consume CLIP-image conditioning.",
+        "example": "clip_image_path: /datasets/clip-reference"
+      }
+    },
+    {
+      "id": "dataset.clip_image_from_same_folder",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].clip_image_from_same_folder"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "clip_image_from_same_folder",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-clip-image-from-same-folder",
+        "description": "Selects CLIP reference images from the same grouped source folder.",
+        "benefits": "Avoids a separate reference directory for curated groups.",
+        "drawbacks": "Random sibling selection can pair unrelated images if folder grouping is weak.",
+        "example": "clip_image_from_same_folder: false"
+      }
+    },
+    {
+      "id": "dataset.clip_image_augmentations",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].clip_image_augmentations"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object-list",
+        "supported_type": "object-list",
+        "ui_type": null,
+        "example_type": "object-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "clip_image_augmentations",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-clip-image-augmentations",
+        "description": "Defines augmentations for CLIP reference images.",
+        "benefits": "Adds controlled robustness to visual-reference conditioning.",
+        "drawbacks": "Transforms can destroy identity or composition cues and require compatible replay behavior.",
+        "example": "clip_image_augmentations: null"
+      }
+    },
+    {
+      "id": "dataset.clip_image_shuffle_augmentations",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].clip_image_shuffle_augmentations"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "clip_image_shuffle_augmentations",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-clip-image-shuffle-augmentations",
+        "description": "Randomizes the order of CLIP-image augmentations where supported.",
+        "benefits": "Varies composed reference transforms.",
+        "drawbacks": "Order-sensitive transforms can produce unstable or unrealistic references.",
+        "example": "clip_image_shuffle_augmentations: false"
+      }
+    },
+    {
+      "id": "dataset.num_frames",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].num_frames"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "num_frames",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-num-frames",
+        "description": "Sets the number of frames requested from each video item; one selects image loading.",
+        "benefits": "Controls temporal training length and allows image and video modes through one dataset contract.",
+        "drawbacks": "More frames increase memory sharply and must match model temporal constraints.",
+        "example": "num_frames: 41"
+      }
+    },
+    {
+      "id": "dataset.fps",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].fps"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 24,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.shrink_video_to_frames",
+          "kind": "affects",
+          "description": "FPS is used for selection when shrink_video_to_frames is false and by automatic frame count.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "fps",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-fps",
+        "description": "Sets the frame sampling rate when videos are not shrunk evenly to num_frames.",
+        "benefits": "Keeps motion timing explicit for trimmed or FPS-based sampling.",
+        "drawbacks": "An incorrect source FPS changes apparent motion speed and can cause insufficient-frame failures.",
+        "example": "fps: 16"
+      }
+    },
+    {
+      "id": "dataset.shrink_video_to_frames",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].shrink_video_to_frames"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "shrink_video_to_frames",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-shrink-video-to-frames",
+        "description": "Samples frames across the full video to fit num_frames.",
+        "benefits": "Covers the whole clip with a fixed temporal batch length.",
+        "drawbacks": "Long clips can appear sped up; disabling it uses FPS-based contiguous sampling instead.",
+        "example": "shrink_video_to_frames: true"
+      }
+    },
+    {
+      "id": "dataset.auto_frame_count",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].auto_frame_count"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "auto_frame_count",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-auto-frame-count",
+        "description": "Derives the number of frames from the source duration at the configured FPS.",
+        "benefits": "Retains variable clip duration for models and batching paths that support it.",
+        "drawbacks": "It is not compatible with current bucketing assumptions and produces variable memory use.",
+        "example": "auto_frame_count: false"
+      }
+    },
+    {
+      "id": "dataset.trim_auto_frame_count_tail",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].trim_auto_frame_count_tail"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.auto_frame_count",
+          "kind": "requires",
+          "description": "Tail trimming applies only to automatically derived frame counts.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "trim_auto_frame_count_tail",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-trim-auto-frame-count-tail",
+        "description": "Trims unsupported tail frames from automatically counted videos instead of stretching the full clip.",
+        "benefits": "Preserves the requested temporal spacing while meeting model frame-count constraints.",
+        "drawbacks": "A short tail segment is omitted.",
+        "example": "trim_auto_frame_count_tail: true"
+      }
+    },
+    {
+      "id": "dataset.do_i2v",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].do_i2v"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "do_i2v",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-do-i2v",
+        "description": "Enables image-to-video conditioning for models that implement both text-to-video and I2V.",
+        "benefits": "Lets compatible video models train from a starting image condition.",
+        "drawbacks": "Unsupported architectures ignore or reject the I2V path and require matching source preparation.",
+        "example": "do_i2v: false"
+      }
+    },
+    {
+      "id": "dataset.controls",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].controls"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string-list",
+        "supported_type": "string-list",
+        "ui_type": null,
+        "example_type": "string-list",
+        "accepted_values": [
+          "depth",
+          "line",
+          "pose",
+          "inpaint",
+          "mask",
+          "sapiens2_mask"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": [],
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "controls",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-controls",
+        "description": "Requests automatic control generation types for the dataset.",
+        "benefits": "Can derive supported controls such as depth, pose, inpaint, or masks during setup.",
+        "drawbacks": "Generation increases preprocessing cost and unsupported control names fail downstream.",
+        "example": "controls: [depth]"
+      }
+    },
+    {
+      "id": "dataset.do_audio",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].do_audio"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "do_audio",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-do-audio",
+        "description": "Loads audio from video items for models that support audio conditioning or generation.",
+        "benefits": "Keeps synchronized audio available to compatible video/audio architectures.",
+        "drawbacks": "It increases decode and cache cost and is ineffective for models without audio support.",
+        "example": "do_audio: false"
+      }
+    },
+    {
+      "id": "dataset.audio_normalize",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].audio_normalize"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.do_audio",
+          "kind": "requires",
+          "description": "Normalization matters only when the loader extracts audio.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "audio_normalize",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-audio-normalize",
+        "description": "Normalizes audio volume during loading.",
+        "benefits": "Reduces loudness variation across clips when absolute volume is not part of the concept.",
+        "drawbacks": "It removes meaningful amplitude differences and can amplify noise in quiet recordings.",
+        "example": "audio_normalize: false"
+      }
+    },
+    {
+      "id": "dataset.audio_preserve_pitch",
+      "ui_label": null,
+      "scope": "dataset",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].datasets[*].audio_preserve_pitch"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "dataset.do_audio",
+          "kind": "requires",
+          "description": "Pitch preservation matters only when audio is loaded and duration is adjusted.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "dataset",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DatasetConfig.__init__",
+          "key": "audio_preserve_pitch",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/dataset.md",
+        "anchor": "dataset-audio-preserve-pitch",
+        "description": "Preserves pitch while time-stretching audio to the selected video frame span.",
+        "benefits": "Avoids chipmunk or lowered pitch when duration is adjusted.",
+        "drawbacks": "Pitch-preserving transforms cost more processing and may add artifacts.",
+        "example": "audio_preserve_pitch: false"
+      }
     }
   ]
 }
