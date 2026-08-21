@@ -1162,6 +1162,246 @@ class CatalogProductionSliceTests(unittest.TestCase):
             normalization_descriptions,
         )
 
+    def test_catalog_network_null_semantics_match_active_target_sources(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {item.id: item for item in catalog.settings}
+        lora_types = {"lora", "lorm", "lokr", "dora", "fullrank"}
+        lycoris_types = {"locon", "lycoris"}
+
+        config_source = (
+            REPOSITORY_ROOT / "toolkit/config_modules.py"
+        ).read_text(encoding="utf-8")
+        lora_source = (
+            REPOSITORY_ROOT / "toolkit/lora_special.py"
+        ).read_text(encoding="utf-8")
+        lycoris_source = (
+            REPOSITORY_ROOT / "toolkit/lycoris_special.py"
+        ).read_text(encoding="utf-8")
+
+        source_proofs = (
+            (config_source, "rank = kwargs.get('rank', None)"),
+            (config_source, "linear = kwargs.get('linear', None)"),
+            (config_source, "if rank is not None:"),
+            (config_source, "elif linear is not None:"),
+            (config_source, "self.linear: int = 4"),
+            (lora_source, "alpha = self.lora_dim if alpha is None or alpha == 0 else alpha"),
+            (lycoris_source, "alpha = lora_dim if alpha is None or alpha == 0 else alpha"),
+            (lora_source, "self.dropout = dropout"),
+            (lycoris_source, "if dropout is None:\n            dropout = 0"),
+            (lora_source, "self.conv_lora_dim = conv_lora_dim"),
+            (lora_source, "if dim is None or dim == 0:"),
+            (
+                lycoris_source,
+                "if not self.ENABLE_CONV or conv_lora_dim is None:\n"
+                "            conv_lora_dim = 0\n            conv_alpha = 0",
+            ),
+            (lycoris_source, "self.conv_alpha = float(conv_alpha)"),
+        )
+        for source, proof in source_proofs:
+            with self.subTest(source_proof=proof):
+                self.assertIn(proof, source)
+
+        linear = settings["network.linear"]
+        self.assertEqual(linear.contract.null, "normalized-to-absent")
+        self.assertEqual(linear.contract.supported_type, "positive-integer-or-null")
+        self.assertEqual(linear.defaults[0].value, 4)
+        self.assertIn(
+            "A non-null legacy rank wins; otherwise a non-null linear value is used; null values are treated as absent.",
+            linear.aliases[0].migration,
+        )
+        self.assertIn(
+            "NetworkConfig treats null rank and linear values as absent: the first non-null legacy rank wins, then non-null linear, otherwise both effective values become 4.",
+            {item.description for item in linear.normalizations},
+        )
+
+        target_normalizations = {
+            "network.alpha": (
+                "When linear_alpha is omitted, LoRAModule normalizes inherited explicit null or zero network.alpha to the effective per-module rank.",
+                "When linear_alpha is omitted, LoConSpecialModule normalizes inherited explicit null or zero network.alpha to the effective per-module rank.",
+            ),
+            "network.linear_alpha": (
+                "LoRAModule normalizes explicit null or zero linear_alpha to the effective per-module rank.",
+                "LoConSpecialModule normalizes explicit null or zero linear_alpha to the effective per-module rank.",
+            ),
+        }
+        for setting_id, (lora_description, lycoris_description) in (
+            target_normalizations.items()
+        ):
+            with self.subTest(setting_id=setting_id):
+                setting = settings[setting_id]
+                self.assertEqual(setting.contract.null, "accepted")
+                self.assertEqual(setting.contract.supported_type, "number-or-null")
+                by_description = {
+                    item.description: {
+                        predicate.network_type
+                        for predicate in item.applicability
+                    }
+                    for item in setting.normalizations
+                }
+                self.assertEqual(by_description[lora_description], lora_types)
+                self.assertEqual(
+                    by_description[lycoris_description], lycoris_types
+                )
+
+        alpha = settings["network.alpha"]
+        alpha_forwarding = tuple(
+            item
+            for item in alpha.interactions
+            if item.setting == "network.linear_alpha" and item.kind == "affects"
+        )
+        self.assertEqual(len(alpha_forwarding), 1)
+        self.assertEqual(
+            alpha_forwarding[0].description,
+            "network.alpha is forwarded as module alpha only through network.linear_alpha's omission fallback; an explicit linear_alpha overrides it.",
+        )
+
+        dropout = settings["network.dropout"]
+        self.assertEqual(dropout.contract.null, "accepted")
+        dropout_normalizations = {
+            item.description: {
+                predicate.network_type for predicate in item.applicability
+            }
+            for item in dropout.normalizations
+        }
+        self.assertEqual(
+            dropout_normalizations[
+                "LycorisSpecialNetwork normalizes omitted or explicit null dropout to 0 before module construction."
+            ],
+            lycoris_types,
+        )
+        self.assertFalse(
+            any(
+                predicate.network_type in lora_types
+                for item in dropout.normalizations
+                for predicate in item.applicability
+            )
+        )
+
+        conv = settings["network.conv"]
+        self.assertEqual(conv.contract.null, "accepted")
+        self.assertEqual(
+            conv.contract.supported_type,
+            "nonnegative-integer-or-null",
+        )
+        self.assertEqual(conv.contract.range.minimum, 0)
+        self.assertTrue(conv.contract.range.minimum_inclusive)
+        conv_normalizations = {
+            item.description: {
+                predicate.network_type for predicate in item.applicability
+            }
+            for item in conv.normalizations
+        }
+        self.assertEqual(
+            conv_normalizations[
+                "LycorisSpecialNetwork normalizes omitted or explicit null conv to 0, disabling convolution adapters."
+            ],
+            lycoris_types,
+        )
+        self.assertFalse(
+            any(
+                predicate.network_type in lora_types
+                for item in conv.normalizations
+                for predicate in item.applicability
+            )
+        )
+
+        conv_alpha = settings["network.conv_alpha"]
+        self.assertEqual(conv_alpha.contract.null, "accepted")
+        self.assertEqual(
+            conv_alpha.contract.supported_type,
+            "number-or-null-with-target-conditions",
+        )
+        conv_alpha_normalizations = {
+            item.description: {
+                predicate.network_type for predicate in item.applicability
+            }
+            for item in conv_alpha.normalizations
+        }
+        self.assertEqual(
+            conv_alpha_normalizations[
+                "LoRAModule normalizes explicit null or zero conv_alpha to the effective convolution-module rank when convolution adapters are constructed."
+            ],
+            lora_types,
+        )
+        self.assertEqual(
+            conv_alpha_normalizations[
+                "LycorisSpecialNetwork normalizes omitted or explicit null conv_alpha to 0 when convolution adaptation is disabled."
+            ],
+            lycoris_types,
+        )
+        self.assertEqual(
+            conv_alpha_normalizations[
+                "LoConSpecialModule normalizes zero conv_alpha to the effective convolution-module rank when convolution adaptation is enabled."
+            ],
+            lycoris_types,
+        )
+        fallback = tuple(
+            item
+            for item in conv_alpha.interactions
+            if item.setting == "network.conv" and item.kind == "fallback"
+        )
+        self.assertEqual(len(fallback), 1)
+        self.assertEqual(
+            fallback[0].description,
+            "When conv_alpha is omitted, NetworkConfig inherits network.conv; explicit null remains null.",
+        )
+        lycoris_requirement = tuple(
+            item
+            for item in conv_alpha.interactions
+            if item.setting == "network.conv" and item.kind == "requires"
+        )
+        self.assertEqual(len(lycoris_requirement), 1)
+        self.assertEqual(
+            {
+                predicate.network_type
+                for predicate in lycoris_requirement[0].applicability
+            },
+            lycoris_types,
+        )
+        self.assertEqual(
+            lycoris_requirement[0].description,
+            "For locon/lycoris with convolution adaptation enabled, conv_alpha must be a number; explicit null reaches float(None) and fails during network construction.",
+        )
+
+        claimed_config_keys = {
+            claim.key
+            for setting_id in (
+                "network.linear",
+                "network.alpha",
+                "network.linear_alpha",
+                "network.dropout",
+                "network.conv",
+                "network.conv_alpha",
+            )
+            for claim in settings[setting_id].source_claims
+            if (
+                claim.source,
+                claim.symbol,
+                claim.read_kind,
+            )
+            == (
+                "toolkit/config_modules.py",
+                "NetworkConfig.__init__",
+                "kwargs.get",
+            )
+        }
+        self.assertEqual(
+            claimed_config_keys,
+            {
+                "rank",
+                "linear",
+                "alpha",
+                "linear_alpha",
+                "dropout",
+                "conv",
+                "conv_alpha",
+            },
+        )
+
     def test_catalog_toolkit_network_mixin_symbol_is_exactly_classified(self):
         self.assert_catalog_selector_green(
             "--target-symbol",

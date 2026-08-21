@@ -5780,12 +5780,12 @@
       ],
       "contract": {
         "parser_type": "number",
-        "supported_type": "number",
+        "supported_type": "number-or-null",
         "ui_type": null,
         "example_type": "number",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -5795,8 +5795,47 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
-      "interactions": [],
+      "normalizations": [
+        {
+          "description": "When linear_alpha is omitted, LoRAModule normalizes inherited explicit null or zero network.alpha to the effective per-module rank.",
+          "applicability": [
+            {
+              "network_type": "lora"
+            },
+            {
+              "network_type": "lorm"
+            },
+            {
+              "network_type": "lokr"
+            },
+            {
+              "network_type": "dora"
+            },
+            {
+              "network_type": "fullrank"
+            }
+          ]
+        },
+        {
+          "description": "When linear_alpha is omitted, LoConSpecialModule normalizes inherited explicit null or zero network.alpha to the effective per-module rank.",
+          "applicability": [
+            {
+              "network_type": "locon"
+            },
+            {
+              "network_type": "lycoris"
+            }
+          ]
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "network.linear_alpha",
+          "kind": "affects",
+          "description": "network.alpha is forwarded as module alpha only through network.linear_alpha's omission fallback; an explicit linear_alpha overrides it.",
+          "applicability": []
+        }
+      ],
       "aliases": [],
       "section": "network",
       "source_claims": [
@@ -5810,7 +5849,7 @@
       "render": {
         "page": "reference/network.md",
         "anchor": "network-alpha",
-        "description": "Sets the base network scaling alpha.",
+        "description": "Sets the base network scaling alpha; explicit null or zero becomes the effective module rank in both active implementation families.",
         "benefits": "Controls effective update scale independently of rank.",
         "drawbacks": "A poor alpha-to-rank relationship can weaken or exaggerate updates.",
         "example": "alpha: 1"
@@ -5839,12 +5878,12 @@
       ],
       "contract": {
         "parser_type": "integer",
-        "supported_type": "positive-integer-or-null",
+        "supported_type": "nonnegative-integer-or-null",
         "ui_type": null,
         "example_type": "integer",
         "accepted_values": null,
         "range": {
-          "minimum": 1,
+          "minimum": 0,
           "maximum": null,
           "minimum_inclusive": true,
           "maximum_inclusive": true
@@ -5859,7 +5898,19 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "LycorisSpecialNetwork normalizes omitted or explicit null conv to 0, disabling convolution adapters.",
+          "applicability": [
+            {
+              "network_type": "locon"
+            },
+            {
+              "network_type": "lycoris"
+            }
+          ]
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "network",
@@ -5874,7 +5925,7 @@
       "render": {
         "page": "reference/network.md",
         "anchor": "network-conv",
-        "description": "Sets convolution rank; null leaves convolution adaptation disabled unless another network mode forces it.",
+        "description": "Sets convolution rank; LoRASpecialNetwork preserves null while LycorisSpecialNetwork normalizes null to 0, and both disable convolution adaptation unless another network mode forces it.",
         "benefits": "Adds capacity for convolution features.",
         "drawbacks": "It increases parameters and is unsupported or unnecessary for some architectures.",
           "example": "conv: 4"
@@ -5903,12 +5954,12 @@
       ],
       "contract": {
         "parser_type": "number",
-        "supported_type": "number-or-null",
+        "supported_type": "number-or-null-with-target-conditions",
         "ui_type": null,
         "example_type": "number",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -5920,13 +5971,69 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "LoRAModule normalizes explicit null or zero conv_alpha to the effective convolution-module rank when convolution adapters are constructed.",
+          "applicability": [
+            {
+              "network_type": "lora"
+            },
+            {
+              "network_type": "lorm"
+            },
+            {
+              "network_type": "lokr"
+            },
+            {
+              "network_type": "dora"
+            },
+            {
+              "network_type": "fullrank"
+            }
+          ]
+        },
+        {
+          "description": "LycorisSpecialNetwork normalizes omitted or explicit null conv_alpha to 0 when convolution adaptation is disabled.",
+          "applicability": [
+            {
+              "network_type": "locon"
+            },
+            {
+              "network_type": "lycoris"
+            }
+          ]
+        },
+        {
+          "description": "LoConSpecialModule normalizes zero conv_alpha to the effective convolution-module rank when convolution adaptation is enabled.",
+          "applicability": [
+            {
+              "network_type": "locon"
+            },
+            {
+              "network_type": "lycoris"
+            }
+          ]
+        }
+      ],
       "interactions": [
         {
           "setting": "network.conv",
           "kind": "fallback",
-          "description": "It inherits conv when omitted.",
+          "description": "When conv_alpha is omitted, NetworkConfig inherits network.conv; explicit null remains null.",
           "applicability": []
+        },
+        {
+          "setting": "network.conv",
+          "kind": "requires",
+          "description": "For locon/lycoris with convolution adaptation enabled, conv_alpha must be a number; explicit null reaches float(None) and fails during network construction.",
+          "applicability": [
+            {
+              "network_type": "locon"
+            },
+            {
+              "network_type": "lycoris"
+            }
+          ]
         }
       ],
       "aliases": [],
@@ -5942,9 +6049,9 @@
       "render": {
         "page": "reference/network.md",
         "anchor": "network-conv-alpha",
-        "description": "Sets convolution alpha, inheriting convolution rank when omitted.",
+        "description": "Sets convolution alpha. Omission inherits conv; explicit null becomes convolution rank in LoRA modules, becomes 0 when LyCORIS convolution is disabled, and is invalid when LyCORIS convolution is enabled.",
         "benefits": "Tunes convolution update scaling separately.",
-        "drawbacks": "A mismatched scale can over- or under-emphasize convolution updates.",
+        "drawbacks": "A mismatched scale can over- or under-emphasize convolution updates, and explicit null fails for enabled LyCORIS convolution.",
           "example": "conv_alpha: 4"
       }
     },
@@ -5991,7 +6098,19 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "LycorisSpecialNetwork normalizes omitted or explicit null dropout to 0 before module construction.",
+          "applicability": [
+            {
+              "network_type": "locon"
+            },
+            {
+              "network_type": "lycoris"
+            }
+          ]
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "network",
@@ -6006,7 +6125,7 @@
       "render": {
         "page": "reference/network.md",
         "anchor": "network-dropout",
-        "description": "Sets network dropout when supported by the selected implementation.",
+        "description": "Sets network dropout; LoRASpecialNetwork preserves null while LycorisSpecialNetwork normalizes null to 0.",
         "benefits": "Can regularize a high-capacity network.",
         "drawbacks": "Too much dropout slows learning or removes useful signal.",
           "example": "dropout: 0.1"
@@ -6094,12 +6213,12 @@
       ],
       "contract": {
         "parser_type": "number",
-        "supported_type": "number",
+        "supported_type": "number-or-null",
         "ui_type": null,
         "example_type": "number",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -6111,12 +6230,44 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "LoRAModule normalizes explicit null or zero linear_alpha to the effective per-module rank.",
+          "applicability": [
+            {
+              "network_type": "lora"
+            },
+            {
+              "network_type": "lorm"
+            },
+            {
+              "network_type": "lokr"
+            },
+            {
+              "network_type": "dora"
+            },
+            {
+              "network_type": "fullrank"
+            }
+          ]
+        },
+        {
+          "description": "LoConSpecialModule normalizes explicit null or zero linear_alpha to the effective per-module rank.",
+          "applicability": [
+            {
+              "network_type": "locon"
+            },
+            {
+              "network_type": "lycoris"
+            }
+          ]
+        }
+      ],
       "interactions": [
         {
           "setting": "network.alpha",
           "kind": "fallback",
-          "description": "It inherits alpha when omitted.",
+          "description": "When linear_alpha is omitted, NetworkConfig inherits network.alpha; explicit null remains null until module construction.",
           "applicability": []
         }
       ],
@@ -6133,7 +6284,7 @@
       "render": {
         "page": "reference/network.md",
         "anchor": "network-linear-alpha",
-        "description": "Sets linear-module alpha, inheriting the base alpha when omitted.",
+        "description": "Sets linear-module alpha. Omission inherits base alpha; explicit null or zero becomes the effective module rank in both active implementation families.",
         "benefits": "Tunes linear update scaling separately.",
         "drawbacks": "A mismatched scale can over- or under-emphasize linear updates.",
           "example": "linear_alpha: 1.0"
@@ -6733,7 +6884,7 @@
       ],
       "contract": {
         "parser_type": "integer",
-        "supported_type": "positive-integer",
+        "supported_type": "positive-integer-or-null",
         "ui_type": null,
         "example_type": "integer",
         "accepted_values": null,
@@ -6743,7 +6894,7 @@
           "minimum_inclusive": true,
           "maximum_inclusive": true
         },
-        "null": "rejected"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -6755,7 +6906,7 @@
       ],
       "normalizations": [
         {
-          "description": "Legacy rank wins when present; otherwise linear is used; when both are omitted the effective rank is 4.",
+          "description": "NetworkConfig treats null rank and linear values as absent: the first non-null legacy rank wins, then non-null linear, otherwise both effective values become 4.",
           "applicability": []
         }
       ],
@@ -6765,7 +6916,7 @@
           "location": "config.process[*].network.rank",
           "replacement": "network.linear",
           "precedence": "alias-wins",
-          "migration": "Rename rank to linear; if both remain, the legacy rank value takes precedence.",
+          "migration": "Rename rank to linear. A non-null legacy rank wins; otherwise a non-null linear value is used; null values are treated as absent.",
           "status": "legacy"
         }
       ],
@@ -6787,7 +6938,7 @@
       "render": {
         "page": "reference/network.md",
         "anchor": "network-linear",
-        "description": "Sets the low-rank dimension for linear modules.",
+        "description": "Sets the low-rank dimension for linear modules; null is treated as absent, with legacy rank checked before linear and 4 used when neither has a value.",
         "benefits": "Controls the primary tradeoff between adapter capacity and size.",
         "drawbacks": "Higher rank increases memory, training time, and checkpoint size; low rank may underfit.",
         "example": "linear: 16"
