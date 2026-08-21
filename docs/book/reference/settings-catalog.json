@@ -22414,10 +22414,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adafactor-param-beta1",
-        "description": "Configures beta1 for adafactor.",
-        "benefits": "Keeps beta1 scoped to the constructor behavior of adafactor.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "beta1: 0.9"
+        "description": "In adafactor, controls first-moment momentum and null disables that state; discovered defaults are Adafactor.__init__.beta1=None.",
+        "benefits": "For adafactor, use this value to retain momentum only when smoothing is wanted.",
+        "drawbacks": "With adafactor, stale momentum risks preserving an obsolete direction.",
+        "example": "beta1: null"
       }
     },
     {
@@ -22488,9 +22488,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adafactor-param-clip_threshold",
-        "description": "Configures clip_threshold for adafactor.",
-        "benefits": "Keeps clip_threshold scoped to the constructor behavior of adafactor.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In adafactor, RMS-clips the preconditioned update; discovered defaults are Adafactor.__init__.clip_threshold=1.0.",
+        "benefits": "For adafactor, use this value to bound unusually large normalized updates.",
+        "drawbacks": "With adafactor, too-small clipping risks suppressing learning.",
         "example": "clip_threshold: 1.0"
       }
     },
@@ -22557,9 +22557,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adafactor-param-decay_rate",
-        "description": "Configures decay_rate for adafactor.",
-        "benefits": "Keeps decay_rate scoped to the constructor behavior of adafactor.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In adafactor, sets Adafactor time-varying second-moment exponent; discovered defaults are Adafactor.__init__.decay_rate=-0.8.",
+        "benefits": "For adafactor, use this value to shape weighting of recent squared gradients.",
+        "drawbacks": "With adafactor, poor decay risks stale or noisy variance.",
         "example": "decay_rate: -0.8"
       }
     },
@@ -22635,10 +22635,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adafactor-param-do_paramiter_swapping",
-        "description": "Configures do_paramiter_swapping for adafactor.",
-        "benefits": "Keeps do_paramiter_swapping scoped to the constructor behavior of adafactor.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "do_paramiter_swapping: true"
+        "description": "In adafactor, rotates subsets of trainable parameters; discovered defaults are Adafactor.__init__.do_paramiter_swapping=False.",
+        "benefits": "For adafactor, use this value to reduce active parameter memory.",
+        "drawbacks": "With adafactor, small active subsets risk slower coverage.",
+        "example": "do_paramiter_swapping: false"
       }
     },
     {
@@ -22704,10 +22704,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adafactor-param-eps",
-        "description": "Configures eps for adafactor.",
-        "benefits": "Keeps eps scoped to the constructor behavior of adafactor.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "eps: [1e-30, 0.001]"
+        "description": "In adafactor, adds a denominator stability floor; discovered defaults are Adafactor.__init__.eps=(1e-30, 0.001).",
+        "benefits": "For adafactor, use this value to avoid division by tiny second moments.",
+        "drawbacks": "With adafactor, large eps risks suppressing small gradients.",
+        "example": "eps: [1.0e-30, 0.001]"
       }
     },
     {
@@ -22785,9 +22785,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adafactor-param-lr",
-        "description": "Configures lr for adafactor.",
-        "benefits": "Keeps lr scoped to the constructor behavior of adafactor.",
-        "drawbacks": "For adafactor, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In adafactor, receives train.lr from the dispatcher; discovered defaults are get_optimizer.adafactor__lr=float(learning_rate), Adafactor.__init__.lr=None.",
+        "benefits": "For adafactor, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With adafactor, optimizer_params duplication raises TypeError. For adafactor, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -22859,9 +22859,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adafactor-param-paramiter_swapping_factor",
-        "description": "Configures paramiter_swapping_factor for adafactor.",
-        "benefits": "Keeps paramiter_swapping_factor scoped to the constructor behavior of adafactor.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In adafactor, sets the active swapping fraction; discovered defaults are Adafactor.__init__.paramiter_swapping_factor=0.1.",
+        "benefits": "For adafactor, use this value to balance coverage against memory.",
+        "drawbacks": "With adafactor, tiny fractions risk sparse coverage.",
         "example": "paramiter_swapping_factor: 0.1"
       }
     },
@@ -22893,7 +22893,6 @@
         "ui_type": null,
         "example_type": "boolean",
         "accepted_values": [
-          true,
           false,
           null
         ],
@@ -22944,9 +22943,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adafactor-param-relative_step",
-        "description": "Configures relative_step for adafactor.",
-        "benefits": "Keeps relative_step scoped to the constructor behavior of adafactor.",
-        "drawbacks": "relative_step=true is unusable through get_optimizer because it always injects a manual learning rate; Adafactor raises ValueError for that combination.",
+        "description": "In adafactor, selects Adafactor internal relative steps; discovered defaults are get_optimizer.adafactor__relative_step=False, Adafactor.__init__.relative_step=True.",
+        "benefits": "For adafactor, use relative_step: false so the dispatcher’s manual train.lr remains valid.",
+        "drawbacks": "With adafactor, true with manual lr raises ValueError. relative_step=true is unusable through get_optimizer because it always injects a manual learning rate; Adafactor raises ValueError for that combination.",
         "example": "relative_step: false"
       }
     },
@@ -23029,10 +23028,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adafactor-param-scale_parameter",
-        "description": "Configures scale_parameter for adafactor.",
-        "benefits": "Keeps scale_parameter scoped to the constructor behavior of adafactor.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "scale_parameter: false"
+        "description": "In adafactor, scales relative rate by parameter RMS; discovered defaults are get_optimizer.adafactor__scale_parameter=False, Adafactor.__init__.scale_parameter=True.",
+        "benefits": "For adafactor, use this value to adapt steps to tensor magnitude.",
+        "drawbacks": "With adafactor, different RMS values risk uneven rates.",
+        "example": "scale_parameter: true"
       }
     },
     {
@@ -23107,9 +23106,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adafactor-param-stochastic_accumulation",
-        "description": "Configures stochastic_accumulation for adafactor.",
-        "benefits": "Keeps stochastic_accumulation scoped to the constructor behavior of adafactor.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In adafactor, controls low-precision stochastic gradient accumulation; discovered defaults are Adafactor.__init__.stochastic_accumulation=True.",
+        "benefits": "For adafactor, use this value to preserve tiny micro-batch contributions.",
+        "drawbacks": "With adafactor, falsey input risks losing small contributions.",
         "example": "stochastic_accumulation: true"
       }
     },
@@ -23185,9 +23184,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adafactor-param-stochastic_rounding",
-        "description": "Configures stochastic_rounding for adafactor.",
-        "benefits": "Keeps stochastic_rounding scoped to the constructor behavior of adafactor.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In adafactor, controls stochastic low-precision writes; discovered defaults are Adafactor.__init__.stochastic_rounding=True.",
+        "benefits": "For adafactor, use this value to reduce rounding bias.",
+        "drawbacks": "With adafactor, falsey input risks systematic bias.",
         "example": "stochastic_rounding: true"
       }
     },
@@ -23219,7 +23218,6 @@
         "ui_type": null,
         "example_type": "boolean",
         "accepted_values": [
-          true,
           false,
           null
         ],
@@ -23270,9 +23268,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adafactor-param-warmup_init",
-        "description": "Configures warmup_init for adafactor.",
-        "benefits": "Keeps warmup_init scoped to the constructor behavior of adafactor.",
-        "drawbacks": "warmup_init=true is unusable through get_optimizer because it always injects a manual learning rate; Adafactor raises ValueError for that combination.",
+        "description": "In adafactor, selects Adafactor relative-step warmup; discovered defaults are get_optimizer.adafactor__warmup_init=False, Adafactor.__init__.warmup_init=False.",
+        "benefits": "For adafactor, use this value to keep dispatcher-compatible manual-rate mode false.",
+        "drawbacks": "With adafactor, true requires relative_step and raises ValueError here. warmup_init=true is unusable through get_optimizer because it always injects a manual learning rate; Adafactor raises ValueError for that combination.",
         "example": "warmup_init: false"
       }
     },
@@ -23344,10 +23342,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adafactor-param-weight_decay",
-        "description": "Configures weight_decay for adafactor.",
-        "benefits": "Keeps weight_decay scoped to the constructor behavior of adafactor.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "weight_decay: 0.01"
+        "description": "In adafactor, sets regularization strength; discovered defaults are Adafactor.__init__.weight_decay=0.0.",
+        "benefits": "For adafactor, use this value to regularize with a deliberate nonnegative coefficient.",
+        "drawbacks": "With adafactor, excess decay risks erasing learned weights.",
+        "example": "weight_decay: 0.0"
       }
     },
     {
@@ -23418,9 +23416,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adagrad-param-lr",
-        "description": "Configures lr for adagrad.",
-        "benefits": "Keeps lr scoped to the constructor behavior of adagrad.",
-        "drawbacks": "For adagrad, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In adagrad, receives train.lr from the dispatcher; discovered defaults are get_optimizer.adagrad__lr=float(learning_rate).",
+        "benefits": "For adagrad, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With adagrad, optimizer_params duplication raises TypeError. For adagrad, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -23492,9 +23490,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adam-param-eps",
-        "description": "Configures eps for adam.",
-        "benefits": "Keeps eps scoped to the constructor behavior of adam.",
-        "drawbacks": "For adam, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In adam, adds a denominator stability floor; discovered defaults are get_optimizer.adam__eps=1e-06.",
+        "benefits": "For adam, use train.lr and leave optimizer_params empty so eps is supplied once.",
+        "drawbacks": "With adam, large eps risks suppressing small gradients. For adam, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -23566,9 +23564,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adam-param-lr",
-        "description": "Configures lr for adam.",
-        "benefits": "Keeps lr scoped to the constructor behavior of adam.",
-        "drawbacks": "For adam, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In adam, receives train.lr from the dispatcher; discovered defaults are get_optimizer.adam__lr=float(learning_rate).",
+        "benefits": "For adam, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With adam, optimizer_params duplication raises TypeError. For adam, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -23639,9 +23637,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adam8-adamw8-param-betas",
-        "description": "Configures betas for adam8 or adamw8.",
-        "benefits": "Keeps betas scoped to the constructor behavior of adam8 or adamw8.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In adam8 and adamw8, supplies first- and second-moment decays; discovered defaults are Adam8bit.__init__.betas=(0.9, 0.999).",
+        "benefits": "For adam8 and adamw8, use this value to control momentum and variance averaging.",
+        "drawbacks": "With adam8 and adamw8, out-of-range coefficients raise ValueError or risk invalid moments.",
         "example": "betas: [0.0, 0.999]"
       }
     },
@@ -23718,9 +23716,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adam8-param-decouple",
-        "description": "Configures decouple for adam8 or adamw8.",
-        "benefits": "Keeps decouple scoped to the constructor behavior of adam8 or adamw8.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In adam8, selects decoupled or coupled weight decay; discovered defaults are get_optimizer.adamw8__decouple=True, Adam8bit.__init__.decouple=True.",
+        "benefits": "For adam8, use this value to choose whether decay acts on weights or gradients.",
+        "drawbacks": "With adam8, the wrong form risks changing the objective.",
         "example": "decouple: true"
       }
     },
@@ -23810,9 +23808,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adam8-adamw8-param-eps",
-        "description": "Configures eps for adam8 or adamw8.",
-        "benefits": "Keeps eps scoped to the constructor behavior of adam8 or adamw8.",
-        "drawbacks": "For adam8 or adamw8, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In adam8 and adamw8, adds a denominator stability floor; discovered defaults are get_optimizer.adam8__eps=1e-06, get_optimizer.adamw8__eps=1e-06, Adam8bit.__init__.eps=1e-08.",
+        "benefits": "For adam8 and adamw8, use train.lr and leave optimizer_params empty so eps is supplied once.",
+        "drawbacks": "With adam8 and adamw8, large eps risks suppressing small gradients. For adam8 or adamw8, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -23902,9 +23900,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adam8-adamw8-param-lr",
-        "description": "Configures lr for adam8 or adamw8.",
-        "benefits": "Keeps lr scoped to the constructor behavior of adam8 or adamw8.",
-        "drawbacks": "For adam8 or adamw8, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In adam8 and adamw8, receives train.lr from the dispatcher; discovered defaults are get_optimizer.adam8__lr=learning_rate, get_optimizer.adamw8__lr=learning_rate, Adam8bit.__init__.lr=0.001.",
+        "benefits": "For adam8 and adamw8, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With adam8 and adamw8, optimizer_params duplication raises TypeError. For adam8 or adamw8, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -23980,10 +23978,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adam8-adamw8-param-weight_decay",
-        "description": "Configures weight_decay for adam8 or adamw8.",
-        "benefits": "Keeps weight_decay scoped to the constructor behavior of adam8 or adamw8.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "weight_decay: 0.01"
+        "description": "In adam8 and adamw8, sets regularization strength; discovered defaults are Adam8bit.__init__.weight_decay=0.",
+        "benefits": "For adam8 and adamw8, use this value to regularize with a deliberate nonnegative coefficient.",
+        "drawbacks": "With adam8 and adamw8, excess decay risks erasing learned weights.",
+        "example": "weight_decay: 0"
       }
     },
     {
@@ -24054,9 +24052,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adam8bit-param-eps",
-        "description": "Configures eps for adam8bit.",
-        "benefits": "Keeps eps scoped to the constructor behavior of adam8bit.",
-        "drawbacks": "For adam8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In adam8bit, adds a denominator stability floor; discovered defaults are get_optimizer.adam8bit__eps=1e-06.",
+        "benefits": "For adam8bit, use train.lr and leave optimizer_params empty so eps is supplied once.",
+        "drawbacks": "With adam8bit, large eps risks suppressing small gradients. For adam8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -24128,9 +24126,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adam8bit-param-lr",
-        "description": "Configures lr for adam8bit.",
-        "benefits": "Keeps lr scoped to the constructor behavior of adam8bit.",
-        "drawbacks": "For adam8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In adam8bit, receives train.lr from the dispatcher; discovered defaults are get_optimizer.adam8bit__lr=learning_rate.",
+        "benefits": "For adam8bit, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With adam8bit, optimizer_params duplication raises TypeError. For adam8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -24202,9 +24200,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adamw-param-eps",
-        "description": "Configures eps for adamw.",
-        "benefits": "Keeps eps scoped to the constructor behavior of adamw.",
-        "drawbacks": "For adamw, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In adamw, adds a denominator stability floor; discovered defaults are get_optimizer.adamw__eps=1e-06.",
+        "benefits": "For adamw, use train.lr and leave optimizer_params empty so eps is supplied once.",
+        "drawbacks": "With adamw, large eps risks suppressing small gradients. For adamw, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -24276,9 +24274,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adamw-param-lr",
-        "description": "Configures lr for adamw.",
-        "benefits": "Keeps lr scoped to the constructor behavior of adamw.",
-        "drawbacks": "For adamw, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In adamw, receives train.lr from the dispatcher; discovered defaults are get_optimizer.adamw__lr=float(learning_rate).",
+        "benefits": "For adamw, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With adamw, optimizer_params duplication raises TypeError. For adamw, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -24350,9 +24348,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adamw8bit-param-eps",
-        "description": "Configures eps for adamw8bit.",
-        "benefits": "Keeps eps scoped to the constructor behavior of adamw8bit.",
-        "drawbacks": "For adamw8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In adamw8bit, adds a denominator stability floor; discovered defaults are get_optimizer.adamw8bit__eps=1e-06.",
+        "benefits": "For adamw8bit, use train.lr and leave optimizer_params empty so eps is supplied once.",
+        "drawbacks": "With adamw8bit, large eps risks suppressing small gradients. For adamw8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -24424,9 +24422,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adamw8bit-param-lr",
-        "description": "Configures lr for adamw8bit.",
-        "benefits": "Keeps lr scoped to the constructor behavior of adamw8bit.",
-        "drawbacks": "For adamw8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In adamw8bit, receives train.lr from the dispatcher; discovered defaults are get_optimizer.adamw8bit__lr=learning_rate.",
+        "benefits": "For adamw8bit, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With adamw8bit, optimizer_params duplication raises TypeError. For adamw8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -24498,9 +24496,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-ademamix8bit-param-eps",
-        "description": "Configures eps for ademamix8bit.",
-        "benefits": "Keeps eps scoped to the constructor behavior of ademamix8bit.",
-        "drawbacks": "For ademamix8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In ademamix8bit, adds a denominator stability floor; discovered defaults are get_optimizer.ademamix8bit__eps=1e-06.",
+        "benefits": "For ademamix8bit, use train.lr and leave optimizer_params empty so eps is supplied once.",
+        "drawbacks": "With ademamix8bit, large eps risks suppressing small gradients. For ademamix8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -24572,9 +24570,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-ademamix8bit-param-lr",
-        "description": "Configures lr for ademamix8bit.",
-        "benefits": "Keeps lr scoped to the constructor behavior of ademamix8bit.",
-        "drawbacks": "For ademamix8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In ademamix8bit, receives train.lr from the dispatcher; discovered defaults are get_optimizer.ademamix8bit__lr=learning_rate.",
+        "benefits": "For ademamix8bit, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With ademamix8bit, optimizer_params duplication raises TypeError. For ademamix8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -24646,9 +24644,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic-param-beta2",
-        "description": "Configures beta2 for automagic.",
-        "benefits": "Keeps beta2 scoped to the constructor behavior of automagic.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In automagic, sets squared-gradient EMA decay; discovered defaults are Automagic.__init__.beta2=0.999.",
+        "benefits": "For automagic, use this value to smooth noisy variance estimates.",
+        "drawbacks": "With automagic, near-one decay reacts slowly and low decay risks noise.",
         "example": "beta2: 0.999"
       }
     },
@@ -24720,9 +24718,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic-param-clip_threshold",
-        "description": "Configures clip_threshold for automagic.",
-        "benefits": "Keeps clip_threshold scoped to the constructor behavior of automagic.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In automagic, RMS-clips the preconditioned update; discovered defaults are Automagic.__init__.clip_threshold=1.0.",
+        "benefits": "For automagic, use this value to bound unusually large normalized updates.",
+        "drawbacks": "With automagic, too-small clipping risks suppressing learning.",
         "example": "clip_threshold: 1.0"
       }
     },
@@ -24798,10 +24796,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic-param-do_paramiter_swapping",
-        "description": "Configures do_paramiter_swapping for automagic.",
-        "benefits": "Keeps do_paramiter_swapping scoped to the constructor behavior of automagic.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "do_paramiter_swapping: true"
+        "description": "In automagic, rotates subsets of trainable parameters; discovered defaults are Automagic.__init__.do_paramiter_swapping=False.",
+        "benefits": "For automagic, use this value to reduce active parameter memory.",
+        "drawbacks": "With automagic, small active subsets risk slower coverage.",
+        "example": "do_paramiter_swapping: false"
       }
     },
     {
@@ -24830,7 +24828,7 @@
         "parser_type": "number-or-number-pair",
         "supported_type": "positive-number-or-two-positive-numbers",
         "ui_type": null,
-        "example_type": "number-list",
+        "example_type": "number",
         "accepted_values": null,
         "range": null,
         "null": "rejected"
@@ -24870,7 +24868,7 @@
         "description": "Automagic uses scalar eps directly and uses the first element when eps is a tuple or list to stabilize its squared-gradient update.",
         "benefits": "Use eps: 1e-30 to match Automagic’s scalar update floor without changing its denominator scale.",
         "drawbacks": "A large Automagic eps can dominate small gradients and risks suppressing useful updates.",
-        "example": "eps: 1e-30"
+        "example": "eps: 1.0e-30"
       }
     },
     {
@@ -24948,9 +24946,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic-param-lr",
-        "description": "Configures lr for automagic.",
-        "benefits": "Keeps lr scoped to the constructor behavior of automagic.",
-        "drawbacks": "For automagic, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In automagic, receives train.lr from the dispatcher; discovered defaults are get_optimizer.automagic__lr=float(learning_rate), Automagic.__init__.lr=1e-06.",
+        "benefits": "For automagic, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With automagic, optimizer_params duplication raises TypeError. For automagic, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -25022,10 +25020,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic-param-lr_bump",
-        "description": "Configures lr_bump for automagic.",
-        "benefits": "Keeps lr_bump scoped to the constructor behavior of automagic.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "lr_bump: 1e-6"
+        "description": "In automagic, sets additive Automagic rate adjustment; discovered defaults are Automagic.__init__.lr_bump=1e-06.",
+        "benefits": "For automagic, use this value to control rate exploration speed.",
+        "drawbacks": "With automagic, large bumps risk oscillation.",
+        "example": "lr_bump: 1.0e-6"
       }
     },
     {
@@ -25096,9 +25094,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic-param-max_lr",
-        "description": "Configures max_lr for automagic.",
-        "benefits": "Keeps max_lr scoped to the constructor behavior of automagic.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In automagic, caps adaptive learning rate; discovered defaults are Automagic.__init__.max_lr=0.001.",
+        "benefits": "For automagic, use this value to prevent excessive adaptive rates.",
+        "drawbacks": "With automagic, a ceiling below min_lr can raise ValueError.",
         "example": "max_lr: 0.001"
       }
     },
@@ -25170,10 +25168,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic-param-min_lr",
-        "description": "Configures min_lr for automagic.",
-        "benefits": "Keeps min_lr scoped to the constructor behavior of automagic.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "min_lr: 1e-7"
+        "description": "In automagic, floors adaptive learning rate; discovered defaults are Automagic.__init__.min_lr=1e-07.",
+        "benefits": "For automagic, use this value to prevent the rate vanishing.",
+        "drawbacks": "With automagic, a floor above max_lr can raise ValueError.",
+        "example": "min_lr: 1.0e-7"
       }
     },
     {
@@ -25244,9 +25242,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic-param-paramiter_swapping_factor",
-        "description": "Configures paramiter_swapping_factor for automagic.",
-        "benefits": "Keeps paramiter_swapping_factor scoped to the constructor behavior of automagic.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In automagic, sets the active swapping fraction; discovered defaults are Automagic.__init__.paramiter_swapping_factor=0.1.",
+        "benefits": "For automagic, use this value to balance coverage against memory.",
+        "drawbacks": "With automagic, tiny fractions risk sparse coverage.",
         "example": "paramiter_swapping_factor: 0.1"
       }
     },
@@ -25318,10 +25316,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic-param-weight_decay",
-        "description": "Configures weight_decay for automagic.",
-        "benefits": "Keeps weight_decay scoped to the constructor behavior of automagic.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "weight_decay: 0.01"
+        "description": "In automagic, sets regularization strength; discovered defaults are Automagic.__init__.weight_decay=0.0.",
+        "benefits": "For automagic, use this value to regularize with a deliberate nonnegative coefficient.",
+        "drawbacks": "With automagic, excess decay risks erasing learned weights.",
+        "example": "weight_decay: 0.0"
       }
     },
     {
@@ -25392,9 +25390,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic2-param-agreement_threshold",
-        "description": "Configures agreement_threshold for automagic2.",
-        "benefits": "Keeps agreement_threshold scoped to the constructor behavior of automagic2.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In automagic2, measures update-sign agreement before Automagic2 chooses the LR bump direction; discovered defaults are Automagic2.__init__.agreement_threshold=0.5.",
+        "benefits": "For automagic2, use this value to tune when Automagic2 raises rather than lowers its rate.",
+        "drawbacks": "With automagic2, extreme thresholds risk one-way rate movement.",
         "example": "agreement_threshold: 0.5"
       }
     },
@@ -25466,9 +25464,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic2-param-beta2",
-        "description": "Configures beta2 for automagic2.",
-        "benefits": "Keeps beta2 scoped to the constructor behavior of automagic2.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In automagic2, sets squared-gradient EMA decay; discovered defaults are Automagic2.__init__.beta2=0.999.",
+        "benefits": "For automagic2, use this value to smooth noisy variance estimates.",
+        "drawbacks": "With automagic2, near-one decay reacts slowly and low decay risks noise.",
         "example": "beta2: 0.999"
       }
     },
@@ -25540,9 +25538,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic2-param-clip_threshold",
-        "description": "Configures clip_threshold for automagic2.",
-        "benefits": "Keeps clip_threshold scoped to the constructor behavior of automagic2.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In automagic2, RMS-clips the preconditioned update; discovered defaults are Automagic2.__init__.clip_threshold=1.0.",
+        "benefits": "For automagic2, use this value to bound unusually large normalized updates.",
+        "drawbacks": "With automagic2, too-small clipping risks suppressing learning.",
         "example": "clip_threshold: 1.0"
       }
     },
@@ -25614,10 +25612,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic2-param-eps",
-        "description": "Configures eps for automagic2.",
-        "benefits": "Keeps eps scoped to the constructor behavior of automagic2.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "eps: 1e-8"
+        "description": "In automagic2, adds a denominator stability floor; discovered defaults are Automagic2.__init__.eps=1e-30.",
+        "benefits": "For automagic2, use this value to avoid division by tiny second moments.",
+        "drawbacks": "With automagic2, large eps risks suppressing small gradients.",
+        "example": "eps: 1.0e-30"
       }
     },
     {
@@ -25700,9 +25698,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic2-param-lr",
-        "description": "Configures lr for automagic2.",
-        "benefits": "Keeps lr scoped to the constructor behavior of automagic2.",
-        "drawbacks": "For automagic2, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In automagic2, receives train.lr from the dispatcher; discovered defaults are get_optimizer.automagic2__lr=float(learning_rate), Automagic2.__init__.lr=1e-06.",
+        "benefits": "For automagic2, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With automagic2, optimizer_params duplication raises TypeError. For automagic2, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -25774,10 +25772,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic2-param-lr_bump",
-        "description": "Configures lr_bump for automagic2.",
-        "benefits": "Keeps lr_bump scoped to the constructor behavior of automagic2.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "lr_bump: 1e-6"
+        "description": "In automagic2, sets additive Automagic rate adjustment; discovered defaults are Automagic2.__init__.lr_bump=1e-06.",
+        "benefits": "For automagic2, use this value to control rate exploration speed.",
+        "drawbacks": "With automagic2, large bumps risk oscillation.",
+        "example": "lr_bump: 1.0e-6"
       }
     },
     {
@@ -25848,9 +25846,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic2-param-max_lr",
-        "description": "Configures max_lr for automagic2.",
-        "benefits": "Keeps max_lr scoped to the constructor behavior of automagic2.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In automagic2, caps adaptive learning rate; discovered defaults are Automagic2.__init__.max_lr=0.001.",
+        "benefits": "For automagic2, use this value to prevent excessive adaptive rates.",
+        "drawbacks": "With automagic2, a ceiling below min_lr can raise ValueError.",
         "example": "max_lr: 0.001"
       }
     },
@@ -25922,10 +25920,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic2-param-min_lr",
-        "description": "Configures min_lr for automagic2.",
-        "benefits": "Keeps min_lr scoped to the constructor behavior of automagic2.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "min_lr: 1e-7"
+        "description": "In automagic2, floors adaptive learning rate; discovered defaults are Automagic2.__init__.min_lr=1e-07.",
+        "benefits": "For automagic2, use this value to prevent the rate vanishing.",
+        "drawbacks": "With automagic2, a floor above max_lr can raise ValueError.",
+        "example": "min_lr: 1.0e-7"
       }
     },
     {
@@ -25996,10 +25994,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic2-param-weight_decay",
-        "description": "Configures weight_decay for automagic2.",
-        "benefits": "Keeps weight_decay scoped to the constructor behavior of automagic2.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "weight_decay: 0.01"
+        "description": "In automagic2, sets regularization strength; discovered defaults are Automagic2.__init__.weight_decay=0.0.",
+        "benefits": "For automagic2, use this value to regularize with a deliberate nonnegative coefficient.",
+        "drawbacks": "With automagic2, excess decay risks erasing learned weights.",
+        "example": "weight_decay: 0.0"
       }
     },
     {
@@ -26070,9 +26068,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic3-param-beta2",
-        "description": "Configures beta2 for automagic3.",
-        "benefits": "Keeps beta2 scoped to the constructor behavior of automagic3.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In automagic3, sets squared-gradient EMA decay; discovered defaults are Automagic3.__init__.beta2=0.999.",
+        "benefits": "For automagic3, use this value to smooth noisy variance estimates.",
+        "drawbacks": "With automagic3, near-one decay reacts slowly and low decay risks noise.",
         "example": "beta2: 0.999"
       }
     },
@@ -26144,9 +26142,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic3-param-clip_threshold",
-        "description": "Configures clip_threshold for automagic3.",
-        "benefits": "Keeps clip_threshold scoped to the constructor behavior of automagic3.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In automagic3, RMS-clips the preconditioned update; discovered defaults are Automagic3.__init__.clip_threshold=1.0.",
+        "benefits": "For automagic3, use this value to bound unusually large normalized updates.",
+        "drawbacks": "With automagic3, too-small clipping risks suppressing learning.",
         "example": "clip_threshold: 1.0"
       }
     },
@@ -26218,10 +26216,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic3-param-eps",
-        "description": "Configures eps for automagic3.",
-        "benefits": "Keeps eps scoped to the constructor behavior of automagic3.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "eps: 1e-8"
+        "description": "In automagic3, adds a denominator stability floor; discovered defaults are Automagic3.__init__.eps=1e-30.",
+        "benefits": "For automagic3, use this value to avoid division by tiny second moments.",
+        "drawbacks": "With automagic3, large eps risks suppressing small gradients.",
+        "example": "eps: 1.0e-30"
       }
     },
     {
@@ -26383,9 +26381,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic3-param-lr",
-        "description": "Configures lr for automagic3.",
-        "benefits": "Keeps lr scoped to the constructor behavior of automagic3.",
-        "drawbacks": "For automagic3, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In automagic3, receives train.lr from the dispatcher; discovered defaults are get_optimizer.automagic3__lr=float(learning_rate), Automagic3.__init__.lr=1e-06.",
+        "benefits": "For automagic3, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With automagic3, optimizer_params duplication raises TypeError. For automagic3, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -26457,9 +26455,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic3-param-max_lr",
-        "description": "Configures max_lr for automagic3.",
-        "benefits": "Keeps max_lr scoped to the constructor behavior of automagic3.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In automagic3, caps adaptive learning rate; discovered defaults are Automagic3.__init__.max_lr=1000.0.",
+        "benefits": "For automagic3, use this value to prevent excessive adaptive rates.",
+        "drawbacks": "With automagic3, a ceiling below min_lr can raise ValueError.",
         "example": "max_lr: 1000.0"
       }
     },
@@ -26537,10 +26535,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic3-param-min_lr",
-        "description": "Configures min_lr for automagic3.",
-        "benefits": "Keeps min_lr scoped to the constructor behavior of automagic3.",
-        "drawbacks": "If Automagic3 min_lr exceeds max_lr, construction raises ValueError; a floor that is too high risks preventing the controller from reducing unstable steps.",
-        "example": "min_lr: 1e-8"
+        "description": "In automagic3, floors adaptive learning rate; discovered defaults are Automagic3.__init__.min_lr=1e-08.",
+        "benefits": "For automagic3, use this value to prevent the rate vanishing.",
+        "drawbacks": "With automagic3, a floor above max_lr can raise ValueError. If Automagic3 min_lr exceeds max_lr, construction raises ValueError; a floor that is too high risks preventing the controller from reducing unstable steps.",
+        "example": "min_lr: 1.0e-8"
       }
     },
     {
@@ -26616,9 +26614,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic3-param-polarity_history",
-        "description": "Configures polarity_history for automagic3.",
-        "benefits": "Keeps polarity_history scoped to the constructor behavior of automagic3.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In automagic3, sets the sign-vote window; discovered defaults are Automagic3.__init__.polarity_history=8.",
+        "benefits": "For automagic3, use this value to balance response speed against history.",
+        "drawbacks": "With automagic3, out-of-range input is clamped and risks changed intent.",
         "example": "polarity_history: 8"
       }
     },
@@ -26690,10 +26688,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic3-param-weight_decay",
-        "description": "Configures weight_decay for automagic3.",
-        "benefits": "Keeps weight_decay scoped to the constructor behavior of automagic3.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "weight_decay: 0.01"
+        "description": "In automagic3, sets regularization strength; discovered defaults are Automagic3.__init__.weight_decay=0.0.",
+        "benefits": "For automagic3, use this value to regularize with a deliberate nonnegative coefficient.",
+        "drawbacks": "With automagic3, excess decay risks erasing learned weights.",
+        "example": "weight_decay: 0.0"
       }
     },
     {
@@ -26833,9 +26831,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagicexperiment-param-clip_threshold",
-        "description": "Configures clip_threshold for automagicexperiment.",
-        "benefits": "Keeps clip_threshold scoped to the constructor behavior of automagicexperiment.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In automagicexperiment, RMS-clips the preconditioned update; discovered defaults are AutomagicEXPERIMENT.__init__.clip_threshold=1.0.",
+        "benefits": "For automagicexperiment, use this value to bound unusually large normalized updates.",
+        "drawbacks": "With automagicexperiment, too-small clipping risks suppressing learning.",
         "example": "clip_threshold: 1.0"
       }
     },
@@ -26907,10 +26905,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagicexperiment-param-eps",
-        "description": "Configures eps for automagicexperiment.",
-        "benefits": "Keeps eps scoped to the constructor behavior of automagicexperiment.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "eps: 1e-8"
+        "description": "In automagicexperiment, adds a denominator stability floor; discovered defaults are AutomagicEXPERIMENT.__init__.eps=1e-08.",
+        "benefits": "For automagicexperiment, use this value to avoid division by tiny second moments.",
+        "drawbacks": "With automagicexperiment, large eps risks suppressing small gradients.",
+        "example": "eps: 1.0e-8"
       }
     },
     {
@@ -27072,9 +27070,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagicexperiment-param-lr",
-        "description": "Configures lr for automagicexperiment.",
-        "benefits": "Keeps lr scoped to the constructor behavior of automagicexperiment.",
-        "drawbacks": "For automagicexperiment, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In automagicexperiment, receives train.lr from the dispatcher; discovered defaults are get_optimizer.automagicexperiment__lr=float(learning_rate), AutomagicEXPERIMENT.__init__.lr=1e-06.",
+        "benefits": "For automagicexperiment, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With automagicexperiment, optimizer_params duplication raises TypeError. For automagicexperiment, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -27146,9 +27144,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagicexperiment-param-max_lr",
-        "description": "Configures max_lr for automagicexperiment.",
-        "benefits": "Keeps max_lr scoped to the constructor behavior of automagicexperiment.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In automagicexperiment, caps adaptive learning rate; discovered defaults are AutomagicEXPERIMENT.__init__.max_lr=1000.0.",
+        "benefits": "For automagicexperiment, use this value to prevent excessive adaptive rates.",
+        "drawbacks": "With automagicexperiment, a ceiling below min_lr can raise ValueError.",
         "example": "max_lr: 1000.0"
       }
     },
@@ -27220,10 +27218,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagicexperiment-param-min_lr",
-        "description": "Configures min_lr for automagicexperiment.",
-        "benefits": "Keeps min_lr scoped to the constructor behavior of automagicexperiment.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "min_lr: 1e-30"
+        "description": "In automagicexperiment, floors adaptive learning rate; discovered defaults are AutomagicEXPERIMENT.__init__.min_lr=1e-30.",
+        "benefits": "For automagicexperiment, use this value to prevent the rate vanishing.",
+        "drawbacks": "With automagicexperiment, a floor above max_lr can raise ValueError.",
+        "example": "min_lr: 1.0e-30"
       }
     },
     {
@@ -27299,9 +27297,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagicexperiment-param-polarity_history",
-        "description": "Configures polarity_history for automagicexperiment.",
-        "benefits": "Keeps polarity_history scoped to the constructor behavior of automagicexperiment.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In automagicexperiment, sets the sign-vote window; discovered defaults are AutomagicEXPERIMENT.__init__.polarity_history=8.",
+        "benefits": "For automagicexperiment, use this value to balance response speed against history.",
+        "drawbacks": "With automagicexperiment, out-of-range input is clamped and risks changed intent.",
         "example": "polarity_history: 8"
       }
     },
@@ -27373,10 +27371,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagicexperiment-param-weight_decay",
-        "description": "Configures weight_decay for automagicexperiment.",
-        "benefits": "Keeps weight_decay scoped to the constructor behavior of automagicexperiment.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "weight_decay: 0.01"
+        "description": "In automagicexperiment, sets regularization strength; discovered defaults are AutomagicEXPERIMENT.__init__.weight_decay=0.0.",
+        "benefits": "For automagicexperiment, use this value to regularize with a deliberate nonnegative coefficient.",
+        "drawbacks": "With automagicexperiment, excess decay risks erasing learned weights.",
+        "example": "weight_decay: 0.0"
       }
     },
     {
@@ -27447,9 +27445,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-dadaptation-param-eps",
-        "description": "Configures eps for dadaptation.",
-        "benefits": "Keeps eps scoped to the constructor behavior of dadaptation.",
-        "drawbacks": "For dadaptation, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In dadaptation, adds a denominator stability floor; discovered defaults are get_optimizer.dadaptation__eps=1e-06.",
+        "benefits": "For dadaptation, use train.lr and leave optimizer_params empty so eps is supplied once.",
+        "drawbacks": "With dadaptation, large eps risks suppressing small gradients. For dadaptation, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -27530,9 +27528,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-dadaptation-param-lr",
-        "description": "Configures lr for dadaptation.",
-        "benefits": "Keeps lr scoped to the constructor behavior of dadaptation.",
-        "drawbacks": "For dadaptation, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In dadaptation, receives train.lr from the dispatcher; discovered defaults are get_optimizer.dadaptation__lr=use_lr.",
+        "benefits": "For dadaptation, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With dadaptation, optimizer_params duplication raises TypeError. For dadaptation, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -27604,9 +27602,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-dadaptationadam-param-eps",
-        "description": "Configures eps for dadaptationadam.",
-        "benefits": "Keeps eps scoped to the constructor behavior of dadaptationadam.",
-        "drawbacks": "For dadaptationadam, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In dadaptationadam, adds a denominator stability floor; discovered defaults are get_optimizer.dadaptationadam__eps=1e-06.",
+        "benefits": "For dadaptationadam, use train.lr and leave optimizer_params empty so eps is supplied once.",
+        "drawbacks": "With dadaptationadam, large eps risks suppressing small gradients. For dadaptationadam, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -27687,9 +27685,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-dadaptationadam-param-lr",
-        "description": "Configures lr for dadaptationadam.",
-        "benefits": "Keeps lr scoped to the constructor behavior of dadaptationadam.",
-        "drawbacks": "For dadaptationadam, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In dadaptationadam, receives train.lr from the dispatcher; discovered defaults are get_optimizer.dadaptationadam__lr=use_lr.",
+        "benefits": "For dadaptationadam, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With dadaptationadam, optimizer_params duplication raises TypeError. For dadaptationadam, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -27761,9 +27759,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-dadaptationlion-param-eps",
-        "description": "Configures eps for dadaptationlion.",
-        "benefits": "Keeps eps scoped to the constructor behavior of dadaptationlion.",
-        "drawbacks": "For dadaptationlion, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In dadaptationlion, adds a denominator stability floor; discovered defaults are get_optimizer.dadaptationlion__eps=1e-06.",
+        "benefits": "For dadaptationlion, use train.lr and leave optimizer_params empty so eps is supplied once.",
+        "drawbacks": "With dadaptationlion, large eps risks suppressing small gradients. For dadaptationlion, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -27844,9 +27842,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-dadaptationlion-param-lr",
-        "description": "Configures lr for dadaptationlion.",
-        "benefits": "Keeps lr scoped to the constructor behavior of dadaptationlion.",
-        "drawbacks": "For dadaptationlion, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In dadaptationlion, receives train.lr from the dispatcher; discovered defaults are get_optimizer.dadaptationlion__lr=use_lr.",
+        "benefits": "For dadaptationlion, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With dadaptationlion, optimizer_params duplication raises TypeError. For dadaptationlion, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -27918,9 +27916,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-lion-param-lr",
-        "description": "Configures lr for lion.",
-        "benefits": "Keeps lr scoped to the constructor behavior of lion.",
-        "drawbacks": "For lion, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In lion, receives train.lr from the dispatcher; discovered defaults are get_optimizer.lion__lr=learning_rate.",
+        "benefits": "For lion, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With lion, optimizer_params duplication raises TypeError. For lion, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -27992,9 +27990,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-lion8bit-param-lr",
-        "description": "Configures lr for lion8bit.",
-        "benefits": "Keeps lr scoped to the constructor behavior of lion8bit.",
-        "drawbacks": "For lion8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In lion8bit, receives train.lr from the dispatcher; discovered defaults are get_optimizer.lion8bit__lr=learning_rate.",
+        "benefits": "For lion8bit, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With lion8bit, optimizer_params duplication raises TypeError. For lion8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -28066,9 +28064,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-prodigyprefix-param-eps",
-        "description": "Configures eps for prodigy*.",
-        "benefits": "Keeps eps scoped to the constructor behavior of prodigy*.",
-        "drawbacks": "For prodigy*, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In prodigy*, adds a denominator stability floor; discovered defaults are get_optimizer.prodigy__eps=1e-06.",
+        "benefits": "For prodigy*, use train.lr and leave optimizer_params empty so eps is supplied once.",
+        "drawbacks": "With prodigy*, large eps risks suppressing small gradients. For prodigy*, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -28149,9 +28147,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-prodigyprefix-param-lr",
-        "description": "Configures lr for prodigy*.",
-        "benefits": "Keeps lr scoped to the constructor behavior of prodigy*.",
-        "drawbacks": "For prodigy*, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In prodigy*, receives train.lr from the dispatcher; discovered defaults are get_optimizer.prodigy__lr=use_lr.",
+        "benefits": "For prodigy*, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With prodigy*, optimizer_params duplication raises TypeError. For prodigy*, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -28223,10 +28221,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-prodigy8bitprefix-param-beta3",
-        "description": "Configures beta3 for prodigy8bit*.",
-        "benefits": "Keeps beta3 scoped to the constructor behavior of prodigy8bit*.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "beta3: 0.999"
+        "description": "In prodigy8bit*, sets Prodigy third-moment decay and null derives sqrt(beta2); discovered defaults are Prodigy8bit.__init__.beta3=None.",
+        "benefits": "For prodigy8bit*, use this value to derive beta3 from beta2 unless a separate decay is needed.",
+        "drawbacks": "With prodigy8bit*, an incompatible decay risks distorting the distance estimate.",
+        "example": "beta3: null"
       }
     },
     {
@@ -28292,9 +28290,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-prodigy8bitprefix-param-betas",
-        "description": "Configures betas for prodigy8bit*.",
-        "benefits": "Keeps betas scoped to the constructor behavior of prodigy8bit*.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In prodigy8bit*, supplies first- and second-moment decays; discovered defaults are Prodigy8bit.__init__.betas=(0.9, 0.999).",
+        "benefits": "For prodigy8bit*, use this value to control momentum and variance averaging.",
+        "drawbacks": "With prodigy8bit*, out-of-range coefficients raise ValueError or risk invalid moments.",
         "example": "betas: [0.0, 0.999]"
       }
     },
@@ -28366,9 +28364,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-prodigy8bitprefix-param-d_coef",
-        "description": "Configures d_coef for prodigy8bit*.",
-        "benefits": "Keeps d_coef scoped to the constructor behavior of prodigy8bit*.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In prodigy8bit*, scales Prodigy estimated distance; discovered defaults are Prodigy8bit.__init__.d_coef=1.0.",
+        "benefits": "For prodigy8bit*, use this value to adjust adaptive-step aggressiveness.",
+        "drawbacks": "With prodigy8bit*, large coefficients risk oversized steps.",
         "example": "d_coef: 1.0"
       }
     },
@@ -28440,10 +28438,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-prodigy8bitprefix-param-d0",
-        "description": "Configures d0 for prodigy8bit*.",
-        "benefits": "Keeps d0 scoped to the constructor behavior of prodigy8bit*.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "d0: 1e-6"
+        "description": "In prodigy8bit*, initializes Prodigy distance-to-solution; discovered defaults are Prodigy8bit.__init__.d0=1e-06.",
+        "benefits": "For prodigy8bit*, use this value to start the estimate from a small positive scale.",
+        "drawbacks": "With prodigy8bit*, nonpositive values raise ValueError and large values risk aggressive steps.",
+        "example": "d0: 1.0e-6"
       }
     },
     {
@@ -28518,9 +28516,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-prodigy8bitprefix-param-decouple",
-        "description": "Configures decouple for prodigy8bit*.",
-        "benefits": "Keeps decouple scoped to the constructor behavior of prodigy8bit*.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In prodigy8bit*, selects decoupled or coupled weight decay; discovered defaults are Prodigy8bit.__init__.decouple=True.",
+        "benefits": "For prodigy8bit*, use this value to choose whether decay acts on weights or gradients.",
+        "drawbacks": "With prodigy8bit*, the wrong form risks changing the objective.",
         "example": "decouple: true"
       }
     },
@@ -28599,9 +28597,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-prodigy8bitprefix-param-eps",
-        "description": "Configures eps for prodigy8bit*.",
-        "benefits": "Keeps eps scoped to the constructor behavior of prodigy8bit*.",
-        "drawbacks": "For prodigy8bit*, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In prodigy8bit*, adds a denominator stability floor; discovered defaults are get_optimizer.prodigy8bit__eps=1e-06, Prodigy8bit.__init__.eps=1e-08.",
+        "benefits": "For prodigy8bit*, use train.lr and leave optimizer_params empty so eps is supplied once.",
+        "drawbacks": "With prodigy8bit*, large eps risks suppressing small gradients. For prodigy8bit*, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -28677,10 +28675,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-prodigy8bitprefix-param-fsdp_in_use",
-        "description": "Configures fsdp_in_use for prodigy8bit*.",
-        "benefits": "Keeps fsdp_in_use scoped to the constructor behavior of prodigy8bit*.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "fsdp_in_use: true"
+        "description": "In prodigy8bit*, selects Prodigy8bit FSDP behavior; discovered defaults are Prodigy8bit.__init__.fsdp_in_use=False.",
+        "benefits": "For prodigy8bit*, use this value to match distributed-state execution.",
+        "drawbacks": "With prodigy8bit*, the wrong mode risks synchronization assumptions.",
+        "example": "fsdp_in_use: false"
       }
     },
     {
@@ -28751,9 +28749,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-prodigy8bitprefix-param-growth_rate",
-        "description": "Configures growth_rate for prodigy8bit*.",
-        "benefits": "Keeps growth_rate scoped to the constructor behavior of prodigy8bit*.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In prodigy8bit*, caps Prodigy distance growth; discovered defaults are Prodigy8bit.__init__.growth_rate=float('inf').",
+        "benefits": "For prodigy8bit*, use this value to limit abrupt estimate expansion.",
+        "drawbacks": "With prodigy8bit*, excess growth risks abrupt steps.",
         "example": "growth_rate: 1.02"
       }
     },
@@ -28841,9 +28839,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-prodigy8bitprefix-param-lr",
-        "description": "Configures lr for prodigy8bit*.",
-        "benefits": "Keeps lr scoped to the constructor behavior of prodigy8bit*.",
-        "drawbacks": "For prodigy8bit*, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "description": "In prodigy8bit*, receives train.lr from the dispatcher; discovered defaults are get_optimizer.prodigy8bit__lr=use_lr, Prodigy8bit.__init__.lr=1.0.",
+        "benefits": "For prodigy8bit*, use train.lr and leave optimizer_params empty so lr is supplied once.",
+        "drawbacks": "With prodigy8bit*, optimizer_params duplication raises TypeError. For prodigy8bit*, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -28919,10 +28917,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-prodigy8bitprefix-param-safeguard_warmup",
-        "description": "Configures safeguard_warmup for prodigy8bit*.",
-        "benefits": "Keeps safeguard_warmup scoped to the constructor behavior of prodigy8bit*.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "safeguard_warmup: true"
+        "description": "In prodigy8bit*, limits early Prodigy distance growth; discovered defaults are Prodigy8bit.__init__.safeguard_warmup=False.",
+        "benefits": "For prodigy8bit*, use this value to make warmup conservative.",
+        "drawbacks": "With prodigy8bit*, disabling it risks rapid early growth.",
+        "example": "safeguard_warmup: false"
       }
     },
     {
@@ -28997,9 +28995,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-prodigy8bitprefix-param-use_bias_correction",
-        "description": "Configures use_bias_correction for prodigy8bit*.",
-        "benefits": "Keeps use_bias_correction scoped to the constructor behavior of prodigy8bit*.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "In prodigy8bit*, controls Prodigy8bit moment correction; discovered defaults are Prodigy8bit.__init__.use_bias_correction=False.",
+        "benefits": "For prodigy8bit*, use this value to compensate early-step estimates.",
+        "drawbacks": "With prodigy8bit*, disabling it risks startup bias.",
         "example": "use_bias_correction: false"
       }
     },
@@ -29071,10 +29069,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-prodigy8bitprefix-param-weight_decay",
-        "description": "Configures weight_decay for prodigy8bit*.",
-        "benefits": "Keeps weight_decay scoped to the constructor behavior of prodigy8bit*.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "weight_decay: 0.01"
+        "description": "In prodigy8bit*, sets regularization strength; discovered defaults are Prodigy8bit.__init__.weight_decay=0.",
+        "benefits": "For prodigy8bit*, use this value to regularize with a deliberate nonnegative coefficient.",
+        "drawbacks": "With prodigy8bit*, excess decay risks erasing learned weights.",
+        "example": "weight_decay: 0"
       }
     },
     {
@@ -29157,9 +29155,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "scheduler-constant_with_warmup-param-num_warmup_steps",
-        "description": "Configures num_warmup_steps for the constant_with_warmup scheduler.",
-        "benefits": "Keeps num_warmup_steps scoped to the constant_with_warmup scheduler behavior.",
-        "drawbacks": "Invalid local constructor arguments propagate their native TypeError or ValueError.",
+        "description": "In constant_with_warmup, sets constant-with-warmup ramp length; discovered defaults are get_lr_scheduler.num_warmup_steps=null, get_lr_scheduler.constant_with_warmup__num_warmup_steps=1000.",
+        "benefits": "For constant_with_warmup, use this value to ramp gradually before full LR.",
+        "drawbacks": "With constant_with_warmup, long warmup risks never reaching base LR. Invalid local constructor arguments propagate their native TypeError or ValueError.",
         "example": "num_warmup_steps: 100"
       }
     },
@@ -29336,9 +29334,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "scheduler-constant-param-factor",
-        "description": "Configures factor for the constant scheduler.",
-        "benefits": "Keeps factor scoped to the constant scheduler behavior.",
-        "drawbacks": "Invalid local constructor arguments propagate their native TypeError or ValueError.",
+        "description": "In constant, sets ConstantLR base-rate multiplier; discovered defaults are get_lr_scheduler.factor=null, get_lr_scheduler.constant__factor=1.0.",
+        "benefits": "For constant, use this value to hold a fixed fraction of base LR.",
+        "drawbacks": "With constant, out-of-range factors raise ValueError. Invalid local constructor arguments propagate their native TypeError or ValueError.",
         "example": "factor: 1.0"
       }
     },

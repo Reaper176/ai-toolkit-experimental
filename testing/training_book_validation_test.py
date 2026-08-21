@@ -1996,7 +1996,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
             self.assertIn("1.0", normalization)
         for key in ("relative_step", "warmup_init"):
             setting = settings[f"optimizer.adafactor.param.{key}"]
-            self.assertEqual(setting.contract.accepted_values, (False,))
+            self.assertEqual(setting.contract.accepted_values, (False, None))
             self.assertIn("unusable", setting.render.drawbacks.casefold())
             self.assertIn("manual", setting.render.drawbacks.casefold())
 
@@ -2255,7 +2255,15 @@ class CatalogProductionSliceTests(unittest.TestCase):
         self.assertEqual(set(rows), boolean_facts)
         for fact_id, setting in rows.items():
             with self.subTest(fact=fact_id):
-                self.assertEqual(set(setting.contract.accepted_values or ()), {True, False, None})
+                expected_values = (
+                    {False, None}
+                    if fact_id[1:] in {
+                        ("Adafactor.__init__", "relative_step", "optimizer.parameter"),
+                        ("Adafactor.__init__", "warmup_init", "optimizer.parameter"),
+                    }
+                    else {True, False, None}
+                )
+                self.assertEqual(set(setting.contract.accepted_values or ()), expected_values)
                 self.assertEqual(setting.contract.null, "accepted")
                 normalization = " ".join(item.description for item in setting.normalizations).casefold()
                 self.assertIn("explicit null", normalization)
@@ -2315,6 +2323,35 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 )
                 key, separator, value = setting.render.example.partition(":")
                 self.assertTrue(separator and key.strip() and value.strip())
+                parsed = yaml.safe_load(setting.render.example)
+                self.assertIsInstance(parsed, dict)
+                self.assertEqual(len(parsed), 1)
+                example_value = next(iter(parsed.values()))
+                if setting.authority in {"runtime-forced", "server-overwritten"}:
+                    self.assertEqual(example_value, {})
+                    continue
+                if example_value is None:
+                    self.assertEqual(setting.contract.null, "accepted")
+                    continue
+                if setting.contract.example_type == "boolean":
+                    self.assertIs(type(example_value), bool)
+                elif setting.contract.example_type == "integer":
+                    self.assertIs(type(example_value), int)
+                elif setting.contract.example_type == "number":
+                    self.assertIn(type(example_value), {int, float})
+                elif setting.contract.example_type == "number-list":
+                    self.assertIsInstance(example_value, list)
+                    self.assertEqual(len(example_value), 2)
+                    self.assertTrue(all(type(item) in {int, float} for item in example_value))
+                if setting.contract.range is not None and type(example_value) in {int, float}:
+                    bounds = setting.contract.range
+                    if bounds.minimum is not None:
+                        self.assertGreaterEqual(example_value, bounds.minimum)
+                    if bounds.maximum is not None:
+                        self.assertLessEqual(example_value, bounds.maximum)
+        self.assertEqual(len({setting.render.description for setting in rows}), len(rows))
+        self.assertEqual(len({setting.render.benefits for setting in rows}), len(rows))
+        self.assertEqual(len({setting.render.drawbacks for setting in rows}), len(rows))
 
     def test_catalog_training_scope_is_exactly_owned(self):
         self.assert_catalog_selector_green("--scope", "training")
