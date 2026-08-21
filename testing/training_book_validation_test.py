@@ -30,6 +30,7 @@ from scripts.training_book.catalog import (  # noqa: E402
     settings_catalog_schema,
     validate_settings_catalog,
 )
+from scripts.training_book import catalog as catalog_module  # noqa: E402
 from scripts.training_book.discovery import (  # noqa: E402
     DiscoveredSetting,
     DiscoveryError,
@@ -672,6 +673,86 @@ class CatalogContractTests(unittest.TestCase):
             validate_settings_catalog(
                 {"schema_version": 1, "settings": [adam, duplicate]}, discovered
             )
+
+    def test_catalog_contract_dispatch_patterns_detect_and_partition_overlaps(self):
+        def row(setting_id, key, applicability):
+            entry = deepcopy(self.valid_catalog_entry())
+            entry["id"] = setting_id
+            entry["locations"] = [
+                {"kind": "yaml", "path": "config.process[*].train.optimizer_params.eps"}
+            ]
+            entry["applicability"] = [applicability]
+            entry["source_claims"][0]["key"] = key
+            return entry
+
+        cases = (
+            (
+                {"optimizer_prefix": "prodigy"},
+                {"optimizer_prefix": "prodigy8bit"},
+            ),
+            (
+                {"optimizer_prefix": "adam"},
+                {"optimizer": "adamw"},
+            ),
+            (
+                {"optimizer_prefix": "family", "optimizer_suffix": "lion"},
+                {"optimizer_prefix": "familyx", "optimizer_suffix": "lion"},
+            ),
+            (
+                {"optimizer_prefix": "f", "optimizer_suffix": "oo"},
+                {"optimizer": "foo"},
+            ),
+        )
+        discovered = (
+            DiscoveredSetting("toolkit/config_modules.py", "TrainConfig.__init__", 1, "left", "kwargs.get", "core", "2000"),
+            DiscoveredSetting("toolkit/config_modules.py", "TrainConfig.__init__", 2, "right", "kwargs.get", "core", "2000"),
+        )
+        for index, (left, right) in enumerate(cases):
+            with self.subTest(index=index):
+                with self.assertRaisesRegex(CatalogError, "overlapping.*location"):
+                    validate_settings_catalog(
+                        {
+                            "schema_version": 1,
+                            "settings": [
+                                row("optimizer.left.param.eps", "left", left),
+                                row("optimizer.right.param.eps", "right", right),
+                            ],
+                        },
+                        discovered,
+                    )
+
+        partitioned = row(
+            "optimizer.prodigy.param.eps",
+            "left",
+            {
+                "optimizer_prefix": "prodigy",
+                "optimizer_exclude_prefix": "prodigy8bit",
+            },
+        )
+        specific = row(
+            "optimizer.prodigy8bit.param.eps",
+            "right",
+            {"optimizer_prefix": "prodigy8bit"},
+        )
+        validate_settings_catalog(
+            {"schema_version": 1, "settings": [partitioned, specific]},
+            discovered,
+        )
+
+        disjoint_combined = row(
+            "optimizer.family.param.eps",
+            "left",
+            {"optimizer_prefix": "family", "optimizer_suffix": "lion"},
+        )
+        disjoint_suffix = row(
+            "optimizer.family-other.param.eps",
+            "right",
+            {"optimizer_prefix": "family", "optimizer_suffix": "adam"},
+        )
+        validate_settings_catalog(
+            {"schema_version": 1, "settings": [disjoint_combined, disjoint_suffix]},
+            discovered,
+        )
 
     def test_catalog_contract_uses_network_type_to_disambiguate_locations(self):
         lora = self.valid_catalog_entry()
@@ -1964,6 +2045,44 @@ class CatalogProductionSliceTests(unittest.TestCase):
         for phrase in ("starts with dadaptation", "ends with adam", "ends with lion"):
             self.assertIn(phrase, teaching)
 
+    def test_catalog_optimizer_pattern_applicability_matches_runtime_precedence_once(self):
+        source = (REPOSITORY_ROOT / "toolkit/optimizer.py").read_text(encoding="utf-8")
+        self.assertLess(
+            source.index('lower_type.startswith("prodigy8bit")'),
+            source.index('lower_type.startswith("prodigy")'),
+        )
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        prodigy_rows = (
+            settings["optimizer.prodigy*.param.eps"],
+            settings["optimizer.prodigy8bit*.param.eps"],
+        )
+        dadaptation_rows = (
+            settings["optimizer.dadaptation.param.eps"],
+            settings["optimizer.dadaptationadam.param.eps"],
+            settings["optimizer.dadaptationlion.param.eps"],
+        )
+        matcher = catalog_module.applicability_matches_dispatch
+        for name, expected_id in {
+            "prodigy": "optimizer.prodigy*.param.eps",
+            "prodigyplus": "optimizer.prodigy*.param.eps",
+            "prodigy8bit": "optimizer.prodigy8bit*.param.eps",
+            "prodigy8bitplus": "optimizer.prodigy8bit*.param.eps",
+        }.items():
+            matches = [row.id for row in prodigy_rows if matcher(row.applicability, optimizer=name)]
+            self.assertEqual(matches, [expected_id])
+        for name, expected_id in {
+            "dadaptation": "optimizer.dadaptation.param.eps",
+            "dadaptationcustomadam": "optimizer.dadaptationadam.param.eps",
+            "dadaptationcustomlion": "optimizer.dadaptationlion.param.eps",
+        }.items():
+            matches = [row.id for row in dadaptation_rows if matcher(row.applicability, optimizer=name)]
+            self.assertEqual(matches, [expected_id])
+
     def test_catalog_optimizer_parameter_matrix_is_discriminator_scoped_and_exhaustive(self):
         catalog = load_settings_catalog(
             REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
@@ -1980,7 +2099,12 @@ class CatalogProductionSliceTests(unittest.TestCase):
             with self.subTest(setting=setting.id):
                 self.assertRegex(setting.id, r"^optimizer\.[a-z0-9*-]+\.param\.[a-z0-9_]+$")
                 self.assertTrue(setting.applicability)
-                self.assertTrue(all(item.optimizer for item in setting.applicability))
+                self.assertTrue(
+                    all(
+                        item.optimizer or item.optimizer_prefix or item.optimizer_suffix
+                        for item in setting.applicability
+                    )
+                )
         discovered = {
             (fact.source, fact.symbol, fact.key, fact.read_kind)
             for fact in self.discovered
@@ -2363,10 +2487,22 @@ class CatalogProductionSliceTests(unittest.TestCase):
             with self.subTest(setting=setting.id):
                 teaching = " ".join(vars(setting.render).values()).casefold()
                 self.assertFalse(any(text in teaching for text in forbidden))
-                choices = {
-                    item.optimizer or item.scheduler for item in setting.applicability
+                choice_tokens = {
+                    token
+                    for item in setting.applicability
+                    for token in (
+                        item.optimizer,
+                        item.optimizer_prefix,
+                        item.optimizer_suffix,
+                        item.scheduler,
+                        item.scheduler_prefix,
+                        item.scheduler_suffix,
+                    )
+                    if token is not None
                 }
-                self.assertTrue(all(choice.casefold() in teaching for choice in choices))
+                self.assertTrue(
+                    all(token.casefold() in teaching for token in choice_tokens)
+                )
                 self.assertIn("use", setting.render.benefits.casefold())
                 self.assertTrue(
                     any(word in setting.render.drawbacks.casefold() for word in ("risk", "fail", "raise", "duplicate", "ignored"))

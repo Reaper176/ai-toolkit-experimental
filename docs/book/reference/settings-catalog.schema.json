@@ -111,6 +111,30 @@
           "default": null,
           "title": "Optimizer"
         },
+        "optimizer_exclude_prefix": {
+          "anyOf": [
+            {"minLength": 1, "type": "string"},
+            {"type": "null"}
+          ],
+          "default": null,
+          "title": "Optimizer Exclude Prefix"
+        },
+        "optimizer_prefix": {
+          "anyOf": [
+            {"minLength": 1, "type": "string"},
+            {"type": "null"}
+          ],
+          "default": null,
+          "title": "Optimizer Prefix"
+        },
+        "optimizer_suffix": {
+          "anyOf": [
+            {"minLength": 1, "type": "string"},
+            {"type": "null"}
+          ],
+          "default": null,
+          "title": "Optimizer Suffix"
+        },
         "scheduler": {
           "anyOf": [
             {"minLength": 1, "type": "string"},
@@ -118,6 +142,30 @@
           ],
           "default": null,
           "title": "Scheduler"
+        },
+        "scheduler_exclude_prefix": {
+          "anyOf": [
+            {"minLength": 1, "type": "string"},
+            {"type": "null"}
+          ],
+          "default": null,
+          "title": "Scheduler Exclude Prefix"
+        },
+        "scheduler_prefix": {
+          "anyOf": [
+            {"minLength": 1, "type": "string"},
+            {"type": "null"}
+          ],
+          "default": null,
+          "title": "Scheduler Prefix"
+        },
+        "scheduler_suffix": {
+          "anyOf": [
+            {"minLength": 1, "type": "string"},
+            {"type": "null"}
+          ],
+          "default": null,
+          "title": "Scheduler Suffix"
         },
         "ui_architecture": {
           "anyOf": [

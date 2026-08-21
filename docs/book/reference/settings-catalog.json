@@ -27558,7 +27558,8 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "dadaptationadam"
+          "optimizer_prefix": "dadaptation",
+          "optimizer_suffix": "adam"
         }
       ],
       "contract": {
@@ -27632,7 +27633,8 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "dadaptationadam"
+          "optimizer_prefix": "dadaptation",
+          "optimizer_suffix": "adam"
         }
       ],
       "contract": {
@@ -27664,7 +27666,8 @@
           "description": "When train.lr is below 0.1, get_optimizer replaces it with 1.0 before dispatch.",
           "applicability": [
             {
-              "optimizer": "dadaptationadam"
+              "optimizer_prefix": "dadaptation",
+              "optimizer_suffix": "adam"
             }
           ]
         }
@@ -27715,7 +27718,8 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "dadaptationlion"
+          "optimizer_prefix": "dadaptation",
+          "optimizer_suffix": "lion"
         }
       ],
       "contract": {
@@ -27789,7 +27793,8 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "dadaptationlion"
+          "optimizer_prefix": "dadaptation",
+          "optimizer_suffix": "lion"
         }
       ],
       "contract": {
@@ -27821,7 +27826,8 @@
           "description": "When train.lr is below 0.1, get_optimizer replaces it with 1.0 before dispatch.",
           "applicability": [
             {
-              "optimizer": "dadaptationlion"
+              "optimizer_prefix": "dadaptation",
+              "optimizer_suffix": "lion"
             }
           ]
         }
@@ -28020,7 +28026,8 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "prodigy*"
+          "optimizer_prefix": "prodigy",
+          "optimizer_exclude_prefix": "prodigy8bit"
         }
       ],
       "contract": {
@@ -28094,7 +28101,8 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "prodigy*"
+          "optimizer_prefix": "prodigy",
+          "optimizer_exclude_prefix": "prodigy8bit"
         }
       ],
       "contract": {
@@ -28126,7 +28134,8 @@
           "description": "When train.lr is below 0.1, get_optimizer replaces it with 1.0 before dispatch.",
           "applicability": [
             {
-              "optimizer": "prodigy*"
+              "optimizer_prefix": "prodigy",
+              "optimizer_exclude_prefix": "prodigy8bit"
             }
           ]
         }
@@ -28177,7 +28186,7 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "prodigy8bit*"
+          "optimizer_prefix": "prodigy8bit"
         }
       ],
       "contract": {
@@ -28251,7 +28260,7 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "prodigy8bit*"
+          "optimizer_prefix": "prodigy8bit"
         }
       ],
       "contract": {
@@ -28320,7 +28329,7 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "prodigy8bit*"
+          "optimizer_prefix": "prodigy8bit"
         }
       ],
       "contract": {
@@ -28394,7 +28403,7 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "prodigy8bit*"
+          "optimizer_prefix": "prodigy8bit"
         }
       ],
       "contract": {
@@ -28468,7 +28477,7 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "prodigy8bit*"
+          "optimizer_prefix": "prodigy8bit"
         }
       ],
       "contract": {
@@ -28546,7 +28555,7 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "prodigy8bit*"
+          "optimizer_prefix": "prodigy8bit"
         }
       ],
       "contract": {
@@ -28627,7 +28636,7 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "prodigy8bit*"
+          "optimizer_prefix": "prodigy8bit"
         }
       ],
       "contract": {
@@ -28705,7 +28714,7 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "prodigy8bit*"
+          "optimizer_prefix": "prodigy8bit"
         }
       ],
       "contract": {
@@ -28779,7 +28788,7 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "prodigy8bit*"
+          "optimizer_prefix": "prodigy8bit"
         }
       ],
       "contract": {
@@ -28812,7 +28821,7 @@
           "description": "When train.lr is below 0.1, get_optimizer replaces it with 1.0 before dispatch.",
           "applicability": [
             {
-              "optimizer": "prodigy8bit*"
+              "optimizer_prefix": "prodigy8bit"
             }
           ]
         }
@@ -28869,7 +28878,7 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "prodigy8bit*"
+          "optimizer_prefix": "prodigy8bit"
         }
       ],
       "contract": {
@@ -28947,7 +28956,7 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "prodigy8bit*"
+          "optimizer_prefix": "prodigy8bit"
         }
       ],
       "contract": {
@@ -29025,7 +29034,7 @@
       "applicability": [
         {
           "process_type": "diffusion_trainer",
-          "optimizer": "prodigy8bit*"
+          "optimizer_prefix": "prodigy8bit"
         }
       ],
       "contract": {

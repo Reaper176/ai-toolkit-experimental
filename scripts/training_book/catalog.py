@@ -161,7 +161,13 @@ class Applicability(_StrictModel):
     ui_architecture: _NonBlank | None = None
     engine_architecture: _NonBlank | None = None
     optimizer: _NonBlank | None = None
+    optimizer_prefix: _NonBlank | None = None
+    optimizer_suffix: _NonBlank | None = None
+    optimizer_exclude_prefix: _NonBlank | None = None
     scheduler: _NonBlank | None = None
+    scheduler_prefix: _NonBlank | None = None
+    scheduler_suffix: _NonBlank | None = None
+    scheduler_exclude_prefix: _NonBlank | None = None
 
     @model_validator(mode="after")
     def _not_empty(self) -> "Applicability":
@@ -174,10 +180,36 @@ class Applicability(_StrictModel):
                 self.ui_architecture,
                 self.engine_architecture,
                 self.optimizer,
+                self.optimizer_prefix,
+                self.optimizer_suffix,
+                self.optimizer_exclude_prefix,
                 self.scheduler,
+                self.scheduler_prefix,
+                self.scheduler_suffix,
+                self.scheduler_exclude_prefix,
             )
         ):
             raise ValueError("applicability predicate must not be empty")
+        for dimension in ("optimizer", "scheduler"):
+            exact = getattr(self, dimension)
+            prefix = getattr(self, f"{dimension}_prefix")
+            suffix = getattr(self, f"{dimension}_suffix")
+            excluded = getattr(self, f"{dimension}_exclude_prefix")
+            if exact is not None and any(
+                value is not None for value in (prefix, suffix, excluded)
+            ):
+                raise ValueError(
+                    f"{dimension} exact and pattern applicability are mutually exclusive"
+                )
+            if excluded is not None:
+                if prefix is None:
+                    raise ValueError(
+                        f"{dimension}_exclude_prefix requires {dimension}_prefix"
+                    )
+                if not excluded.startswith(prefix):
+                    raise ValueError(
+                        f"{dimension}_exclude_prefix must refine {dimension}_prefix"
+                    )
         return self
 
 
@@ -439,6 +471,113 @@ def _format_validation_error(error: ValidationError) -> str:
     return "; ".join(details)
 
 
+def _dispatch_pattern_matches(
+    clause: Applicability,
+    dimension: str,
+    value: str,
+) -> bool:
+    exact = getattr(clause, dimension)
+    prefix = getattr(clause, f"{dimension}_prefix")
+    suffix = getattr(clause, f"{dimension}_suffix")
+    excluded = getattr(clause, f"{dimension}_exclude_prefix")
+    if exact is not None and value != exact:
+        return False
+    if prefix is not None and not value.startswith(prefix):
+        return False
+    if suffix is not None and not value.endswith(suffix):
+        return False
+    if excluded is not None and value.startswith(excluded):
+        return False
+    return True
+
+
+def _has_dispatch_pattern(clause: Applicability, dimension: str) -> bool:
+    return any(
+        getattr(clause, field) is not None
+        for field in (
+            dimension,
+            f"{dimension}_prefix",
+            f"{dimension}_suffix",
+            f"{dimension}_exclude_prefix",
+        )
+    )
+
+
+def applicability_matches_dispatch(
+    applicability: tuple[Applicability, ...],
+    *,
+    optimizer: str | None = None,
+    scheduler: str | None = None,
+) -> bool:
+    """Match one runtime dispatch name against closed catalog predicates."""
+
+    if (optimizer is None) == (scheduler is None):
+        raise ValueError("provide exactly one optimizer or scheduler name")
+    if not applicability:
+        return True
+    dimension = "optimizer" if optimizer is not None else "scheduler"
+    other = "scheduler" if dimension == "optimizer" else "optimizer"
+    value = optimizer if optimizer is not None else scheduler
+    assert value is not None
+    for clause in applicability:
+        if _has_dispatch_pattern(clause, other):
+            continue
+        if not _has_dispatch_pattern(clause, dimension):
+            return True
+        if _dispatch_pattern_matches(clause, dimension, value):
+            return True
+    return False
+
+
+def _dispatch_patterns_overlap(
+    left: Applicability,
+    right: Applicability,
+    dimension: str,
+) -> bool:
+    if not _has_dispatch_pattern(left, dimension) or not _has_dispatch_pattern(
+        right, dimension
+    ):
+        return True
+    left_exact = getattr(left, dimension)
+    right_exact = getattr(right, dimension)
+    if left_exact is not None:
+        return _dispatch_pattern_matches(right, dimension, left_exact)
+    if right_exact is not None:
+        return _dispatch_pattern_matches(left, dimension, right_exact)
+
+    prefixes = tuple(
+        value
+        for value in (
+            getattr(left, f"{dimension}_prefix"),
+            getattr(right, f"{dimension}_prefix"),
+        )
+        if value is not None
+    )
+    prefix = max(prefixes, key=len) if prefixes else ""
+    if any(not prefix.startswith(value) for value in prefixes):
+        return False
+    suffixes = tuple(
+        value
+        for value in (
+            getattr(left, f"{dimension}_suffix"),
+            getattr(right, f"{dimension}_suffix"),
+        )
+        if value is not None
+    )
+    suffix = max(suffixes, key=len) if suffixes else ""
+    if any(not suffix.endswith(value) for value in suffixes):
+        return False
+    exclusions = tuple(
+        value
+        for value in (
+            getattr(left, f"{dimension}_exclude_prefix"),
+            getattr(right, f"{dimension}_exclude_prefix"),
+        )
+        if value is not None
+    )
+    return not any(prefix.startswith(excluded) for excluded in exclusions)
+
+
 def _predicates_overlap(
     left: tuple[Applicability, ...], right: tuple[Applicability, ...]
 ) -> bool:
@@ -450,8 +589,6 @@ def _predicates_overlap(
         "network_type",
         "ui_architecture",
         "engine_architecture",
-        "optimizer",
-        "scheduler",
     )
     for left_clause in left_clauses:
         for right_clause in right_clauses:
@@ -462,6 +599,9 @@ def _predicates_overlap(
                 or getattr(right_clause, field) is None
                 or getattr(left_clause, field) == getattr(right_clause, field)
                 for field in fields
+            ) and all(
+                _dispatch_patterns_overlap(left_clause, right_clause, dimension)
+                for dimension in ("optimizer", "scheduler")
             ):
                 return True
     return False
