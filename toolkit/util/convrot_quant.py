@@ -868,8 +868,9 @@ def _get_int8_kernels():
             offs = k0 + tl.arange(0, BLOCK_K)
             mask = offs < K
             v = tl.load(x_ptr + base + offs, mask=mask, other=0.0).to(tl.float32)
-            # rint = round-half-to-even, matching torch.round in the reference path
-            q = libdevice.rint(v / scale)
+            # nearbyint = round-half-to-even, matching torch.round in the reference path;
+            # unlike rint, Triton's HIP and CUDA libdevice backends both expose it
+            q = libdevice.nearbyint(v / scale)
             q = tl.minimum(tl.maximum(q, -1.0 * QMAX), 1.0 * QMAX)
             tl.store(q_ptr + base + offs, q.to(tl.int8), mask=mask)
         tl.store(s_ptr + row, scale)
@@ -1723,7 +1724,7 @@ def _get_intn_grouped_kernel():
         v = (
             (word[:, None] >> (BITS * j)[None, :].to(tl.int64)) & ((1 << BITS) - 1)
         ) - QMAX
-        vf = libdevice.rint(v.to(tl.float32) * ratio[:, None])
+        vf = libdevice.nearbyint(v.to(tl.float32) * ratio[:, None])
         vf = tl.minimum(tl.maximum(vf, -127.0), 127.0)
         tl.store(o_ptr + g[:, None] * 8 + j[None, :], vf.to(tl.int8), mask=gm[:, None])
 
@@ -1764,7 +1765,7 @@ def _get_bitnet_kernel():
         ratio = tl.load(
             r_ptr + row[:, None] * ngprow + col // group, mask=cm, other=1.0
         )
-        v = libdevice.rint(code * ratio)
+        v = libdevice.nearbyint(code * ratio)
         v = tl.minimum(tl.maximum(v, -127.0), 127.0)
         tl.store(o_ptr + row[:, None] * K + col, v.to(tl.int8), mask=cm)
 
@@ -1882,10 +1883,10 @@ def _get_int_gemv_kernel():
         GROUPED: tl.constexpr,
     ):
         # int8 codes of in-word position J; same arithmetic as the eager
-        # unpack kernels (rint(code * ratio) re-expression on the row grid)
+        # unpack kernels (nearbyint(code * ratio) re-expression on the row grid)
         code = ((word >> (BITS * J)) & ((1 << BITS) - 1)) - QMAX_W
         if GROUPED:
-            cf = libdevice.rint(code.to(tl.float32) * ratio)
+            cf = libdevice.nearbyint(code.to(tl.float32) * ratio)
             cf = tl.minimum(tl.maximum(cf, -127.0), 127.0)
             return cf.to(tl.int8)
         else:
@@ -1992,7 +1993,7 @@ def _get_int_gemv_kernel():
                     mask=mask_m[:, None] & (offs_k[None, :] < K),
                     other=0.0,
                 ).to(tl.float32)
-                qa = libdevice.rint(xv / scale[:, None])
+                qa = libdevice.nearbyint(xv / scale[:, None])
                 qa = tl.minimum(tl.maximum(qa, -1.0 * QMAX_A), 1.0 * QMAX_A)
                 acc = tl.dot(qa.to(tl.int8), tl.trans(wq_t), acc, out_dtype=tl.int32)
         else:
@@ -2004,7 +2005,7 @@ def _get_int_gemv_kernel():
                     mask=mask_m[:, None] & mask_k[None, :],
                     other=0.0,
                 ).to(tl.float32)
-                qa = libdevice.rint(xv / scale[:, None])
+                qa = libdevice.nearbyint(xv / scale[:, None])
                 qa = tl.minimum(tl.maximum(qa, -1.0 * QMAX_A), 1.0 * QMAX_A)
                 wq = tl.load(
                     w_ptr + offs_n[None, :] * w_row_stride + offs_k[:, None],
