@@ -2853,6 +2853,48 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_catalog_training_slice_cli_scopes_are_public_and_exact(self):
+        for scope in (
+            "train-schedule", "train-numerics", "train-components",
+            "optimizers", "schedulers",
+        ):
+            with self.subTest(scope=scope):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "scripts/validate_training_book.py",
+                        "--check-discovery",
+                        "--scope",
+                        scope,
+                    ],
+                    cwd=REPOSITORY_ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_catalog_training_slice_cli_rejects_empty_unknown_and_multiple_scopes(self):
+        for scopes in (("",), ("unknown",), ("optimizers", "schedulers")):
+            arguments = [
+                value for scope in scopes for value in ("--scope", scope)
+            ]
+            with self.subTest(scopes=scopes):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "scripts/validate_training_book.py",
+                        "--check-discovery",
+                        *arguments,
+                    ],
+                    cwd=REPOSITORY_ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("scope", result.stderr)
+
 
 class DiscoveryContractTests(unittest.TestCase):
     def setUp(self):

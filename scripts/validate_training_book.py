@@ -71,6 +71,47 @@ CORE_MODULE_SYMBOLS = frozenset(
         "GuidanceConfig.__init__",
     }
 )
+TRAIN_SCHEDULE_KEYS = frozenset(
+    """adapter_lr batch_size content_or_style embedding_lr gradient_accumulation
+    gradient_accumulation_steps learnable_snr_gos linear_timesteps linear_timesteps2
+    lr lr_scheduler lr_scheduler_params max_denoising_steps min_denoising_steps
+    min_snr_gamma next_sample_timesteps noise_scheduler num_train_timesteps refiner_lr
+    reg_weight single_item_batching snr_gamma start_step steps switch_boundary_every
+    text_encoder_lr timestep_type unet_lr weight_jitter""".split()
+)
+TRAIN_COMPONENT_KEYS = frozenset(
+    """adapter_assist_name_or_path adapter_assist_type attention_backend
+    bypass_guidance_embedding cache_text_embeddings diffusion_feature_extractor_path
+    diffusion_feature_extractor_weight do_paramiter_swapping free_u
+    latent_feature_extractor_path latent_feature_loss_weight match_adapter_assist
+    match_adapter_chance merge_network_on_save merge_network_on_save_strength
+    negative_prompt optimizer optimizer_params paramiter_swapping_factor sdp
+    short_and_long_captions short_and_long_captions_encoder_split train_refiner
+    train_text_encoder train_turbo train_unet unload_text_encoder validation_config
+    xformers""".split()
+)
+TRAIN_NUMERIC_KEYS = frozenset(
+    """adaptive_scaling_factor audio_loss_multiplier batch_noise_correction_scale
+    blank_prompt_preservation blank_prompt_preservation_multiplier blended_blur_noise
+    cfg_rescale cfg_scale correct_pred_norm correct_pred_norm_multiplier
+    diff_output_preservation diff_output_preservation_class
+    diff_output_preservation_multiplier differential_guidance_scale disable_sampling
+    do_batch_noise_correction do_blank_stabilization do_cfg do_differential_guidance
+    do_fft_loss do_fft_velocity_equiv_weight do_guidance_loss
+    do_guidance_loss_cfg_zero do_prior_divergence do_random_cfg
+    do_signal_amplification do_signal_correction_noise dtype dynamic_noise_offset
+    ema_config force_consistent_noise force_first_sample gradient_checkpointing
+    guidance_loss_schedule guidance_loss_target img_multiplier inverted_mask_prior
+    inverted_mask_prior_multiplier latent_multiplier loss_target loss_type
+    match_noise_norm max_cfg_scale max_grad_norm max_loss max_loss_debug
+    max_negative_prompts noise_multiplier noise_offset noisy_latent_multiplier
+    optimal_noise_pairing_samples pred_scaler prompt_dropout_prob
+    prompt_saturation_chance random_noise_multiplier random_noise_shift
+    show_turbo_outputs signal_amplification_strength signal_correction_noise_scale
+    skip_first_sample standardize_images standardize_latents t0_loss_target
+    t0_velocity_equiv_weight target_noise_multiplier target_norm_std
+    target_norm_std_value unconditional_prompt""".split()
+)
 
 
 def _in_core_io_network(item) -> bool:
@@ -109,6 +150,30 @@ def _in_training(item) -> bool:
         or item.source.startswith("toolkit/optimizers/")
         or item.source == "toolkit/scheduler.py"
         or item.source.startswith("toolkit/samplers/")
+    )
+
+
+def _in_train_config_keys(item, keys) -> bool:
+    return (
+        item.source == "toolkit/config_modules.py"
+        and item.symbol == "TrainConfig.__init__"
+        and item.key in keys
+    )
+
+
+def _in_optimizers(item) -> bool:
+    return (
+        item.source == "toolkit/optimizer.py"
+        or item.source.startswith("toolkit/optimizers/")
+        or _in_train_config_keys(item, {"optimizer", "optimizer_params"})
+    )
+
+
+def _in_schedulers(item) -> bool:
+    return (
+        item.source == "toolkit/scheduler.py"
+        or item.source.startswith("toolkit/samplers/")
+        or _in_train_config_keys(item, {"lr_scheduler", "lr_scheduler_params"})
     )
 
 
@@ -265,7 +330,8 @@ def main() -> None:
             target_mode = True
         elif arguments.scope in (
             ["core-process"], ["core-io-network"], ["core-modules"], ["core"],
-            ["training"],
+            ["training"], ["train-schedule"], ["train-numerics"],
+            ["train-components"], ["optimizers"], ["schedulers"],
         ):
             production_scope = arguments.scope[0]
         elif arguments.scope != ["discovery-fixtures"]:
@@ -352,6 +418,20 @@ def main() -> None:
                 tuple(fact for fact in discovered if _in_training(fact)),
                 tuple(claim for claim in claims if _in_training(claim)),
                 tuple(item for item in exclusions if _in_training(item)),
+            )
+        slice_predicates = {
+            "train-schedule": lambda item: _in_train_config_keys(item, TRAIN_SCHEDULE_KEYS),
+            "train-numerics": lambda item: _in_train_config_keys(item, TRAIN_NUMERIC_KEYS),
+            "train-components": lambda item: _in_train_config_keys(item, TRAIN_COMPONENT_KEYS),
+            "optimizers": _in_optimizers,
+            "schedulers": _in_schedulers,
+        }
+        if production_scope in slice_predicates:
+            predicate = slice_predicates[production_scope]
+            validate_setting_ownership(
+                tuple(fact for fact in discovered if predicate(fact)),
+                tuple(claim for claim in claims if predicate(claim)),
+                tuple(item for item in exclusions if predicate(item)),
             )
 
 
