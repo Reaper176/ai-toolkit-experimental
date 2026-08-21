@@ -818,6 +818,12 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "toolkit/config_modules.py::LormModuleSettingsConfig.__init__",
         )
 
+    def test_catalog_network_config_symbol_is_exactly_owned(self):
+        self.assert_catalog_selector_green(
+            "--target-symbol",
+            "toolkit/config_modules.py::NetworkConfig.__init__",
+        )
+
 
 class DiscoveryContractTests(unittest.TestCase):
     def setUp(self):

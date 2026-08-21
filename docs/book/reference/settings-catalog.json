@@ -5561,6 +5561,1090 @@
         "drawbacks": "A high threshold can remove intended adaptation targets.",
         "example": "parameter_threshold: 0"
       }
+    },
+    {
+      "id": "network.all_layers",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.all_layers"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "all_layers",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-all-layers",
+        "description": "Attaches differential full-weight modules to remaining eligible non-linear/non-convolution leaves.",
+        "benefits": "Can adapt weight-bearing layers outside the usual LoRA targets.",
+        "drawbacks": "It greatly increases trainable parameters and checkpoint size.",
+        "example": "all_layers: false"
+      }
+    },
+    {
+      "id": "network.alpha",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.alpha"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "alpha",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-alpha",
+        "description": "Sets the base network scaling alpha.",
+        "benefits": "Controls effective update scale independently of rank.",
+        "drawbacks": "A poor alpha-to-rank relationship can weaken or exaggerate updates.",
+        "example": "alpha: 1"
+      }
+    },
+    {
+      "id": "network.conv",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.conv"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer-or-null",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "conv",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-conv",
+        "description": "Sets convolution rank; null leaves convolution adaptation disabled unless another network mode forces it.",
+        "benefits": "Adds capacity for convolution features.",
+        "drawbacks": "It increases parameters and is unsupported or unnecessary for some architectures.",
+          "example": "conv: 4"
+      }
+    },
+    {
+      "id": "network.conv_alpha",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.conv_alpha"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number-or-null",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "network.conv"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "network.conv",
+          "kind": "fallback",
+          "description": "It inherits conv when omitted.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "conv_alpha",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-conv-alpha",
+        "description": "Sets convolution alpha, inheriting convolution rank when omitted.",
+        "benefits": "Tunes convolution update scaling separately.",
+        "drawbacks": "A mismatched scale can over- or under-emphasize convolution updates.",
+          "example": "conv_alpha: 4"
+      }
+    },
+    {
+      "id": "network.dropout",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.dropout"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability-or-null",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "dropout",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-dropout",
+        "description": "Sets network dropout when supported by the selected implementation.",
+        "benefits": "Can regularize a high-capacity network.",
+        "drawbacks": "Too much dropout slows learning or removes useful signal.",
+          "example": "dropout: 0.1"
+      }
+    },
+    {
+      "id": "network.layer_offloading",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.layer_offloading"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "layer_offloading",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-layer-offloading",
+        "description": "Enables network layer offloading during training.",
+        "benefits": "Can reduce resident memory for supported network workflows.",
+        "drawbacks": "Offloading adds transfers and cannot be merged in every save path.",
+        "example": "layer_offloading: false"
+      }
+    },
+    {
+      "id": "network.linear_alpha",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.linear_alpha"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "network.alpha"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "network.alpha",
+          "kind": "fallback",
+          "description": "It inherits alpha when omitted.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "linear_alpha",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-linear-alpha",
+        "description": "Sets linear-module alpha, inheriting the base alpha when omitted.",
+        "benefits": "Tunes linear update scaling separately.",
+        "drawbacks": "A mismatched scale can over- or under-emphasize linear updates.",
+          "example": "linear_alpha: 1.0"
+      }
+    },
+    {
+      "id": "network.lokr_factor",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.lokr_factor"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer-factor-or-auto",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": -1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "requires",
+          "description": "This setting affects construction only for the LoKr network type.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "lokr_factor",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-lokr-factor",
+        "description": "Sets the LoKr factor; minus one requests automatic largest-factor selection.",
+        "benefits": "Controls LoKr decomposition shape.",
+        "drawbacks": "An unsuitable factor can fail shape construction or reduce useful capacity.",
+        "example": "lokr_factor: -1"
+      }
+    },
+    {
+      "id": "network.lokr_full_rank",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.lokr_full_rank"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "When true for LoKr, linear/conv dimensions and alphas are overwritten with a full-rank sentinel.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "requires",
+          "description": "This setting affects construction only for the LoKr network type.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "lokr_full_rank",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-lokr-full-rank",
+        "description": "For LoKr, forces effectively full-rank dimensions and alphas.",
+        "benefits": "Maximizes LoKr representational capacity.",
+        "drawbacks": "It sharply increases parameter count and memory use.",
+        "example": "lokr_full_rank: true"
+      }
+    },
+    {
+      "id": "network.lorm",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.lorm"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "lorm-config-or-null",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "lorm",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-lorm",
+        "description": "Provides nested LoRM extraction configuration.",
+        "benefits": "Enables module-specific low-rank extraction behavior.",
+        "drawbacks": "LoRM changes network construction and requires careful extraction rules.",
+          "example": "lorm: {}"
+      }
+    },
+    {
+      "id": "network.network_kwargs",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "closed-active-network-arguments",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {},
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "network_kwargs",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-network-kwargs",
+        "description": "Carries explicitly supported advanced arguments to the active first-party network constructor.",
+        "benefits": "Exposes fine-grained target, rank-dropout, and module-shape controls.",
+        "drawbacks": "Unknown or engine-reserved keys are rejected by the documented active dispatch boundary.",
+          "example": "network_kwargs: {}"
+      }
+    },
+    {
+      "id": "network.old_lokr_format",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.old_lokr_format"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "old_lokr_format",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-old-lokr-format",
+        "description": "Requests the legacy LoKr naming/serialization behavior when the base model permits it.",
+        "benefits": "Supports compatibility with older LoKr checkpoints.",
+        "drawbacks": "Legacy format choices can reduce interoperability with current tooling.",
+        "example": "old_lokr_format: false"
+      }
+    },
+    {
+      "id": "network.pretrained_lora_path",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.pretrained_lora_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "existing-checkpoint-path-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "pretrained_lora_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-pretrained-lora-path",
+        "description": "Loads a local network checkpoint as the initial network state when no later resume checkpoint wins.",
+        "benefits": "Supports refinement or continuation from existing LoRA weights.",
+        "drawbacks": "A missing path is reported and ignored; incompatible weights can fail loading.",
+          "example": "pretrained_lora_path: /workspace/base-lora.safetensors"
+      }
+    },
+    {
+      "id": "network.split_multistage_loras",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.split_multistage_loras"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "unconsumed",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "split_multistage_loras",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-split-multistage-loras",
+        "description": "Records the historical multi-stage LoRA splitting switch.",
+        "benefits": "Preserves configuration compatibility while the field remains accepted.",
+        "drawbacks": "The current core process does not consume this parsed value.",
+        "example": "split_multistage_loras: true"
+      }
+    },
+    {
+      "id": "network.transformer_only",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.transformer_only"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "transformer_only",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-transformer-only",
+        "description": "Restricts network attachment to transformer-side modules where supported.",
+        "benefits": "Avoids adapting other model components.",
+        "drawbacks": "It can omit useful targets for architectures that need broader adaptation.",
+        "example": "transformer_only: true"
+      }
+    },
+    {
+      "id": "network.type",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.type"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "network-type",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "lora",
+          "locon",
+          "lorm",
+          "lokr"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "lora",
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "LoRM forces linear/rank to 4 and forces conv to 4 when LoRM convolution extraction is enabled.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "type",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-type",
+        "description": "Selects the network implementation family.",
+        "benefits": "Chooses LoRA, LoCon, LoRM, or LoKr construction behavior.",
+        "drawbacks": "Changing type changes supported parameters and checkpoint compatibility.",
+        "example": "type: \"lora\""
+      }
+    },
+    {
+      "id": "network.linear",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.linear"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 4,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Legacy rank wins when present; otherwise linear is used; when both are omitted the effective rank is 4.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [
+        {
+          "location": "config.process[*].network.rank",
+          "replacement": "network.linear",
+          "precedence": "alias-wins",
+          "migration": "Rename rank to linear; if both remain, the legacy rank value takes precedence.",
+          "status": "legacy"
+        }
+      ],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "rank",
+          "read_kind": "kwargs.get"
+        },
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "NetworkConfig.__init__",
+          "key": "linear",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-linear",
+        "description": "Sets the low-rank dimension for linear modules.",
+        "benefits": "Controls the primary tradeoff between adapter capacity and size.",
+        "drawbacks": "Higher rank increases memory, training time, and checkpoint size; low rank may underfit.",
+        "example": "linear: 16"
+      }
     }
   ]
 }
