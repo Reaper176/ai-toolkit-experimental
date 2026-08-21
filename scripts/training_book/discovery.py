@@ -3288,7 +3288,9 @@ def _dispatch_call_path(node: ast.AST, aliases: dict[str, str]) -> str | None:
     return resolved + (separator + remainder if separator else "")
 
 
-def _dispatch_selector(node: ast.AST, names: set[str]) -> _DispatchSelector | None:
+def _dispatch_selectors(
+    node: ast.AST, names: set[str]
+) -> tuple[_DispatchSelector, ...] | None:
     if (
         isinstance(node, ast.Compare)
         and len(node.ops) == 1
@@ -3303,7 +3305,26 @@ def _dispatch_selector(node: ast.AST, names: set[str]) -> _DispatchSelector | No
                 and isinstance(literal, ast.Constant)
                 and isinstance(literal.value, str)
             ):
-                return _DispatchSelector("exact", literal.value)
+                return (_DispatchSelector("exact", literal.value),)
+    if (
+        isinstance(node, ast.Compare)
+        and len(node.ops) == 1
+        and isinstance(node.ops[0], ast.In)
+        and len(node.comparators) == 1
+        and isinstance(node.left, ast.Name)
+        and node.left.id in names
+        and isinstance(node.comparators[0], (ast.Set, ast.Tuple, ast.List))
+        and node.comparators[0].elts
+        and all(
+            isinstance(element, ast.Constant)
+            and isinstance(element.value, str)
+            for element in node.comparators[0].elts
+        )
+    ):
+        return tuple(
+            _DispatchSelector("exact", value)
+            for value in sorted({element.value for element in node.comparators[0].elts})
+        )
     if (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
@@ -3316,8 +3337,78 @@ def _dispatch_selector(node: ast.AST, names: set[str]) -> _DispatchSelector | No
         and isinstance(node.args[0].value, str)
     ):
         kind = "prefix" if node.func.attr == "startswith" else "suffix"
-        return _DispatchSelector(kind, node.args[0].value)
+        return (_DispatchSelector(kind, node.args[0].value),)
     return None
+
+
+def _dispatch_references(node: ast.AST, names: set[str]) -> bool:
+    return any(
+        isinstance(inner, ast.Name) and inner.id in names
+        for inner in ast.walk(node)
+    )
+
+
+def _dispatch_spread_aliases(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+    spread_name: str,
+    source: str,
+) -> frozenset[str]:
+    parents = {
+        child: parent
+        for parent in ast.walk(function)
+        for child in ast.iter_child_nodes(parent)
+    }
+    assignments: dict[str, list[tuple[ast.AST, ast.AST]]] = {}
+    for node in ast.walk(function):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    assignments.setdefault(target.id, []).append((node, node.value))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            if node.value is not None:
+                assignments.setdefault(node.target.id, []).append((node, node.value))
+
+    aliases = {spread_name}
+    changed = True
+    while changed:
+        changed = False
+        for target, bindings in assignments.items():
+            if target in aliases:
+                continue
+            if any(isinstance(value, ast.Name) and value.id in aliases for _, value in bindings):
+                aliases.add(target)
+                changed = True
+
+    for alias in aliases - {spread_name}:
+        bindings = assignments.get(alias, ())
+        if (
+            len(bindings) != 1
+            or not isinstance(bindings[0][1], ast.Name)
+            or bindings[0][1].id not in aliases
+            or parents.get(bindings[0][0]) is not function
+        ):
+            raise DiscoveryError(
+                f"dispatch spread alias {alias!r} is reassigned or conditionally bound in {source}"
+            )
+
+    for node in ast.walk(function):
+        if not isinstance(node, ast.Name) or not isinstance(node.ctx, ast.Load):
+            continue
+        if node.id not in aliases:
+            continue
+        parent = parents.get(node)
+        allowed = (
+            isinstance(parent, ast.keyword) and parent.arg is None
+            or isinstance(parent, ast.Subscript) and parent.value is node
+            or isinstance(parent, ast.Attribute) and parent.value is node
+            or isinstance(parent, (ast.Assign, ast.AnnAssign)) and parent.value is node
+            or isinstance(parent, ast.Compare)
+        )
+        if not allowed:
+            raise DiscoveryError(
+                f"dispatch spread mapping {node.id!r} escapes static analysis in {source}"
+            )
+    return frozenset(aliases)
 
 
 def _combine_dispatch_selectors(
@@ -3377,16 +3468,28 @@ def _discover_dispatch_settings(
         tuple[_DispatchSelector, str, int, str, str]
     ] = []
 
-    def spread_call(node: ast.AST, spread_name: str) -> ast.Call | None:
+    def spread_call(
+        node: ast.AST,
+        spread_aliases: frozenset[str],
+        source: str,
+    ) -> ast.Call | None:
         if not isinstance(node, ast.Call):
             return None
-        if any(
-            keyword.arg is None
-            and isinstance(keyword.value, ast.Name)
-            and keyword.value.id == spread_name
-            for keyword in node.keywords
-        ):
-            return node
+        for keyword in node.keywords:
+            if keyword.arg is not None:
+                continue
+            if (
+                isinstance(keyword.value, ast.Name)
+                and keyword.value.id in spread_aliases
+            ):
+                return node
+            if _dispatch_references(keyword.value, set(spread_aliases)):
+                raise DiscoveryError(
+                    f"dispatch call uses a dynamic spread expression in {source}:{node.lineno}"
+                )
+            raise DiscoveryError(
+                f"dispatch call uses an unproven spread mapping in {source}:{node.lineno}"
+            )
         return None
 
     for source, tree in parsed:
@@ -3402,15 +3505,18 @@ def _discover_dispatch_settings(
             selector_names = {"optimizer_type", "lower_type"} if is_optimizer else {"name"}
             scope = "optimizer" if is_optimizer else "scheduler"
             registry_prefix = "optimizer" if is_optimizer else "scheduler"
+            spread_aliases = _dispatch_spread_aliases(function, spread_name, source)
+            claimed_spread_calls: set[int] = set()
 
             def add_branch_facts(
                 statement: ast.stmt,
                 selector: _DispatchSelector,
             ) -> None:
                 for node in ast.walk(statement):
-                    call = spread_call(node, spread_name)
+                    call = spread_call(node, spread_aliases, source)
                     if call is None:
                         continue
+                    claimed_spread_calls.add(id(call))
                     target = _dispatch_call_path(call.func, aliases)
                     if target is None:
                         continue
@@ -3437,19 +3543,19 @@ def _discover_dispatch_settings(
                                     "optimizer.external_boundary", scope, target,
                                 )
                             )
-                        for keyword in call.keywords:
-                            if keyword.arg is not None:
-                                facts.append(
-                                    DiscoveredSetting(
-                                        source,
-                                        function.name,
-                                        call.lineno,
-                                        _dispatch_key(selector, keyword.arg),
-                                        "optimizer.injected",
-                                        scope,
-                                        _source_expression(keyword.value),
-                                    )
+                    for keyword in call.keywords:
+                        if keyword.arg is not None:
+                            facts.append(
+                                DiscoveredSetting(
+                                    source,
+                                    function.name,
+                                    call.lineno,
+                                    _dispatch_key(selector, keyword.arg),
+                                    f"{registry_prefix}.injected",
+                                    scope,
+                                    _source_expression(keyword.value),
                                 )
+                            )
 
                 if isinstance(statement, (ast.Assign, ast.AnnAssign)):
                     targets = (
@@ -3513,19 +3619,45 @@ def _discover_dispatch_settings(
             ) -> None:
                 for statement in statements:
                     if isinstance(statement, ast.If):
-                        branch = _dispatch_selector(statement.test, selector_names)
-                        if branch is None:
+                        branches = _dispatch_selectors(statement.test, selector_names)
+                        if branches is None:
+                            if _dispatch_references(statement.test, selector_names):
+                                raise DiscoveryError(
+                                    f"unsupported dispatch selector in {source}:{statement.lineno}"
+                                )
+                            if inherited is not None and any(
+                                spread_call(node, spread_aliases, source) is not None
+                                for node in ast.walk(statement)
+                            ):
+                                raise DiscoveryError(
+                                    f"unsupported dispatch branch around constructor call "
+                                    f"in {source}:{statement.lineno}"
+                                )
                             visit_statements(statement.body, inherited)
                             visit_statements(statement.orelse, inherited)
                             continue
-                        combined = _combine_dispatch_selectors(inherited, branch)
-                        if combined is not None:
-                            visit_statements(statement.body, combined)
+                        for branch in branches:
+                            combined = _combine_dispatch_selectors(inherited, branch)
+                            if combined is not None:
+                                visit_statements(statement.body, combined)
                         visit_statements(statement.orelse, inherited)
                     elif inherited is not None:
                         add_branch_facts(statement, inherited)
 
             visit_statements(function.body)
+            for node in ast.walk(function):
+                call = spread_call(node, spread_aliases, source)
+                if call is None or id(call) in claimed_spread_calls:
+                    continue
+                target = _dispatch_call_path(call.func, aliases)
+                is_diffusers_fallback = (
+                    not is_optimizer and target == "schedule_func"
+                )
+                if not is_diffusers_fallback:
+                    raise DiscoveryError(
+                        f"dispatch constructor call is not guarded by a finite selector "
+                        f"in {source}:{call.lineno}"
+                    )
 
     local_classes: dict[str, tuple[str, ast.ClassDef]] = {}
     for source, tree in parsed:

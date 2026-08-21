@@ -3319,6 +3319,120 @@ class DiscoveryContractTests(unittest.TestCase):
             },
         )
 
+    def test_training_dispatch_contract_membership_choices_become_unowned(self):
+        path = self.write_source(
+            "toolkit/optimizer.py",
+            """def get_optimizer(params, optimizer_type, optimizer_params):
+    lower_type = optimizer_type.lower()
+    if lower_type == "adam":
+        return torch.optim.Adam(params, **optimizer_params)
+    raise ValueError(lower_type)
+""",
+        )
+        baseline = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        claims = tuple(
+            SourceClaim(fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in baseline
+        )
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'lower_type == "adam"',
+                'lower_type in {"adam", "adamw"}',
+            ),
+            encoding="utf-8",
+        )
+
+        changed = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+
+        registry_keys = {
+            fact.key for fact in changed if fact.read_kind == "optimizer.registry"
+        }
+        self.assertEqual(registry_keys, {"adam", "adamw"})
+        with self.assertRaisesRegex(DiscoveryError, "adamw"):
+            validate_setting_ownership(changed, claims, ())
+
+    def test_training_dispatch_contract_follows_optimizer_and_scheduler_spread_aliases(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            """def get_optimizer(params, optimizer_type, learning_rate, optimizer_params):
+    forwarded = optimizer_params
+    lower_type = optimizer_type.lower()
+    if lower_type == "adamw":
+        return torch.optim.AdamW(params, lr=learning_rate, **forwarded)
+    raise ValueError(lower_type)
+""",
+        )
+        self.write_source(
+            "toolkit/scheduler.py",
+            """def get_lr_scheduler(name, optimizer, **kwargs):
+    forwarded = kwargs
+    if name == "constant":
+        return torch.optim.lr_scheduler.ConstantLR(optimizer, factor=1.0, **forwarded)
+    raise ValueError(name)
+""",
+        )
+
+        discovered = discover_python_settings(
+            self.repository_root,
+            ("toolkit/optimizer.py", "toolkit/scheduler.py"),
+        )
+
+        self.assertEqual(
+            {
+                (fact.key, fact.read_kind, fact.default_expression)
+                for fact in discovered
+            },
+            {
+                ("adamw", "optimizer.external_boundary", "torch.optim.AdamW"),
+                ("adamw", "optimizer.registry", "torch.optim.AdamW"),
+                ("adamw__lr", "optimizer.injected", "learning_rate"),
+                ("constant", "scheduler.registry", "torch.optim.lr_scheduler.ConstantLR"),
+                ("constant__factor", "scheduler.injected", "1.0"),
+            },
+        )
+
+    def test_training_dispatch_contract_rejects_ambiguous_alias_and_branch_syntax(self):
+        cases = {
+            "reassigned": """def get_optimizer(params, optimizer_type, optimizer_params):
+    forwarded = optimizer_params
+    forwarded = {}
+    if optimizer_type == "adam":
+        return Backend(params, **forwarded)
+""",
+            "escaped": """def get_optimizer(params, optimizer_type, optimizer_params):
+    forwarded = optimizer_params
+    consume(forwarded)
+    if optimizer_type == "adam":
+        return Backend(params, **forwarded)
+""",
+            "dynamic": """def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "adam":
+        return Backend(params, **select(optimizer_params))
+""",
+            "unsupported selector": """def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type.removeprefix("x") == "adam":
+        return Backend(params, **optimizer_params)
+""",
+            "unsupported branch": """def get_optimizer(params, optimizer_type, optimizer_params):
+    if enabled:
+        return Backend(params, **optimizer_params)
+""",
+            "unselected call": """def get_optimizer(params, optimizer_type, optimizer_params):
+    return Backend(params, **optimizer_params)
+""",
+        }
+        for label, source in cases.items():
+            with self.subTest(label=label):
+                self.write_source("toolkit/optimizer.py", source)
+                with self.assertRaisesRegex(DiscoveryError, "dispatch"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
     def test_training_dispatch_contract_discovers_local_parameters_and_injections(self):
         self.write_source(
             "toolkit/optimizer.py",
