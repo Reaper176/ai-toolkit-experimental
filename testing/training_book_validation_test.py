@@ -4308,9 +4308,10 @@ def get_optimizer(params, optimizer_type, optimizer_params):
                     )
 
     def test_training_dispatch_contract_diffusers_fallback_is_exact_and_dominant(self):
-        positive = """from diffusers.optimization import TYPE_TO_SCHEDULER_FUNCTION
+        positive = """from diffusers.optimization import SchedulerType, TYPE_TO_SCHEDULER_FUNCTION
 def get_lr_scheduler(name, optimizer, **kwargs):
     try:
+        name = SchedulerType(name)
         schedule_func = TYPE_TO_SCHEDULER_FUNCTION[name]
         return schedule_func(optimizer, **kwargs)
     except Exception:
@@ -4401,6 +4402,291 @@ def get_optimizer(params, optimizer_type, optimizer_params):
                     discover_python_settings(
                         self.repository_root, ("toolkit/optimizer.py",)
                     )
+
+    def test_training_dispatch_contract_rejects_every_unsupported_selected_shape(self):
+        cases = {
+            "two_local_return": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "hidden":
+        first = torch.optim.SGD(params)
+        second = first
+        return second
+""",
+            "container_return": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "hidden":
+        choices = {"optimizer": torch.optim.SGD(params)}
+        return choices["optimizer"]
+""",
+            "if_expression_return": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "hidden":
+        return torch.optim.SGD(params) if enabled else torch.optim.Adam(params)
+""",
+            "while_constructor": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "hidden":
+        while enabled:
+            return torch.optim.SGD(params)
+""",
+            "try_star_constructor": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "hidden":
+        try:
+            return torch.optim.SGD(params)
+        except* Exception:
+            pass
+""",
+            "unclassified_call": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "hidden":
+        probe()
+        return torch.optim.SGD(params)
+""",
+            "dynamic_return": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "hidden":
+        chosen = factories[optimizer_type]
+        return chosen(params)
+""",
+            "constructor_target_alias": """from torch.optim import SGD
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "hidden":
+        backend = SGD
+        return backend(params)
+""",
+            "arbitrary_attribute_write": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "hidden":
+        holder.backend = torch.optim.SGD
+        return torch.optim.SGD(params)
+""",
+            "arbitrary_subscript_write": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "hidden":
+        holder["backend"] = torch.optim.SGD
+        return torch.optim.SGD(params)
+""",
+        }
+        for shape, source in cases.items():
+            with self.subTest(shape=shape):
+                self.write_source("toolkit/optimizer.py", source)
+                with self.assertRaises(DiscoveryError) as context:
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+                message = str(context.exception)
+                self.assertIn("toolkit/optimizer.py", message)
+                self.assertIn("get_optimizer", message)
+                self.assertIn("shape", message)
+
+    def test_training_dispatch_contract_resolves_dotted_imports_once_and_rejects_relative_imports(self):
+        fixtures = {
+            "optimizer": (
+                "toolkit/optimizer.py",
+                """import vendor.optimizers
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "magic":
+        return vendor.optimizers.Magic(params)
+""",
+                "magic", "optimizer.registry", "vendor.optimizers.Magic",
+            ),
+            "scheduler": (
+                "toolkit/scheduler.py",
+                """import vendor.schedulers
+def get_lr_scheduler(name, optimizer, **kwargs):
+    if name == "magic":
+        return vendor.schedulers.Magic(optimizer)
+""",
+                "magic", "scheduler.registry", "vendor.schedulers.Magic",
+            ),
+        }
+        for label, (path, source, key, read_kind, target) in fixtures.items():
+            with self.subTest(label=label):
+                self.write_source(path, source)
+                discovered = discover_python_settings(self.repository_root, (path,))
+                self.assertIn(
+                    (key, read_kind, target),
+                    {
+                        (fact.key, fact.read_kind, fact.default_expression)
+                        for fact in discovered
+                    },
+                )
+
+        aliased_fixtures = {
+            "optimizer": (
+                "toolkit/optimizer.py",
+                """import vendor.optimizers as choices
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "magic":
+        return choices.Magic(params)
+""",
+                "optimizer.registry", "vendor.optimizers.Magic",
+            ),
+            "scheduler": (
+                "toolkit/scheduler.py",
+                """import vendor.schedulers as choices
+def get_lr_scheduler(name, optimizer, **kwargs):
+    if name == "magic":
+        return choices.Magic(optimizer)
+""",
+                "scheduler.registry", "vendor.schedulers.Magic",
+            ),
+        }
+        for label, (path, source, read_kind, target) in aliased_fixtures.items():
+            with self.subTest(aliased=label):
+                self.write_source(path, source)
+                discovered = discover_python_settings(self.repository_root, (path,))
+                self.assertIn(
+                    ("magic", read_kind, target),
+                    {
+                        (fact.key, fact.read_kind, fact.default_expression)
+                        for fact in discovered
+                    },
+                )
+
+        for label, (path, function, selector, constructor) in {
+            "optimizer": (
+                "toolkit/optimizer.py", "get_optimizer", "optimizer_type", "Backend",
+            ),
+            "scheduler": (
+                "toolkit/scheduler.py", "get_lr_scheduler", "name", "Backend",
+            ),
+        }.items():
+            with self.subTest(relative=label):
+                signature = (
+                    "params, optimizer_type, optimizer_params"
+                    if label == "optimizer"
+                    else "name, optimizer, **kwargs"
+                )
+                argument = "params" if label == "optimizer" else "optimizer"
+                self.write_source(
+                    path,
+                    f"""from .choices import {constructor}
+def {function}({signature}):
+    if {selector} == "magic":
+        return {constructor}({argument})
+""",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "relative import"):
+                    discover_python_settings(self.repository_root, (path,))
+
+    def test_training_dispatch_contract_rejects_imported_namespace_mutation(self):
+        operations = {
+            "store": "torch.optim = fake",
+            "delete": "del torch.optim",
+            "augmented": "torch.optim += fake",
+            "conditional_store": "if enabled:\n            torch.optim = fake",
+            "setattr_root": "setattr(torch, 'optim', fake)",
+            "setattr_subpath": "setattr(torch.optim, 'SGD', fake)",
+            "delattr_subpath": "delattr(torch.optim, 'SGD')",
+            "aliased_store": "backend.optim = fake",
+        }
+        for shape, operation in operations.items():
+            with self.subTest(shape=shape):
+                import_line = "import torch as backend" if shape == "aliased_store" else "import torch"
+                constructor = "backend.optim.SGD" if shape == "aliased_store" else "torch.optim.SGD"
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f"""{import_line}
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        {operation}
+        return {constructor}(params)
+""",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "imported namespace"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+    def test_training_dispatch_contract_rejects_nested_or_conditional_mapping_effects(self):
+        operations = {
+            "nested_write": 'forwarded["nested"]["value"] = 1',
+            "nested_delete": 'del forwarded["nested"]["value"]',
+            "nested_method": 'forwarded["nested"].update({"value": 1})',
+            "nested_get_method": 'forwarded.get("nested").update({"value": 1})',
+            "conditional_get": 'if enabled:\n            forwarded.get("capturable", False)',
+            "conditional_pop": 'if enabled:\n            forwarded.pop("weight_decay", 0.0)',
+            "conditional_write": 'if enabled:\n            forwarded["capturable"] = True',
+        }
+        for shape, operation in operations.items():
+            with self.subTest(shape=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f"""import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    forwarded = optimizer_params
+    if optimizer_type == "adam":
+        {operation}
+        return torch.optim.Adam(params, **forwarded)
+""",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "mapping.*shape"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+    def test_training_dispatch_contract_diffusers_fallback_uses_exact_safe_sequence(self):
+        production_shape = """from diffusers.optimization import SchedulerType, TYPE_TO_SCHEDULER_FUNCTION
+def get_lr_scheduler(name, optimizer, **kwargs):
+    try:
+        name = SchedulerType(name)
+        schedule_func = TYPE_TO_SCHEDULER_FUNCTION[name]
+        return schedule_func(optimizer, **kwargs)
+    except Exception:
+        pass
+    raise ValueError(name)
+"""
+        self.write_source("toolkit/scheduler.py", production_shape)
+        discover_python_settings(self.repository_root, ("toolkit/scheduler.py",))
+
+        cases = {
+            "lookup_after_unknown_call": """from diffusers.optimization import TYPE_TO_SCHEDULER_FUNCTION
+def get_lr_scheduler(name, optimizer, **kwargs):
+    try:
+        probe()
+        schedule_func = TYPE_TO_SCHEDULER_FUNCTION[name]
+        return schedule_func(optimizer, **kwargs)
+    except Exception:
+        pass
+""",
+            "call_from_finally": """from diffusers.optimization import TYPE_TO_SCHEDULER_FUNCTION
+def get_lr_scheduler(name, optimizer, **kwargs):
+    try:
+        schedule_func = TYPE_TO_SCHEDULER_FUNCTION[name]
+    finally:
+        return schedule_func(optimizer, **kwargs)
+""",
+            "lookup_in_finally": """from diffusers.optimization import TYPE_TO_SCHEDULER_FUNCTION
+def get_lr_scheduler(name, optimizer, **kwargs):
+    try:
+        pass
+    finally:
+        schedule_func = TYPE_TO_SCHEDULER_FUNCTION[name]
+        return schedule_func(optimizer, **kwargs)
+""",
+            "reordered_lookup": """from diffusers.optimization import SchedulerType, TYPE_TO_SCHEDULER_FUNCTION
+def get_lr_scheduler(name, optimizer, **kwargs):
+    try:
+        schedule_func = TYPE_TO_SCHEDULER_FUNCTION[name]
+        name = SchedulerType(name)
+        return schedule_func(optimizer, **kwargs)
+    except Exception:
+        pass
+""",
+        }
+        for shape, source in cases.items():
+            with self.subTest(shape=shape):
+                self.write_source("toolkit/scheduler.py", source)
+                with self.assertRaises(DiscoveryError) as context:
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/scheduler.py",)
+                    )
+                message = str(context.exception)
+                self.assertIn("toolkit/scheduler.py", message)
+                self.assertIn("get_lr_scheduler", message)
+                self.assertIn("shape", message)
 
     def test_training_dispatch_contract_discovers_local_parameters_and_injections(self):
         self.write_source(

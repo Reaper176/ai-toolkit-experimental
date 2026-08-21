@@ -3581,8 +3581,11 @@ def _dispatch_import_bindings(node: ast.Import | ast.ImportFrom) -> dict[str, st
     if isinstance(node, ast.Import):
         for imported in node.names:
             bound = imported.asname or imported.name.split(".", maxsplit=1)[0]
-            bindings[bound] = imported.name
-    elif node.module:
+            # Python binds ``import package.module`` to ``package`` unless an
+            # alias is present.  Keep the binding and the later attribute path
+            # separate so resolution does not repeat ``module``.
+            bindings[bound] = imported.name if imported.asname else bound
+    elif node.level == 0 and node.module:
         for imported in node.names:
             if imported.name != "*":
                 bindings[imported.asname or imported.name] = (
@@ -3696,6 +3699,41 @@ def _discover_dispatch_settings(
             selector_names = {"optimizer_type", "lower_type"} if is_optimizer else {"name"}
             scope = "optimizer" if is_optimizer else "scheduler"
             registry_prefix = "optimizer" if is_optimizer else "scheduler"
+
+            def shape_error(node: ast.AST, detail: str) -> DiscoveryError:
+                return DiscoveryError(
+                    f"unsupported dispatch shape {type(node).__name__} ({detail}) "
+                    f"in {source}:{getattr(node, 'lineno', function.lineno)} "
+                    f"for {function.name}"
+                )
+
+            module_prefix = tree.body[:tree.body.index(function)]
+            dispatch_imports: list[ast.ImportFrom] = [
+                statement
+                for statement in module_prefix
+                if isinstance(statement, ast.ImportFrom)
+            ]
+
+            def collect_dispatch_imports(node: ast.AST) -> None:
+                if isinstance(
+                    node,
+                    (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
+                ):
+                    return
+                if isinstance(node, ast.ImportFrom):
+                    dispatch_imports.append(node)
+                for child in ast.iter_child_nodes(node):
+                    collect_dispatch_imports(child)
+
+            for statement in function.body:
+                collect_dispatch_imports(statement)
+            relative_import = next(
+                (node for node in dispatch_imports if node.level > 0),
+                None,
+            )
+            if relative_import is not None:
+                raise shape_error(relative_import, "relative import is not portable")
+
             spread_aliases = _dispatch_spread_aliases(function, spread_name, source)
             module_bindings = _dispatch_module_bindings(tree, function)
             bindings = module_bindings.copy()
@@ -3746,16 +3784,12 @@ def _discover_dispatch_settings(
             def resolve_path(node: ast.AST, state: _DispatchBindings) -> str:
                 path = _attribute_path(node)
                 if path is None:
-                    raise DiscoveryError(
-                        f"dispatch constructor target is dynamic in {source}:"
-                        f"{getattr(node, 'lineno', function.lineno)}"
-                    )
+                    raise shape_error(node, "dynamic constructor target")
                 root, separator, remainder = path.partition(".")
                 resolved = state.values.get(root)
                 if resolved is None or root in state.poisoned:
-                    raise DiscoveryError(
-                        f"dispatch constructor binding {root!r} is not proven in "
-                        f"{source}:{getattr(node, 'lineno', function.lineno)}"
+                    raise shape_error(
+                        node, f"constructor binding {root!r} is not proven"
                     )
                 return resolved + (separator + remainder if separator else "")
 
@@ -4114,6 +4148,472 @@ def _discover_dispatch_settings(
                     )
                 elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                     poison(state, (statement.name,))
+
+            def validate_closed_grammar() -> None:
+                """Reject every dispatch shape outside the source-proven grammar.
+
+                This validator intentionally runs before fact emission.  The discovery
+                visitor below may understand bindings and ownership, but it must never
+                make unsupported syntax disappear merely because no ``**kwargs`` spread
+                was present.
+                """
+
+                approved_calls: set[int] = set()
+                approved_returns: set[int] = set()
+
+                def scoped_nodes(roots: Iterable[ast.AST]) -> Iterable[ast.AST]:
+                    def visit(node: ast.AST) -> Iterable[ast.AST]:
+                        yield node
+                        if isinstance(
+                            node,
+                            (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
+                        ) and node is not function:
+                            return
+                        for child in ast.iter_child_nodes(node):
+                            yield from visit(child)
+
+                    for root in roots:
+                        yield from visit(root)
+
+                imported_roots: set[str] = set()
+                for statement in module_prefix:
+                    if isinstance(statement, (ast.Import, ast.ImportFrom)):
+                        imported_roots.update(_dispatch_import_bindings(statement))
+                for node in scoped_nodes(function.body):
+                    if isinstance(node, (ast.Import, ast.ImportFrom)):
+                        imported_roots.update(_dispatch_import_bindings(node))
+
+                def rooted_in_import(node: ast.AST) -> bool:
+                    path = _attribute_path(node)
+                    return path is not None and path.split(".", maxsplit=1)[0] in imported_roots
+
+                for node in scoped_nodes(function.body):
+                    if (
+                        isinstance(node, ast.Attribute)
+                        and isinstance(node.ctx, (ast.Store, ast.Del))
+                        and rooted_in_import(node)
+                    ):
+                        raise DiscoveryError(
+                            f"imported namespace mutation is an unsupported dispatch "
+                            f"shape {type(node.ctx).__name__} in {source}:{node.lineno} "
+                            f"for {function.name}"
+                        )
+                    if (
+                        isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Name)
+                        and node.func.id in {"setattr", "delattr"}
+                        and node.args
+                        and rooted_in_import(node.args[0])
+                    ):
+                        raise DiscoveryError(
+                            f"imported namespace mutation is an unsupported dispatch "
+                            f"shape {node.func.id} in {source}:{node.lineno} "
+                            f"for {function.name}"
+                        )
+
+                def mapping_origin(node: ast.AST) -> tuple[str, int] | None:
+                    if isinstance(node, ast.Name) and node.id in spread_aliases:
+                        return node.id, 0
+                    if isinstance(node, ast.Subscript):
+                        origin = mapping_origin(node.value)
+                        if origin is not None:
+                            return origin[0], origin[1] + 1
+                    if (
+                        isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Attribute)
+                        and node.func.attr in {"get", "pop"}
+                    ):
+                        origin = mapping_origin(node.func.value)
+                        if origin is not None:
+                            return origin[0], origin[1] + 1
+                    return None
+
+                for node in scoped_nodes(function.body):
+                    if isinstance(node, ast.Subscript):
+                        origin = mapping_origin(node)
+                        if (
+                            origin is not None
+                            and origin[1] > 1
+                            and isinstance(node.ctx, (ast.Store, ast.Del))
+                        ):
+                            raise DiscoveryError(
+                                f"dispatch mapping shape nested subscript effect is "
+                                f"unsupported in {source}:{node.lineno} for {function.name}"
+                            )
+                    if (
+                        isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Attribute)
+                        and node.func.attr not in {"get", "pop"}
+                    ):
+                        origin = mapping_origin(node.func.value)
+                        if origin is not None and origin[1] > 0:
+                            raise DiscoveryError(
+                                f"dispatch mapping shape nested method effect is "
+                                f"unsupported in {source}:{node.lineno} for {function.name}"
+                            )
+
+                def allow_simple_call(call: ast.Call) -> bool:
+                    if (
+                        isinstance(call.func, ast.Name)
+                        and call.func.id == "print"
+                    ):
+                        approved_calls.add(id(call))
+                        return True
+                    if (
+                        isinstance(call.func, ast.Name)
+                        and call.func.id == "float"
+                        and len(call.args) == 1
+                        and not call.keywords
+                    ):
+                        approved_calls.add(id(call))
+                        return True
+                    if (
+                        isinstance(call.func, ast.Attribute)
+                        and call.func.attr == "lower"
+                        and isinstance(call.func.value, ast.Name)
+                        and call.func.value.id == "optimizer_type"
+                        and not call.args
+                        and not call.keywords
+                    ):
+                        approved_calls.add(id(call))
+                        return True
+                    return False
+
+                def allow_constructor_call(call: ast.Call) -> None:
+                    target_path = _attribute_path(call.func)
+                    target_root = (
+                        target_path.split(".", maxsplit=1)[0]
+                        if target_path is not None
+                        else None
+                    )
+                    if target_root not in imported_roots:
+                        raise shape_error(
+                            call.func,
+                            "constructor target is not a direct imported binding",
+                        )
+                    approved_calls.add(id(call))
+                    for node in ast.walk(call):
+                        if node is call or not isinstance(node, ast.Call):
+                            continue
+                        if not allow_simple_call(node):
+                            raise shape_error(
+                                node, "nested constructor argument call is not supported"
+                            )
+
+                def mapping_effect(node: ast.AST) -> bool:
+                    if isinstance(node, ast.Call) and mapping_method(node) is not None:
+                        return True
+                    if isinstance(node, ast.Subscript):
+                        origin = mapping_origin(node)
+                        return origin is not None and isinstance(
+                            node.ctx, (ast.Store, ast.Del)
+                        )
+                    return False
+
+                def supported_mapping_condition(statement: ast.If) -> bool:
+                    test = statement.test
+                    if not (
+                        isinstance(test, ast.Compare)
+                        and len(test.ops) == 1
+                        and isinstance(test.ops[0], (ast.In, ast.NotIn))
+                        and len(test.comparators) == 1
+                        and isinstance(test.left, ast.Constant)
+                        and isinstance(test.left.value, str)
+                        and isinstance(test.comparators[0], ast.Name)
+                        and test.comparators[0].id in spread_aliases
+                        and not statement.orelse
+                    ):
+                        return False
+                    effects = [
+                        node
+                        for child in statement.body
+                        for node in ast.walk(child)
+                        if mapping_effect(node)
+                    ]
+                    return bool(effects)
+
+                def exact_diffusers_try(statement: ast.Try) -> bool:
+                    if not (
+                        source == "toolkit/scheduler.py"
+                        and function.name == "get_lr_scheduler"
+                        and len(statement.body) == 3
+                        and statement.handlers
+                        and not statement.orelse
+                        and not statement.finalbody
+                    ):
+                        return False
+                    convert, lookup, returned = statement.body
+                    if not (
+                        isinstance(convert, ast.Assign)
+                        and len(convert.targets) == 1
+                        and isinstance(convert.targets[0], ast.Name)
+                        and convert.targets[0].id == "name"
+                        and isinstance(convert.value, ast.Call)
+                        and isinstance(convert.value.func, ast.Name)
+                        and convert.value.func.id == "SchedulerType"
+                        and len(convert.value.args) == 1
+                        and isinstance(convert.value.args[0], ast.Name)
+                        and convert.value.args[0].id == "name"
+                        and not convert.value.keywords
+                    ):
+                        return False
+                    if not (
+                        isinstance(lookup, ast.Assign)
+                        and len(lookup.targets) == 1
+                        and isinstance(lookup.targets[0], ast.Name)
+                        and lookup.targets[0].id == "schedule_func"
+                        and isinstance(lookup.value, ast.Subscript)
+                        and isinstance(lookup.value.value, ast.Name)
+                        and lookup.value.value.id == "TYPE_TO_SCHEDULER_FUNCTION"
+                        and isinstance(lookup.value.slice, ast.Name)
+                        and lookup.value.slice.id == "name"
+                    ):
+                        return False
+                    if not (
+                        isinstance(returned, ast.Return)
+                        and isinstance(returned.value, ast.Call)
+                        and isinstance(returned.value.func, ast.Name)
+                        and returned.value.func.id == "schedule_func"
+                        and len(returned.value.args) == 1
+                        and isinstance(returned.value.args[0], ast.Name)
+                        and returned.value.args[0].id == "optimizer"
+                        and len(returned.value.keywords) == 1
+                        and returned.value.keywords[0].arg is None
+                        and isinstance(returned.value.keywords[0].value, ast.Name)
+                        and returned.value.keywords[0].value.id == spread_name
+                    ):
+                        return False
+                    approved_calls.update(
+                        {id(convert.value), id(returned.value)}
+                    )
+                    approved_returns.add(id(returned))
+                    return True
+
+                def exact_lion_try(
+                    statement: ast.Try, selector: _DispatchSelector | None
+                ) -> bool:
+                    if not (
+                        source == "toolkit/optimizer.py"
+                        and function.name == "get_optimizer"
+                        and selector is not None
+                        and selector.kind == "exact"
+                        and selector.value == "lion"
+                        and len(statement.body) == 2
+                        and len(statement.handlers) == 1
+                        and not statement.orelse
+                        and not statement.finalbody
+                    ):
+                        return False
+                    imported, returned = statement.body
+                    handler = statement.handlers[0]
+                    if not (
+                        isinstance(imported, ast.ImportFrom)
+                        and imported.level == 0
+                        and imported.module == "lion_pytorch"
+                        and len(imported.names) == 1
+                        and imported.names[0].name == "Lion"
+                        and isinstance(returned, ast.Return)
+                        and isinstance(returned.value, ast.Call)
+                        and isinstance(returned.value.func, ast.Name)
+                        and returned.value.func.id == "Lion"
+                        and isinstance(handler.type, ast.Name)
+                        and handler.type.id == "ImportError"
+                    ):
+                        return False
+                    allow_constructor_call(returned.value)
+                    approved_returns.add(id(returned))
+                    return True
+
+                def approve_selector_calls(test: ast.AST) -> None:
+                    for node in ast.walk(test):
+                        if isinstance(node, ast.Call):
+                            if not (
+                                isinstance(node.func, ast.Attribute)
+                                and node.func.attr in {"startswith", "endswith"}
+                                and isinstance(node.func.value, ast.Name)
+                                and node.func.value.id in selector_names
+                            ):
+                                raise shape_error(node, "selector call is not finite")
+                            approved_calls.add(id(node))
+
+                def visit_closed(
+                    statements: Sequence[ast.stmt],
+                    inherited: _DispatchSelector | None = None,
+                    conditional_depth: int = 0,
+                    available_locals: set[str] | None = None,
+                    allow_conditional_mapping: bool = False,
+                ) -> set[str]:
+                    available = set() if available_locals is None else set(available_locals)
+                    for statement in statements:
+                        if isinstance(statement, ast.If):
+                            branches = _dispatch_selectors(statement.test, selector_names)
+                            if branches is not None:
+                                approve_selector_calls(statement.test)
+                                branch_results: list[set[str]] = []
+                                for branch in branches:
+                                    combined = _combine_dispatch_selectors(inherited, branch)
+                                    if combined is not None:
+                                        branch_results.append(
+                                            visit_closed(
+                                                statement.body,
+                                                combined,
+                                                conditional_depth,
+                                                available,
+                                            )
+                                        )
+                                branch_results.append(
+                                    visit_closed(
+                                        statement.orelse,
+                                        inherited,
+                                        conditional_depth,
+                                        available,
+                                    )
+                                )
+                            else:
+                                if _dispatch_references(statement.test, selector_names):
+                                    raise shape_error(statement.test, "selector is not finite")
+                                mapping_condition = supported_mapping_condition(statement)
+                                branch_results = [
+                                    visit_closed(
+                                        statement.body,
+                                        inherited,
+                                        conditional_depth + 1,
+                                        available,
+                                        mapping_condition,
+                                    ),
+                                    visit_closed(
+                                        statement.orelse,
+                                        inherited,
+                                        conditional_depth + 1,
+                                        available,
+                                    ),
+                                ]
+                            if branch_results:
+                                available.intersection_update(*branch_results)
+                            continue
+
+                        if isinstance(statement, ast.Try):
+                            if exact_diffusers_try(statement):
+                                for handler in statement.handlers:
+                                    visit_closed(handler.body, inherited, conditional_depth, available)
+                                continue
+                            if exact_lion_try(statement, inherited):
+                                for handler in statement.handlers:
+                                    visit_closed(handler.body, inherited, conditional_depth, available)
+                                continue
+                            raise shape_error(statement, "try flow is not source-proven")
+                        unsupported_control = (
+                            ast.While, ast.For, ast.AsyncFor, ast.With, ast.AsyncWith, ast.Match
+                        )
+                        try_star = getattr(ast, "TryStar", None)
+                        if isinstance(statement, unsupported_control) or (
+                            try_star is not None and isinstance(statement, try_star)
+                        ):
+                            raise shape_error(statement, "control flow is not supported")
+
+                        write_targets: tuple[ast.AST, ...] = ()
+                        if isinstance(statement, ast.Assign):
+                            write_targets = tuple(statement.targets)
+                        elif isinstance(statement, (ast.AnnAssign, ast.AugAssign)):
+                            write_targets = (statement.target,)
+                        elif isinstance(statement, ast.Delete):
+                            write_targets = tuple(statement.targets)
+                        for target in write_targets:
+                            if isinstance(target, ast.Name):
+                                continue
+                            origin = mapping_origin(target)
+                            if (
+                                isinstance(target, ast.Subscript)
+                                and origin is not None
+                                and origin[1] == 1
+                            ):
+                                if conditional_depth and not allow_conditional_mapping:
+                                    raise DiscoveryError(
+                                        f"dispatch mapping conditional shape is unsupported "
+                                        f"in {source}:{target.lineno} for {function.name}"
+                                    )
+                                continue
+                            raise shape_error(target, "write target is not supported")
+
+                        call = constructor_call(statement)
+                        if call is not None:
+                            if conditional_depth:
+                                raise shape_error(
+                                    statement,
+                                    "constructor is conditionally reachable outside a selector",
+                                )
+                            allow_constructor_call(call)
+                            if isinstance(statement, ast.Return):
+                                approved_returns.add(id(statement))
+                            else:
+                                targets = (
+                                    statement.targets
+                                    if isinstance(statement, ast.Assign)
+                                    else (statement.target,)
+                                )
+                                for target in targets:
+                                    if isinstance(target, ast.Name):
+                                        available.add(target.id)
+
+                        if isinstance(statement, ast.Return) and id(statement) not in approved_returns:
+                            if (
+                                isinstance(statement.value, ast.Name)
+                                and statement.value.id in available
+                            ):
+                                approved_returns.add(id(statement))
+                            elif (
+                                source == "toolkit/optimizer.py"
+                                and function.name == "get_optimizer"
+                                and statement is function.body[-1]
+                                and isinstance(statement.value, ast.Name)
+                                and statement.value.id == "optimizer"
+                            ):
+                                approved_returns.add(id(statement))
+                            else:
+                                raise shape_error(statement, "returned value is not proven")
+
+                        for node in ast.walk(statement):
+                            if not isinstance(node, ast.Call) or id(node) in approved_calls:
+                                continue
+                            if allow_simple_call(node):
+                                continue
+                            method = mapping_method(node)
+                            if method is not None:
+                                if conditional_depth and not allow_conditional_mapping:
+                                    raise DiscoveryError(
+                                        f"dispatch mapping conditional shape is unsupported "
+                                        f"in {source}:{node.lineno} for {function.name}"
+                                    )
+                                approved_calls.add(id(node))
+                                continue
+                            if (
+                                isinstance(statement, ast.Raise)
+                                and node is statement.exc
+                                and isinstance(node.func, ast.Name)
+                                and node.func.id in {"ValueError", "ImportError"}
+                            ):
+                                approved_calls.add(id(node))
+                                continue
+                            raise shape_error(node, "call is not in the closed grammar")
+
+                        if conditional_depth:
+                            for node in ast.walk(statement):
+                                if mapping_effect(node) and not allow_conditional_mapping:
+                                    raise DiscoveryError(
+                                        f"dispatch mapping conditional shape is unsupported "
+                                        f"in {source}:{getattr(node, 'lineno', statement.lineno)} "
+                                        f"for {function.name}"
+                                    )
+                    return available
+
+                visit_closed(function.body)
+                for node in scoped_nodes(function.body):
+                    if isinstance(node, ast.Return) and id(node) not in approved_returns:
+                        raise shape_error(node, "return escaped the closed grammar")
+                    if isinstance(node, ast.Call) and id(node) not in approved_calls:
+                        raise shape_error(node, "call escaped the closed grammar")
+
+            validate_closed_grammar()
 
             def visit_statements(
                 statements: Sequence[ast.stmt],
