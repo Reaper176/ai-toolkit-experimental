@@ -1,0 +1,1172 @@
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import ts from 'typescript';
+
+export type TrainingBookValueFact =
+  | { kind: 'undefined' }
+  | { kind: 'null' }
+  | { kind: 'boolean'; value: boolean }
+  | { kind: 'number'; value: number }
+  | { kind: 'string'; value: string }
+  | { kind: 'array'; items: TrainingBookValueFact[] }
+  | { kind: 'object'; entries: Array<{ key: string; value: TrainingBookValueFact }> };
+
+export interface PresenceFact {
+  present: boolean;
+  value?: TrainingBookValueFact;
+}
+
+export interface StaticJsxFact {
+  present: boolean;
+  text_literals?: string[];
+  code_literals?: string[];
+  link_hrefs?: string[];
+}
+
+export type ModelOptionPredicateFact =
+  | { kind: 'always' }
+  | { kind: 'truthy'; path: string }
+  | { kind: 'nonblank-string'; path: string }
+  | { kind: 'not'; operand: ModelOptionPredicateFact }
+  | { kind: 'and' | 'or'; operands: [ModelOptionPredicateFact, ModelOptionPredicateFact] };
+
+export interface CustomModelSelectOptionFact {
+  label: string;
+  options: Array<{ value: string; label: string }>;
+  doc: StaticJsxFact;
+  get_value_cases: Array<{ condition: ModelOptionPredicateFact; return_value: TrainingBookValueFact }>;
+  writes: Array<{
+    selected_value: string;
+    path: string;
+    value: TrainingBookValueFact;
+    guard: ModelOptionPredicateFact;
+  }>;
+}
+
+export interface CustomModelSelectOptionsFact {
+  present: boolean;
+  value?: CustomModelSelectOptionFact[];
+}
+
+export interface ArchitectureDefaultFact {
+  declaration_path: string;
+  path: string;
+  selected: PresenceFact;
+  unselected: PresenceFact;
+}
+
+export interface ArchitectureDefaultContainerFact {
+  path: string;
+  selected_present: boolean;
+  unselected_present: boolean;
+}
+
+export interface ModelArchitectureFact {
+  name: string;
+  label: string;
+  group: string;
+  model_path: PresenceFact;
+  gate_url: PresenceFact;
+  is_video_model: PresenceFact;
+  has_multiline_prompts: PresenceFact;
+  accuracy_recovery_adapters: PresenceFact;
+  sample_tags: PresenceFact;
+  custom_model_select_options: CustomModelSelectOptionsFact;
+  model_notes: StaticJsxFact;
+  controls: string[];
+  defaults: ArchitectureDefaultFact[];
+  default_containers: ArchitectureDefaultContainerFact[];
+  disable_sections: string[];
+  additional_sections: string[];
+}
+
+export interface UiDefaultFact {
+  path: string;
+  value: PresenceFact;
+  source_path: string;
+  symbol: string;
+}
+
+export interface UiSourceClaim {
+  source_path: string;
+  symbol: string;
+  path: string;
+  kind: 'setter' | 'default' | 'doc' | 'setting' | 'server-state';
+  ui_label: PresenceFact;
+  value_contract: {
+    ui_type:
+      | 'boolean'
+      | 'integer'
+      | 'number'
+      | 'string'
+      | 'path'
+      | 'boolean-list'
+      | 'integer-list'
+      | 'number-list'
+      | 'string-list'
+      | 'object'
+      | 'object-list'
+      | null;
+    widget_kind:
+      | 'checkbox'
+      | 'number'
+      | 'text'
+      | 'multiline'
+      | 'path'
+      | 'select'
+      | 'json'
+      | 'read-only'
+      | null;
+    optional: boolean;
+    nullable: boolean;
+    accepted_values?: TrainingBookValueFact[];
+    minimum?: number;
+    maximum?: number;
+  };
+}
+
+export interface ArchitectureTransitionFact {
+  architecture: string;
+  path: string;
+  selected: PresenceFact;
+  unselected: PresenceFact;
+}
+
+export interface TrainingBookUiFacts {
+  schema_version: 1;
+  model_architectures: ModelArchitectureFact[];
+  defaults: UiDefaultFact[];
+  config_claims: UiSourceClaim[];
+  global_settings: UiSourceClaim[];
+  architecture_transitions: ArchitectureTransitionFact[];
+}
+
+class FactsError extends Error {}
+
+type Binding = { expression: ts.Expression; source: ts.SourceFile };
+
+const compareCodePoint = (left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0);
+
+function fail(node: ts.Node | undefined, message: string): never {
+  const location = node === undefined
+    ? ''
+    : ` at ${node.getSourceFile().fileName}:${node.getSourceFile().getLineAndCharacterOfPosition(node.getStart()).line + 1}`;
+  throw new FactsError(`${message}${location}`);
+}
+
+function ownKeys(value: object): string[] {
+  return Object.keys(value).sort(compareCodePoint);
+}
+
+function requireKeys(value: unknown, required: readonly string[], label: string, optional: readonly string[] = []): asserts value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new FactsError(`${label} must be an object`);
+  const allowed = new Set([...required, ...optional]);
+  for (const key of Object.keys(value)) if (!allowed.has(key)) throw new FactsError(`${label} has unexpected field ${key}`);
+  for (const key of required) if (!Object.prototype.hasOwnProperty.call(value, key)) throw new FactsError(`${label} is missing field ${key}`);
+}
+
+function propertyName(node: ts.PropertyName): string {
+  if (ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node)) return node.text;
+  return fail(node, 'computed property names are unsupported');
+}
+
+function objectProperties(node: ts.ObjectLiteralExpression): Map<string, ts.Expression> {
+  const result = new Map<string, ts.Expression>();
+  for (const item of node.properties) {
+    if (ts.isPropertyAssignment(item)) {
+      const key = propertyName(item.name);
+      if (result.has(key)) fail(item, `duplicate object property ${key}`);
+      result.set(key, item.initializer);
+    } else if (ts.isShorthandPropertyAssignment(item)) {
+      if (result.has(item.name.text)) fail(item, `duplicate object property ${item.name.text}`);
+      result.set(item.name.text, item.name);
+    } else {
+      fail(item, 'object spread, methods, accessors, and computed fields are unsupported');
+    }
+  }
+  return result;
+}
+
+function unwrap(node: ts.Expression): ts.Expression {
+  while (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isTypeAssertionExpression(node) || ts.isNonNullExpression(node) || ts.isSatisfiesExpression(node)) {
+    node = node.expression;
+  }
+  return node;
+}
+
+class AstRepository {
+  private readonly bindings = new Map<string, Binding>();
+  private readonly sources = new Map<string, ts.SourceFile>();
+
+  constructor(private readonly root: string) {}
+
+  source(path: string): ts.SourceFile {
+    const existing = this.sources.get(path);
+    if (existing !== undefined) return existing;
+    const filename = join(this.root, path);
+    const scriptKind = path.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+    const source = ts.createSourceFile(filename, readFileSync(filename, 'utf8'), ts.ScriptTarget.Latest, true, scriptKind);
+    const diagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+    if (diagnostics.length > 0) fail(source, `TypeScript parse failed: ${diagnostics[0].messageText}`);
+    this.sources.set(path, source);
+    for (const statement of source.statements) {
+      if (!ts.isVariableStatement(statement)) continue;
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || declaration.initializer === undefined) continue;
+        const existingBinding = this.bindings.get(declaration.name.text);
+        if (existingBinding !== undefined && existingBinding.source !== source) {
+          // Imported source constants may share ordinary helper names. Only the
+          // explicitly requested exported/default bindings need cross-file identity.
+          continue;
+        }
+        this.bindings.set(declaration.name.text, { expression: declaration.initializer, source });
+      }
+    }
+    return source;
+  }
+
+  loadStandardSources(): void {
+    this.source('ui/src/helpers/defaultSamples.ts');
+    this.source('ui/src/app/jobs/new/jobConfig.ts');
+    this.source('ui/src/app/jobs/new/options.tsx');
+  }
+
+  binding(name: string, at?: ts.Node): Binding {
+    const binding = this.bindings.get(name);
+    if (binding === undefined) fail(at, `unresolved identifier ${name}`);
+    return binding;
+  }
+
+  expression(name: string): ts.Expression {
+    return this.binding(name).expression;
+  }
+
+  value(node: ts.Expression, seen = new Set<string>()): TrainingBookValueFact {
+    node = unwrap(node);
+    if (node.kind === ts.SyntaxKind.UndefinedKeyword || (ts.isIdentifier(node) && node.text === 'undefined')) return { kind: 'undefined' };
+    if (node.kind === ts.SyntaxKind.NullKeyword) return { kind: 'null' };
+    if (node.kind === ts.SyntaxKind.TrueKeyword || node.kind === ts.SyntaxKind.FalseKeyword) return { kind: 'boolean', value: node.kind === ts.SyntaxKind.TrueKeyword };
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return { kind: 'string', value: node.text };
+    if (ts.isNumericLiteral(node)) {
+      const value = Number(node.text);
+      if (!Number.isFinite(value)) fail(node, 'numbers must be finite');
+      return { kind: 'number', value };
+    }
+    if (ts.isPrefixUnaryExpression(node) && (node.operator === ts.SyntaxKind.MinusToken || node.operator === ts.SyntaxKind.PlusToken)) {
+      const operand = this.value(node.operand, seen);
+      if (operand.kind !== 'number') fail(node, 'numeric unary operator requires a number');
+      const value = node.operator === ts.SyntaxKind.MinusToken ? -operand.value : operand.value;
+      if (!Number.isFinite(value)) fail(node, 'numbers must be finite');
+      return { kind: 'number', value };
+    }
+    if (ts.isTemplateExpression(node)) {
+      let value = node.head.text;
+      for (const span of node.templateSpans) {
+        const part = this.value(span.expression, seen);
+        if (!['string', 'number', 'boolean'].includes(part.kind)) fail(span.expression, 'template interpolation must be a scalar literal');
+        value += String('value' in part ? part.value : '') + span.literal.text;
+      }
+      return { kind: 'string', value };
+    }
+    if (ts.isArrayLiteralExpression(node)) return { kind: 'array', items: node.elements.map(item => this.value(item as ts.Expression, new Set(seen))) };
+    if (ts.isObjectLiteralExpression(node)) {
+      const entries = [...objectProperties(node)].map(([key, expression]) => ({ key, value: this.value(expression, new Set(seen)) }));
+      entries.sort((left, right) => compareCodePoint(left.key, right.key));
+      return { kind: 'object', entries };
+    }
+    if (ts.isIdentifier(node)) {
+      if (seen.has(node.text)) fail(node, `cyclic constant ${node.text}`);
+      const nextSeen = new Set(seen).add(node.text);
+      return this.value(this.binding(node.text, node).expression, nextSeen);
+    }
+    fail(node, 'unsupported non-JSON-safe value');
+  }
+}
+
+function presence(value?: TrainingBookValueFact): PresenceFact {
+  return value === undefined ? { present: false } : { present: true, value };
+}
+
+function objectEntry(value: TrainingBookValueFact, key: string): TrainingBookValueFact | undefined {
+  if (value.kind !== 'object') return undefined;
+  return value.entries.find(entry => entry.key === key)?.value;
+}
+
+export function normalizeTrainingBookPath(raw: string): string {
+  if (raw.length === 0 || raw.includes('..')) throw new FactsError(`canonical path is invalid: ${raw}`);
+  const segments = raw.split('.');
+  const normalized = segments.map(segment => {
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)(?:\[([^\]]+)\])?$/.exec(segment);
+    if (match === null) throw new FactsError(`canonical path contains an unresolved computed segment: ${raw}`);
+    const [, name, index] = match;
+    if (index === undefined) return name;
+    if (name === 'process' && index === '0') return 'process[*]';
+    if (name === 'datasets' && index === 'x') return 'datasets[*]';
+    if (index === '*') return `${name}[*]`;
+    if (/^\d+$/.test(index)) throw new FactsError(`canonical path contains an unsupported numeric index: ${raw}`);
+    throw new FactsError(`canonical path contains an unresolved index ${index}: ${raw}`);
+  });
+  return normalized.join('.');
+}
+
+function pathFromAccess(node: ts.Expression): string | undefined {
+  const collect = (expression: ts.Expression): string[] | undefined => {
+    expression = unwrap(expression);
+    if (ts.isIdentifier(expression)) return expression.text === 'config' ? [] : undefined;
+    if (ts.isPropertyAccessExpression(expression)) {
+      const base = collect(expression.expression);
+      return base === undefined ? undefined : [...base, expression.name.text];
+    }
+    if (ts.isElementAccessExpression(expression)) {
+      const base = collect(expression.expression);
+      if (base === undefined) return undefined;
+      const argument = expression.argumentExpression;
+      if (argument === undefined || (!ts.isNumericLiteral(argument) && !ts.isStringLiteral(argument))) fail(expression, 'computed configuration path is unsupported');
+      if (base.length === 0) fail(expression, 'configuration index has no property');
+      base[base.length - 1] = `${base[base.length - 1]}[${argument.text}]`;
+      return base;
+    }
+    return undefined;
+  };
+  const parts = collect(node);
+  return parts === undefined ? undefined : normalizeTrainingBookPath(parts.join('.'));
+}
+
+function accessParts(node: ts.Expression): string[] | undefined {
+  node = unwrap(node);
+  if (ts.isIdentifier(node)) return [node.text];
+  if (ts.isPropertyAccessExpression(node)) {
+    const base = accessParts(node.expression);
+    return base === undefined ? undefined : [...base, node.name.text];
+  }
+  if (ts.isElementAccessExpression(node)) {
+    const base = accessParts(node.expression);
+    if (base === undefined || node.argumentExpression === undefined) return undefined;
+    const argument = unwrap(node.argumentExpression);
+    if (!ts.isNumericLiteral(argument) && !ts.isStringLiteral(argument)) return undefined;
+    base[base.length - 1] = `${base[base.length - 1]}[${argument.text}]`;
+    return base;
+  }
+  return undefined;
+}
+
+function canonicalAccessPath(node: ts.Expression, aliases: Map<string, string>): string | undefined {
+  node = unwrap(node);
+  if (ts.isIdentifier(node) && aliases.has(node.text)) return aliases.get(node.text);
+  const parts = accessParts(node);
+  if (parts === undefined) return undefined;
+  const alias = aliases.get(parts[0]);
+  if (alias !== undefined) return normalizeTrainingBookPath([alias, ...parts.slice(1)].join('.'));
+  const configIndex = parts.indexOf('config');
+  if (configIndex < 0) return undefined;
+  return normalizeTrainingBookPath(parts.slice(configIndex).join('.'));
+}
+
+function sourceAliases(source: ts.SourceFile): Map<string, string> {
+  const aliases = new Map<string, string>();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const visit = (node: ts.Node): void => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined && !aliases.has(node.name.text)) {
+        const path = canonicalAccessPath(node.initializer, aliases);
+        if (path !== undefined) { aliases.set(node.name.text, path); changed = true; }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return aliases;
+}
+
+function enclosingFunctionForIdentifier(identifier: ts.Identifier): ts.ArrowFunction | ts.FunctionExpression | undefined {
+  let current: ts.Node | undefined = identifier;
+  while (current !== undefined) {
+    if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) return current;
+    current = current.parent;
+  }
+  return undefined;
+}
+
+function directMapBinding(identifier: ts.Identifier, aliases: Map<string, string>): { kind: 'index'; path: string } | { kind: 'values'; values: string[] } | undefined {
+  let current: ts.Node | undefined = identifier;
+  let callback: ts.ArrowFunction | ts.FunctionExpression | undefined;
+  let parameterIndex = -1;
+  while (current !== undefined) {
+    if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) {
+      const candidate = current.parameters.findIndex(parameter => ts.isIdentifier(parameter.name) && parameter.name.text === identifier.text);
+      if (candidate >= 0) { callback = current; parameterIndex = candidate; break; }
+    }
+    current = current.parent;
+  }
+  if (callback === undefined) return undefined;
+  if (parameterIndex < 0 || callback.parent === undefined || !ts.isCallExpression(callback.parent)) return undefined;
+  const call = callback.parent;
+  if (!ts.isPropertyAccessExpression(call.expression) || call.expression.name.text !== 'map' || !call.arguments.includes(callback)) return undefined;
+  const receiver = unwrap(call.expression.expression);
+  if (parameterIndex === 1) {
+    const path = canonicalAccessPath(receiver, aliases);
+    if (path === undefined || !['config.process[*].datasets', 'config.process[*].train.validation_config.validation_items', 'config.process[*].sample.samples'].includes(path)) {
+      fail(identifier, 'template index is not bound to an approved direct repeatable-array map');
+    }
+    return { kind: 'index', path };
+  }
+  if (parameterIndex === 0 && ts.isArrayLiteralExpression(receiver)) {
+    const values = receiver.elements.map(element => {
+      const value = unwrap(element as ts.Expression);
+      if (!ts.isStringLiteral(value)) fail(value, 'finite template map keys must be string literals');
+      return value.text;
+    });
+    return { kind: 'values', values };
+  }
+  return undefined;
+}
+
+function finiteForInBinding(identifier: ts.Identifier, source: ts.SourceFile): string[] | undefined {
+  let current: ts.Node | undefined = identifier;
+  while (current !== undefined) {
+    if (ts.isForInStatement(current)) {
+      const initializer = current.initializer;
+      const declaration = ts.isVariableDeclarationList(initializer) ? initializer.declarations[0] : undefined;
+      if (declaration !== undefined && ts.isIdentifier(declaration.name) && declaration.name.text === identifier.text) {
+        const objectName = unwrap(current.expression);
+        if (!ts.isIdentifier(objectName)) fail(current.expression, 'finite for-in template source must be an exact object binding');
+        let objectExpression: ts.ObjectLiteralExpression | undefined;
+        const find = (node: ts.Node): void => {
+          if (objectExpression !== undefined) return;
+          if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === objectName.text && node.initializer !== undefined) {
+            const value = unwrap(node.initializer);
+            if (ts.isObjectLiteralExpression(value)) objectExpression = value;
+          }
+          ts.forEachChild(node, find);
+        };
+        find(source);
+        if (objectExpression === undefined) fail(objectName, `unresolved finite options object ${objectName.text}`);
+        return [...objectProperties(objectExpression).keys()].sort(compareCodePoint);
+      }
+    }
+    current = current.parent;
+  }
+  return undefined;
+}
+
+function modalAdapterIndex(identifier: ts.Identifier, aliases: Map<string, string>): boolean {
+  const callback = enclosingFunctionForIdentifier(identifier);
+  if (callback === undefined || callback.parameters.length < 1 || !ts.isIdentifier(callback.parameters[0].name) || callback.parameters[0].name.text !== identifier.text) return false;
+  if (!ts.isCallExpression(callback.parent) || callback.parent.arguments[1] !== callback || !ts.isIdentifier(callback.parent.expression) || callback.parent.expression.text !== 'openUpsamplePromptsModal') return false;
+  let block: ts.Node | undefined = callback.parent;
+  while (block !== undefined && !ts.isBlock(block)) block = block.parent;
+  if (block === undefined || !ts.isBlock(block)) return false;
+  for (const statement of block.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== 'items' || declaration.initializer === undefined) continue;
+      let expression = unwrap(declaration.initializer);
+      if (ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && expression.expression.name.text === 'filter') expression = unwrap(expression.expression.expression);
+      if (!ts.isCallExpression(expression) || !ts.isPropertyAccessExpression(expression.expression) || expression.expression.name.text !== 'map') continue;
+      const arrayPath = canonicalAccessPath(expression.expression.expression, aliases);
+      if (arrayPath !== 'config.process[*].sample.samples') continue;
+      const mapper = expression.arguments[0];
+      if (!ts.isArrowFunction(mapper) || mapper.parameters.length < 2 || !ts.isIdentifier(mapper.parameters[1].name)) continue;
+      const mapperIndex = mapper.parameters[1].name.text;
+      const body = unwrap(mapper.body as ts.Expression);
+      if (!ts.isObjectLiteralExpression(body)) continue;
+      const indexValue = objectProperties(body).get('index');
+      if (indexValue !== undefined && ts.isIdentifier(unwrap(indexValue)) && (unwrap(indexValue) as ts.Identifier).text === mapperIndex) return true;
+    }
+  }
+  return false;
+}
+
+export function collectCanonicalSetterPathsFromSource(sourceText: string, sourceName = 'fixture.tsx'): string[] {
+  const source = ts.createSourceFile(sourceName, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const aliases = sourceAliases(source);
+  const paths = new Set<string>();
+  const expandPath = (expression: ts.Expression): string[] => {
+    expression = unwrap(expression);
+    if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return [normalizeTrainingBookPath(expression.text)];
+    if (!ts.isTemplateExpression(expression)) fail(expression, 'setter path must be a literal or proven finite template');
+    let values = [expression.head.text];
+    for (const span of expression.templateSpans) {
+      const interpolation = unwrap(span.expression);
+      if (!ts.isIdentifier(interpolation)) fail(interpolation, 'setter path template interpolation must be a proven identifier');
+      const binding = directMapBinding(interpolation, aliases);
+      let replacements: string[];
+      if (binding?.kind === 'index') replacements = ['*'];
+      else if (binding?.kind === 'values') replacements = binding.values;
+      else if (finiteForInBinding(interpolation, source) !== undefined) replacements = finiteForInBinding(interpolation, source)!;
+      else if (modalAdapterIndex(interpolation, aliases)) replacements = ['*'];
+      else fail(interpolation, `unbound setter path template identifier ${interpolation.text}`);
+      values = values.flatMap(prefix => replacements.map(replacement => `${prefix}${replacement}${span.literal.text}`));
+    }
+    return values.map(normalizeTrainingBookPath);
+  };
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      const name = node.expression.text;
+      const pathIndex = name === 'setNestedValue' ? 2 : name === 'setJobConfig' ? 1 : -1;
+      if (pathIndex >= 0 && node.arguments[pathIndex] !== undefined) for (const path of expandPath(node.arguments[pathIndex])) paths.add(path);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return [...paths].sort(compareCodePoint);
+}
+
+function jsxAttribute(element: ts.JsxOpeningLikeElement, name: string): string | undefined {
+  const attribute = element.attributes.properties.find(item => ts.isJsxAttribute(item) && ts.isIdentifier(item.name) && item.name.text === name);
+  if (attribute === undefined || !ts.isJsxAttribute(attribute) || attribute.initializer === undefined) return undefined;
+  if (ts.isStringLiteral(attribute.initializer)) return attribute.initializer.text;
+  if (ts.isJsxExpression(attribute.initializer) && attribute.initializer.expression !== undefined) {
+    const expression = unwrap(attribute.initializer.expression);
+    if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
+  }
+  fail(attribute, `dynamic JSX ${name} is unsupported`);
+}
+
+function jsxFact(node: ts.Expression | undefined, repo: AstRepository): StaticJsxFact {
+  if (node === undefined) return { present: false };
+  node = unwrap(node);
+  const text_literals: string[] = [];
+  const code_literals: string[] = [];
+  const link_hrefs: string[] = [];
+  const walk = (child: ts.Node, insideCode = false): void => {
+    if (ts.isJsxText(child)) {
+      const normalized = child.text.replace(/\s+/g, ' ');
+      if (normalized.trim() !== '') (insideCode ? code_literals : text_literals).push(normalized);
+      return;
+    }
+    if (ts.isJsxExpression(child)) {
+      if (child.expression === undefined) return;
+      const value = repo.value(child.expression);
+      if (value.kind !== 'string' && value.kind !== 'number') fail(child, 'dynamic JSX expression is unsupported');
+      (insideCode ? code_literals : text_literals).push(String(value.value));
+      return;
+    }
+    if (ts.isJsxElement(child)) {
+      const tag = child.openingElement.tagName.getText();
+      if (tag === 'a' || tag === 'Link') {
+        const href = jsxAttribute(child.openingElement, 'href');
+        if (href === undefined) fail(child, 'link JSX requires a static href');
+        link_hrefs.push(href);
+      }
+      const nextInsideCode = insideCode || tag === 'code';
+      for (const nested of child.children) walk(nested, nextInsideCode);
+      return;
+    }
+    if (ts.isJsxSelfClosingElement(child)) {
+      const tag = child.tagName.getText();
+      if (tag === 'a' || tag === 'Link') {
+        const href = jsxAttribute(child, 'href');
+        if (href === undefined) fail(child, 'link JSX requires a static href');
+        link_hrefs.push(href);
+      }
+      return;
+    }
+    if (ts.isJsxFragment(child)) {
+      for (const nested of child.children) walk(nested, insideCode);
+      return;
+    }
+    fail(child, 'unsupported JSX node');
+  };
+  if (!ts.isJsxElement(node) && !ts.isJsxFragment(node) && !ts.isJsxSelfClosingElement(node)) fail(node, 'model notes/doc must be static JSX');
+  walk(node);
+  return { present: true, text_literals, code_literals, link_hrefs };
+}
+
+function combinePredicates(kind: 'and' | 'or', operands: ModelOptionPredicateFact[]): ModelOptionPredicateFact {
+  if (operands.length === 1) return operands[0];
+  let result = operands[0];
+  for (const operand of operands.slice(1)) result = { kind, operands: [result, operand] };
+  return result;
+}
+
+type BlockFunction = (ts.ArrowFunction | ts.FunctionExpression) & { body: ts.Block };
+
+function functionLike(node: ts.Expression): BlockFunction {
+  node = unwrap(node);
+  if (!ts.isArrowFunction(node) && !ts.isFunctionExpression(node)) fail(node, 'custom option callback must be a local function expression');
+  if (!ts.isBlock(node.body)) fail(node, 'custom option callback must use a block body');
+  return node as BlockFunction;
+}
+
+function pathAliasExpression(expression: ts.Expression, pathAliases: Map<string, string>): string | undefined {
+  expression = unwrap(expression);
+  if (ts.isIdentifier(expression)) return pathAliases.get(expression.text);
+  return pathFromAccess(expression);
+}
+
+function parsePredicate(expression: ts.Expression, pathAliases: Map<string, string>, predicateAliases: Map<string, ModelOptionPredicateFact>): ModelOptionPredicateFact {
+  expression = unwrap(expression);
+  if (ts.isIdentifier(expression)) {
+    const predicate = predicateAliases.get(expression.text);
+    if (predicate !== undefined) return predicate;
+    const path = pathAliases.get(expression.text);
+    if (path !== undefined) return { kind: 'truthy', path };
+  }
+  if (ts.isPrefixUnaryExpression(expression) && expression.operator === ts.SyntaxKind.ExclamationToken) {
+    return { kind: 'not', operand: parsePredicate(expression.operand, pathAliases, predicateAliases) };
+  }
+  if (ts.isBinaryExpression(expression) && (expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken || expression.operatorToken.kind === ts.SyntaxKind.BarBarToken)) {
+    return {
+      kind: expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ? 'and' : 'or',
+      operands: [parsePredicate(expression.left, pathAliases, predicateAliases), parsePredicate(expression.right, pathAliases, predicateAliases)],
+    };
+  }
+  if (ts.isBinaryExpression(expression) && [ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken].includes(expression.operatorToken.kind)) {
+    const right = unwrap(expression.right);
+    const left = unwrap(expression.left);
+    if ((ts.isStringLiteral(right) && right.text === '') && ts.isCallExpression(left) && ts.isPropertyAccessExpression(left.expression) && left.expression.name.text === 'trim' && left.arguments.length === 0) {
+      const path = pathAliasExpression(left.expression.expression, pathAliases);
+      if (path === undefined) fail(left, 'trim predicate must read an exact config path');
+      return { kind: 'nonblank-string', path };
+    }
+  }
+  const path = pathAliasExpression(expression, pathAliases);
+  if (path !== undefined) return { kind: 'truthy', path };
+  fail(expression, 'unsupported custom option predicate');
+}
+
+function callbackAliases(callback: BlockFunction): { paths: Map<string, string>; predicates: Map<string, ModelOptionPredicateFact> } {
+  const paths = new Map<string, string>();
+  const predicates = new Map<string, ModelOptionPredicateFact>();
+  for (const statement of callback.body.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || declaration.initializer === undefined) fail(declaration, 'callback aliases must be initialized identifiers');
+      const path = pathAliasExpression(declaration.initializer, paths);
+      if (path !== undefined) paths.set(declaration.name.text, path);
+      else predicates.set(declaration.name.text, parsePredicate(declaration.initializer, paths, predicates));
+    }
+  }
+  return { paths, predicates };
+}
+
+function getValueCases(node: ts.Expression, repo: AstRepository): CustomModelSelectOptionFact['get_value_cases'] {
+  const callback = functionLike(node);
+  const aliases = callbackAliases(callback);
+  const result: CustomModelSelectOptionFact['get_value_cases'] = [];
+  for (const statement of callback.body.statements) {
+    if (ts.isVariableStatement(statement)) continue;
+    if (ts.isIfStatement(statement)) {
+      const thenStatement = ts.isBlock(statement.thenStatement) ? statement.thenStatement.statements[0] : statement.thenStatement;
+      if (thenStatement === undefined || !ts.isReturnStatement(thenStatement) || thenStatement.expression === undefined) fail(statement, 'getValue if branch must contain exactly one return');
+      result.push({ condition: parsePredicate(statement.expression, aliases.paths, aliases.predicates), return_value: repo.value(thenStatement.expression) });
+      if (statement.elseStatement !== undefined) fail(statement.elseStatement, 'getValue else branches are unsupported; use ordered returns');
+      continue;
+    }
+    if (ts.isReturnStatement(statement) && statement.expression !== undefined) {
+      result.push({ condition: { kind: 'always' }, return_value: repo.value(statement.expression) });
+      continue;
+    }
+    fail(statement, 'unsupported getValue control flow');
+  }
+  if (result.length === 0 || result[result.length - 1].condition.kind !== 'always') fail(callback, 'getValue requires a final unconditional return');
+  return result;
+}
+
+function selectedBranch(expression: ts.Expression, valueParameter: string): string {
+  expression = unwrap(expression);
+  if (!ts.isBinaryExpression(expression) || ![ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.EqualsEqualsToken].includes(expression.operatorToken.kind)) fail(expression, 'onChange branch must compare the selected value');
+  const left = unwrap(expression.left);
+  const right = unwrap(expression.right);
+  if (!ts.isIdentifier(left) || left.text !== valueParameter || !ts.isStringLiteral(right)) fail(expression, 'onChange branch must compare its value parameter with a string literal');
+  return right.text;
+}
+
+function onChangeWrites(node: ts.Expression, repo: AstRepository): CustomModelSelectOptionFact['writes'] {
+  const callback = functionLike(node);
+  if (callback.parameters.length < 3 || !ts.isIdentifier(callback.parameters[0].name) || !ts.isIdentifier(callback.parameters[2].name)) fail(callback, 'onChange requires value and setter parameters');
+  const valueParameter = callback.parameters[0].name.text;
+  const setter = callback.parameters[2].name.text;
+  const aliases = callbackAliases(callback);
+  const result: CustomModelSelectOptionFact['writes'] = [];
+  const walkStatements = (statements: readonly ts.Statement[], selected: string, guard: ModelOptionPredicateFact): void => {
+    for (const statement of statements) {
+      if (ts.isExpressionStatement(statement) && ts.isCallExpression(statement.expression) && ts.isIdentifier(statement.expression.expression) && statement.expression.expression.text === setter) {
+        if (statement.expression.arguments.length !== 2 || !ts.isStringLiteral(statement.expression.arguments[1])) fail(statement, 'setter call requires literal value and path arguments');
+        result.push({ selected_value: selected, path: normalizeTrainingBookPath(statement.expression.arguments[1].text), value: repo.value(statement.expression.arguments[0]), guard });
+      } else if (ts.isIfStatement(statement)) {
+        const nestedGuard = parsePredicate(statement.expression, aliases.paths, aliases.predicates);
+        const combined = guard.kind === 'always' ? nestedGuard : combinePredicates('and', [guard, nestedGuard]);
+        const nestedStatements = ts.isBlock(statement.thenStatement) ? statement.thenStatement.statements : [statement.thenStatement];
+        walkStatements(nestedStatements, selected, combined);
+        if (statement.elseStatement !== undefined) fail(statement.elseStatement, 'nested onChange else is unsupported');
+      } else if (!ts.isVariableStatement(statement)) {
+        fail(statement, 'unsupported onChange statement');
+      }
+    }
+  };
+  let statement: ts.Statement | undefined = callback.body.statements.find((item: ts.Statement) => !ts.isVariableStatement(item));
+  while (statement !== undefined) {
+    if (!ts.isIfStatement(statement)) fail(statement, 'onChange requires an if/else-if branch chain');
+    const selected = selectedBranch(statement.expression, valueParameter);
+    walkStatements(ts.isBlock(statement.thenStatement) ? statement.thenStatement.statements : [statement.thenStatement], selected, { kind: 'always' });
+    statement = statement.elseStatement;
+    if (statement !== undefined && ts.isBlock(statement)) fail(statement, 'onChange terminal else is unsupported');
+  }
+  return result;
+}
+
+function stringArray(expression: ts.Expression | undefined, repo: AstRepository): string[] {
+  if (expression === undefined) return [];
+  const value = repo.value(expression);
+  if (value.kind !== 'array' || value.items.some(item => item.kind !== 'string')) fail(expression, 'field must be an array of strings');
+  return value.items.map(item => (item as { kind: 'string'; value: string }).value);
+}
+
+function expandArchitectureDefault(declarationPath: string, selected: TrainingBookValueFact, unselected: TrainingBookValueFact): { leaves: ArchitectureDefaultFact[]; containers: ArchitectureDefaultContainerFact[] } {
+  const leaves: ArchitectureDefaultFact[] = [];
+  const containers: ArchitectureDefaultContainerFact[] = [];
+  const walk = (path: string, left: TrainingBookValueFact | undefined, right: TrainingBookValueFact | undefined): void => {
+    const leftObject = left?.kind === 'object' ? left : undefined;
+    const rightObject = right?.kind === 'object' ? right : undefined;
+    if (leftObject !== undefined || rightObject !== undefined) {
+      if ((left !== undefined && leftObject === undefined) || (right !== undefined && rightObject === undefined)) throw new FactsError(`architecture default ${declarationPath} changes container type at ${path}`);
+      containers.push({ path, selected_present: leftObject !== undefined, unselected_present: rightObject !== undefined });
+      const keys = new Set([...(leftObject?.entries.map(item => item.key) ?? []), ...(rightObject?.entries.map(item => item.key) ?? [])]);
+      for (const key of [...keys].sort(compareCodePoint)) walk(`${path}.${key}`, objectEntry(leftObject ?? { kind: 'undefined' }, key), objectEntry(rightObject ?? { kind: 'undefined' }, key));
+      return;
+    }
+    leaves.push({ declaration_path: declarationPath, path, selected: presence(left), unselected: presence(right) });
+  };
+  walk(declarationPath, selected, unselected);
+  leaves.sort((a, b) => compareCodePoint(a.path, b.path));
+  containers.sort((a, b) => compareCodePoint(a.path, b.path));
+  return { leaves, containers };
+}
+
+function customOptions(expression: ts.Expression | undefined, repo: AstRepository): CustomModelSelectOptionsFact {
+  if (expression === undefined) return { present: false };
+  expression = unwrap(expression);
+  if (!ts.isArrayLiteralExpression(expression)) fail(expression, 'customModelSelectOptions must be an array literal');
+  const value = expression.elements.map(element => {
+    element = unwrap(element as ts.Expression);
+    if (!ts.isObjectLiteralExpression(element)) fail(element, 'custom option must be an object literal');
+    const fields = objectProperties(element);
+    const label = repo.value(fields.get('label') ?? fail(element, 'custom option label is required'));
+    if (label.kind !== 'string') fail(element, 'custom option label must be a string');
+    const optionsValue = repo.value(fields.get('options') ?? fail(element, 'custom option options are required'));
+    if (optionsValue.kind !== 'array') fail(element, 'custom option options must be an array');
+    const options = optionsValue.items.map(item => {
+      if (item.kind !== 'object') fail(element, 'custom option choice must be an object');
+      const optionValue = objectEntry(item, 'value');
+      const optionLabel = objectEntry(item, 'label');
+      if (optionValue?.kind !== 'string' || optionLabel?.kind !== 'string') fail(element, 'custom option choice needs string value and label');
+      if (item.entries.length !== 2) fail(element, 'custom option choice has unsupported fields');
+      return { value: optionValue.value, label: optionLabel.value };
+    });
+    let doc = jsxFact(undefined, repo);
+    const docExpression = fields.get('doc');
+    if (docExpression !== undefined) {
+      const unwrapped = unwrap(docExpression);
+      if (!ts.isObjectLiteralExpression(unwrapped)) fail(unwrapped, 'custom option doc must be an object literal');
+      const docFields = objectProperties(unwrapped);
+      const title = docFields.get('title') === undefined ? undefined : repo.value(docFields.get('title')!);
+      if (title !== undefined && title.kind !== 'string') fail(docFields.get('title'), 'custom option doc title must be a string');
+      doc = jsxFact(docFields.get('description'), repo);
+      if (title !== undefined) doc.text_literals = [title.value, ...(doc.text_literals ?? [])];
+    }
+    return {
+      label: label.value,
+      options,
+      doc,
+      get_value_cases: getValueCases(fields.get('getValue') ?? fail(element, 'custom option getValue is required'), repo),
+      writes: onChangeWrites(fields.get('onChange') ?? fail(element, 'custom option onChange is required'), repo),
+    };
+  });
+  return { present: true, value };
+}
+
+function architectureFacts(repo: AstRepository): ModelArchitectureFact[] {
+  let expression = unwrap(repo.expression('modelArchs'));
+  if (
+    ts.isCallExpression(expression)
+    && ts.isPropertyAccessExpression(expression.expression)
+    && expression.expression.name.text === 'sort'
+    && expression.arguments.length === 1
+  ) {
+    const comparator = unwrap(expression.arguments[0]);
+    if (!ts.isArrowFunction(comparator) || comparator.parameters.length !== 2 || !ts.isBlock(comparator.body)) {
+      fail(expression, 'modelArchs sort must use the known finite label comparator');
+    }
+    expression = unwrap(expression.expression.expression);
+  }
+  if (!ts.isArrayLiteralExpression(expression)) fail(expression, 'modelArchs must be an array literal');
+  const allowedFields = new Set(['name', 'label', 'group', 'controls', 'isVideoModel', 'hasMultiLinePrompts', 'defaults', 'disableSections', 'additionalSections', 'accuracyRecoveryAdapters', 'sampleTags', 'gateUrl', 'modelNotes', 'customModelSelectOptions']);
+  return expression.elements.map(element => {
+    element = unwrap(element as ts.Expression);
+    if (!ts.isObjectLiteralExpression(element)) fail(element, 'modelArchs entries must be object literals');
+    const fields = objectProperties(element);
+    for (const key of fields.keys()) if (!allowedFields.has(key)) fail(fields.get(key), `unrepresented ModelArch field ${key}`);
+    const requireString = (name: string): string => {
+      const value = repo.value(fields.get(name) ?? fail(element, `architecture ${name} is required`));
+      if (value.kind !== 'string') fail(fields.get(name), `architecture ${name} must be a string`);
+      return value.value;
+    };
+    const defaults: ArchitectureDefaultFact[] = [];
+    const default_containers: ArchitectureDefaultContainerFact[] = [];
+    let model_path: PresenceFact = { present: false };
+    const defaultsExpression = fields.get('defaults');
+    if (defaultsExpression !== undefined) {
+      const resolved = unwrap(defaultsExpression);
+      if (!ts.isObjectLiteralExpression(resolved)) fail(resolved, 'architecture defaults must be an object literal');
+      for (const [rawPath, pairExpression] of objectProperties(resolved)) {
+        const declarationPath = normalizeTrainingBookPath(rawPath);
+        const pair = repo.value(pairExpression);
+        if (pair.kind !== 'array' || pair.items.length !== 2) fail(pairExpression, 'architecture default must be a selected/unselected pair');
+        const expanded = expandArchitectureDefault(declarationPath, pair.items[0], pair.items[1]);
+        defaults.push(...expanded.leaves);
+        default_containers.push(...expanded.containers);
+        if (declarationPath === 'config.process[*].model.name_or_path') model_path = presence(pair.items[0]);
+      }
+    }
+    defaults.sort((a, b) => compareCodePoint(a.path, b.path));
+    default_containers.sort((a, b) => compareCodePoint(a.path, b.path));
+    return {
+      name: requireString('name'),
+      label: requireString('label'),
+      group: requireString('group'),
+      model_path,
+      gate_url: presence(fields.get('gateUrl') === undefined ? undefined : repo.value(fields.get('gateUrl')!)),
+      is_video_model: presence(fields.get('isVideoModel') === undefined ? undefined : repo.value(fields.get('isVideoModel')!)),
+      has_multiline_prompts: presence(fields.get('hasMultiLinePrompts') === undefined ? undefined : repo.value(fields.get('hasMultiLinePrompts')!)),
+      accuracy_recovery_adapters: presence(fields.get('accuracyRecoveryAdapters') === undefined ? undefined : repo.value(fields.get('accuracyRecoveryAdapters')!)),
+      sample_tags: presence(fields.get('sampleTags') === undefined ? undefined : repo.value(fields.get('sampleTags')!)),
+      custom_model_select_options: customOptions(fields.get('customModelSelectOptions'), repo),
+      model_notes: jsxFact(fields.get('modelNotes'), repo),
+      controls: stringArray(fields.get('controls'), repo),
+      defaults,
+      default_containers,
+      disable_sections: stringArray(fields.get('disableSections'), repo),
+      additional_sections: stringArray(fields.get('additionalSections'), repo),
+    };
+  });
+}
+
+function flattenDefaults(repo: AstRepository, symbol: string, sourcePath: string, basePath: string): UiDefaultFact[] {
+  const value = repo.value(repo.expression(symbol));
+  const result: UiDefaultFact[] = [];
+  const walk = (path: string, item: TrainingBookValueFact): void => {
+    if (item.kind === 'object') {
+      for (const entry of item.entries) walk(path === '' ? entry.key : `${path}.${entry.key}`, entry.value);
+    } else {
+      result.push({ path: normalizeTrainingBookPath(path), value: presence(item), source_path: sourcePath, symbol });
+    }
+  };
+  walk(basePath, value);
+  return result;
+}
+
+function semanticType(value: TrainingBookValueFact): UiSourceClaim['value_contract']['ui_type'] {
+  if (value.kind === 'boolean') return 'boolean';
+  if (value.kind === 'number') return 'number';
+  if (value.kind === 'string') return 'string';
+  if (value.kind === 'object') return 'object';
+  if (value.kind === 'array') {
+    const kinds = new Set(value.items.map(item => item.kind));
+    if (kinds.size === 0) return 'object-list';
+    if (kinds.size === 1 && kinds.has('boolean')) return 'boolean-list';
+    if (kinds.size === 1 && kinds.has('number')) return 'number-list';
+    if (kinds.size === 1 && kinds.has('string')) return 'string-list';
+    return 'object-list';
+  }
+  return null;
+}
+
+function defaultClaims(defaults: UiDefaultFact[]): UiSourceClaim[] {
+  return defaults.map(item => ({
+    source_path: item.source_path,
+    symbol: item.symbol,
+    path: item.path,
+    kind: 'default',
+    ui_label: { present: false },
+    value_contract: {
+      ui_type: item.value.present ? semanticType(item.value.value!) : null,
+      widget_kind: null,
+      optional: item.value.value?.kind === 'undefined',
+      nullable: item.value.value?.kind === 'null',
+    },
+  }));
+}
+
+function canonicalDocPath(raw: string): string {
+  if (raw.startsWith('config.')) return normalizeTrainingBookPath(raw);
+  if (raw.startsWith('datasets.')) return normalizeTrainingBookPath(`config.process[*].datasets[*].${raw.slice('datasets.'.length)}`);
+  for (const prefix of ['model', 'network', 'train', 'save', 'sample', 'logging']) {
+    if (raw.startsWith(`${prefix}.`)) return normalizeTrainingBookPath(`config.process[*].${raw}`);
+  }
+  return normalizeTrainingBookPath(raw);
+}
+
+function docClaims(root: string, repo: AstRepository): UiSourceClaim[] {
+  const path = 'ui/src/docs.tsx';
+  const source = repo.source(path);
+  let docsExpression: ts.Expression | undefined;
+  for (const statement of source.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === 'docs' && declaration.initializer !== undefined) docsExpression = unwrap(declaration.initializer);
+    }
+  }
+  if (docsExpression === undefined || !ts.isObjectLiteralExpression(docsExpression)) fail(docsExpression, 'docs export must be an object literal');
+  return [...objectProperties(docsExpression)].map(([rawPath, expression]) => {
+    expression = unwrap(expression);
+    if (!ts.isObjectLiteralExpression(expression)) fail(expression, 'docs entry must be an object literal');
+    const titleExpression = objectProperties(expression).get('title');
+    let title: TrainingBookValueFact | undefined;
+    if (titleExpression !== undefined) {
+      const resolved = unwrap(titleExpression);
+      if (ts.isStringLiteral(resolved) || ts.isNoSubstitutionTemplateLiteral(resolved)) title = { kind: 'string', value: resolved.text };
+      else {
+        const jsx = jsxFact(resolved, repo);
+        const joined = [...(jsx.text_literals ?? []), ...(jsx.code_literals ?? [])].join(' ').replace(/\s+/g, ' ').trim();
+        if (joined === '') fail(resolved, `docs title ${rawPath} has no static text`);
+        title = { kind: 'string', value: joined };
+      }
+    }
+    return {
+      source_path: path,
+      symbol: 'docs',
+      path: canonicalDocPath(rawPath),
+      kind: 'doc' as const,
+      ui_label: presence(title),
+      value_contract: { ui_type: null, widget_kind: null, optional: false, nullable: false },
+    };
+  }).sort((left, right) => compareCodePoint(left.path, right.path));
+}
+
+function setterClaims(root: string): UiSourceClaim[] {
+  const sourcePath = 'ui/src/app/jobs/new/SimpleJob.tsx';
+  const compilePrefix = "const defaultCompileOptions = { block_compile: true };\n";
+  const sourceText = compilePrefix + readFileSync(join(root, sourcePath), 'utf8');
+  return collectCanonicalSetterPathsFromSource(sourceText, sourcePath).map(path => ({
+    source_path: sourcePath,
+    symbol: 'SimpleJob',
+    path,
+    kind: 'setter' as const,
+    ui_label: { present: false },
+    value_contract: { ui_type: null, widget_kind: null, optional: true, nullable: true },
+  }));
+}
+
+export function collectTrainingBookUiFacts(repositoryRoot: string): TrainingBookUiFacts {
+  const root = resolve(repositoryRoot);
+  const repo = new AstRepository(root);
+  repo.loadStandardSources();
+  repo.source('ui/src/docs.tsx');
+  const defaults = [
+    ...flattenDefaults(repo, 'defaultJobConfig', 'ui/src/app/jobs/new/jobConfig.ts', ''),
+    ...flattenDefaults(repo, 'defaultDatasetConfig', 'ui/src/app/jobs/new/jobConfig.ts', 'config.process[*].datasets[*]'),
+    ...flattenDefaults(repo, 'defaultSampleConfig', 'ui/src/helpers/defaultSamples.ts', 'config.process[*].sample'),
+    ...flattenDefaults(repo, 'defaultAudioSampleConfig', 'ui/src/helpers/defaultSamples.ts', 'config.process[*].sample'),
+    ...flattenDefaults(repo, 'defaultIdeogramSamplesConfig', 'ui/src/helpers/defaultSamples.ts', 'config.process[*].sample'),
+  ];
+  defaults.sort((left, right) => compareCodePoint(`${left.path}\0${left.source_path}\0${left.symbol}`, `${right.path}\0${right.source_path}\0${right.symbol}`));
+  const config_claims = [...defaultClaims(defaults), ...docClaims(root, repo), ...setterClaims(root)];
+  config_claims.sort((left, right) => compareCodePoint(`${left.source_path}\0${left.symbol}\0${left.path}\0${left.kind}`, `${right.source_path}\0${right.symbol}\0${right.path}\0${right.kind}`));
+  const facts: TrainingBookUiFacts = {
+    schema_version: 1,
+    model_architectures: architectureFacts(repo),
+    defaults,
+    config_claims,
+    global_settings: [],
+    architecture_transitions: [],
+  };
+  facts.architecture_transitions = facts.model_architectures
+    .flatMap(architecture => architecture.defaults.map(item => ({
+      architecture: architecture.name,
+      path: item.path,
+      selected: item.selected,
+      unselected: item.unselected,
+    })))
+    .sort((left, right) => compareCodePoint(`${left.architecture}\0${left.path}`, `${right.architecture}\0${right.path}`));
+  validateTrainingBookUiFacts(facts);
+  return facts;
+}
+
+function validateValue(value: unknown, label: string): void {
+  requireKeys(value, ['kind'], label, ['value', 'items', 'entries']);
+  const kind = value.kind;
+  if (!['undefined', 'null', 'boolean', 'number', 'string', 'array', 'object'].includes(String(kind))) throw new FactsError(`${label}.kind is unsupported`);
+  if (kind === 'undefined' || kind === 'null') requireKeys(value, ['kind'], label);
+  else if (kind === 'boolean') { requireKeys(value, ['kind', 'value'], label); if (typeof value.value !== 'boolean') throw new FactsError(`${label}.value must be boolean`); }
+  else if (kind === 'number') { requireKeys(value, ['kind', 'value'], label); if (typeof value.value !== 'number' || !Number.isFinite(value.value)) throw new FactsError(`${label}.value must be finite`); }
+  else if (kind === 'string') { requireKeys(value, ['kind', 'value'], label); if (typeof value.value !== 'string') throw new FactsError(`${label}.value must be string`); }
+  else if (kind === 'array') { requireKeys(value, ['kind', 'items'], label); if (!Array.isArray(value.items)) throw new FactsError(`${label}.items must be an array`); value.items.forEach((item, index) => validateValue(item, `${label}.items[${index}]`)); }
+  else if (kind === 'object') {
+    requireKeys(value, ['kind', 'entries'], label);
+    if (!Array.isArray(value.entries)) throw new FactsError(`${label}.entries must be an array`);
+    let previous: string | undefined;
+    value.entries.forEach((entry, index) => {
+      requireKeys(entry, ['key', 'value'], `${label}.entries[${index}]`);
+      if (typeof entry.key !== 'string') throw new FactsError(`${label}.entries[${index}].key must be string`);
+      if (previous !== undefined && compareCodePoint(previous, entry.key) >= 0) throw new FactsError(`${label}.entries must have unique code-point-sorted keys`);
+      previous = entry.key;
+      validateValue(entry.value, `${label}.entries[${index}].value`);
+    });
+  }
+}
+
+function validatePresence(value: unknown, label: string): void {
+  requireKeys(value, ['present'], label, ['value']);
+  if (typeof value.present !== 'boolean') throw new FactsError(`${label}.present must be boolean`);
+  const hasValue = Object.prototype.hasOwnProperty.call(value, 'value');
+  if (value.present && !hasValue) throw new FactsError(`${label} present fact requires own value`);
+  if (!value.present && hasValue) throw new FactsError(`${label} absent fact forbids value`);
+  if (hasValue) validateValue(value.value, `${label}.value`);
+}
+
+function validateStringArray(value: unknown, label: string): void {
+  if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) throw new FactsError(`${label} must be a string array`);
+}
+
+function validateStaticJsx(value: unknown, label: string): void {
+  requireKeys(value, ['present'], label, ['text_literals', 'code_literals', 'link_hrefs']);
+  if (typeof value.present !== 'boolean') throw new FactsError(`${label}.present must be boolean`);
+  const optional = ['text_literals', 'code_literals', 'link_hrefs'] as const;
+  if (!value.present && optional.some(key => Object.prototype.hasOwnProperty.call(value, key))) throw new FactsError(`${label} absent fact forbids projection fields`);
+  if (value.present) for (const key of optional) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) throw new FactsError(`${label} present fact requires ${key}`);
+    validateStringArray(value[key], `${label}.${key}`);
+  }
+}
+
+function validatePredicate(value: unknown, label: string): void {
+  requireKeys(value, ['kind'], label, ['path', 'operand', 'operands']);
+  if (value.kind === 'always') requireKeys(value, ['kind'], label);
+  else if (value.kind === 'truthy' || value.kind === 'nonblank-string') {
+    requireKeys(value, ['kind', 'path'], label);
+    if (typeof value.path !== 'string' || normalizeTrainingBookPath(value.path) !== value.path) throw new FactsError(`${label}.path must be canonical`);
+  } else if (value.kind === 'not') {
+    requireKeys(value, ['kind', 'operand'], label);
+    validatePredicate(value.operand, `${label}.operand`);
+  } else if (value.kind === 'and' || value.kind === 'or') {
+    requireKeys(value, ['kind', 'operands'], label);
+    if (!Array.isArray(value.operands) || value.operands.length !== 2) throw new FactsError(`${label}.operands must contain exactly two predicates`);
+    validatePredicate(value.operands[0], `${label}.operands[0]`);
+    validatePredicate(value.operands[1], `${label}.operands[1]`);
+  } else throw new FactsError(`${label}.kind is unsupported`);
+}
+
+function validateValueContract(value: unknown, label: string): void {
+  requireKeys(value, ['ui_type', 'widget_kind', 'optional', 'nullable'], label, ['accepted_values', 'minimum', 'maximum']);
+  const semantic = [null, 'boolean', 'integer', 'number', 'string', 'path', 'boolean-list', 'integer-list', 'number-list', 'string-list', 'object', 'object-list'];
+  const widgets = [null, 'checkbox', 'number', 'text', 'multiline', 'path', 'select', 'json', 'read-only'];
+  if (!semantic.includes(value.ui_type as never)) throw new FactsError(`${label}.ui_type is unsupported`);
+  if (!widgets.includes(value.widget_kind as never)) throw new FactsError(`${label}.widget_kind is unsupported`);
+  if (typeof value.optional !== 'boolean' || typeof value.nullable !== 'boolean') throw new FactsError(`${label} optional/nullable must be boolean`);
+  if (value.accepted_values !== undefined) {
+    if (!Array.isArray(value.accepted_values)) throw new FactsError(`${label}.accepted_values must be an array`);
+    value.accepted_values.forEach((item, index) => validateValue(item, `${label}.accepted_values[${index}]`));
+  }
+  for (const key of ['minimum', 'maximum'] as const) if (value[key] !== undefined && (typeof value[key] !== 'number' || !Number.isFinite(value[key]))) throw new FactsError(`${label}.${key} must be finite`);
+  if (typeof value.minimum === 'number' && typeof value.maximum === 'number' && value.minimum > value.maximum) throw new FactsError(`${label} minimum exceeds maximum`);
+}
+
+export function validateTrainingBookUiFacts(value: unknown): asserts value is TrainingBookUiFacts {
+  requireKeys(value, ['schema_version', 'model_architectures', 'defaults', 'config_claims', 'global_settings', 'architecture_transitions'], 'facts');
+  if (value.schema_version !== 1) throw new FactsError('facts.schema_version must equal 1');
+  for (const key of ['model_architectures', 'defaults', 'config_claims', 'global_settings', 'architecture_transitions'] as const) if (!Array.isArray(value[key])) throw new FactsError(`facts.${key} must be an array`);
+  const names = new Set<string>();
+  const architectures = value.model_architectures as unknown[];
+  const defaults = value.defaults as unknown[];
+  architectures.forEach((architecture, index) => {
+    const label = `facts.model_architectures[${index}]`;
+    requireKeys(architecture, ['name', 'label', 'group', 'model_path', 'gate_url', 'is_video_model', 'has_multiline_prompts', 'accuracy_recovery_adapters', 'sample_tags', 'custom_model_select_options', 'model_notes', 'controls', 'defaults', 'default_containers', 'disable_sections', 'additional_sections'], label);
+    if (typeof architecture.name !== 'string' || names.has(architecture.name)) throw new FactsError(`${label}.name must be a unique string`);
+    names.add(architecture.name);
+    for (const key of ['label', 'group'] as const) if (typeof architecture[key] !== 'string') throw new FactsError(`${label}.${key} must be string`);
+    for (const key of ['model_path', 'gate_url', 'is_video_model', 'has_multiline_prompts', 'accuracy_recovery_adapters', 'sample_tags'] as const) validatePresence(architecture[key], `${label}.${key}`);
+    for (const key of ['controls', 'disable_sections', 'additional_sections'] as const) validateStringArray(architecture[key], `${label}.${key}`);
+    for (const key of ['defaults', 'default_containers'] as const) if (!Array.isArray(architecture[key])) throw new FactsError(`${label}.${key} must be array`);
+    requireKeys(architecture.custom_model_select_options, ['present'], `${label}.custom_model_select_options`, ['value']);
+    const customHasValue = Object.prototype.hasOwnProperty.call(architecture.custom_model_select_options, 'value');
+    if (architecture.custom_model_select_options.present !== customHasValue) throw new FactsError(`${label}.custom_model_select_options presence/value mismatch`);
+    if (customHasValue) {
+      if (!Array.isArray(architecture.custom_model_select_options.value)) throw new FactsError(`${label}.custom_model_select_options.value must be array`);
+      architecture.custom_model_select_options.value.forEach((option, optionIndex) => {
+        const optionLabel = `${label}.custom_model_select_options.value[${optionIndex}]`;
+        requireKeys(option, ['label', 'options', 'doc', 'get_value_cases', 'writes'], optionLabel);
+        if (typeof option.label !== 'string' || !Array.isArray(option.options) || !Array.isArray(option.get_value_cases) || !Array.isArray(option.writes)) throw new FactsError(`${optionLabel} has invalid scalar/array fields`);
+        option.options.forEach((choice, choiceIndex) => {
+          requireKeys(choice, ['value', 'label'], `${optionLabel}.options[${choiceIndex}]`);
+          if (typeof choice.value !== 'string' || typeof choice.label !== 'string') throw new FactsError(`${optionLabel}.options[${choiceIndex}] fields must be strings`);
+        });
+        validateStaticJsx(option.doc, `${optionLabel}.doc`);
+        option.get_value_cases.forEach((item, caseIndex) => {
+          requireKeys(item, ['condition', 'return_value'], `${optionLabel}.get_value_cases[${caseIndex}]`);
+          validatePredicate(item.condition, `${optionLabel}.get_value_cases[${caseIndex}].condition`);
+          validateValue(item.return_value, `${optionLabel}.get_value_cases[${caseIndex}].return_value`);
+        });
+        option.writes.forEach((item, writeIndex) => {
+          const writeLabel = `${optionLabel}.writes[${writeIndex}]`;
+          requireKeys(item, ['selected_value', 'path', 'value', 'guard'], writeLabel);
+          if (typeof item.selected_value !== 'string' || typeof item.path !== 'string' || normalizeTrainingBookPath(item.path) !== item.path) throw new FactsError(`${writeLabel} has invalid selected value/path`);
+          validateValue(item.value, `${writeLabel}.value`);
+          validatePredicate(item.guard, `${writeLabel}.guard`);
+        });
+      });
+    }
+    validateStaticJsx(architecture.model_notes, `${label}.model_notes`);
+    const defaultPaths = new Set<string>();
+    (architecture.defaults as unknown[]).forEach((item, defaultIndex) => {
+      const defaultLabel = `${label}.defaults[${defaultIndex}]`;
+      requireKeys(item, ['declaration_path', 'path', 'selected', 'unselected'], defaultLabel);
+      if (typeof item.path !== 'string' || typeof item.declaration_path !== 'string' || normalizeTrainingBookPath(item.path) !== item.path || normalizeTrainingBookPath(item.declaration_path) !== item.declaration_path) throw new FactsError(`${defaultLabel} paths must be canonical`);
+      if (defaultPaths.has(item.path)) throw new FactsError(`${label}.defaults contains duplicate path ${item.path}`);
+      defaultPaths.add(item.path);
+      validatePresence(item.selected, `${defaultLabel}.selected`);
+      validatePresence(item.unselected, `${defaultLabel}.unselected`);
+    });
+    const containerPaths = new Set<string>();
+    (architecture.default_containers as unknown[]).forEach((item, containerIndex) => {
+      const containerLabel = `${label}.default_containers[${containerIndex}]`;
+      requireKeys(item, ['path', 'selected_present', 'unselected_present'], containerLabel);
+      if (typeof item.path !== 'string' || normalizeTrainingBookPath(item.path) !== item.path || typeof item.selected_present !== 'boolean' || typeof item.unselected_present !== 'boolean') throw new FactsError(`${containerLabel} is invalid`);
+      if (containerPaths.has(item.path)) throw new FactsError(`${label}.default_containers contains duplicate path ${item.path}`);
+      containerPaths.add(item.path);
+      if (![...defaultPaths].some(path => path.startsWith(`${item.path}.`))) throw new FactsError(`${containerLabel} has no separately owned descendant leaf`);
+    });
+  });
+  defaults.forEach((item, index) => {
+    const label = `facts.defaults[${index}]`;
+    requireKeys(item, ['path', 'value', 'source_path', 'symbol'], label);
+    if (typeof item.path !== 'string' || normalizeTrainingBookPath(item.path) !== item.path) throw new FactsError(`${label}.path is not canonical`);
+    validatePresence(item.value, `${label}.value`);
+    if (typeof item.source_path !== 'string' || typeof item.symbol !== 'string') throw new FactsError(`${label} source_path/symbol must be strings`);
+  });
+  const claimIdentities = new Set<string>();
+  for (const collectionName of ['config_claims', 'global_settings'] as const) {
+    (value[collectionName] as unknown[]).forEach((item, index) => {
+      const label = `facts.${collectionName}[${index}]`;
+      requireKeys(item, ['source_path', 'symbol', 'path', 'kind', 'ui_label', 'value_contract'], label);
+      if (typeof item.source_path !== 'string' || typeof item.symbol !== 'string' || typeof item.path !== 'string' || !['setter', 'default', 'doc', 'setting', 'server-state'].includes(String(item.kind))) throw new FactsError(`${label} identity is invalid`);
+      if (normalizeTrainingBookPath(item.path) !== item.path) throw new FactsError(`${label}.path is not canonical`);
+      const identity = `${item.source_path}\0${item.symbol}\0${item.path}\0${item.kind}`;
+      if (claimIdentities.has(identity)) throw new FactsError(`duplicate UI source claim ${identity}`);
+      claimIdentities.add(identity);
+      validatePresence(item.ui_label, `${label}.ui_label`);
+      validateValueContract(item.value_contract, `${label}.value_contract`);
+    });
+  }
+  const transitionIdentities = new Set<string>();
+  (value.architecture_transitions as unknown[]).forEach((item, index) => {
+    const label = `facts.architecture_transitions[${index}]`;
+    requireKeys(item, ['architecture', 'path', 'selected', 'unselected'], label);
+    if (typeof item.architecture !== 'string' || !names.has(item.architecture) || typeof item.path !== 'string' || normalizeTrainingBookPath(item.path) !== item.path) throw new FactsError(`${label} identity is invalid`);
+    const identity = `${item.architecture}\0${item.path}`;
+    if (transitionIdentities.has(identity)) throw new FactsError(`duplicate architecture transition ${identity}`);
+    transitionIdentities.add(identity);
+    validatePresence(item.selected, `${label}.selected`);
+    validatePresence(item.unselected, `${label}.unselected`);
+  });
+}
+
+export function writeTrainingBookUiFacts(repositoryRoot: string, destination: string): void {
+  const root = resolve(repositoryRoot);
+  const output = resolve(destination);
+  const facts = collectTrainingBookUiFacts(root);
+  mkdirSync(dirname(output), { recursive: true });
+  writeFileSync(output, `${JSON.stringify(facts, null, 2)}\n`, 'utf8');
+}

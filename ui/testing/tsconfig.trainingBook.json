@@ -1,0 +1,18 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "allowJs": false,
+    "baseUrl": "..",
+    "incremental": false,
+    "isolatedModules": false,
+    "jsx": "react-jsx",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "paths": { "@/*": ["src/*"] },
+    "rootDir": "..",
+    "target": "es2022"
+  },
+  "include": ["trainingBookFacts.ts", "trainingBookUiFacts.test.ts"],
+  "exclude": ["../.next", "../node_modules"]
+}
