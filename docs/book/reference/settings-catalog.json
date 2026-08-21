@@ -23095,6 +23095,12 @@
           "read_kind": "optimizer.injected"
         },
         {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adafactor__relative_step",
+          "read_kind": "optimizer.consumed"
+        },
+        {
           "source": "toolkit/optimizers/adafactor.py",
           "symbol": "Adafactor.__init__",
           "key": "relative_step",
@@ -23178,6 +23184,12 @@
           "symbol": "get_optimizer",
           "key": "adafactor__scale_parameter",
           "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adafactor__scale_parameter",
+          "read_kind": "optimizer.consumed"
         },
         {
           "source": "toolkit/optimizers/adafactor.py",
@@ -23418,6 +23430,12 @@
           "symbol": "get_optimizer",
           "key": "adafactor__warmup_init",
           "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adafactor__warmup_init",
+          "read_kind": "optimizer.consumed"
         },
         {
           "source": "toolkit/optimizers/adafactor.py",
@@ -29325,6 +29343,12 @@
           "symbol": "get_lr_scheduler",
           "key": "constant_with_warmup__num_warmup_steps",
           "read_kind": "scheduler.injected"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "constant_with_warmup__num_warmup_steps",
+          "read_kind": "scheduler.consumed"
         }
       ],
       "render": {
@@ -29504,6 +29528,12 @@
           "symbol": "get_lr_scheduler",
           "key": "constant__factor",
           "read_kind": "scheduler.injected"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "constant__factor",
+          "read_kind": "scheduler.consumed"
         }
       ],
       "render": {
@@ -29593,6 +29623,12 @@
           "symbol": "get_lr_scheduler",
           "key": "cosine_with_restarts__total_iters",
           "read_kind": "scheduler.normalized"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "cosine_with_restarts__total_iters",
+          "read_kind": "scheduler.consumed"
         }
       ],
       "render": {
@@ -29689,6 +29725,12 @@
           "symbol": "get_lr_scheduler",
           "key": "cosine__total_iters",
           "read_kind": "scheduler.normalized"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "cosine__total_iters",
+          "read_kind": "scheduler.consumed"
         }
       ],
       "render": {

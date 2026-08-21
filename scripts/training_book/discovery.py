@@ -3707,6 +3707,60 @@ def _discover_dispatch_settings(
                     f"for {function.name}"
                 )
 
+            def module_execution_nodes() -> Iterable[ast.AST]:
+                def visit(node: ast.AST) -> Iterable[ast.AST]:
+                    yield node
+                    if isinstance(
+                        node,
+                        (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
+                    ):
+                        return
+                    for child in ast.iter_child_nodes(node):
+                        yield from visit(child)
+
+                for statement in tree.body:
+                    yield from visit(statement)
+
+            module_nodes = tuple(module_execution_nodes())
+            module_import_roots = {
+                name
+                for node in module_nodes
+                if isinstance(node, (ast.Import, ast.ImportFrom))
+                for name in _dispatch_import_bindings(node)
+            }
+
+            def module_path_is_imported(node: ast.AST) -> bool:
+                path = _attribute_path(node)
+                return (
+                    path is not None
+                    and path.split(".", maxsplit=1)[0] in module_import_roots
+                )
+
+            for node in module_nodes:
+                mutation = (
+                    isinstance(node, ast.Attribute)
+                    and isinstance(node.ctx, (ast.Store, ast.Del))
+                    and module_path_is_imported(node)
+                )
+                mutation_call = (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in {"setattr", "delattr"}
+                    and node.args
+                    and module_path_is_imported(node.args[0])
+                )
+                if mutation or mutation_call:
+                    detail = (
+                        node.func.id
+                        if isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Name)
+                        else type(node.ctx).__name__
+                    )
+                    raise DiscoveryError(
+                        f"module imported namespace mutation {detail} is unsupported "
+                        f"in {source}:{node.lineno} for {function.name}"
+                    )
+
             module_prefix = tree.body[:tree.body.index(function)]
             dispatch_imports: list[ast.ImportFrom] = [
                 statement
@@ -3756,6 +3810,7 @@ def _discover_dispatch_settings(
             returned_names = _dispatch_returned_names(function)
             claimed_constructor_calls: set[int] = set()
             claimed_mapping_calls: set[int] = set()
+            claimed_mapping_reads: set[int] = set()
             claimed_subscript_effects: set[int] = set()
             approved_fallback_calls: set[int] = set()
 
@@ -3924,6 +3979,72 @@ def _discover_dispatch_settings(
                     )
                 return call.func.attr, call.args[0].value
 
+            def mapping_origin(node: ast.AST) -> tuple[str, int] | None:
+                if isinstance(node, ast.Name) and node.id in spread_aliases:
+                    return node.id, 0
+                if isinstance(node, ast.Subscript):
+                    origin = mapping_origin(node.value)
+                    if origin is not None:
+                        return origin[0], origin[1] + 1
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in {"get", "pop"}
+                ):
+                    origin = mapping_origin(node.func.value)
+                    if origin is not None:
+                        return origin[0], origin[1] + 1
+                return None
+
+            def mapping_reads(
+                root: ast.AST,
+            ) -> tuple[tuple[ast.AST, str, str], ...]:
+                reads: list[tuple[ast.AST, str, str]] = []
+
+                def visit(node: ast.AST) -> None:
+                    if isinstance(
+                        node,
+                        (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
+                    ):
+                        return
+                    if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load):
+                        origin = mapping_origin(node)
+                        if origin is not None:
+                            if not (
+                                origin[1] == 1
+                                and isinstance(node.slice, ast.Constant)
+                                and isinstance(node.slice.value, str)
+                            ):
+                                raise DiscoveryError(
+                                    f"dispatch mapping load shape is not a direct literal "
+                                    f"key in {source}:{node.lineno} for {function.name}"
+                                )
+                            reads.append((node, node.slice.value, "required"))
+                    if (
+                        isinstance(node, ast.Compare)
+                        and any(isinstance(operator, (ast.In, ast.NotIn)) for operator in node.ops)
+                        and _dispatch_references(node, set(spread_aliases))
+                    ):
+                        if not (
+                            len(node.ops) == 1
+                            and isinstance(node.ops[0], (ast.In, ast.NotIn))
+                            and len(node.comparators) == 1
+                            and isinstance(node.left, ast.Constant)
+                            and isinstance(node.left.value, str)
+                            and isinstance(node.comparators[0], ast.Name)
+                            and node.comparators[0].id in spread_aliases
+                        ):
+                            raise DiscoveryError(
+                                f"dispatch mapping membership shape is not a direct "
+                                f"literal key in {source}:{node.lineno} for {function.name}"
+                            )
+                        reads.append((node, node.left.value, "presence-check"))
+                    for child in ast.iter_child_nodes(node):
+                        visit(child)
+
+                visit(root)
+                return tuple(reads)
+
             def add_constructor_facts(
                 call: ast.Call,
                 selector: _DispatchSelector,
@@ -3981,9 +4102,27 @@ def _discover_dispatch_settings(
                             )
                         )
 
+            def add_mapping_read_facts(
+                node: ast.AST, selector: _DispatchSelector
+            ) -> None:
+                for read, parameter, default in mapping_reads(node):
+                    claimed_mapping_reads.add(id(read))
+                    facts.append(
+                        DiscoveredSetting(
+                            source,
+                            function.name,
+                            read.lineno,
+                            _dispatch_key(selector, parameter),
+                            f"{registry_prefix}.consumed",
+                            scope,
+                            default,
+                        )
+                    )
+
             def add_mapping_facts(
                 statement: ast.stmt, selector: _DispatchSelector
             ) -> None:
+                add_mapping_read_facts(statement, selector)
                 for node in ast.walk(statement):
                     if not isinstance(node, ast.Call):
                         continue
@@ -4211,22 +4350,8 @@ def _discover_dispatch_settings(
                             f"for {function.name}"
                         )
 
-                def mapping_origin(node: ast.AST) -> tuple[str, int] | None:
-                    if isinstance(node, ast.Name) and node.id in spread_aliases:
-                        return node.id, 0
-                    if isinstance(node, ast.Subscript):
-                        origin = mapping_origin(node.value)
-                        if origin is not None:
-                            return origin[0], origin[1] + 1
-                    if (
-                        isinstance(node, ast.Call)
-                        and isinstance(node.func, ast.Attribute)
-                        and node.func.attr in {"get", "pop"}
-                    ):
-                        origin = mapping_origin(node.func.value)
-                        if origin is not None:
-                            return origin[0], origin[1] + 1
-                    return None
+                for statement in function.body:
+                    mapping_reads(statement)
 
                 for node in scoped_nodes(function.body):
                     if isinstance(node, ast.Subscript):
@@ -4234,10 +4359,9 @@ def _discover_dispatch_settings(
                         if (
                             origin is not None
                             and origin[1] > 1
-                            and isinstance(node.ctx, (ast.Store, ast.Del))
                         ):
                             raise DiscoveryError(
-                                f"dispatch mapping shape nested subscript effect is "
+                                f"dispatch mapping shape nested subscript is "
                                 f"unsupported in {source}:{node.lineno} for {function.name}"
                             )
                     if (
@@ -4634,6 +4758,8 @@ def _discover_dispatch_settings(
                                 and isinstance(node.target, ast.Name)
                             ),
                         )
+                        if inherited is not None:
+                            add_mapping_read_facts(statement.test, inherited)
                         branches = _dispatch_selectors(statement.test, selector_names)
                         if branches is None:
                             if _dispatch_references(statement.test, selector_names):
@@ -4766,6 +4892,14 @@ def _discover_dispatch_settings(
                 return state
 
             visit_statements(function.body, state=bindings)
+            for statement in function.body:
+                for read, _, _ in mapping_reads(statement):
+                    if id(read) in claimed_mapping_reads:
+                        continue
+                    raise DiscoveryError(
+                        f"dispatch mapping read is not guarded by a finite selector "
+                        f"in {source}:{read.lineno} for {function.name}"
+                    )
             for node in ast.walk(function):
                 if not (
                     isinstance(node, ast.Subscript)

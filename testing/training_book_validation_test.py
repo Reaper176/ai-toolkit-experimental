@@ -2074,7 +2074,9 @@ class CatalogProductionSliceTests(unittest.TestCase):
             self.assertIn(library, optimizer.render.drawbacks)
         parameter_facts = tuple(
             fact for fact in self.discovered
-            if fact.read_kind in {"optimizer.parameter", "optimizer.injected"}
+            if fact.read_kind in {
+                "optimizer.parameter", "optimizer.injected", "optimizer.consumed",
+            }
         )
         parameter_settings = {
             setting.id: setting
@@ -2205,7 +2207,9 @@ class CatalogProductionSliceTests(unittest.TestCase):
         discovered = {
             (fact.source, fact.symbol, fact.key, fact.read_kind)
             for fact in self.discovered
-            if fact.read_kind in {"optimizer.parameter", "optimizer.injected"}
+            if fact.read_kind in {
+                "optimizer.parameter", "optimizer.injected", "optimizer.consumed",
+            }
         }
         claimed = [
             (claim.source, claim.symbol, claim.key, claim.read_kind)
@@ -2227,6 +2231,14 @@ class CatalogProductionSliceTests(unittest.TestCase):
         for setting in parameter_settings:
             defaults = setting.defaults[0].value
             for claim in setting.source_claims:
+                if claim.read_kind == "optimizer.consumed":
+                    self.assertEqual(
+                        discovered_defaults[
+                            (claim.source, claim.symbol, claim.key, claim.read_kind)
+                        ],
+                        "presence-check",
+                    )
+                    continue
                 default_key = f"{claim.symbol}.{claim.key}"
                 self.assertIn(default_key, defaults)
                 self.assertEqual(
@@ -2396,6 +2408,14 @@ class CatalogProductionSliceTests(unittest.TestCase):
         for setting in parameter_settings:
             defaults = setting.defaults[0].value
             for claim in setting.source_claims:
+                if claim.read_kind == "scheduler.consumed":
+                    self.assertIn(
+                        discovered_defaults[
+                            (claim.source, claim.symbol, claim.key, claim.read_kind)
+                        ],
+                        {"presence-check", "required", "removed"},
+                    )
+                    continue
                 default_key = f"{claim.symbol}.{claim.key}"
                 self.assertIn(default_key, defaults)
                 self.assertEqual(
@@ -4600,6 +4620,74 @@ def get_optimizer(params, optimizer_type, optimizer_params):
                         self.repository_root, ("toolkit/optimizer.py",)
                     )
 
+    def test_training_dispatch_contract_rejects_module_imported_namespace_mutation(self):
+        cases = {
+            "before_definition": (
+                "torch.optim.SGD = fake", "",
+            ),
+            "after_definition": (
+                "", "torch.optim.SGD = fake",
+            ),
+            "conditional_after": (
+                "", "if enabled:\n    del torch.optim.SGD",
+            ),
+            "augmented_before": (
+                "torch.optim += fake", "",
+            ),
+            "setattr_after": (
+                "", "setattr(torch.optim, 'SGD', fake)",
+            ),
+            "delattr_before": (
+                "delattr(torch, 'optim')", "",
+            ),
+        }
+        for shape, (before, after) in cases.items():
+            with self.subTest(shape=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f"""import torch
+{before}
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+{after}
+""",
+                )
+                with self.assertRaisesRegex(
+                    DiscoveryError, r"module.*imported namespace.*get_optimizer"
+                ):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+    def test_training_dispatch_contract_module_audit_skips_deferred_scopes(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            """import torch
+def deferred_function():
+    torch.optim.SGD = fake
+class DeferredClass:
+    torch.optim.SGD = fake
+deferred_lambda = lambda: setattr(torch.optim, "SGD", fake)
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+import math
+""",
+        )
+
+        discovered = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+
+        self.assertIn(
+            ("sgd", "optimizer.registry", "torch.optim.SGD"),
+            {
+                (fact.key, fact.read_kind, fact.default_expression)
+                for fact in discovered
+            },
+        )
+
     def test_training_dispatch_contract_rejects_nested_or_conditional_mapping_effects(self):
         operations = {
             "nested_write": 'forwarded["nested"]["value"] = 1',
@@ -4626,6 +4714,155 @@ def get_optimizer(params, optimizer_type, optimizer_params):
                     discover_python_settings(
                         self.repository_root, ("toolkit/optimizer.py",)
                     )
+
+    def test_training_dispatch_contract_inventories_literal_mapping_loads_and_membership(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "adam":
+        required = optimizer_params["required"]
+        present = "present" in optimizer_params
+        missing = "missing" not in optimizer_params
+        return torch.optim.Adam(params, **optimizer_params)
+""",
+        )
+        self.write_source(
+            "toolkit/scheduler.py",
+            """import torch
+def get_lr_scheduler(name, optimizer, **kwargs):
+    forwarded = kwargs
+    if name == "step":
+        required = forwarded["step_size"]
+        present = "last_epoch" in forwarded
+        return torch.optim.lr_scheduler.StepLR(optimizer, **forwarded)
+""",
+        )
+
+        discovered = discover_python_settings(
+            self.repository_root,
+            ("toolkit/optimizer.py", "toolkit/scheduler.py"),
+        )
+
+        self.assertEqual(
+            {
+                (fact.key, fact.read_kind, fact.default_expression)
+                for fact in discovered
+                if fact.read_kind in {"optimizer.consumed", "scheduler.consumed"}
+            },
+            {
+                ("adam__required", "optimizer.consumed", "required"),
+                ("adam__present", "optimizer.consumed", "presence-check"),
+                ("adam__missing", "optimizer.consumed", "presence-check"),
+                ("step__step_size", "scheduler.consumed", "required"),
+                ("step__last_epoch", "scheduler.consumed", "presence-check"),
+            },
+        )
+
+    def test_training_dispatch_contract_guard_and_effect_emit_distinct_mapping_facts(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    forwarded = optimizer_params
+    if optimizer_type == "adam":
+        if "bare_guard" in forwarded:
+            pass
+        if "guard" not in forwarded:
+            forwarded["effect"] = True
+        return torch.optim.Adam(params, **forwarded)
+""",
+        )
+
+        discovered = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+
+        self.assertIn(
+            ("adam__bare_guard", "optimizer.consumed", "presence-check"),
+            {
+                (fact.key, fact.read_kind, fact.default_expression)
+                for fact in discovered
+            },
+        )
+        self.assertIn(
+            ("adam__guard", "optimizer.consumed", "presence-check"),
+            {
+                (fact.key, fact.read_kind, fact.default_expression)
+                for fact in discovered
+            },
+        )
+        self.assertIn(
+            ("adam__effect", "optimizer.injected", "True"),
+            {
+                (fact.key, fact.read_kind, fact.default_expression)
+                for fact in discovered
+            },
+        )
+
+    def test_training_dispatch_contract_rejects_dynamic_or_nested_mapping_loads(self):
+        expressions = {
+            "dynamic_subscript": "forwarded[key]",
+            "nested_subscript": 'forwarded["nested"]["value"]',
+            "dynamic_membership": "key in forwarded",
+            "nested_membership": '"value" in forwarded["nested"]',
+        }
+        for shape, expression in expressions.items():
+            with self.subTest(shape=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f"""import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    forwarded = optimizer_params
+    if optimizer_type == "adam":
+        value = {expression}
+        return torch.optim.Adam(params, **forwarded)
+""",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "mapping.*shape"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+    def test_training_dispatch_contract_new_choice_literal_mapping_read_is_unowned(self):
+        path = self.write_source(
+            "toolkit/optimizer.py",
+            """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "adam":
+        return torch.optim.Adam(params, **optimizer_params)
+""",
+        )
+        baseline = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        claims = tuple(
+            SourceClaim(fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in baseline
+        )
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "        return torch.optim.Adam(params, **optimizer_params)",
+                "        return torch.optim.Adam(params, **optimizer_params)\n"
+                '    elif optimizer_type == "adamw":\n'
+                '        present = "new_flag" in optimizer_params\n'
+                "        return torch.optim.AdamW(params, **optimizer_params)",
+            ),
+            encoding="utf-8",
+        )
+
+        changed = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        claims += tuple(
+            SourceClaim(fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in changed
+            if fact.key.startswith("adamw")
+            and fact.read_kind != "optimizer.consumed"
+        )
+
+        with self.assertRaisesRegex(DiscoveryError, "new_flag"):
+            validate_setting_ownership(changed, claims, ())
 
     def test_training_dispatch_contract_diffusers_fallback_uses_exact_safe_sequence(self):
         production_shape = """from diffusers.optimization import SchedulerType, TYPE_TO_SCHEDULER_FUNCTION
