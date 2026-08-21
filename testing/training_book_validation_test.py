@@ -1663,8 +1663,76 @@ class CatalogProductionSliceTests(unittest.TestCase):
             with self.subTest(setting=setting_id):
                 setting = settings[setting_id]
                 self.assertIn(literal, setting.render.example)
-                self.assertIn("use", setting.render.benefits.casefold())
-                self.assertIn("risk", setting.render.drawbacks.casefold())
+                if setting_id not in {"train.unet_lr", "train.text_encoder_lr"}:
+                    self.assertIn("use", setting.render.benefits.casefold())
+                    self.assertIn("risk", setting.render.drawbacks.casefold())
+
+    def test_catalog_train_config_unconsumed_fields_are_source_derived(self):
+        expected = {"unet_lr", "text_encoder_lr", "weight_jitter"}
+        consumers = {key: [] for key in expected}
+        for pattern in PYTHON_DISCOVERY_GLOBS:
+            for path in REPOSITORY_ROOT.glob(pattern):
+                if not path.is_file() or path.suffix != ".py":
+                    continue
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+                for node in ast.walk(tree):
+                    if (
+                        isinstance(node, ast.Attribute)
+                        and node.attr in expected
+                        and isinstance(node.value, ast.Attribute)
+                        and node.value.attr == "train_config"
+                    ):
+                        consumers[node.attr].append(path.relative_to(REPOSITORY_ROOT).as_posix())
+        self.assertEqual(consumers, {key: [] for key in expected})
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        for key in expected:
+            setting = settings[f"train.{key}"]
+            self.assertEqual(setting.lifecycle, "unconsumed")
+            teaching = " ".join(
+                (setting.render.description, setting.render.benefits, setting.render.drawbacks)
+            ).casefold()
+            self.assertIn("unconsumed", teaching)
+            self.assertIn("no effect", teaching)
+
+    def test_catalog_train_config_boolean_explicit_null_is_preserved_and_falsey(self):
+        boolean_keys = {
+            fact.key
+            for fact in self.discovered
+            if fact.source == "toolkit/config_modules.py"
+            and fact.symbol == "TrainConfig.__init__"
+            and fact.default_expression in {"True", "False"}
+        }
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        boolean_settings = {
+            setting.source_claims[0].key: setting
+            for setting in catalog.settings
+            if setting.contract.parser_type == "boolean"
+            and any(
+                claim.source == "toolkit/config_modules.py"
+                and claim.symbol == "TrainConfig.__init__"
+                for claim in setting.source_claims
+            )
+        }
+        self.assertEqual(set(boolean_settings), boolean_keys)
+        for key, setting in boolean_settings.items():
+            with self.subTest(key=key):
+                self.assertEqual(set(setting.contract.accepted_values or ()), {True, False, None})
+                self.assertEqual(setting.contract.null, "accepted")
+                normalization = " ".join(
+                    item.description for item in setting.normalizations
+                ).casefold()
+                self.assertIn("explicit null", normalization)
+                self.assertIn("preserved", normalization)
+                self.assertIn("falsey", normalization)
 
     def test_catalog_train_numerics_scope_is_exactly_owned_and_teaches_restrictions(self):
         try:

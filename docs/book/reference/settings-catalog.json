@@ -5923,7 +5923,7 @@
         "description": "Sets convolution rank; LoRASpecialNetwork preserves null while LycorisSpecialNetwork normalizes null to 0, and both disable convolution adaptation unless another network mode forces it.",
         "benefits": "Adds capacity for convolution features.",
         "drawbacks": "It increases parameters and is unsupported or unnecessary for some architectures.",
-          "example": "conv: 4"
+        "example": "conv: 4"
       }
     },
     {
@@ -6047,7 +6047,7 @@
         "description": "Sets convolution alpha. Omission inherits conv; explicit null becomes convolution rank in LoRA modules, becomes 0 when LyCORIS convolution is disabled, and is invalid when LyCORIS convolution is enabled.",
         "benefits": "Tunes convolution update scaling separately.",
         "drawbacks": "A mismatched scale can over- or under-emphasize convolution updates, and explicit null fails for enabled LyCORIS convolution.",
-          "example": "conv_alpha: 4"
+        "example": "conv_alpha: 4"
       }
     },
     {
@@ -6123,7 +6123,7 @@
         "description": "Sets network dropout; LoRASpecialNetwork preserves null while LycorisSpecialNetwork normalizes null to 0.",
         "benefits": "Can regularize a high-capacity network.",
         "drawbacks": "Too much dropout slows learning or removes useful signal.",
-          "example": "dropout: 0.1"
+        "example": "dropout: 0.1"
       }
     },
     {
@@ -6282,7 +6282,7 @@
         "description": "Sets linear-module alpha. Omission inherits base alpha; explicit null or zero becomes the effective module rank in both active implementation families.",
         "benefits": "Tunes linear update scaling separately.",
         "drawbacks": "A mismatched scale can over- or under-emphasize linear updates.",
-          "example": "linear_alpha: 1.0"
+        "example": "linear_alpha: 1.0"
       }
     },
     {
@@ -6478,7 +6478,7 @@
         "description": "Provides nested LoRM extraction configuration.",
         "benefits": "Enables module-specific low-rank extraction behavior.",
         "drawbacks": "LoRM changes network construction and requires careful extraction rules.",
-          "example": "lorm: {}"
+        "example": "lorm: {}"
       }
     },
     {
@@ -6537,7 +6537,7 @@
         "description": "Carries explicitly supported advanced arguments to the active first-party network constructor.",
         "benefits": "Exposes fine-grained target, rank-dropout, and module-shape controls.",
         "drawbacks": "Unknown or engine-reserved keys are rejected by the documented active dispatch boundary.",
-          "example": "network_kwargs: {}"
+        "example": "network_kwargs: {}"
       }
     },
     {
@@ -6655,7 +6655,7 @@
         "description": "Loads a local network checkpoint as the initial network state when no later resume checkpoint wins.",
         "benefits": "Supports refinement or continuation from existing LoRA weights.",
         "drawbacks": "A missing path is reported and ignored; incompatible weights can fail loading.",
-          "example": "pretrained_lora_path: /workspace/base-lora.safetensors"
+        "example": "pretrained_lora_path: /workspace/base-lora.safetensors"
       }
     },
     {
@@ -7213,7 +7213,7 @@
         "description": "Supplies per-block alpha values paired with block dimensions.",
         "benefits": "Tunes update scaling independently for each selected block.",
         "drawbacks": "Length or ordering mismatches with block dimensions produce invalid or unintended shapes.",
-          "example": "block_alphas: [1.0, 1.0]"
+        "example": "block_alphas: [1.0, 1.0]"
       }
     },
     {
@@ -7338,7 +7338,7 @@
         "description": "Supplies per-block ranks for linear and 1x1 convolution targets.",
         "benefits": "Allocates network capacity differently across model blocks.",
         "drawbacks": "Large ranks increase memory and size; list shape must match the architecture.",
-          "example": "block_dims: [8, 16]"
+        "example": "block_dims: [8, 16]"
       }
     },
     {
@@ -7490,7 +7490,7 @@
         "description": "Supplies per-block alpha values for 3x3 convolution targets.",
         "benefits": "Tunes convolution scaling by model block.",
         "drawbacks": "It requires matching convolution block dimensions and architecture ordering.",
-          "example": "conv_block_alphas: [1.0, 1.0]"
+        "example": "conv_block_alphas: [1.0, 1.0]"
       }
     },
     {
@@ -7615,7 +7615,7 @@
         "description": "Supplies per-block ranks for 3x3 convolution targets.",
         "benefits": "Allocates convolution capacity by block.",
         "drawbacks": "It increases parameters and must align with convolution block alphas.",
-          "example": "conv_block_dims: [4, 8]"
+        "example": "conv_block_dims: [4, 8]"
       }
     },
     {
@@ -7766,7 +7766,7 @@
         "description": "Replaces matching weighted leaf modules with full-weight modules instead of ordinary LoRA modules.",
         "benefits": "Gives selected layers full adaptation capacity.",
         "drawbacks": "Matching broad substrings can greatly increase trainable parameters and checkpoint size.",
-          "example": "full_if_contains: [\"proj_out\"]"
+        "example": "full_if_contains: [\"proj_out\"]"
       }
     },
     {
@@ -8042,7 +8042,7 @@
         "description": "Skips candidate modules whose names contain any listed substring.",
         "benefits": "Removes unwanted or unstable targets from the network.",
         "drawbacks": "Broad filters can silently exclude most trainable layers.",
-          "example": "ignore_if_contains: [\"text_encoder\"]"
+        "example": "ignore_if_contains: [\"text_encoder\"]"
       }
     },
     {
@@ -8405,7 +8405,7 @@
         "description": "Keeps candidate modules only when their names contain a listed substring.",
         "benefits": "Restricts adaptation to a deliberate subnetwork.",
         "drawbacks": "Overly narrow filters can leave few or no trainable modules.",
-          "example": "only_if_contains: [\"transformer_blocks\"]"
+        "example": "only_if_contains: [\"transformer_blocks\"]"
       }
     },
     {
@@ -13730,7 +13730,7 @@
       ],
       "persistence": "config",
       "authority": "user",
-      "lifecycle": "supported",
+      "lifecycle": "unconsumed",
       "applicability": [
         {
           "process_type": "diffusion_trainer"
@@ -13748,7 +13748,7 @@
           "minimum_inclusive": true,
           "maximum_inclusive": true
         },
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -13780,9 +13780,9 @@
       "render": {
         "page": "reference/training.md",
         "anchor": "train-unet-lr",
-        "description": "Overrides the learning rate for the denoising network.",
-        "benefits": "Use 5e-5 for a moderate denoiser update that is gentler than an aggressive global rate.",
-        "drawbacks": "A denoiser-specific override risks diverging from the text or adapter components if rates are poorly balanced.",
+        "description": "Parses a denoiser-specific learning-rate value, but the diffusion trainer does not consume this field.",
+        "benefits": "The literal 5e-5 records a cautious comparison tier; use train.lr for the active optimizer learning rate.",
+        "drawbacks": "This unconsumed value has no effect on current diffusion training, which risks misleading readers who expect a denoiser override.",
         "example": "unet_lr: 5e-5"
       }
     },
@@ -13801,7 +13801,7 @@
       ],
       "persistence": "config",
       "authority": "user",
-      "lifecycle": "supported",
+      "lifecycle": "unconsumed",
       "applicability": [
         {
           "process_type": "diffusion_trainer"
@@ -13819,7 +13819,7 @@
           "minimum_inclusive": true,
           "maximum_inclusive": true
         },
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -13851,9 +13851,9 @@
       "render": {
         "page": "reference/training.md",
         "anchor": "train-text-encoder-lr",
-        "description": "Overrides the learning rate for trainable text encoders.",
-        "benefits": "Use 2e-5 when prompt-language adaptation is needed but should move more cautiously than the denoiser.",
-        "drawbacks": "Text encoders are sensitive; a larger rate risks damaging general prompt understanding.",
+        "description": "Parses a text-encoder-specific learning-rate value, but the diffusion trainer does not consume this field.",
+        "benefits": "The literal 2e-5 records a cautious comparison tier; use train.lr for the active optimizer learning rate.",
+        "drawbacks": "This unconsumed value has no effect on current diffusion training, which risks misleading readers who expect a text-encoder override.",
         "example": "text_encoder_lr: 2e-5"
       }
     },
@@ -14605,9 +14605,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -14617,7 +14621,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -14653,7 +14662,7 @@
       ],
       "persistence": "config",
       "authority": "user",
-      "lifecycle": "experimental",
+      "lifecycle": "unconsumed",
       "applicability": [
         {
           "process_type": "diffusion_trainer"
@@ -14671,7 +14680,7 @@
           "minimum_inclusive": true,
           "maximum_inclusive": true
         },
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -14696,9 +14705,9 @@
       "render": {
         "page": "reference/training.md",
         "anchor": "train-weight-jitter",
-        "description": "Controls random jitter applied to supported training weights.",
-        "benefits": "Use a small nonzero jitter only when the active trainer consumes it as deliberate regularization.",
-        "drawbacks": "Jitter risks adding variance and some trainer paths do not consume this parsed value.",
+        "description": "Parses weight_jitter on TrainConfig, but current diffusion training leaves this field unconsumed.",
+        "benefits": "Keeping 0.0 makes the parsed value explicit while acknowledging that it has no effect in the diffusion trainer.",
+        "drawbacks": "A nonzero value has no effect here; similarly named slider-trainer fields are separate consumers and do not consume TrainConfig.weight_jitter.",
         "example": "weight_jitter: 0.0"
       }
     },
@@ -15000,9 +15009,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -15012,7 +15025,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -15266,9 +15284,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -15278,7 +15300,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.timestep_type",
@@ -15332,9 +15359,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -15344,7 +15375,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.timestep_type",
@@ -15462,9 +15498,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -15474,7 +15514,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -15649,9 +15694,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -15661,7 +15710,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.diff_output_preservation",
@@ -15786,9 +15840,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -15798,7 +15856,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -15985,9 +16048,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -15997,7 +16064,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -16108,9 +16180,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -16120,7 +16196,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.blank_prompt_preservation",
@@ -16381,9 +16462,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -16393,7 +16478,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.skip_first_sample",
@@ -16453,9 +16543,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -16465,7 +16559,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -16512,9 +16611,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -16524,7 +16627,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -16571,9 +16679,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -16583,7 +16695,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -16630,9 +16747,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -16642,7 +16763,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.differential_guidance_scale",
@@ -16696,9 +16822,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -16708,7 +16838,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -16755,9 +16890,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -16767,7 +16906,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -16814,9 +16958,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -16826,7 +16974,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.guidance_loss_target",
@@ -16892,9 +17045,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -16904,7 +17061,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -16951,9 +17113,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -16963,7 +17129,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -17010,9 +17181,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -17022,7 +17197,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.max_cfg_scale",
@@ -17076,9 +17256,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -17088,7 +17272,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -17135,9 +17324,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -17147,7 +17340,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -17266,9 +17464,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -17278,7 +17480,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -17389,9 +17596,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -17401,7 +17612,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -17448,9 +17664,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -17460,7 +17680,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.disable_sampling",
@@ -17514,9 +17739,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -17526,7 +17755,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -17777,9 +18011,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -17789,7 +18027,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.inverted_mask_prior_multiplier",
@@ -18107,9 +18350,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -18119,7 +18366,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -18372,9 +18624,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -18384,7 +18640,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -19061,9 +19322,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -19073,7 +19338,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.train_turbo",
@@ -19255,9 +19525,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -19267,7 +19541,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.force_first_sample",
@@ -19321,9 +19600,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -19333,7 +19616,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -19380,9 +19668,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -19392,7 +19684,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -19439,9 +19736,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -19451,7 +19752,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -19498,9 +19804,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -19510,7 +19820,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -20009,9 +20324,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -20021,7 +20340,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.do_guidance_loss",
@@ -20075,9 +20399,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -20087,7 +20415,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.train_text_encoder",
@@ -20304,9 +20637,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -20316,7 +20653,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
@@ -20376,9 +20718,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -20388,7 +20734,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -20588,9 +20939,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -20603,6 +20958,10 @@
       "normalizations": [
         {
           "description": "True changes a zero match_adapter_chance to 1.0; otherwise the parsed boolean is not retained.",
+          "applicability": []
+        },
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
           "applicability": []
         }
       ],
@@ -20723,9 +21082,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -20735,7 +21098,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -21272,9 +21640,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -21284,7 +21656,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -21331,9 +21708,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -21343,7 +21724,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.batch_size",
@@ -21397,9 +21783,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -21409,7 +21799,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.short_and_long_captions",
@@ -21463,9 +21858,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -21475,7 +21874,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -21522,9 +21926,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -21534,7 +21942,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.unload_text_encoder",
@@ -21600,9 +22013,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -21612,7 +22029,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.inverted_mask_prior",
@@ -21672,9 +22094,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -21684,7 +22110,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -21731,9 +22162,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -21743,7 +22178,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.train_text_encoder",
@@ -21862,9 +22302,13 @@
         "supported_type": "boolean",
         "ui_type": null,
         "example_type": "boolean",
-        "accepted_values": null,
+        "accepted_values": [
+          true,
+          false,
+          null
+        ],
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -21874,7 +22318,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by kwargs.get and remains falsey wherever downstream code uses this value as a condition.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.attention_backend",
