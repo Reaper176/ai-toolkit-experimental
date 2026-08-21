@@ -25095,7 +25095,7 @@
         "anchor": "optimizer-automagic-param-max_lr",
         "description": "In automagic, caps adaptive learning rate; discovered defaults are Automagic.__init__.max_lr=0.001.",
         "benefits": "For automagic, use this value to prevent excessive adaptive rates.",
-        "drawbacks": "With automagic, a ceiling below min_lr can raise ValueError.",
+        "drawbacks": "With automagic, a high ceiling risks allowing its squared-gradient controller to take excessive adaptive steps.",
         "example": "max_lr: 0.001"
       }
     },
@@ -25847,7 +25847,7 @@
         "anchor": "optimizer-automagic2-param-max_lr",
         "description": "In automagic2, caps adaptive learning rate; discovered defaults are Automagic2.__init__.max_lr=0.001.",
         "benefits": "For automagic2, use this value to prevent excessive adaptive rates.",
-        "drawbacks": "With automagic2, a ceiling below min_lr can raise ValueError.",
+        "drawbacks": "With automagic2, a high ceiling risks allowing excessive adaptive steps before direction changes reduce the rate.",
         "example": "max_lr: 0.001"
       }
     },
@@ -26438,6 +26438,12 @@
           "setting": "train.optimizer",
           "kind": "requires",
           "description": "The selected optimizer determines whether max_lr is accepted, injected, or ignored.",
+          "applicability": []
+        },
+        {
+          "setting": "optimizer.automagic3.param.min_lr",
+          "kind": "constrains",
+          "description": "Automagic3 requires max_lr >= min_lr during construction.",
           "applicability": []
         }
       ],
@@ -27145,7 +27151,7 @@
         "anchor": "optimizer-automagicexperiment-param-max_lr",
         "description": "In automagicexperiment, caps adaptive learning rate; discovered defaults are AutomagicEXPERIMENT.__init__.max_lr=1000.0.",
         "benefits": "For automagicexperiment, use this value to prevent excessive adaptive rates.",
-        "drawbacks": "With automagicexperiment, a ceiling below min_lr can raise ValueError.",
+        "drawbacks": "With automagicexperiment, a high ceiling risks letting its sign-history controller retain excessive adaptive rates.",
         "example": "max_lr: 1000.0"
       }
     },

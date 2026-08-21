@@ -2405,18 +2405,24 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 self.assertIn("overwritten", normalization)
                 self.assertIn("train.steps", normalization)
 
-        min_lr_rows = {
-            choice: settings[f"optimizer.{choice}.param.min_lr"]
-            for choice in ("automagic", "automagic2", "automagic3", "automagicexperiment")
-        }
-        for choice, setting in min_lr_rows.items():
-            teaching = " ".join(vars(setting.render).values()).casefold()
-            has_max_constraint = any(
-                item.setting == f"optimizer.{choice}.param.max_lr" and item.kind == "constrains"
-                for item in setting.interactions
-            )
-            self.assertEqual("valueerror" in teaching, choice == "automagic3")
-            self.assertEqual(has_max_constraint, choice == "automagic3")
+        choices = ("automagic", "automagic2", "automagic3", "automagicexperiment")
+        for choice in choices:
+            for bound, counterpart in (("min_lr", "max_lr"), ("max_lr", "min_lr")):
+                setting = settings[f"optimizer.{choice}.param.{bound}"]
+                teaching = " ".join(vars(setting.render).values()).casefold()
+                bound_interactions = {
+                    (item.setting, item.kind)
+                    for item in setting.interactions
+                    if item.setting.endswith((".param.min_lr", ".param.max_lr"))
+                }
+                expected_interactions = (
+                    {(f"optimizer.automagic3.param.{counterpart}", "constrains")}
+                    if choice == "automagic3"
+                    else set()
+                )
+                with self.subTest(choice=choice, bound=bound):
+                    self.assertEqual("valueerror" in teaching, choice == "automagic3")
+                    self.assertEqual(bound_interactions, expected_interactions)
 
     def test_catalog_training_scope_is_exactly_owned(self):
         self.assert_catalog_selector_green("--scope", "training")
