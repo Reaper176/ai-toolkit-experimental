@@ -1,13 +1,19 @@
+import ast
 import json
 import re
 import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
+from collections import OrderedDict
 from copy import deepcopy
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 import sys
+from types import SimpleNamespace
+
+import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT))
@@ -799,7 +805,6 @@ class CatalogContractTests(unittest.TestCase):
             ("exclusive maximum", [5], True, False),
             ("boolean", [True], True, True),
             ("non-finite float", [float("nan")], True, True),
-            ("arbitrarily large integer", [10**1000], True, True),
         )
         for label, values, minimum_inclusive, maximum_inclusive in cases:
             with self.subTest(label=label):
@@ -849,7 +854,7 @@ class CatalogContractTests(unittest.TestCase):
             ),
         )
         for label, mutate in cases:
-            for value in (float("nan"), float("inf"), float("-inf"), 10**1000):
+            for value in (float("nan"), float("inf"), float("-inf")):
                 with self.subTest(label=label, value=repr(value)):
                     entry = self.valid_catalog_entry()
                     mutate(entry, value)
@@ -858,6 +863,202 @@ class CatalogContractTests(unittest.TestCase):
                             {"schema_version": 1, "settings": [entry]},
                             self.discovered_steps(),
                         )
+
+    def test_catalog_contract_accepts_arbitrary_precision_json_integers(self):
+        huge = 10**1000
+        larger = 10**1001
+
+        accepted = self.valid_catalog_entry()
+        accepted["contract"].update(
+            {"accepted_values": [huge, larger], "range": None}
+        )
+        without_range = validate_settings_catalog(
+            {"schema_version": 1, "settings": [accepted]},
+            self.discovered_steps(),
+        )
+        self.assertEqual(
+            without_range.settings[0].contract.accepted_values,
+            (huge, larger),
+        )
+
+        accepted["contract"].update(
+            {
+                "range": {
+                    "minimum": huge,
+                    "maximum": larger,
+                    "minimum_inclusive": True,
+                    "maximum_inclusive": True,
+                },
+            }
+        )
+        accepted["defaults"][0]["value"] = {
+            "outer": [huge, {"inner": larger}]
+        }
+        catalog = validate_settings_catalog(
+            {"schema_version": 1, "settings": [accepted]},
+            self.discovered_steps(),
+        )
+        self.assertEqual(catalog.settings[0].contract.range.minimum, huge)
+        self.assertEqual(catalog.settings[0].contract.range.maximum, larger)
+        self.assertEqual(catalog.settings[0].defaults[0].value["outer"][0], huge)
+
+        reversed_range = deepcopy(accepted)
+        reversed_range["contract"]["range"].update(
+            {"minimum": larger, "maximum": huge}
+        )
+        with self.assertRaisesRegex(CatalogError, "minimum must not exceed maximum"):
+            validate_settings_catalog(
+                {"schema_version": 1, "settings": [reversed_range]},
+                self.discovered_steps(),
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            schema_path = root / "settings-catalog.schema.json"
+            catalog_path = root / "settings-catalog.json"
+            schema_path.write_text(
+                json.dumps(settings_catalog_schema()), encoding="utf-8"
+            )
+            catalog_path.write_text(
+                json.dumps({"schema_version": 1, "settings": [accepted]}),
+                encoding="utf-8",
+            )
+            loaded = load_settings_catalog(catalog_path, schema_path, None)
+        self.assertEqual(
+            loaded.settings[0].contract.accepted_values,
+            (huge, larger),
+        )
+
+    def test_catalog_unconsumed_settings_have_no_production_loads_or_effect_claims(self):
+        expected_by_source = {
+            "jobs/process/BaseSDTrainProcess.py": {
+                "do_lorm",
+                "lorm_extract_mode",
+                "lorm_extract_mode_param",
+            },
+            "toolkit/config_modules.py": {
+                "ilora_down",
+                "ilora_mid",
+                "ilora_up",
+                "image_dir",
+            },
+        }
+        all_fields = set().union(*expected_by_source.values())
+        for source, expected_fields in expected_by_source.items():
+            tree = ast.parse((REPOSITORY_ROOT / source).read_text(encoding="utf-8"))
+            stores = {
+                node.attr
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Attribute)
+                and isinstance(node.ctx, ast.Store)
+                and node.attr in all_fields
+            }
+            loads = {
+                node.attr
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Attribute)
+                and isinstance(node.ctx, ast.Load)
+                and node.attr in all_fields
+            }
+            self.assertEqual(stores, expected_fields)
+            self.assertEqual(loads, set())
+
+        production_paths = [REPOSITORY_ROOT / "run.py"]
+        for directory in ("jobs", "extensions", "extensions_built_in", "toolkit"):
+            production_paths.extend((REPOSITORY_ROOT / directory).rglob("*.py"))
+        loaded_fields = {}
+        for path in production_paths:
+            source = path.read_text(encoding="utf-8")
+            if not any(field in source for field in all_fields):
+                continue
+            tree = ast.parse(source)
+            loads = {
+                node.attr
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Attribute)
+                and isinstance(node.ctx, ast.Load)
+                and node.attr in all_fields
+            }
+            if loads:
+                loaded_fields[path.relative_to(REPOSITORY_ROOT).as_posix()] = loads
+        self.assertEqual(loaded_fields, {})
+
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        expected_ids = {
+            "process.do_lorm",
+            "process.lorm_extract_mode",
+            "process.lorm_extract_mode_param",
+            "adapter.ilora_down",
+            "adapter.ilora_mid",
+            "adapter.ilora_up",
+            "adapter.image_dir",
+        }
+        for setting_id in expected_ids:
+            with self.subTest(setting=setting_id):
+                setting = settings[setting_id]
+                teaching = " ".join(
+                    (
+                        setting.render.description,
+                        setting.render.benefits,
+                        setting.render.drawbacks,
+                    )
+                ).casefold()
+                self.assertEqual(setting.lifecycle, "unconsumed")
+                self.assertEqual(setting.authority, "user")
+                self.assertIn("parsed", teaching)
+                self.assertIn("no runtime effect", teaching)
+                self.assertEqual(setting.interactions, ())
+
+    def test_root_config_example_is_accepted_by_source_base_job_loader(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        example = next(
+            setting.render.example
+            for setting in catalog.settings
+            if setting.id == "root.config"
+        )
+        parsed = yaml.safe_load(example)
+
+        source_path = REPOSITORY_ROOT / "jobs/BaseJob.py"
+        tree = ast.parse(source_path.read_text(encoding="utf-8"))
+        class_node = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "BaseJob"
+        )
+        module = ast.fix_missing_locations(
+            ast.Module(body=[class_node], type_ignores=[])
+        )
+        namespace = {
+            "OrderedDict": OrderedDict,
+            "List": list,
+            "BaseProcess": object,
+            "importlib": SimpleNamespace(
+                import_module=lambda _name: SimpleNamespace()
+            ),
+        }
+        exec(compile(module, str(source_path), "exec"), namespace)
+
+        class DummyProcess:
+            def __init__(self, process_id, job, config):
+                self.process_id = process_id
+                self.job = job
+                self.config = config
+
+        job = namespace["BaseJob"](
+            OrderedDict({"job": "test", **parsed})
+        )
+        job.load_processes({"diffusion_trainer": DummyProcess})
+        self.assertEqual(len(job.process), 1)
+        self.assertEqual(job.process[0].config["type"], "diffusion_trainer")
 
     def test_catalog_disk_loader_rejects_json_non_finite_constants_recursively(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1147,6 +1348,14 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 }
             )
         )
+        cls.discovery_guard = mock.patch(
+            f"{__name__}.discover_python_settings",
+            side_effect=AssertionError(
+                "catalog selector tests must reuse the shared discovery inventory"
+            ),
+        )
+        cls.discovery_guard.start()
+        cls.addClassCleanup(cls.discovery_guard.stop)
 
     @classmethod
     def _in_core_io_network(cls, item):
@@ -1892,12 +2101,9 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "--target-symbol", f"{target_source}::{target_symbol}"
         )
 
-        discovered = discover_python_settings(
-            REPOSITORY_ROOT, PYTHON_DISCOVERY_GLOBS
-        )
         selected = tuple(
             fact
-            for fact in discovered
+            for fact in self.discovered
             if (fact.source, fact.symbol) == (target_source, target_symbol)
         )
         self.assertEqual(len(selected), 8)

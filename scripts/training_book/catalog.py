@@ -112,11 +112,9 @@ def _require_exact_identity(value: str, *, read_kind: bool = False) -> str:
 
 
 def _require_finite_number(value: int | float) -> None:
-    try:
-        finite = math.isfinite(value)
-    except (OverflowError, TypeError, ValueError) as error:
-        raise ValueError("numeric JSON values must be finite") from error
-    if not finite:
+    if isinstance(value, int):
+        return
+    if not math.isfinite(value):
         raise ValueError("numeric JSON values must be finite")
 
 

@@ -52,7 +52,7 @@
         "description": "Provides the job configuration object consumed by the selected job implementation.",
         "benefits": "Makes the root.config configuration boundary explicit.",
         "drawbacks": "An invalid root.config value stops job configuration or process loading.",
-        "example": "config: {name: example_job, process: []}"
+        "example": "config: {name: example_job, process: [{type: diffusion_trainer}]}"
       }
     },
     {
@@ -951,7 +951,7 @@
       ],
       "persistence": "config",
       "authority": "user",
-      "lifecycle": "experimental",
+      "lifecycle": "unconsumed",
       "applicability": [
         {
           "process_type": "diffusion_trainer"
@@ -994,9 +994,9 @@
       "render": {
         "page": "reference/training.md",
         "anchor": "process-do-lorm",
-        "description": "Enables LoRM extraction behavior in the process.",
-        "benefits": "Allows low-rank module extraction for the LoRM workflow.",
-        "drawbacks": "It changes network construction and is not appropriate for ordinary LoRA runs.",
+        "description": "Parses do_lorm into the process configuration, but current production code never reads the assigned attribute.",
+        "benefits": "Documents the parsed compatibility field so inert legacy configuration is recognizable.",
+        "drawbacks": "Changing it has no runtime effect because no production path reads the assigned attribute.",
         "example": "do_lorm: false"
       }
     },
@@ -1271,7 +1271,7 @@
       ],
       "persistence": "config",
       "authority": "user",
-      "lifecycle": "experimental",
+      "lifecycle": "unconsumed",
       "applicability": [
         {
           "process_type": "diffusion_trainer"
@@ -1319,9 +1319,9 @@
       "render": {
         "page": "reference/training.md",
         "anchor": "process-lorm-extract-mode",
-        "description": "Chooses the LoRM extraction rule.",
-        "benefits": "Supports fixed, threshold, ratio, or quantile rank selection.",
-        "drawbacks": "The wrong rule or parameter can retain too much or too little information.",
+        "description": "Parses lorm_extract_mode into the process configuration, but current production code never reads the assigned attribute.",
+        "benefits": "Documents the parsed compatibility field and its accepted legacy spellings.",
+        "drawbacks": "Changing it has no runtime effect because no production path reads the assigned attribute.",
         "example": "lorm_extract_mode: ratio"
       }
     },
@@ -1340,7 +1340,7 @@
       ],
       "persistence": "config",
       "authority": "user",
-      "lifecycle": "experimental",
+      "lifecycle": "unconsumed",
       "applicability": [
         {
           "process_type": "diffusion_trainer"
@@ -1383,9 +1383,9 @@
       "render": {
         "page": "reference/training.md",
         "anchor": "process-lorm-extract-mode-param",
-        "description": "Supplies the numeric parameter interpreted by the selected LoRM extraction mode.",
-        "benefits": "Tunes how aggressively LoRM components are retained.",
-        "drawbacks": "Its meaning changes with lorm_extract_mode and unsuitable values degrade extraction.",
+        "description": "Parses lorm_extract_mode_param into the process configuration, but current production code never reads the assigned attribute.",
+        "benefits": "Documents the parsed compatibility field and its historical numeric value.",
+        "drawbacks": "Changing it has no runtime effect because no production path reads the assigned attribute.",
         "example": "lorm_extract_mode_param: 0.25"
       }
     },
@@ -9903,7 +9903,7 @@
       ],
       "persistence": "config",
       "authority": "user",
-      "lifecycle": "supported",
+      "lifecycle": "unconsumed",
       "applicability": [
         {
           "process_type": "diffusion_trainer"
@@ -9941,9 +9941,9 @@
       "render": {
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-ilora-down",
-        "description": "Enables iLoRA modules in down blocks.",
-        "benefits": "Keeps the iLoRA downsampling stage trainable for low-resolution feature adaptation.",
-        "drawbacks": "Disabling the downsampling stage removes its contribution and changes checkpoint structure.",
+        "description": "Parses ilora_down into AdapterConfig, but current production code never reads the assigned attribute.",
+        "benefits": "Documents the parsed ilora_down compatibility field and its true default value.",
+        "drawbacks": "Changing ilora_down has no runtime effect because no production path reads the assigned attribute.",
         "example": "ilora_down: true"
       }
     },
@@ -9962,7 +9962,7 @@
       ],
       "persistence": "config",
       "authority": "user",
-      "lifecycle": "supported",
+      "lifecycle": "unconsumed",
       "applicability": [
         {
           "process_type": "diffusion_trainer"
@@ -10000,9 +10000,9 @@
       "render": {
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-ilora-mid",
-        "description": "Enables iLoRA modules in the middle block.",
-        "benefits": "Keeps the iLoRA middle stage trainable for bottleneck feature adaptation.",
-        "drawbacks": "Disabling the middle stage removes bottleneck capacity and changes checkpoint structure.",
+        "description": "Parses ilora_mid into AdapterConfig, but current production code never reads the assigned attribute.",
+        "benefits": "Documents the parsed ilora_mid compatibility field and its true default value.",
+        "drawbacks": "Changing ilora_mid has no runtime effect because no production path reads the assigned attribute.",
         "example": "ilora_mid: true"
       }
     },
@@ -10021,7 +10021,7 @@
       ],
       "persistence": "config",
       "authority": "user",
-      "lifecycle": "supported",
+      "lifecycle": "unconsumed",
       "applicability": [
         {
           "process_type": "diffusion_trainer"
@@ -10059,9 +10059,9 @@
       "render": {
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-ilora-up",
-        "description": "Enables iLoRA modules in up blocks.",
-        "benefits": "Keeps the iLoRA upsampling stage trainable for restored-resolution feature adaptation.",
-        "drawbacks": "Disabling the upsampling stage removes its contribution and changes checkpoint structure.",
+        "description": "Parses ilora_up into AdapterConfig, but current production code never reads the assigned attribute.",
+        "benefits": "Documents the parsed ilora_up compatibility field and its true default value.",
+        "drawbacks": "Changing ilora_up has no runtime effect because no production path reads the assigned attribute.",
         "example": "ilora_up: true"
       }
     },
@@ -10080,7 +10080,7 @@
       ],
       "persistence": "config",
       "authority": "user",
-      "lifecycle": "supported",
+      "lifecycle": "unconsumed",
       "applicability": [
         {
           "process_type": "diffusion_trainer"
@@ -10118,9 +10118,9 @@
       "render": {
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-image-dir",
-        "description": "Points to adapter image inputs used by applicable workflows.",
-        "benefits": "Points adapter workflows at the image directory they use for conditioning inputs.",
-        "drawbacks": "A missing or mismatched directory leaves the adapter without expected images.",
+        "description": "Parses image_dir into AdapterConfig, but current production code never reads the assigned attribute.",
+        "benefits": "Documents the parsed compatibility field for configurations that still contain it.",
+        "drawbacks": "Changing it has no runtime effect because no production path reads the assigned attribute.",
         "example": "image_dir: /workspace/adapter-images"
       }
     },
