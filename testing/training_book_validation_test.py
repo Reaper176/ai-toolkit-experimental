@@ -798,6 +798,8 @@ class CatalogContractTests(unittest.TestCase):
             ("exclusive minimum", [1], False, True),
             ("exclusive maximum", [5], True, False),
             ("boolean", [True], True, True),
+            ("non-finite float", [float("nan")], True, True),
+            ("arbitrarily large integer", [10**1000], True, True),
         )
         for label, values, minimum_inclusive, maximum_inclusive in cases:
             with self.subTest(label=label):

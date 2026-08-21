@@ -134,7 +134,7 @@ class SettingContract(_StrictModel):
             if not self.accepted_values or any(
                 isinstance(value, bool)
                 or not isinstance(value, (int, float))
-                or not math.isfinite(value)
+                or (isinstance(value, float) and not math.isfinite(value))
                 for value in self.accepted_values
             ):
                 raise ValueError(
