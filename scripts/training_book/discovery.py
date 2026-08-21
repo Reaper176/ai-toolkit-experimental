@@ -3728,6 +3728,11 @@ def _discover_dispatch_settings(
                     "type", "vars", "zip",
                 }
             }
+            callback_builtin_keywords = {
+                "builtins.max": frozenset({"key"}),
+                "builtins.min": frozenset({"key"}),
+                "builtins.sorted": frozenset({"key"}),
+            }
             Binding = tuple[str, object | None]
 
             class ModuleFrame:
@@ -4117,6 +4122,58 @@ def _discover_dispatch_settings(
                     for child in ast.iter_child_nodes(node)
                 )
 
+            def validate_builtin_callbacks(
+                node: ast.Call,
+                target: object | None,
+                frame: ModuleFrame,
+            ) -> None:
+                targets = target if isinstance(target, tuple) else (target,)
+                callback_keywords = set().union(
+                    *(
+                        callback_builtin_keywords.get(candidate, frozenset())
+                        for candidate in targets
+                    )
+                )
+                if not callback_keywords:
+                    return
+
+                def validate_callback(value: ast.AST, keyword: str) -> None:
+                    if isinstance(value, ast.Constant) and value.value is None:
+                        return
+                    if expression_binding(value, frame)[0] != "safe":
+                        raise module_error(
+                            value,
+                            "callback",
+                            f"unproven {keyword} value",
+                        )
+
+                for keyword in node.keywords:
+                    if keyword.arg in callback_keywords:
+                        validate_callback(keyword.value, keyword.arg)
+                        continue
+                    if keyword.arg is not None:
+                        continue
+                    if not isinstance(keyword.value, ast.Dict):
+                        raise module_error(
+                            keyword.value,
+                            "callback",
+                            "unproven keyword spread",
+                        )
+                    for key, value in zip(
+                        keyword.value.keys, keyword.value.values
+                    ):
+                        if not (
+                            isinstance(key, ast.Constant)
+                            and isinstance(key.value, str)
+                        ):
+                            raise module_error(
+                                keyword.value,
+                                "callback",
+                                "unproven keyword spread",
+                            )
+                        if key.value in callback_keywords:
+                            validate_callback(value, key.value)
+
             def audit_expression(node: ast.AST, frame: ModuleFrame) -> None:
                 if isinstance(node, ast.Lambda):
                     for default in (
@@ -4182,6 +4239,7 @@ def _discover_dispatch_settings(
                         raise module_error(
                             node, "local callable", "unproven execution"
                         )
+                    validate_builtin_callbacks(node, target, frame)
                     return
                 if isinstance(node, ast.Attribute):
                     audit_expression(node.value, frame)

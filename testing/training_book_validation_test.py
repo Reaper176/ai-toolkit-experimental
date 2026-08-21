@@ -5432,6 +5432,78 @@ def get_optimizer(params, optimizer_type, optimizer_params):
         )
         self.assertTrue(any(fact.read_kind == "optimizer.registry" for fact in discovered))
 
+    def test_training_dispatch_contract_requires_proven_builtin_callbacks(self):
+        definitions = {
+            "dynamic_key_dict": '''name = "callback"
+callbacks = {name: mutate}
+configured = sorted([1], key=callbacks[name])''',
+            "tuple_concat": '''callbacks = (mutate,) + (str,)
+configured = sorted([1], key=callbacks[0])''',
+            "list_repetition": '''callbacks = [mutate] * 2
+configured = sorted([1], key=callbacks[0])''',
+            "unknown_sorted_key": '''configured = sorted([1], key=external)''',
+            "unknown_min_key": '''configured = min([1], key=external)''',
+            "unknown_max_key_alias": '''from builtins import max as choose
+configured = choose([1], key=external)''',
+            "unknown_builtins_sorted_key": '''import builtins as bi
+configured = bi.sorted([1], key=external)''',
+            "unknown_assigned_alias_key": '''arrange = sorted
+configured = arrange([1], key=external)''',
+            "unknown_kwargs": '''options = external
+configured = sorted([1], **options)''',
+            "unknown_literal_spread_key": '''configured = sorted(
+    [1], **{"key": external}
+)''',
+            "dynamic_literal_spread_key": '''name = "key"
+configured = sorted([1], **{name: str})''',
+        }
+        for shape, definition in definitions.items():
+            with self.subTest(shape=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f'''import torch
+def mutate(value):
+    torch.optim.SGD = value
+{definition}
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+                )
+                with self.assertRaisesRegex(DiscoveryError, "module.*callback"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+        self.write_source(
+            "toolkit/optimizer.py",
+            '''import torch
+import builtins as bi
+from builtins import min as minimum
+flag = True
+arrange = sorted
+callback = str if flag else int
+sorted_direct = sorted([1], key=str)
+sorted_alias = arrange([1], key=callback)
+minimum_alias = minimum([1], key=int)
+maximum_attribute = bi.max([1], key=str)
+disabled_callback = sorted([1], key=None)
+safe_spread_callback = sorted([1], **{"key": str})
+safe_spread_without_callback = sorted([1], **{"reverse": True})
+unknown_length = len(external)
+unknown_reverse = sorted(external, reverse=descending)
+unknown_positional = max(external, 1)
+unknown_default = min(external, default=fallback)
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+        )
+        discovered = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        self.assertTrue(any(fact.read_kind == "optimizer.registry" for fact in discovered))
+
     def test_training_dispatch_contract_rejects_nested_or_conditional_mapping_effects(self):
         operations = {
             "nested_write": 'forwarded["nested"]["value"] = 1',
