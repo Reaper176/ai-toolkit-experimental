@@ -1086,6 +1086,158 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "toolkit/lycoris_special.py::LycorisSpecialNetwork.__init__",
         )
 
+    def test_catalog_network_kwargs_are_exhaustively_scoped_to_active_targets(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        network_type = next(
+            item for item in catalog.settings if item.id == "network.type"
+        )
+        accepted = set(network_type.contract.accepted_values or ())
+        process_source = (
+            REPOSITORY_ROOT / "jobs/process/BaseSDTrainProcess.py"
+        ).read_text(encoding="utf-8")
+        branch = re.search(
+            r"if (?P<condition>[^\n]+):\n\s+NetworkClass = LycorisSpecialNetwork",
+            process_source,
+        )
+        self.assertIsNotNone(branch)
+        lycoris_types = set(
+            re.findall(r"\.lower\(\) == ['\"]([^'\"]+)['\"]", branch.group("condition"))
+        )
+        lora_types = accepted - lycoris_types
+        self.assertEqual(lycoris_types, {"locon", "lycoris"})
+        self.assertEqual(
+            lora_types, {"lora", "lorm", "lokr", "dora", "fullrank"}
+        )
+
+        targets = {
+            ("toolkit/lora_special.py", "LoRASpecialNetwork.__init__"): (
+                "lora",
+                lora_types,
+                {
+                    "attn_only", "block_alphas", "block_dims",
+                    "conv_block_alphas", "conv_block_dims", "full_if_contains",
+                    "full_train_in_out", "ignore_if_contains", "module_dropout",
+                    "only_if_contains", "parameter_threshold", "peft_format",
+                    "rank_dropout", "varbose",
+                },
+                "Only effective when network.type dispatches to LoRASpecialNetwork; LycorisSpecialNetwork ignores this forwarded keyword.",
+            ),
+            ("toolkit/lycoris_special.py", "LycorisSpecialNetwork.__init__"): (
+                "lycoris",
+                lycoris_types,
+                {"module_dropout", "rank_dropout", "use_cp"},
+                "Only effective when network.type dispatches to LycorisSpecialNetwork; LoRASpecialNetwork ignores this forwarded keyword.",
+            ),
+        }
+        claimed = {}
+        for setting in catalog.settings:
+            for claim in setting.source_claims:
+                target = (claim.source, claim.symbol)
+                if target in targets:
+                    self.assertNotIn((target, claim.key), claimed)
+                    claimed[(target, claim.key)] = setting
+
+        self.assertEqual(
+            set(claimed),
+            {
+                (target, key)
+                for target, (_, _, keys, _) in targets.items()
+                for key in keys
+            },
+        )
+        self.assertEqual(len(claimed), 17)
+        for target, (family, network_types, keys, dispatch_description) in targets.items():
+            expected_applicability = {
+                ("diffusion_trainer", value) for value in network_types
+            }
+            for key in keys:
+                with self.subTest(target=target, key=key):
+                    setting = claimed[(target, key)]
+                    self.assertEqual(setting.id, f"network.kwargs.{family}.{key}")
+                    self.assertEqual(
+                        {(item.kind, item.path) for item in setting.locations},
+                        {
+                            (
+                                "yaml",
+                                f"config.process[*].network.network_kwargs.{key}",
+                            )
+                        },
+                    )
+                    self.assertEqual(
+                        {
+                            (item.process_type, item.network_type)
+                            for item in setting.applicability
+                        },
+                        expected_applicability,
+                    )
+                    self.assertTrue(
+                        all(
+                            item.job_type is None
+                            and item.ui_architecture is None
+                            and item.engine_architecture is None
+                            for item in setting.applicability
+                        )
+                    )
+                    for default in setting.defaults:
+                        self.assertEqual(
+                            {
+                                (item.process_type, item.network_type)
+                                for item in default.applicability
+                            },
+                            expected_applicability,
+                        )
+                    dispatch_interactions = tuple(
+                        item
+                        for item in setting.interactions
+                        if item.setting == "network.type" and item.kind == "constrains"
+                    )
+                    self.assertEqual(len(dispatch_interactions), 1)
+                    self.assertEqual(
+                        dispatch_interactions[0].description,
+                        dispatch_description,
+                    )
+                    self.assertEqual(
+                        {
+                            (item.process_type, item.network_type)
+                            for item in dispatch_interactions[0].applicability
+                        },
+                        expected_applicability,
+                    )
+
+        lycoris_null_normalization = (
+            "LycorisSpecialNetwork normalizes omitted or explicit null to 0 before module construction."
+        )
+        for key in ("rank_dropout", "module_dropout"):
+            lora = claimed[(
+                ("toolkit/lora_special.py", "LoRASpecialNetwork.__init__"), key
+            )]
+            lycoris = claimed[(
+                ("toolkit/lycoris_special.py", "LycorisSpecialNetwork.__init__"), key
+            )]
+            self.assertEqual(lora.defaults[0].value, None)
+            self.assertEqual(lycoris.defaults[0].value, None)
+            self.assertNotIn(
+                lycoris_null_normalization,
+                {item.description for item in lora.normalizations},
+            )
+            lycoris_normalizations = tuple(
+                item
+                for item in lycoris.normalizations
+                if item.description == lycoris_null_normalization
+            )
+            self.assertEqual(len(lycoris_normalizations), 1)
+            self.assertEqual(
+                {
+                    (item.process_type, item.network_type)
+                    for item in lycoris_normalizations[0].applicability
+                },
+                {("diffusion_trainer", value) for value in lycoris_types},
+            )
+
     def test_catalog_inactive_kohya_factory_is_exactly_excluded(self):
         target_source = "toolkit/kohya_lora.py"
         target_symbol = "create_network"

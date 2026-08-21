@@ -6794,7 +6794,7 @@
       }
     },
     {
-      "id": "network.kwargs.attn_only",
+      "id": "network.kwargs.lora.attn_only",
       "ui_label": null,
       "scope": "network",
       "locations": [
@@ -6811,7 +6811,24 @@
       "lifecycle": "unconsumed",
       "applicability": [
         {
-          "process_type": "diffusion_trainer"
+          "process_type": "diffusion_trainer",
+          "network_type": "lora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lorm"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lokr"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "dora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "fullrank"
         }
       ],
       "contract": {
@@ -6828,11 +6845,60 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": false,
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
       "normalizations": [],
-      "interactions": [],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LoRASpecialNetwork; LycorisSpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
+        }
+      ],
       "aliases": [],
       "section": "network",
       "source_claims": [
@@ -6845,7 +6911,7 @@
       ],
       "render": {
         "page": "reference/network.md",
-        "anchor": "network-kwargs-attn-only",
+        "anchor": "network-kwargs-lora-attn-only",
         "description": "Records the historical attention-only switch accepted by the active constructor.",
         "benefits": "Preserves compatibility with configurations that still carry the field.",
         "drawbacks": "The current constructor does not use the value to filter modules.",
@@ -6853,7 +6919,7 @@
       }
     },
     {
-      "id": "network.kwargs.block_alphas",
+      "id": "network.kwargs.lora.block_alphas",
       "ui_label": null,
       "scope": "network",
       "locations": [
@@ -6870,7 +6936,24 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "process_type": "diffusion_trainer"
+          "process_type": "diffusion_trainer",
+          "network_type": "lora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lorm"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lokr"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "dora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "fullrank"
         }
       ],
       "contract": {
@@ -6887,16 +6970,85 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": null,
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
       "normalizations": [],
       "interactions": [
         {
-          "setting": "network.kwargs.block_dims",
+          "setting": "network.kwargs.lora.block_dims",
           "kind": "requires",
           "description": "Alpha entries correspond positionally to block_dims.",
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
+        },
+        {
+          "setting": "network.type",
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LoRASpecialNetwork; LycorisSpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
       "aliases": [],
@@ -6911,7 +7063,7 @@
       ],
       "render": {
         "page": "reference/network.md",
-        "anchor": "network-kwargs-block-alphas",
+        "anchor": "network-kwargs-lora-block-alphas",
         "description": "Supplies per-block alpha values paired with block dimensions.",
         "benefits": "Tunes update scaling independently for each selected block.",
         "drawbacks": "Length or ordering mismatches with block dimensions produce invalid or unintended shapes.",
@@ -6919,7 +7071,7 @@
       }
     },
     {
-      "id": "network.kwargs.block_dims",
+      "id": "network.kwargs.lora.block_dims",
       "ui_label": null,
       "scope": "network",
       "locations": [
@@ -6936,7 +7088,24 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "process_type": "diffusion_trainer"
+          "process_type": "diffusion_trainer",
+          "network_type": "lora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lorm"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lokr"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "dora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "fullrank"
         }
       ],
       "contract": {
@@ -6953,11 +7122,60 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": null,
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
       "normalizations": [],
-      "interactions": [],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LoRASpecialNetwork; LycorisSpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
+        }
+      ],
       "aliases": [],
       "section": "network",
       "source_claims": [
@@ -6970,7 +7188,7 @@
       ],
       "render": {
         "page": "reference/network.md",
-        "anchor": "network-kwargs-block-dims",
+        "anchor": "network-kwargs-lora-block-dims",
         "description": "Supplies per-block ranks for linear and 1x1 convolution targets.",
         "benefits": "Allocates network capacity differently across model blocks.",
         "drawbacks": "Large ranks increase memory and size; list shape must match the architecture.",
@@ -6978,7 +7196,7 @@
       }
     },
     {
-      "id": "network.kwargs.conv_block_alphas",
+      "id": "network.kwargs.lora.conv_block_alphas",
       "ui_label": null,
       "scope": "network",
       "locations": [
@@ -6995,7 +7213,24 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "process_type": "diffusion_trainer"
+          "process_type": "diffusion_trainer",
+          "network_type": "lora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lorm"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lokr"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "dora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "fullrank"
         }
       ],
       "contract": {
@@ -7012,16 +7247,85 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": null,
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
       "normalizations": [],
       "interactions": [
         {
-          "setting": "network.kwargs.conv_block_dims",
+          "setting": "network.kwargs.lora.conv_block_dims",
           "kind": "requires",
           "description": "Alpha entries correspond positionally to conv_block_dims.",
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
+        },
+        {
+          "setting": "network.type",
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LoRASpecialNetwork; LycorisSpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
       "aliases": [],
@@ -7036,7 +7340,7 @@
       ],
       "render": {
         "page": "reference/network.md",
-        "anchor": "network-kwargs-conv-block-alphas",
+        "anchor": "network-kwargs-lora-conv-block-alphas",
         "description": "Supplies per-block alpha values for 3x3 convolution targets.",
         "benefits": "Tunes convolution scaling by model block.",
         "drawbacks": "It requires matching convolution block dimensions and architecture ordering.",
@@ -7044,7 +7348,7 @@
       }
     },
     {
-      "id": "network.kwargs.conv_block_dims",
+      "id": "network.kwargs.lora.conv_block_dims",
       "ui_label": null,
       "scope": "network",
       "locations": [
@@ -7061,7 +7365,24 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "process_type": "diffusion_trainer"
+          "process_type": "diffusion_trainer",
+          "network_type": "lora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lorm"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lokr"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "dora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "fullrank"
         }
       ],
       "contract": {
@@ -7078,11 +7399,60 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": null,
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
       "normalizations": [],
-      "interactions": [],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LoRASpecialNetwork; LycorisSpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
+        }
+      ],
       "aliases": [],
       "section": "network",
       "source_claims": [
@@ -7095,7 +7465,7 @@
       ],
       "render": {
         "page": "reference/network.md",
-        "anchor": "network-kwargs-conv-block-dims",
+        "anchor": "network-kwargs-lora-conv-block-dims",
         "description": "Supplies per-block ranks for 3x3 convolution targets.",
         "benefits": "Allocates convolution capacity by block.",
         "drawbacks": "It increases parameters and must align with convolution block alphas.",
@@ -7103,7 +7473,7 @@
       }
     },
     {
-      "id": "network.kwargs.full_if_contains",
+      "id": "network.kwargs.lora.full_if_contains",
       "ui_label": null,
       "scope": "network",
       "locations": [
@@ -7120,7 +7490,24 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "process_type": "diffusion_trainer"
+          "process_type": "diffusion_trainer",
+          "network_type": "lora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lorm"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lokr"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "dora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "fullrank"
         }
       ],
       "contract": {
@@ -7137,16 +7524,86 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": null,
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
       "normalizations": [
         {
           "description": "A single string is converted to a one-element list; null becomes an empty list.",
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
-      "interactions": [],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LoRASpecialNetwork; LycorisSpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
+        }
+      ],
       "aliases": [],
       "section": "network",
       "source_claims": [
@@ -7159,7 +7616,7 @@
       ],
       "render": {
         "page": "reference/network.md",
-        "anchor": "network-kwargs-full-if-contains",
+        "anchor": "network-kwargs-lora-full-if-contains",
         "description": "Replaces matching weighted leaf modules with full-weight modules instead of ordinary LoRA modules.",
         "benefits": "Gives selected layers full adaptation capacity.",
         "drawbacks": "Matching broad substrings can greatly increase trainable parameters and checkpoint size.",
@@ -7167,7 +7624,7 @@
       }
     },
     {
-      "id": "network.kwargs.full_train_in_out",
+      "id": "network.kwargs.lora.full_train_in_out",
       "ui_label": null,
       "scope": "network",
       "locations": [
@@ -7184,7 +7641,24 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "process_type": "diffusion_trainer"
+          "process_type": "diffusion_trainer",
+          "network_type": "lora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lorm"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lokr"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "dora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "fullrank"
         }
       ],
       "contract": {
@@ -7201,11 +7675,60 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": false,
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
       "normalizations": [],
-      "interactions": [],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LoRASpecialNetwork; LycorisSpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
+        }
+      ],
       "aliases": [],
       "section": "network",
       "source_claims": [
@@ -7218,7 +7741,7 @@
       ],
       "render": {
         "page": "reference/network.md",
-        "anchor": "network-kwargs-full-train-in-out",
+        "anchor": "network-kwargs-lora-full-train-in-out",
         "description": "Adds full training modules for supported network input and output layers.",
         "benefits": "Can adapt boundary projections that ordinary target replacement omits.",
         "drawbacks": "It adds full-weight parameters and may reduce checkpoint portability.",
@@ -7226,7 +7749,7 @@
       }
     },
     {
-      "id": "network.kwargs.ignore_if_contains",
+      "id": "network.kwargs.lora.ignore_if_contains",
       "ui_label": null,
       "scope": "network",
       "locations": [
@@ -7243,7 +7766,24 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "process_type": "diffusion_trainer"
+          "process_type": "diffusion_trainer",
+          "network_type": "lora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lorm"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lokr"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "dora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "fullrank"
         }
       ],
       "contract": {
@@ -7260,16 +7800,86 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": null,
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
       "normalizations": [
         {
           "description": "Null becomes an empty exclusion list.",
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
-      "interactions": [],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LoRASpecialNetwork; LycorisSpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
+        }
+      ],
       "aliases": [],
       "section": "network",
       "source_claims": [
@@ -7282,7 +7892,7 @@
       ],
       "render": {
         "page": "reference/network.md",
-        "anchor": "network-kwargs-ignore-if-contains",
+        "anchor": "network-kwargs-lora-ignore-if-contains",
         "description": "Skips candidate modules whose names contain any listed substring.",
         "benefits": "Removes unwanted or unstable targets from the network.",
         "drawbacks": "Broad filters can silently exclude most trainable layers.",
@@ -7290,7 +7900,7 @@
       }
     },
     {
-      "id": "network.kwargs.module_dropout",
+      "id": "network.kwargs.lora.module_dropout",
       "ui_label": null,
       "scope": "network",
       "locations": [
@@ -7307,7 +7917,24 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "process_type": "diffusion_trainer"
+          "process_type": "diffusion_trainer",
+          "network_type": "lora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lorm"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lokr"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "dora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "fullrank"
         }
       ],
       "contract": {
@@ -7329,11 +7956,60 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": null,
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
       "normalizations": [],
-      "interactions": [],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LoRASpecialNetwork; LycorisSpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
+        }
+      ],
       "aliases": [],
       "section": "network",
       "source_claims": [
@@ -7342,7 +8018,109 @@
           "symbol": "LoRASpecialNetwork.__init__",
           "key": "module_dropout",
           "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-lora-module-dropout",
+        "description": "Sets LoRA-family whole-module dropout probability; null remains unset.",
+        "benefits": "Regularizes by occasionally bypassing an adapter module.",
+        "drawbacks": "High probability weakens training and increases stochastic variation.",
+        "example": "module_dropout: 0.1"
+      }
+    },
+    {
+      "id": "network.kwargs.lycoris.module_dropout",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.module_dropout"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "locon"
         },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lycoris"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability-or-null",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "locon"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lycoris"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "LycorisSpecialNetwork normalizes omitted or explicit null to 0 before module construction.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "locon"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lycoris"
+            }
+          ]
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LycorisSpecialNetwork; LoRASpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "locon"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lycoris"
+            }
+          ]
+        }
+      ],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
         {
           "source": "toolkit/lycoris_special.py",
           "symbol": "LycorisSpecialNetwork.__init__",
@@ -7352,15 +8130,15 @@
       ],
       "render": {
         "page": "reference/network.md",
-        "anchor": "network-kwargs-module-dropout",
-        "description": "Sets whole-module dropout probability for each LoRA module.",
+        "anchor": "network-kwargs-lycoris-module-dropout",
+        "description": "Sets LyCORIS whole-module dropout probability; omitted or null becomes 0.",
         "benefits": "Regularizes by occasionally bypassing an adapter module.",
         "drawbacks": "High probability weakens training and increases stochastic variation.",
         "example": "module_dropout: 0.1"
       }
     },
     {
-      "id": "network.kwargs.only_if_contains",
+      "id": "network.kwargs.lora.only_if_contains",
       "ui_label": null,
       "scope": "network",
       "locations": [
@@ -7377,7 +8155,24 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "process_type": "diffusion_trainer"
+          "process_type": "diffusion_trainer",
+          "network_type": "lora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lorm"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lokr"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "dora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "fullrank"
         }
       ],
       "contract": {
@@ -7394,11 +8189,60 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": null,
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
       "normalizations": [],
-      "interactions": [],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LoRASpecialNetwork; LycorisSpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
+        }
+      ],
       "aliases": [],
       "section": "network",
       "source_claims": [
@@ -7411,7 +8255,7 @@
       ],
       "render": {
         "page": "reference/network.md",
-        "anchor": "network-kwargs-only-if-contains",
+        "anchor": "network-kwargs-lora-only-if-contains",
         "description": "Keeps candidate modules only when their names contain a listed substring.",
         "benefits": "Restricts adaptation to a deliberate subnetwork.",
         "drawbacks": "Overly narrow filters can leave few or no trainable modules.",
@@ -7419,7 +8263,7 @@
       }
     },
     {
-      "id": "network.kwargs.parameter_threshold",
+      "id": "network.kwargs.lora.parameter_threshold",
       "ui_label": null,
       "scope": "network",
       "locations": [
@@ -7436,7 +8280,24 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "process_type": "diffusion_trainer"
+          "process_type": "diffusion_trainer",
+          "network_type": "lora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lorm"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lokr"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "dora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "fullrank"
         }
       ],
       "contract": {
@@ -7458,11 +8319,60 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": 0,
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
       "normalizations": [],
-      "interactions": [],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LoRASpecialNetwork; LycorisSpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
+        }
+      ],
       "aliases": [],
       "section": "network",
       "source_claims": [
@@ -7475,7 +8385,7 @@
       ],
       "render": {
         "page": "reference/network.md",
-        "anchor": "network-kwargs-parameter-threshold",
+        "anchor": "network-kwargs-lora-parameter-threshold",
         "description": "Skips candidate modules whose parameter count is below the threshold.",
         "benefits": "Avoids spending adapter capacity on small layers.",
         "drawbacks": "A high threshold can remove important targets.",
@@ -7483,7 +8393,7 @@
       }
     },
     {
-      "id": "network.kwargs.peft_format",
+      "id": "network.kwargs.lora.peft_format",
       "ui_label": null,
       "scope": "network",
       "locations": [
@@ -7500,7 +8410,24 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "process_type": "diffusion_trainer"
+          "process_type": "diffusion_trainer",
+          "network_type": "lora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lorm"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lokr"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "dora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "fullrank"
         }
       ],
       "contract": {
@@ -7517,16 +8444,86 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": false,
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
       "normalizations": [
         {
           "description": "Transformer-family networks force PEFT format unless legacy LoKr format is active; PEFT format sets alpha equal to rank.",
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
-      "interactions": [],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LoRASpecialNetwork; LycorisSpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
+        }
+      ],
       "aliases": [],
       "section": "network",
       "source_claims": [
@@ -7539,7 +8536,7 @@
       ],
       "render": {
         "page": "reference/network.md",
-        "anchor": "network-kwargs-peft-format",
+        "anchor": "network-kwargs-lora-peft-format",
         "description": "Uses PEFT-style module names and scaling behavior.",
         "benefits": "Improves compatibility with PEFT-oriented checkpoints for supported architectures.",
         "drawbacks": "It changes key names and forces alpha to rank, affecting interoperability with legacy formats.",
@@ -7547,7 +8544,7 @@
       }
     },
     {
-      "id": "network.kwargs.rank_dropout",
+      "id": "network.kwargs.lora.rank_dropout",
       "ui_label": null,
       "scope": "network",
       "locations": [
@@ -7564,7 +8561,24 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "process_type": "diffusion_trainer"
+          "process_type": "diffusion_trainer",
+          "network_type": "lora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lorm"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lokr"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "dora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "fullrank"
         }
       ],
       "contract": {
@@ -7586,11 +8600,60 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": null,
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
       "normalizations": [],
-      "interactions": [],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LoRASpecialNetwork; LycorisSpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
+        }
+      ],
       "aliases": [],
       "section": "network",
       "source_claims": [
@@ -7599,7 +8662,109 @@
           "symbol": "LoRASpecialNetwork.__init__",
           "key": "rank_dropout",
           "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-lora-rank-dropout",
+        "description": "Sets LoRA-family rank-component dropout probability; null remains unset.",
+        "benefits": "Regularizes individual low-rank components.",
+        "drawbacks": "High values reduce effective capacity and slow learning.",
+        "example": "rank_dropout: 0.1"
+      }
+    },
+    {
+      "id": "network.kwargs.lycoris.rank_dropout",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.rank_dropout"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "locon"
         },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lycoris"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability-or-null",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "locon"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lycoris"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "LycorisSpecialNetwork normalizes omitted or explicit null to 0 before module construction.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "locon"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lycoris"
+            }
+          ]
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LycorisSpecialNetwork; LoRASpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "locon"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lycoris"
+            }
+          ]
+        }
+      ],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
         {
           "source": "toolkit/lycoris_special.py",
           "symbol": "LycorisSpecialNetwork.__init__",
@@ -7609,15 +8774,15 @@
       ],
       "render": {
         "page": "reference/network.md",
-        "anchor": "network-kwargs-rank-dropout",
-        "description": "Sets rank-component dropout probability.",
+        "anchor": "network-kwargs-lycoris-rank-dropout",
+        "description": "Sets LyCORIS rank-component dropout probability; omitted or null becomes 0.",
         "benefits": "Regularizes individual low-rank components.",
         "drawbacks": "High values reduce effective capacity and slow learning.",
         "example": "rank_dropout: 0.1"
       }
     },
     {
-      "id": "network.kwargs.varbose",
+      "id": "network.kwargs.lora.varbose",
       "ui_label": null,
       "scope": "network",
       "locations": [
@@ -7634,7 +8799,24 @@
       "lifecycle": "legacy",
       "applicability": [
         {
-          "process_type": "diffusion_trainer"
+          "process_type": "diffusion_trainer",
+          "network_type": "lora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lorm"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lokr"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "dora"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "fullrank"
         }
       ],
       "contract": {
@@ -7651,11 +8833,60 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": false,
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
         }
       ],
       "normalizations": [],
-      "interactions": [],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LoRASpecialNetwork; LycorisSpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lorm"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lokr"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "dora"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "fullrank"
+            }
+          ]
+        }
+      ],
       "aliases": [],
       "section": "network",
       "source_claims": [
@@ -7668,7 +8899,7 @@
       ],
       "render": {
         "page": "reference/network.md",
-        "anchor": "network-kwargs-varbose",
+        "anchor": "network-kwargs-lora-varbose",
         "description": "Prints the list of skipped modules using the constructor's legacy misspelled key.",
         "benefits": "Helps diagnose target selection.",
         "drawbacks": "It can produce long output and the misspelled key is retained only for compatibility.",
@@ -7676,7 +8907,7 @@
       }
     },
     {
-      "id": "network.kwargs.use_cp",
+      "id": "network.kwargs.lycoris.use_cp",
       "ui_label": null,
       "scope": "network",
       "locations": [
@@ -7693,7 +8924,12 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "process_type": "diffusion_trainer"
+          "process_type": "diffusion_trainer",
+          "network_type": "locon"
+        },
+        {
+          "process_type": "diffusion_trainer",
+          "network_type": "lycoris"
         }
       ],
       "contract": {
@@ -7710,16 +8946,34 @@
           "kind": "engine-fallback",
           "presence": "present",
           "value": false,
-          "applicability": []
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "locon"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lycoris"
+            }
+          ]
         }
       ],
       "normalizations": [],
       "interactions": [
         {
           "setting": "network.type",
-          "kind": "requires",
-          "description": "This option is consumed by the active LyCORIS/LoCon constructor.",
-          "applicability": []
+          "kind": "constrains",
+          "description": "Only effective when network.type dispatches to LycorisSpecialNetwork; LoRASpecialNetwork ignores this forwarded keyword.",
+          "applicability": [
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "locon"
+            },
+            {
+              "process_type": "diffusion_trainer",
+              "network_type": "lycoris"
+            }
+          ]
         }
       ],
       "aliases": [],
@@ -7734,7 +8988,7 @@
       ],
       "render": {
         "page": "reference/network.md",
-        "anchor": "network-kwargs-use-cp",
+        "anchor": "network-kwargs-lycoris-use-cp",
         "description": "Enables CP decomposition for eligible non-1x1 LoCon convolution modules.",
         "benefits": "Can reduce the parameter cost of convolution adaptation.",
         "drawbacks": "It changes module shape and checkpoint compatibility and applies only to eligible convolutions.",
