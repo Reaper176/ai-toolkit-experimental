@@ -1282,12 +1282,7 @@
         "supported_type": "string",
         "ui_type": null,
         "example_type": "string",
-        "accepted_values": [
-          "fixed",
-          "threshold",
-          "ratio",
-          "quantile"
-        ],
+        "accepted_values": null,
         "range": null,
         "null": "normalized-to-absent"
       },
@@ -1320,7 +1315,7 @@
         "page": "reference/training.md",
         "anchor": "process-lorm-extract-mode",
         "description": "Parses lorm_extract_mode into the process configuration, but current production code never reads the assigned attribute.",
-        "benefits": "Documents the parsed compatibility field and its accepted legacy spellings.",
+        "benefits": "Documents the parsed compatibility field and its historical default value.",
         "drawbacks": "Changing it has no runtime effect because no production path reads the assigned attribute.",
         "example": "lorm_extract_mode: ratio"
       }
@@ -1348,7 +1343,7 @@
       ],
       "contract": {
         "parser_type": "number",
-        "supported_type": "mode-dependent-number",
+        "supported_type": "number",
         "ui_type": null,
         "example_type": "number",
         "accepted_values": null,

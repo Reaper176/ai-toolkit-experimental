@@ -1013,6 +1013,13 @@ class CatalogContractTests(unittest.TestCase):
                 self.assertIn("parsed", teaching)
                 self.assertIn("no runtime effect", teaching)
                 self.assertEqual(setting.interactions, ())
+        self.assertIsNone(
+            settings["process.lorm_extract_mode"].contract.accepted_values
+        )
+        self.assertEqual(
+            settings["process.lorm_extract_mode_param"].contract.supported_type,
+            "number",
+        )
 
     def test_root_config_example_is_accepted_by_source_base_job_loader(self):
         catalog = load_settings_catalog(
