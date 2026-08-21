@@ -1869,6 +1869,16 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 and item.symbol == "BaseSDTrainProcess.__init__"
                 and item.key in {"first_sample", "sample", "save"}
             )
+        if scope == "data":
+            return any(
+                cls._in_scope(item, slice_name)
+                for slice_name in (
+                    "dataset-core",
+                    "dataset-modalities",
+                    "data-loader-cache",
+                    "save-sample-validation",
+                )
+            )
         raise AssertionError(f"unknown catalog test scope {scope!r}")
 
     def assert_catalog_selector_green(self, *arguments):
@@ -3265,6 +3275,56 @@ class CatalogProductionSliceTests(unittest.TestCase):
             REPOSITORY_ROOT / "jobs/process/BaseTrainProcess.py"
         ).read_text(encoding="utf-8")
         self.assertIn("os.path.join(self.training_folder, self.name)", base_process)
+
+    def test_catalog_combined_data_scope_is_exactly_owned(self):
+        self.assert_catalog_selector_green("--scope", "data")
+
+    def test_catalog_data_slice_cli_scopes_are_public_and_exact(self):
+        for scope in (
+            "dataset-core",
+            "dataset-modalities",
+            "data-loader-cache",
+            "save-sample-validation",
+            "data",
+        ):
+            with self.subTest(scope=scope):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "scripts/validate_training_book.py",
+                        "--check-discovery",
+                        "--scope",
+                        scope,
+                    ],
+                    cwd=REPOSITORY_ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    result.returncode,
+                    0,
+                    result.stdout + result.stderr,
+                )
+
+    def test_catalog_data_slice_cli_rejects_multiple_scopes(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/validate_training_book.py",
+                "--check-discovery",
+                "--scope",
+                "dataset-core",
+                "--scope",
+                "dataset-modalities",
+            ],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scope", result.stderr)
 
     def test_catalog_process_get_conf_null_semantics_are_exhaustive(self):
         catalog = load_settings_catalog(

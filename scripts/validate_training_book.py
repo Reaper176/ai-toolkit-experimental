@@ -218,6 +218,49 @@ def _in_schedulers(item) -> bool:
     )
 
 
+def _in_dataset_keys(item, keys) -> bool:
+    return (
+        item.source == "toolkit/config_modules.py"
+        and item.symbol == "DatasetConfig.__init__"
+        and item.key in keys
+    )
+
+
+def _in_data_loader_cache(item) -> bool:
+    return item.source in DATA_LOADER_SOURCES or _in_dataset_keys(
+        item, DATASET_CACHE_KEYS
+    )
+
+
+def _in_save_sample_validation(item) -> bool:
+    return (
+        item.source == "toolkit/config_modules.py"
+        and (
+            item.symbol in SAVE_SAMPLE_SYMBOLS
+            or (
+                item.symbol == "NetworkConfig.__init__"
+                and item.key == "pretrained_lora_path"
+            )
+            or (
+                item.symbol == "TrainConfig.__init__"
+                and item.key in {"lr", "start_step"}
+            )
+        )
+    ) or (
+        item.source == "jobs/process/BaseSDTrainProcess.py"
+        and item.symbol == "BaseSDTrainProcess.__init__"
+        and item.key in {"first_sample", "sample", "save"}
+    )
+
+
+def _in_data(item) -> bool:
+    return (
+        _in_dataset_keys(item, DATASET_CORE_KEYS | DATASET_MODALITY_KEYS)
+        or _in_data_loader_cache(item)
+        or _in_save_sample_validation(item)
+    )
+
+
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inventory-json", type=Path)
@@ -374,7 +417,7 @@ def main() -> None:
             ["training"], ["train-schedule"], ["train-numerics"],
             ["train-components"], ["optimizers"], ["schedulers"],
             ["dataset-core"], ["dataset-modalities"], ["data-loader-cache"],
-            ["save-sample-validation"],
+            ["save-sample-validation"], ["data"],
         ):
             production_scope = arguments.scope[0]
         elif arguments.scope != ["discovery-fixtures"]:
@@ -468,42 +511,11 @@ def main() -> None:
             "train-components": lambda item: _in_train_config_keys(item, TRAIN_COMPONENT_KEYS),
             "optimizers": _in_optimizers,
             "schedulers": _in_schedulers,
-            "dataset-core": lambda item: (
-                item.source == "toolkit/config_modules.py"
-                and item.symbol == "DatasetConfig.__init__"
-                and item.key in DATASET_CORE_KEYS
-            ),
-            "dataset-modalities": lambda item: (
-                item.source == "toolkit/config_modules.py"
-                and item.symbol == "DatasetConfig.__init__"
-                and item.key in DATASET_MODALITY_KEYS
-            ),
-            "data-loader-cache": lambda item: (
-                item.source in DATA_LOADER_SOURCES
-                or (
-                    item.source == "toolkit/config_modules.py"
-                    and item.symbol == "DatasetConfig.__init__"
-                    and item.key in DATASET_CACHE_KEYS
-                )
-            ),
-            "save-sample-validation": lambda item: (
-                item.source == "toolkit/config_modules.py"
-                and (
-                    item.symbol in SAVE_SAMPLE_SYMBOLS
-                    or (
-                        item.symbol == "NetworkConfig.__init__"
-                        and item.key == "pretrained_lora_path"
-                    )
-                    or (
-                        item.symbol == "TrainConfig.__init__"
-                        and item.key in {"lr", "start_step"}
-                    )
-                )
-            ) or (
-                item.source == "jobs/process/BaseSDTrainProcess.py"
-                and item.symbol == "BaseSDTrainProcess.__init__"
-                and item.key in {"first_sample", "sample", "save"}
-            ),
+            "dataset-core": lambda item: _in_dataset_keys(item, DATASET_CORE_KEYS),
+            "dataset-modalities": lambda item: _in_dataset_keys(item, DATASET_MODALITY_KEYS),
+            "data-loader-cache": _in_data_loader_cache,
+            "save-sample-validation": _in_save_sample_validation,
+            "data": _in_data,
         }
         if production_scope in slice_predicates:
             predicate = slice_predicates[production_scope]
