@@ -1081,23 +1081,127 @@ class CatalogContractTests(unittest.TestCase):
 
 
 class CatalogProductionSliceTests(unittest.TestCase):
-    def assert_catalog_selector_green(self, *arguments):
-        result = subprocess.run(
-            [
-                sys.executable,
-                "scripts/validate_training_book.py",
-                "--check-discovery",
-                *arguments,
-            ],
-            cwd=REPOSITORY_ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
+    CORE_PROCESS_SOURCES = frozenset(
+        {
+            "jobs/BaseJob.py",
+            "jobs/ExtensionJob.py",
+            "jobs/process/BaseProcess.py",
+            "jobs/process/BaseTrainProcess.py",
+            "jobs/process/BaseSDTrainProcess.py",
+            "extensions_built_in/sd_trainer/DiffusionTrainer.py",
+        }
+    )
+    CORE_IO_CONFIG_SYMBOLS = frozenset(
+        {
+            "SaveConfig.__init__",
+            "LoggingConfig.__init__",
+            "SampleConfig.__init__",
+            "SampleItem.__init__",
+            "LoRMConfig.__init__",
+            "LormModuleSettingsConfig.__init__",
+            "NetworkConfig.__init__",
+        }
+    )
+    CORE_MODULE_SYMBOLS = frozenset(
+        {
+            "AdapterConfig.__init__",
+            "ValidationConfig.__init__",
+            "ValidationItem.__init__",
+            "EmbeddingConfig.__init__",
+            "DecoratorConfig.__init__",
+            "EMAConfig.__init__",
+            "GuidanceConfig.__init__",
+        }
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        cls.discovery_scan_count = 0
+
+        def discover_once():
+            cls.discovery_scan_count += 1
+            return discover_python_settings(
+                REPOSITORY_ROOT, PYTHON_DISCOVERY_GLOBS
+            )
+
+        cls.discovered = discover_once()
+        source_catalog = load_source_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-sources.json"
         )
-        self.assertEqual(
-            result.returncode,
-            0,
-            result.stdout + result.stderr,
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        cls.claims = source_catalog.claims + catalog_source_claims(catalog)
+        cls.exclusions = load_exclusions(
+            REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
+        )
+        cls.declared_sources = tuple(
+            sorted(
+                {
+                    path.relative_to(REPOSITORY_ROOT).as_posix()
+                    for pattern in PYTHON_DISCOVERY_GLOBS
+                    for path in REPOSITORY_ROOT.glob(pattern)
+                    if path.is_file() and path.suffix == ".py"
+                }
+            )
+        )
+
+    @classmethod
+    def _in_core_io_network(cls, item):
+        return (
+            item.source == "toolkit/config_modules.py"
+            and item.symbol in cls.CORE_IO_CONFIG_SYMBOLS
+        ) or item.read_kind.startswith("network_kwargs.") or (
+            item.source == "toolkit/kohya_lora.py"
+        )
+
+    @classmethod
+    def _in_core_modules(cls, item):
+        return (
+            item.source == "toolkit/config_modules.py"
+            and item.symbol in cls.CORE_MODULE_SYMBOLS
+        )
+
+    @classmethod
+    def _in_scope(cls, item, scope):
+        if scope == "core-process":
+            return item.source in cls.CORE_PROCESS_SOURCES
+        if scope == "core-io-network":
+            return cls._in_core_io_network(item)
+        if scope == "core-modules":
+            return cls._in_core_modules(item)
+        if scope == "core":
+            return (
+                item.source in cls.CORE_PROCESS_SOURCES
+                or cls._in_core_io_network(item)
+                or cls._in_core_modules(item)
+            )
+        raise AssertionError(f"unknown catalog test scope {scope!r}")
+
+    def assert_catalog_selector_green(self, *arguments):
+        self.assertEqual(len(arguments), 2)
+        selector, value = arguments
+        if selector in {"--target-source", "--target-symbol"}:
+            validate_discovery_target(
+                self.discovered,
+                self.claims,
+                self.exclusions,
+                declared_sources=self.declared_sources,
+                target_source=value if selector == "--target-source" else None,
+                target_symbol=value if selector == "--target-symbol" else None,
+            )
+            return
+        self.assertEqual(selector, "--scope")
+        validate_setting_ownership(
+            tuple(
+                item for item in self.discovered if self._in_scope(item, value)
+            ),
+            tuple(item for item in self.claims if self._in_scope(item, value)),
+            tuple(
+                item for item in self.exclusions if self._in_scope(item, value)
+            ),
         )
 
     def test_catalog_base_job_source_is_exactly_owned(self):
@@ -1878,6 +1982,34 @@ class CatalogProductionSliceTests(unittest.TestCase):
 
     def test_catalog_combined_core_scope_is_exactly_owned(self):
         self.assert_catalog_selector_green("--scope", "core")
+
+    def test_catalog_selector_matrix_uses_one_shared_discovery_inventory(self):
+        self.assertEqual(self.discovery_scan_count, 1)
+
+    def test_catalog_selector_cli_smoke_wires_each_selector_mode(self):
+        selectors = (
+            ("--target-source", "jobs/BaseJob.py"),
+            (
+                "--target-symbol",
+                "toolkit/config_modules.py::AdapterConfig.__init__",
+            ),
+            ("--scope", "core"),
+        )
+        for selector in selectors:
+            with self.subTest(selector=selector):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "scripts/validate_training_book.py",
+                        "--check-discovery",
+                        *selector,
+                    ],
+                    cwd=REPOSITORY_ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 class DiscoveryContractTests(unittest.TestCase):
