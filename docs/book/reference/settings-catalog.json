@@ -14161,6 +14161,42 @@
           "symbol": "get_lr_scheduler",
           "key": "step",
           "read_kind": "scheduler.registry"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "constant__target=torch.optim.lr_scheduler.ConstantLR",
+          "read_kind": "scheduler.dispatch_target"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "constant_with_warmup__target=diffusers.optimization.get_constant_schedule_with_warmup",
+          "read_kind": "scheduler.dispatch_target"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "cosine__target=torch.optim.lr_scheduler.CosineAnnealingLR",
+          "read_kind": "scheduler.dispatch_target"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "cosine_with_restarts__target=torch.optim.lr_scheduler.CosineAnnealingWarmRestarts",
+          "read_kind": "scheduler.dispatch_target"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "linear__target=torch.optim.lr_scheduler.LinearLR",
+          "read_kind": "scheduler.dispatch_target"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "step__target=torch.optim.lr_scheduler.StepLR",
+          "read_kind": "scheduler.dispatch_target"
         }
       ],
       "render": {
@@ -21448,6 +21484,126 @@
           "symbol": "get_optimizer",
           "key": "prodigy8bit",
           "read_kind": "optimizer.registry_prefix"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adafactor__target=toolkit.optimizers.adafactor.Adafactor",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adagrad__target=torch.optim.Adagrad",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adam__target=torch.optim.Adam",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adam8__target=toolkit.optimizers.adam8bit.Adam8bit",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adam8bit__target=bitsandbytes.optim.Adam8bit",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adamw__target=torch.optim.AdamW",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adamw8__target=toolkit.optimizers.adam8bit.Adam8bit",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adamw8bit__target=bitsandbytes.optim.AdamW8bit",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "ademamix8bit__target=bitsandbytes.optim.AdEMAMix8bit",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "automagic__target=toolkit.optimizers.automagic.Automagic",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "automagic2__target=toolkit.optimizers.automagic2.Automagic2",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "automagic3__target=toolkit.optimizers.automagic3.Automagic3",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "automagicexperiment__target=toolkit.optimizers.automagicEXPERIMENT.AutomagicEXPERIMENT",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "dadaptation__target=dadaptation.DAdaptAdam",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "prefix=dadaptation;suffix=adam__target=dadaptation.DAdaptLion",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "prefix=dadaptation;suffix=lion__target=dadaptation.DAdaptLion",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "lion__target=lion_pytorch.Lion",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "lion8bit__target=bitsandbytes.optim.Lion8bit",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "prodigy__target=prodigyopt.Prodigy",
+          "read_kind": "optimizer.dispatch_target"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "prodigy8bit__target=toolkit.optimizers.prodigy_8bit.Prodigy8bit",
+          "read_kind": "optimizer.dispatch_target"
         },
         {
           "source": "toolkit/optimizer.py",

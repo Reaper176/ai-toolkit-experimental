@@ -69,7 +69,8 @@ _DOTTED_IDENTITY = re.compile(
 )
 _SOURCE_KEY = re.compile(
     r"^(?:[A-Za-z_][A-Za-z0-9_-]*|"
-    r"prefix=[A-Za-z0-9_-]+;suffix=[A-Za-z0-9_-]+(?:__[A-Za-z0-9_-]+)?)$"
+    r"prefix=[A-Za-z0-9_-]+;suffix=[A-Za-z0-9_-]+(?:__[A-Za-z0-9_-]+)?)"
+    r"(?:__target=[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)?$"
 )
 _READ_KIND = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:\[\])?$"

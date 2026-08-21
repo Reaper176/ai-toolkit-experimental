@@ -2033,6 +2033,33 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 for fact in registry_facts
             },
         )
+        target_facts = tuple(
+            fact for fact in self.discovered
+            if fact.read_kind == "optimizer.dispatch_target"
+        )
+        self.assertEqual(len(target_facts), len(registry_facts))
+        self.assertEqual(
+            {
+                (fact.key, fact.default_expression)
+                for fact in target_facts
+            },
+            {
+                (f"{fact.key}__target={fact.default_expression}",
+                 fact.default_expression)
+                for fact in registry_facts
+            },
+        )
+        self.assertEqual(
+            {
+                (claim.source, claim.symbol, claim.key, claim.read_kind)
+                for claim in optimizer.source_claims
+                if claim.read_kind == "optimizer.dispatch_target"
+            },
+            {
+                (fact.source, fact.symbol, fact.key, fact.read_kind)
+                for fact in target_facts
+            },
+        )
         def displayed_choice(fact):
             if fact.read_kind == "optimizer.registry_prefix":
                 return fact.key + "*"
@@ -2269,6 +2296,33 @@ class CatalogProductionSliceTests(unittest.TestCase):
             {
                 (fact.source, fact.symbol, fact.key, fact.read_kind)
                 for fact in registry_facts
+            },
+        )
+        target_facts = tuple(
+            fact for fact in self.discovered
+            if fact.read_kind == "scheduler.dispatch_target"
+        )
+        self.assertEqual(len(target_facts), len(registry_facts))
+        self.assertEqual(
+            {
+                (fact.key, fact.default_expression)
+                for fact in target_facts
+            },
+            {
+                (f"{fact.key}__target={fact.default_expression}",
+                 fact.default_expression)
+                for fact in registry_facts
+            },
+        )
+        self.assertEqual(
+            {
+                (claim.source, claim.symbol, claim.key, claim.read_kind)
+                for claim in scheduler.source_claims
+                if claim.read_kind == "scheduler.dispatch_target"
+            },
+            {
+                (fact.source, fact.symbol, fact.key, fact.read_kind)
+                for fact in target_facts
             },
         )
         local_choices = {fact.key for fact in registry_facts}
@@ -3511,7 +3565,8 @@ class DiscoveryContractTests(unittest.TestCase):
     def test_training_dispatch_contract_discovers_optimizer_and_scheduler_registries(self):
         self.write_source(
             "toolkit/optimizer.py",
-            """def get_optimizer(params, optimizer_type, learning_rate, optimizer_params):
+            """import torch
+def get_optimizer(params, optimizer_type, learning_rate, optimizer_params):
     lower_type = optimizer_type.lower()
     if lower_type == "adamw":
         return torch.optim.AdamW(params, lr=learning_rate, **optimizer_params)
@@ -3533,7 +3588,8 @@ class DiscoveryContractTests(unittest.TestCase):
         )
         self.write_source(
             "toolkit/scheduler.py",
-            """def get_lr_scheduler(name, optimizer, **kwargs):
+            """import torch
+def get_lr_scheduler(name, optimizer, **kwargs):
     if name == "cosine":
         return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, **kwargs)
     elif name == "constant":
@@ -3578,7 +3634,8 @@ class DiscoveryContractTests(unittest.TestCase):
     def test_training_dispatch_contract_membership_choices_become_unowned(self):
         path = self.write_source(
             "toolkit/optimizer.py",
-            """def get_optimizer(params, optimizer_type, optimizer_params):
+            """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     lower_type = optimizer_type.lower()
     if lower_type == "adam":
         return torch.optim.Adam(params, **optimizer_params)
@@ -3614,7 +3671,8 @@ class DiscoveryContractTests(unittest.TestCase):
     def test_training_dispatch_contract_preserves_combined_prefix_suffix_identity(self):
         path = self.write_source(
             "toolkit/optimizer.py",
-            """def get_optimizer(params, optimizer_type, optimizer_params):
+            """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     lower_type = optimizer_type.lower()
     if lower_type.startswith("family"):
         from toolkit.optimizers.magic import Magic
@@ -3670,7 +3728,8 @@ class DiscoveryContractTests(unittest.TestCase):
     def test_training_dispatch_contract_follows_optimizer_and_scheduler_spread_aliases(self):
         self.write_source(
             "toolkit/optimizer.py",
-            """def get_optimizer(params, optimizer_type, learning_rate, optimizer_params):
+            """import torch
+def get_optimizer(params, optimizer_type, learning_rate, optimizer_params):
     forwarded = optimizer_params
     lower_type = optimizer_type.lower()
     if lower_type == "adamw":
@@ -3680,7 +3739,8 @@ class DiscoveryContractTests(unittest.TestCase):
         )
         self.write_source(
             "toolkit/scheduler.py",
-            """def get_lr_scheduler(name, optimizer, **kwargs):
+            """import torch
+def get_lr_scheduler(name, optimizer, **kwargs):
     forwarded = kwargs
     if name == "constant":
         return torch.optim.lr_scheduler.ConstantLR(optimizer, factor=1.0, **forwarded)
@@ -3701,9 +3761,13 @@ class DiscoveryContractTests(unittest.TestCase):
             {
                 ("adamw__target=torch.optim.AdamW", "optimizer.external_boundary",
                  "torch.optim.AdamW"),
+                ("adamw__target=torch.optim.AdamW", "optimizer.dispatch_target",
+                 "torch.optim.AdamW"),
                 ("adamw", "optimizer.registry", "torch.optim.AdamW"),
                 ("adamw__lr", "optimizer.injected", "learning_rate"),
                 ("constant", "scheduler.registry", "torch.optim.lr_scheduler.ConstantLR"),
+                ("constant__target=torch.optim.lr_scheduler.ConstantLR",
+                 "scheduler.dispatch_target", "torch.optim.lr_scheduler.ConstantLR"),
                 ("constant__factor", "scheduler.injected", "1.0"),
             },
         )
@@ -3711,7 +3775,8 @@ class DiscoveryContractTests(unittest.TestCase):
     def test_training_dispatch_contract_discovers_static_calls_without_spreads(self):
         self.write_source(
             "toolkit/optimizer.py",
-            """def get_optimizer(params, optimizer_type, optimizer_params):
+            """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     if optimizer_type == "sgd":
         return torch.optim.SGD(params)
     raise ValueError(optimizer_type)
@@ -3733,7 +3798,8 @@ class DiscoveryContractTests(unittest.TestCase):
     def test_training_dispatch_contract_new_static_call_is_unowned(self):
         path = self.write_source(
             "toolkit/optimizer.py",
-            """def get_optimizer(params, optimizer_type, optimizer_params):
+            """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     if optimizer_type == "sgd":
         return torch.optim.SGD(params)
     raise ValueError(optimizer_type)
@@ -3765,7 +3831,8 @@ class DiscoveryContractTests(unittest.TestCase):
 
     def test_training_dispatch_contract_rejects_dynamic_constructor_targets(self):
         cases = {
-            "subscript target": """def get_optimizer(params, optimizer_type, optimizer_params):
+            "subscript target": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     if optimizer_type == "adam":
         return factories[optimizer_type](params, **optimizer_params)
 """,
@@ -3775,7 +3842,8 @@ def get_optimizer(params, optimizer_type, optimizer_params):
     if optimizer_type == "adam":
         return Backend(params, **optimizer_params)
 """,
-            "unguarded no-spread target": """def get_optimizer(params, optimizer_type, optimizer_params):
+            "unguarded no-spread target": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     return torch.optim.Adam(params)
 """,
         }
@@ -3790,7 +3858,8 @@ def get_optimizer(params, optimizer_type, optimizer_params):
     def test_training_dispatch_contract_static_external_target_drift_is_unowned(self):
         path = self.write_source(
             "toolkit/optimizer.py",
-            """def get_optimizer(params, optimizer_type, optimizer_params):
+            """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     if optimizer_type == "adam":
         return torch.optim.Adam(params, **optimizer_params)
 """,
@@ -3819,7 +3888,8 @@ def get_optimizer(params, optimizer_type, optimizer_params):
     def test_training_dispatch_contract_aliases_are_bound_before_use(self):
         self.write_source(
             "toolkit/optimizer.py",
-            """def get_optimizer(params, optimizer_type, optimizer_params):
+            """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     if optimizer_type == "adam":
         return torch.optim.Adam(params, **forwarded)
     forwarded = optimizer_params
@@ -3836,7 +3906,8 @@ def get_optimizer(params, optimizer_type, optimizer_params):
             with self.subTest(method=method):
                 self.write_source(
                     "toolkit/optimizer.py",
-                    f"""def get_optimizer(params, optimizer_type, optimizer_params):
+                    f"""import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     forwarded = optimizer_params
     forwarded.{method}({{}})
     if optimizer_type == "adam":
@@ -3851,7 +3922,8 @@ def get_optimizer(params, optimizer_type, optimizer_params):
     def test_training_dispatch_contract_inventories_mapping_pop_and_get(self):
         self.write_source(
             "toolkit/optimizer.py",
-            """def get_optimizer(params, optimizer_type, optimizer_params):
+            """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     forwarded = optimizer_params
     if optimizer_type == "adam":
         decay = forwarded.pop("weight_decay", 0.0)
@@ -3878,33 +3950,447 @@ def get_optimizer(params, optimizer_type, optimizer_params):
             },
         )
 
+    def test_training_dispatch_contract_discovers_returned_arbitrary_local_calls(self):
+        path = self.write_source(
+            "toolkit/optimizer.py",
+            """import torch
+from torch.optim import SGD
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        chosen = SGD(params)
+        return chosen
+    raise ValueError(optimizer_type)
+""",
+        )
+
+        baseline = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        self.assertIn(
+            ("sgd", "optimizer.registry", "torch.optim.SGD"),
+            {
+                (fact.key, fact.read_kind, fact.default_expression)
+                for fact in baseline
+            },
+        )
+        claims = tuple(
+            SourceClaim(fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in baseline
+        )
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "    raise ValueError(optimizer_type)",
+                "    elif optimizer_type == 'asgd':\n"
+                "        alternate = torch.optim.ASGD(params)\n"
+                "        return alternate\n"
+                "    raise ValueError(optimizer_type)",
+            ),
+            encoding="utf-8",
+        )
+        changed = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        with self.assertRaisesRegex(DiscoveryError, "asgd"):
+            validate_setting_ownership(changed, claims, ())
+
+    def test_training_dispatch_contract_proves_constructor_bindings_lexically(self):
+        safe_cases = {
+            "prior module import": """from torch.optim import SGD
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return SGD(params)
+""",
+            "prior function import": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    from torch.optim import SGD
+    if optimizer_type == "sgd":
+        return SGD(params)
+""",
+            "dominant branch import": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        from torch.optim import SGD
+        return SGD(params)
+""",
+            "same binding on all paths": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if enabled:
+        from torch.optim import SGD
+    else:
+        from torch.optim import SGD
+    if optimizer_type == "sgd":
+        return SGD(params)
+""",
+            "nested scopes do not rebind outer imports": """from torch.optim import SGD
+def helper():
+    SGD = None
+def get_optimizer(params, optimizer_type, optimizer_params):
+    def nested():
+        SGD = None
+    if optimizer_type == "sgd":
+        return SGD(params)
+""",
+        }
+        for label, source in safe_cases.items():
+            with self.subTest(label=label):
+                self.write_source("toolkit/optimizer.py", source)
+                discovered = discover_python_settings(
+                    self.repository_root, ("toolkit/optimizer.py",)
+                )
+                self.assertIn(
+                    ("sgd", "optimizer.registry", "torch.optim.SGD"),
+                    {
+                        (fact.key, fact.read_kind, fact.default_expression)
+                        for fact in discovered
+                    },
+                )
+
+    def test_training_dispatch_contract_rejects_unproven_constructor_bindings(self):
+        cases = {
+            "module import after function": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return SGD(params)
+from torch.optim import SGD
+""",
+            "use before function import": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return SGD(params)
+    from torch.optim import SGD
+""",
+            "conditional import": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if enabled:
+        from torch.optim import SGD
+    if optimizer_type == "sgd":
+        return SGD(params)
+""",
+            "parameter shadow": """from torch.optim import SGD
+def get_optimizer(params, optimizer_type, optimizer_params, SGD=None):
+    if optimizer_type == "sgd":
+        return SGD(params)
+""",
+            "for binding": """from torch.optim import SGD
+def get_optimizer(params, optimizer_type, optimizer_params):
+    for SGD in constructors:
+        pass
+    if optimizer_type == "sgd":
+        return SGD(params)
+""",
+            "with binding": """from torch.optim import SGD
+def get_optimizer(params, optimizer_type, optimizer_params):
+    with manager() as SGD:
+        pass
+    if optimizer_type == "sgd":
+        return SGD(params)
+""",
+            "except binding": """from torch.optim import SGD
+def get_optimizer(params, optimizer_type, optimizer_params):
+    try:
+        pass
+    except Exception as SGD:
+        pass
+    if optimizer_type == "sgd":
+        return SGD(params)
+""",
+            "match binding": """from torch.optim import SGD
+def get_optimizer(params, optimizer_type, optimizer_params):
+    match payload:
+        case {"constructor": SGD}:
+            pass
+    if optimizer_type == "sgd":
+        return SGD(params)
+""",
+            "walrus binding": """from torch.optim import SGD
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if (SGD := choose_backend()):
+        pass
+    if optimizer_type == "sgd":
+        return SGD(params)
+""",
+            "function binding": """from torch.optim import SGD
+def get_optimizer(params, optimizer_type, optimizer_params):
+    def SGD(params):
+        return params
+    if optimizer_type == "sgd":
+        return SGD(params)
+""",
+            "class binding": """from torch.optim import SGD
+def get_optimizer(params, optimizer_type, optimizer_params):
+    class SGD:
+        pass
+    if optimizer_type == "sgd":
+        return SGD(params)
+""",
+            "import rebinding": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    import other as torch
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+""",
+            "deleted binding": """from torch.optim import SGD
+def get_optimizer(params, optimizer_type, optimizer_params):
+    del SGD
+    if optimizer_type == "sgd":
+        return SGD(params)
+""",
+            "nested scope import": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    def helper():
+        from torch.optim import SGD
+    if optimizer_type == "sgd":
+        return SGD(params)
+""",
+        }
+        for label, source in cases.items():
+            with self.subTest(label=label):
+                self.write_source("toolkit/optimizer.py", source)
+                with self.assertRaisesRegex(DiscoveryError, "dispatch"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+    def test_training_dispatch_contract_emits_exact_target_fact_for_every_choice(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "magic":
+        from toolkit.optimizers.magic import Magic
+        return Magic(params, **optimizer_params)
+""",
+        )
+        self.write_source(
+            "toolkit/optimizers/magic.py",
+            """class Magic:
+    pass
+""",
+        )
+        self.write_source(
+            "toolkit/scheduler.py",
+            """import torch
+def get_lr_scheduler(name, optimizer, **kwargs):
+    if name == "step":
+        return torch.optim.lr_scheduler.StepLR(optimizer, **kwargs)
+""",
+        )
+
+        discovered = discover_python_settings(
+            self.repository_root,
+            ("toolkit/optimizer.py", "toolkit/optimizers/*.py", "toolkit/scheduler.py"),
+        )
+
+        self.assertEqual(
+            {
+                (fact.key, fact.read_kind, fact.default_expression)
+                for fact in discovered
+                if fact.read_kind.endswith("dispatch_target")
+            },
+            {
+                ("magic__target=toolkit.optimizers.magic.Magic",
+                 "optimizer.dispatch_target", "toolkit.optimizers.magic.Magic"),
+                ("step__target=torch.optim.lr_scheduler.StepLR",
+                 "scheduler.dispatch_target", "torch.optim.lr_scheduler.StepLR"),
+            },
+        )
+
+    def test_training_dispatch_contract_any_static_target_drift_is_unowned(self):
+        fixtures = {
+            "optimizer": (
+                "toolkit/optimizer.py",
+                """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "magic":
+        from toolkit.optimizers.choices import Magic
+        return Magic(params, **optimizer_params)
+""",
+                "Magic", "Other", ("toolkit/optimizers/*.py",),
+            ),
+            "scheduler": (
+                "toolkit/scheduler.py",
+                """import torch
+def get_lr_scheduler(name, optimizer, **kwargs):
+    if name == "step":
+        return torch.optim.lr_scheduler.StepLR(optimizer, **kwargs)
+""",
+                "StepLR", "LinearLR", (),
+            ),
+        }
+        self.write_source(
+            "toolkit/optimizers/choices.py",
+            """class Magic:
+    pass
+class Other:
+    pass
+""",
+        )
+        for label, (source_path, source, old, new, extra_globs) in fixtures.items():
+            with self.subTest(label=label):
+                path = self.write_source(source_path, source)
+                globs = (source_path, *extra_globs)
+                baseline = discover_python_settings(self.repository_root, globs)
+                claims = tuple(
+                    SourceClaim(fact.source, fact.symbol, fact.key, fact.read_kind)
+                    for fact in baseline
+                )
+                path.write_text(
+                    path.read_text(encoding="utf-8").replace(old, new),
+                    encoding="utf-8",
+                )
+                changed = discover_python_settings(self.repository_root, globs)
+                with self.assertRaisesRegex(DiscoveryError, "target"):
+                    validate_setting_ownership(changed, claims, ())
+
+    def test_training_dispatch_contract_tracks_alias_subscripts_and_rejects_method_escape(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    forwarded = optimizer_params
+    if optimizer_type == "adam":
+        forwarded["capturable"] = True
+        del forwarded["stale"]
+        return torch.optim.Adam(params, **forwarded)
+""",
+        )
+        discovered = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        self.assertEqual(
+            {
+                (fact.key, fact.read_kind, fact.default_expression)
+                for fact in discovered
+                if fact.read_kind in {"optimizer.injected", "optimizer.consumed"}
+            },
+            {
+                ("adam__capturable", "optimizer.injected", "True"),
+                ("adam__stale", "optimizer.consumed", "removed"),
+            },
+        )
+
+        for method in ("get", "pop"):
+            with self.subTest(method=method):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f"""import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    forwarded = optimizer_params
+    reader = forwarded.{method}
+    if optimizer_type == "adam":
+        return torch.optim.Adam(params, **forwarded)
+""",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dispatch"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+    def test_training_dispatch_contract_rejects_unselected_alias_subscript_effects(self):
+        for operation in (
+            'forwarded["capturable"] = True',
+            'del forwarded["capturable"]',
+        ):
+            with self.subTest(operation=operation):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f"""import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    forwarded = optimizer_params
+    {operation}
+    if optimizer_type == "adam":
+        return torch.optim.Adam(params, **forwarded)
+""",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dispatch"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+    def test_training_dispatch_contract_diffusers_fallback_is_exact_and_dominant(self):
+        positive = """from diffusers.optimization import TYPE_TO_SCHEDULER_FUNCTION
+def get_lr_scheduler(name, optimizer, **kwargs):
+    try:
+        schedule_func = TYPE_TO_SCHEDULER_FUNCTION[name]
+        return schedule_func(optimizer, **kwargs)
+    except Exception:
+        pass
+    raise ValueError(name)
+"""
+        self.write_source("toolkit/scheduler.py", positive)
+        discover_python_settings(self.repository_root, ("toolkit/scheduler.py",))
+
+        cases = {
+            "wrong source": ("plugins/scheduler.py", positive),
+            "use before bind": ("toolkit/scheduler.py", """from diffusers.optimization import TYPE_TO_SCHEDULER_FUNCTION
+def get_lr_scheduler(name, optimizer, **kwargs):
+    return schedule_func(optimizer, **kwargs)
+    schedule_func = TYPE_TO_SCHEDULER_FUNCTION[name]
+"""),
+            "conditional bind": ("toolkit/scheduler.py", """from diffusers.optimization import TYPE_TO_SCHEDULER_FUNCTION
+def get_lr_scheduler(name, optimizer, **kwargs):
+    if enabled:
+        schedule_func = TYPE_TO_SCHEDULER_FUNCTION[name]
+    return schedule_func(optimizer, **kwargs)
+"""),
+            "conditional bind and call": ("toolkit/scheduler.py", """from diffusers.optimization import TYPE_TO_SCHEDULER_FUNCTION
+def get_lr_scheduler(name, optimizer, **kwargs):
+    if enabled:
+        schedule_func = TYPE_TO_SCHEDULER_FUNCTION[name]
+        return schedule_func(optimizer, **kwargs)
+    raise ValueError(name)
+"""),
+            "reassigned bind": ("toolkit/scheduler.py", """from diffusers.optimization import TYPE_TO_SCHEDULER_FUNCTION
+def get_lr_scheduler(name, optimizer, **kwargs):
+    schedule_func = TYPE_TO_SCHEDULER_FUNCTION[name]
+    schedule_func = choose_backend()
+    return schedule_func(optimizer, **kwargs)
+"""),
+            "wrong lookup": ("toolkit/scheduler.py", """import torch
+def get_lr_scheduler(name, optimizer, **kwargs):
+    schedule_func = OTHER_SCHEDULERS[name]
+    return schedule_func(optimizer, **kwargs)
+"""),
+        }
+        for label, (source_path, source) in cases.items():
+            with self.subTest(label=label):
+                self.write_source(source_path, source)
+                with self.assertRaisesRegex(DiscoveryError, "dispatch"):
+                    discover_python_settings(self.repository_root, (source_path,))
+
     def test_training_dispatch_contract_rejects_ambiguous_alias_and_branch_syntax(self):
         cases = {
-            "reassigned": """def get_optimizer(params, optimizer_type, optimizer_params):
+            "reassigned": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     forwarded = optimizer_params
     forwarded = {}
     if optimizer_type == "adam":
         return Backend(params, **forwarded)
 """,
-            "escaped": """def get_optimizer(params, optimizer_type, optimizer_params):
+            "escaped": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     forwarded = optimizer_params
     consume(forwarded)
     if optimizer_type == "adam":
         return Backend(params, **forwarded)
 """,
-            "dynamic": """def get_optimizer(params, optimizer_type, optimizer_params):
+            "dynamic": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     if optimizer_type == "adam":
         return Backend(params, **select(optimizer_params))
 """,
-            "unsupported selector": """def get_optimizer(params, optimizer_type, optimizer_params):
+            "unsupported selector": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     if optimizer_type.removeprefix("x") == "adam":
         return Backend(params, **optimizer_params)
 """,
-            "unsupported branch": """def get_optimizer(params, optimizer_type, optimizer_params):
+            "unsupported branch": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     if enabled:
         return Backend(params, **optimizer_params)
 """,
-            "unselected call": """def get_optimizer(params, optimizer_type, optimizer_params):
+            "unselected call": """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     return Backend(params, **optimizer_params)
 """,
         }
@@ -3919,7 +4405,8 @@ def get_optimizer(params, optimizer_type, optimizer_params):
     def test_training_dispatch_contract_discovers_local_parameters_and_injections(self):
         self.write_source(
             "toolkit/optimizer.py",
-            """def get_optimizer(params, optimizer_type, learning_rate, optimizer_params):
+            """import torch
+def get_optimizer(params, optimizer_type, learning_rate, optimizer_params):
     lower_type = optimizer_type.lower()
     if lower_type == "adamw":
         return torch.optim.AdamW(
@@ -3940,7 +4427,8 @@ def get_optimizer(params, optimizer_type, optimizer_params):
         )
         self.write_source(
             "toolkit/scheduler.py",
-            """def get_lr_scheduler(name, optimizer, **kwargs):
+            """import torch
+def get_lr_scheduler(name, optimizer, **kwargs):
     if name == "cosine":
         if "total_iters" in kwargs:
             kwargs["T_max"] = kwargs.pop("total_iters")
@@ -3992,7 +4480,8 @@ def get_optimizer(params, optimizer_type, optimizer_params):
     def test_training_dispatch_contract_discovers_fused_backward_compatibility(self):
         self.write_source(
             "toolkit/optimizer.py",
-            """def get_optimizer(params, optimizer_type, learning_rate, optimizer_params):
+            """import torch
+def get_optimizer(params, optimizer_type, learning_rate, optimizer_params):
     lower_type = optimizer_type.lower()
     if lower_type == "alwaysfused":
         from toolkit.optimizers.always import AlwaysFused
@@ -4037,7 +4526,8 @@ def get_optimizer(params, optimizer_type, optimizer_params):
     def test_training_dispatch_contract_new_registry_choice_is_unowned(self):
         path = self.write_source(
             "toolkit/optimizer.py",
-            """def get_optimizer(params, optimizer_type, optimizer_params):
+            """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     lower_type = optimizer_type.lower()
     if lower_type == "adamw":
         return torch.optim.AdamW(params, **optimizer_params)
@@ -4071,7 +4561,8 @@ def get_optimizer(params, optimizer_type, optimizer_params):
     def test_training_dispatch_contract_new_scheduler_choice_is_unowned(self):
         path = self.write_source(
             "toolkit/scheduler.py",
-            """def get_lr_scheduler(name, optimizer, **kwargs):
+            """import torch
+def get_lr_scheduler(name, optimizer, **kwargs):
     if name == "constant":
         return torch.optim.lr_scheduler.ConstantLR(optimizer, **kwargs)
     raise ValueError(name)
@@ -4102,7 +4593,8 @@ def get_optimizer(params, optimizer_type, optimizer_params):
     def test_training_dispatch_contract_excludes_exact_external_constructor_boundary(self):
         self.write_source(
             "toolkit/optimizer.py",
-            """def get_optimizer(params, optimizer_type, optimizer_params):
+            """import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
     lower_type = optimizer_type.lower()
     if lower_type == "optional":
         from optional_library import OptionalOptimizer

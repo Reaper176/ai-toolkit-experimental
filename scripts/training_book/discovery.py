@@ -3271,32 +3271,6 @@ class _DispatchSelector:
         return self.value
 
 
-def _dispatch_imports(tree: ast.Module) -> dict[str, str]:
-    aliases: dict[str, str] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for imported in node.names:
-                bound = imported.asname or imported.name.split(".", maxsplit=1)[0]
-                aliases[bound] = imported.name
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            for imported in node.names:
-                if imported.name == "*":
-                    continue
-                aliases[imported.asname or imported.name] = (
-                    f"{node.module}.{imported.name}"
-                )
-    return aliases
-
-
-def _dispatch_call_path(node: ast.AST, aliases: dict[str, str]) -> str | None:
-    path = _attribute_path(node)
-    if path is None:
-        return None
-    root, separator, remainder = path.partition(".")
-    resolved = aliases.get(root, root)
-    return resolved + (separator + remainder if separator else "")
-
-
 def _dispatch_selectors(
     node: ast.AST, names: set[str]
 ) -> tuple[_DispatchSelector, ...] | None:
@@ -3431,6 +3405,15 @@ def _dispatch_spread_aliases(
                     f"dispatch spread mapping method {parent.attr!r} has unsupported "
                     f"effects in {source}:{node.lineno}"
                 )
+            attribute_parent = parents.get(parent)
+            if not (
+                isinstance(attribute_parent, ast.Call)
+                and attribute_parent.func is parent
+            ):
+                raise DiscoveryError(
+                    f"dispatch spread mapping method {parent.attr!r} escapes as a "
+                    f"bound reference in {source}:{node.lineno}"
+                )
         allowed = (
             isinstance(parent, ast.keyword) and parent.arg is None
             or isinstance(parent, ast.Subscript) and parent.value is node
@@ -3508,6 +3491,162 @@ def _dispatch_key(selector: _DispatchSelector, parameter: str | None = None) -> 
     return choice if parameter is None else f"{choice}__{parameter}"
 
 
+@dataclass
+class _DispatchBindings:
+    values: dict[str, str | None]
+    poisoned: set[str]
+
+    def copy(self) -> "_DispatchBindings":
+        return _DispatchBindings(dict(self.values), set(self.poisoned))
+
+
+def _dispatch_target_names(node: ast.AST) -> set[str]:
+    return {
+        inner.id
+        for inner in ast.walk(node)
+        if isinstance(inner, ast.Name) and isinstance(inner.ctx, (ast.Store, ast.Del))
+    }
+
+
+def _dispatch_scope_bindings(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> set[str]:
+    names = {
+        argument.arg
+        for argument in (
+            *function.args.posonlyargs,
+            *function.args.args,
+            *function.args.kwonlyargs,
+        )
+    }
+    if function.args.vararg is not None:
+        names.add(function.args.vararg.arg)
+    if function.args.kwarg is not None:
+        names.add(function.args.kwarg.arg)
+
+    def visit(node: ast.AST) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+            return
+        if isinstance(node, ast.Lambda):
+            return
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            return
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for imported in node.names:
+                if imported.name != "*":
+                    names.add(
+                        imported.asname
+                        or imported.name.split(".", maxsplit=1)[0]
+                    )
+            return
+        if isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+        if isinstance(node, ast.MatchAs) and node.name:
+            names.add(node.name)
+        if isinstance(node, ast.MatchStar) and node.name:
+            names.add(node.name)
+        if isinstance(node, ast.MatchMapping) and node.rest:
+            names.add(node.rest)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            names.add(node.id)
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+
+    for statement in function.body:
+        visit(statement)
+    return names
+
+
+def _dispatch_returned_names(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> set[str]:
+    names: set[str] = set()
+
+    def visit(node: ast.AST) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            return
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Name):
+            names.add(node.value.id)
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+
+    for statement in function.body:
+        visit(statement)
+    return names
+
+
+def _dispatch_import_bindings(node: ast.Import | ast.ImportFrom) -> dict[str, str]:
+    bindings: dict[str, str] = {}
+    if isinstance(node, ast.Import):
+        for imported in node.names:
+            bound = imported.asname or imported.name.split(".", maxsplit=1)[0]
+            bindings[bound] = imported.name
+    elif node.module:
+        for imported in node.names:
+            if imported.name != "*":
+                bindings[imported.asname or imported.name] = (
+                    f"{node.module}.{imported.name}"
+                )
+    return bindings
+
+
+def _dispatch_module_bindings(
+    tree: ast.Module,
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> _DispatchBindings:
+    def statement_bindings(node: ast.AST) -> set[str]:
+        names: set[str] = set()
+
+        def visit(inner: ast.AST) -> None:
+            if isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(inner.name)
+                return
+            if isinstance(inner, ast.Lambda):
+                return
+            if isinstance(
+                inner, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+            ):
+                return
+            if isinstance(inner, (ast.Import, ast.ImportFrom)):
+                names.update(_dispatch_import_bindings(inner))
+                return
+            if isinstance(inner, ast.ExceptHandler) and inner.name:
+                names.add(inner.name)
+            if isinstance(inner, ast.MatchAs) and inner.name:
+                names.add(inner.name)
+            if isinstance(inner, ast.MatchStar) and inner.name:
+                names.add(inner.name)
+            if isinstance(inner, ast.MatchMapping) and inner.rest:
+                names.add(inner.rest)
+            if isinstance(inner, ast.Name) and isinstance(
+                inner.ctx, (ast.Store, ast.Del)
+            ):
+                names.add(inner.id)
+            for child in ast.iter_child_nodes(inner):
+                visit(child)
+
+        visit(node)
+        return names
+
+    state = _DispatchBindings({}, set())
+    for statement in tree.body:
+        if statement is function:
+            break
+        if isinstance(statement, (ast.Import, ast.ImportFrom)):
+            for name, target in _dispatch_import_bindings(statement).items():
+                if name in state.values and state.values[name] != target:
+                    state.values[name] = None
+                    state.poisoned.add(name)
+                elif name not in state.poisoned:
+                    state.values[name] = target
+            continue
+        for name in statement_bindings(statement):
+            state.values[name] = None
+            state.poisoned.add(name)
+    return state
+
+
 def _discover_dispatch_settings(
     parsed: Sequence[tuple[str, ast.Module]],
 ) -> tuple[DiscoveredSetting, ...]:
@@ -3545,27 +3684,7 @@ def _discover_dispatch_settings(
             )
         return has_spread
 
-    def constructor_calls(statement: ast.stmt) -> Iterator[ast.Call]:
-        for node in ast.walk(statement):
-            if isinstance(node, ast.Return) and isinstance(node.value, ast.Call):
-                yield node.value
-            elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
-                if any(
-                    isinstance(target, ast.Name)
-                    and target.id in {"optimizer", "lr_scheduler"}
-                    for target in node.targets
-                ):
-                    yield node.value
-            elif (
-                isinstance(node, ast.AnnAssign)
-                and isinstance(node.target, ast.Name)
-                and node.target.id in {"optimizer", "lr_scheduler"}
-                and isinstance(node.value, ast.Call)
-            ):
-                yield node.value
-
     for source, tree in parsed:
-        aliases = _dispatch_imports(tree)
         for function in (
             node
             for node in tree.body
@@ -3578,44 +3697,173 @@ def _discover_dispatch_settings(
             scope = "optimizer" if is_optimizer else "scheduler"
             registry_prefix = "optimizer" if is_optimizer else "scheduler"
             spread_aliases = _dispatch_spread_aliases(function, spread_name, source)
+            module_bindings = _dispatch_module_bindings(tree, function)
+            bindings = module_bindings.copy()
+            local_names = _dispatch_scope_bindings(function)
+            arguments = {
+                argument.arg
+                for argument in (
+                    *function.args.posonlyargs,
+                    *function.args.args,
+                    *function.args.kwonlyargs,
+                )
+            }
+            if function.args.vararg is not None:
+                arguments.add(function.args.vararg.arg)
+            if function.args.kwarg is not None:
+                arguments.add(function.args.kwarg.arg)
+            for name in local_names:
+                bindings.values[name] = None
+            bindings.poisoned.update(arguments)
+            returned_names = _dispatch_returned_names(function)
             claimed_constructor_calls: set[int] = set()
             claimed_mapping_calls: set[int] = set()
-            assigned_names = {
-                target.id
-                for node in ast.walk(function)
-                for target in (
-                    node.targets
-                    if isinstance(node, ast.Assign)
-                    else (node.target,)
-                    if isinstance(node, ast.AnnAssign)
-                    else ()
-                )
-                if isinstance(target, ast.Name)
-            }
+            claimed_subscript_effects: set[int] = set()
+            approved_fallback_calls: set[int] = set()
 
-            def resolve_constructor(call: ast.Call) -> str:
-                target = _dispatch_call_path(call.func, aliases)
-                if target is None:
+            def poison(state: _DispatchBindings, names: Iterable[str]) -> None:
+                for name in names:
+                    state.values[name] = None
+                    state.poisoned.add(name)
+
+            def merge_states(
+                state: _DispatchBindings,
+                branches: Sequence[_DispatchBindings],
+            ) -> None:
+                names = set(state.values)
+                for branch in branches:
+                    names.update(branch.values)
+                for name in names:
+                    values = {branch.values.get(name) for branch in branches}
+                    any_poisoned = any(name in branch.poisoned for branch in branches)
+                    if not any_poisoned and len(values) == 1:
+                        state.values[name] = values.pop()
+                        state.poisoned.discard(name)
+                    else:
+                        state.values[name] = None
+                        state.poisoned.add(name)
+
+            def resolve_path(node: ast.AST, state: _DispatchBindings) -> str:
+                path = _attribute_path(node)
+                if path is None:
                     raise DiscoveryError(
-                        f"dispatch constructor target is dynamic in {source}:{call.lineno}"
+                        f"dispatch constructor target is dynamic in {source}:"
+                        f"{getattr(node, 'lineno', function.lineno)}"
                     )
-                raw_path = _attribute_path(call.func)
-                if raw_path is None:
+                root, separator, remainder = path.partition(".")
+                resolved = state.values.get(root)
+                if resolved is None or root in state.poisoned:
                     raise DiscoveryError(
-                        f"dispatch constructor target is unresolved in {source}:{call.lineno}"
+                        f"dispatch constructor binding {root!r} is not proven in "
+                        f"{source}:{getattr(node, 'lineno', function.lineno)}"
                     )
-                root = raw_path.partition(".")[0]
-                if root in assigned_names:
+                return resolved + (separator + remainder if separator else "")
+
+            def resolve_constructor(
+                call: ast.Call, state: _DispatchBindings
+            ) -> str:
+                return resolve_path(call.func, state)
+
+            def bind_static(
+                state: _DispatchBindings, name: str, target: str
+            ) -> None:
+                module_target = module_bindings.values.get(name)
+                current = state.values.get(name)
+                if (
+                    name in state.poisoned
+                    or module_target is not None and module_target != target
+                    or current is not None and current != target
+                ):
+                    poison(state, (name,))
+                else:
+                    state.values[name] = target
+
+            def bind_import(
+                state: _DispatchBindings, statement: ast.Import | ast.ImportFrom
+            ) -> None:
+                imported = _dispatch_import_bindings(statement)
+                if not imported:
                     raise DiscoveryError(
-                        f"dispatch constructor target {root!r} is reassigned in "
-                        f"{source}:{call.lineno}"
+                        f"dispatch wildcard or relative import is unsupported in "
+                        f"{source}:{statement.lineno}"
                     )
-                if "." not in raw_path and root not in aliases:
-                    raise DiscoveryError(
-                        f"dispatch constructor target {root!r} is not statically imported "
-                        f"in {source}:{call.lineno}"
-                    )
-                return target
+                for name, target in imported.items():
+                    bind_static(state, name, target)
+
+            def bind_assignment(
+                state: _DispatchBindings,
+                statement: ast.Assign | ast.AnnAssign,
+            ) -> None:
+                targets = (
+                    statement.targets
+                    if isinstance(statement, ast.Assign)
+                    else (statement.target,)
+                )
+                names = set().union(*(_dispatch_target_names(target) for target in targets))
+                value = statement.value
+                if value is None:
+                    poison(state, names)
+                    return
+                if (
+                    source == "toolkit/scheduler.py"
+                    and not is_optimizer
+                    and len(names) == 1
+                    and names == {"schedule_func"}
+                    and isinstance(value, ast.Subscript)
+                    and isinstance(value.slice, ast.Name)
+                    and value.slice.id == "name"
+                ):
+                    try:
+                        lookup = resolve_path(value.value, state)
+                    except DiscoveryError:
+                        lookup = None
+                    if lookup == "diffusers.optimization.TYPE_TO_SCHEDULER_FUNCTION":
+                        bind_static(state, "schedule_func", "@diffusers-scheduler")
+                        return
+                if len(names) == 1 and isinstance(value, (ast.Name, ast.Attribute)):
+                    try:
+                        target = resolve_path(value, state)
+                    except DiscoveryError:
+                        target = None
+                    if target is not None:
+                        bind_static(state, next(iter(names)), target)
+                        return
+                poison(state, names)
+
+            def constructor_call(statement: ast.stmt) -> ast.Call | None:
+                if isinstance(statement, ast.Return) and isinstance(statement.value, ast.Call):
+                    return statement.value
+                if isinstance(statement, ast.Assign) and isinstance(statement.value, ast.Call):
+                    if any(
+                        _dispatch_target_names(target).intersection(returned_names)
+                        for target in statement.targets
+                    ):
+                        return statement.value
+                if (
+                    isinstance(statement, ast.AnnAssign)
+                    and isinstance(statement.value, ast.Call)
+                    and _dispatch_target_names(statement.target).intersection(returned_names)
+                ):
+                    return statement.value
+                return None
+
+            def contains_constructor(statement: ast.stmt) -> bool:
+                found = False
+
+                def visit(node: ast.AST) -> None:
+                    nonlocal found
+                    if found:
+                        return
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                        return
+                    if isinstance(node, ast.stmt) and constructor_call(node) is not None:
+                        found = True
+                        return
+                    for child in ast.iter_child_nodes(node):
+                        visit(child)
+
+                visit(statement)
+                return found
 
             def mapping_method(call: ast.Call) -> tuple[str, str] | None:
                 if not (
@@ -3642,52 +3890,66 @@ def _discover_dispatch_settings(
                     )
                 return call.func.attr, call.args[0].value
 
-            def add_branch_facts(
-                statement: ast.stmt,
+            def add_constructor_facts(
+                call: ast.Call,
                 selector: _DispatchSelector,
+                state: _DispatchBindings,
             ) -> None:
-                for call in constructor_calls(statement):
-                    validate_spreads(call, spread_aliases, source)
-                    target = resolve_constructor(call)
-                    claimed_constructor_calls.add(id(call))
-                    read_kind = (
-                        f"{registry_prefix}.registry"
-                        if selector.kind == "exact"
-                        else f"{registry_prefix}.registry_{selector.kind}"
+                validate_spreads(call, spread_aliases, source)
+                target = resolve_constructor(call, state)
+                if target == "@diffusers-scheduler":
+                    raise DiscoveryError(
+                        f"dynamic scheduler target appears under a finite selector in "
+                        f"{source}:{call.lineno}"
                     )
-                    key = _dispatch_key(selector)
-                    facts.append(
-                        DiscoveredSetting(
-                            source, function.name, call.lineno, key,
-                            read_kind, scope, target,
-                        )
+                claimed_constructor_calls.add(id(call))
+                read_kind = (
+                    f"{registry_prefix}.registry"
+                    if selector.kind == "exact"
+                    else f"{registry_prefix}.registry_{selector.kind}"
+                )
+                key = _dispatch_key(selector)
+                facts.append(
+                    DiscoveredSetting(
+                        source, function.name, call.lineno, key,
+                        read_kind, scope, target,
                     )
-                    if is_optimizer:
-                        optimizer_targets.append(
-                            (selector, target, call.lineno, source, function.name)
+                )
+                target_key = f"{key}__target={target}"
+                facts.append(
+                    DiscoveredSetting(
+                        source, function.name, call.lineno, target_key,
+                        f"{registry_prefix}.dispatch_target", scope, target,
+                    )
+                )
+                if is_optimizer:
+                    optimizer_targets.append(
+                        (selector, target, call.lineno, source, function.name)
+                    )
+                    if not target.startswith("toolkit.optimizers."):
+                        facts.append(
+                            DiscoveredSetting(
+                                source, function.name, call.lineno, target_key,
+                                "optimizer.external_boundary", scope, target,
+                            )
                         )
-                        if not target.startswith("toolkit.optimizers."):
-                            facts.append(
-                                DiscoveredSetting(
-                                    source, function.name, call.lineno,
-                                    f"{key}__target={target}",
-                                    "optimizer.external_boundary", scope, target,
-                                )
+                for keyword in call.keywords:
+                    if keyword.arg is not None:
+                        facts.append(
+                            DiscoveredSetting(
+                                source,
+                                function.name,
+                                call.lineno,
+                                _dispatch_key(selector, keyword.arg),
+                                f"{registry_prefix}.injected",
+                                scope,
+                                _source_expression(keyword.value),
                             )
-                    for keyword in call.keywords:
-                        if keyword.arg is not None:
-                            facts.append(
-                                DiscoveredSetting(
-                                    source,
-                                    function.name,
-                                    call.lineno,
-                                    _dispatch_key(selector, keyword.arg),
-                                    f"{registry_prefix}.injected",
-                                    scope,
-                                    _source_expression(keyword.value),
-                                )
-                            )
+                        )
 
+            def add_mapping_facts(
+                statement: ast.stmt, selector: _DispatchSelector
+            ) -> None:
                 for node in ast.walk(statement):
                     if not isinstance(node, ast.Call):
                         continue
@@ -3710,7 +3972,10 @@ def _discover_dispatch_settings(
                             else (parent.target,)
                         )
                         if any(
-                            _dispatch_subscript_key(target, spread_name) is not None
+                            any(
+                                _dispatch_subscript_key(target, alias) is not None
+                                for alias in spread_aliases
+                            )
                             for target in parent_targets
                         ):
                             continue
@@ -3739,9 +4004,18 @@ def _discover_dispatch_settings(
                     if value is None:
                         return
                     for target_node in targets:
-                        target_key = _dispatch_subscript_key(target_node, spread_name)
+                        target_key = next(
+                            (
+                                key
+                                for alias in spread_aliases
+                                if (key := _dispatch_subscript_key(target_node, alias))
+                                is not None
+                            ),
+                            None,
+                        )
                         if target_key is None:
                             continue
+                        claimed_subscript_effects.add(id(target_node))
                         normalized_from = None
                         if (
                             isinstance(value, ast.Call)
@@ -3775,8 +4049,17 @@ def _discover_dispatch_settings(
                             )
                 elif isinstance(statement, ast.Delete):
                     for target_node in statement.targets:
-                        target_key = _dispatch_subscript_key(target_node, spread_name)
+                        target_key = next(
+                            (
+                                key
+                                for alias in spread_aliases
+                                if (key := _dispatch_subscript_key(target_node, alias))
+                                is not None
+                            ),
+                            None,
+                        )
                         if target_key is not None:
+                            claimed_subscript_effects.add(id(target_node))
                             facts.append(
                                 DiscoveredSetting(
                                     source, function.name, statement.lineno,
@@ -3786,19 +4069,78 @@ def _discover_dispatch_settings(
                                 )
                             )
 
+            def is_diffusers_fallback(
+                call: ast.Call, state: _DispatchBindings, conditional_depth: int
+            ) -> bool:
+                return (
+                    conditional_depth == 0
+                    and source == "toolkit/scheduler.py"
+                    and function.name == "get_lr_scheduler"
+                    and isinstance(call.func, ast.Name)
+                    and call.func.id == "schedule_func"
+                    and state.values.get("schedule_func") == "@diffusers-scheduler"
+                    and "schedule_func" not in state.poisoned
+                    and len(call.args) == 1
+                    and isinstance(call.args[0], ast.Name)
+                    and call.args[0].id == "optimizer"
+                    and len(call.keywords) == 1
+                    and call.keywords[0].arg is None
+                    and isinstance(call.keywords[0].value, ast.Name)
+                    and call.keywords[0].value.id == spread_name
+                )
+
+            def process_simple_binding(
+                statement: ast.stmt, state: _DispatchBindings
+            ) -> None:
+                named = {
+                    node.target.id
+                    for node in ast.walk(statement)
+                    if isinstance(node, ast.NamedExpr)
+                    and isinstance(node.target, ast.Name)
+                }
+                poison(state, named)
+                if isinstance(statement, (ast.Import, ast.ImportFrom)):
+                    bind_import(state, statement)
+                elif isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                    bind_assignment(state, statement)
+                elif isinstance(statement, ast.AugAssign):
+                    poison(state, _dispatch_target_names(statement.target))
+                elif isinstance(statement, ast.Delete):
+                    poison(
+                        state,
+                        set().union(
+                            *(_dispatch_target_names(target) for target in statement.targets)
+                        ),
+                    )
+                elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    poison(state, (statement.name,))
+
             def visit_statements(
                 statements: Sequence[ast.stmt],
                 inherited: _DispatchSelector | None = None,
-            ) -> None:
+                state: _DispatchBindings | None = None,
+                conditional_depth: int = 0,
+            ) -> _DispatchBindings:
+                if state is None:
+                    state = bindings
                 for statement in statements:
                     if isinstance(statement, ast.If):
+                        poison(
+                            state,
+                            (
+                                node.target.id
+                                for node in ast.walk(statement.test)
+                                if isinstance(node, ast.NamedExpr)
+                                and isinstance(node.target, ast.Name)
+                            ),
+                        )
                         branches = _dispatch_selectors(statement.test, selector_names)
                         if branches is None:
                             if _dispatch_references(statement.test, selector_names):
                                 raise DiscoveryError(
                                     f"unsupported dispatch selector in {source}:{statement.lineno}"
                                 )
-                            has_constructor = any(constructor_calls(statement))
+                            has_constructor = contains_constructor(statement)
                             has_spread = any(
                                 isinstance(node, ast.Call)
                                 and validate_spreads(node, spread_aliases, source)
@@ -3809,18 +4151,134 @@ def _discover_dispatch_settings(
                                     f"unsupported dispatch branch around constructor call "
                                     f"in {source}:{statement.lineno}"
                                 )
-                            visit_statements(statement.body, inherited)
-                            visit_statements(statement.orelse, inherited)
+                            body_state = visit_statements(
+                                statement.body, inherited, state.copy(),
+                                conditional_depth + 1,
+                            )
+                            else_state = visit_statements(
+                                statement.orelse, inherited, state.copy(),
+                                conditional_depth + 1,
+                            )
+                            merge_states(state, (body_state, else_state))
                             continue
+                        branch_states: list[_DispatchBindings] = []
                         for branch in branches:
                             combined = _combine_dispatch_selectors(inherited, branch)
                             if combined is not None:
-                                visit_statements(statement.body, combined)
-                        visit_statements(statement.orelse, inherited)
-                    elif inherited is not None:
-                        add_branch_facts(statement, inherited)
+                                branch_states.append(
+                                    visit_statements(
+                                        statement.body, combined, state.copy(),
+                                        conditional_depth,
+                                    )
+                                )
+                        branch_states.append(
+                            visit_statements(
+                                statement.orelse, inherited, state.copy(),
+                                conditional_depth,
+                            )
+                        )
+                        merge_states(state, branch_states)
+                        continue
+                    if isinstance(statement, ast.Try):
+                        body_state = visit_statements(
+                            statement.body, inherited, state.copy(), conditional_depth
+                        )
+                        if statement.orelse:
+                            body_state = visit_statements(
+                                statement.orelse, inherited, body_state,
+                                conditional_depth,
+                            )
+                        paths = [body_state]
+                        for handler in statement.handlers:
+                            handler_state = state.copy()
+                            if handler.name:
+                                poison(handler_state, (handler.name,))
+                            paths.append(
+                                visit_statements(
+                                    handler.body, inherited, handler_state,
+                                    conditional_depth,
+                                )
+                            )
+                        merge_states(state, paths)
+                        if statement.finalbody:
+                            visit_statements(
+                                statement.finalbody, inherited, state,
+                                conditional_depth,
+                            )
+                        continue
+                    if isinstance(statement, (ast.For, ast.AsyncFor)):
+                        loop_state = state.copy()
+                        poison(loop_state, _dispatch_target_names(statement.target))
+                        visit_statements(
+                            statement.body, inherited, loop_state,
+                            conditional_depth + 1,
+                        )
+                        visit_statements(
+                            statement.orelse, inherited, loop_state,
+                            conditional_depth + 1,
+                        )
+                        merge_states(state, (state.copy(), loop_state))
+                        continue
+                    if isinstance(statement, (ast.With, ast.AsyncWith)):
+                        with_state = state.copy()
+                        for item in statement.items:
+                            if item.optional_vars is not None:
+                                poison(
+                                    with_state,
+                                    _dispatch_target_names(item.optional_vars),
+                                )
+                        visit_statements(
+                            statement.body, inherited, with_state,
+                            conditional_depth + 1,
+                        )
+                        merge_states(state, (state.copy(), with_state))
+                        continue
+                    if isinstance(statement, ast.Match):
+                        case_states = [state.copy()]
+                        for case in statement.cases:
+                            case_state = state.copy()
+                            poison(case_state, _dispatch_target_names(case.pattern))
+                            case_states.append(
+                                visit_statements(
+                                    case.body, inherited, case_state,
+                                    conditional_depth + 1,
+                                )
+                            )
+                        merge_states(state, case_states)
+                        continue
 
-            visit_statements(function.body)
+                    call = constructor_call(statement)
+                    if call is not None:
+                        if inherited is not None:
+                            add_constructor_facts(call, inherited, state)
+                        elif is_diffusers_fallback(call, state, conditional_depth):
+                            validate_spreads(call, spread_aliases, source)
+                            approved_fallback_calls.add(id(call))
+                        else:
+                            resolve_constructor(call, state)
+                            raise DiscoveryError(
+                                f"dispatch constructor call is not guarded by a finite "
+                                f"selector in {source}:{call.lineno}"
+                            )
+                    if inherited is not None:
+                        add_mapping_facts(statement, inherited)
+                    process_simple_binding(statement, state)
+                return state
+
+            visit_statements(function.body, state=bindings)
+            for node in ast.walk(function):
+                if not (
+                    isinstance(node, ast.Subscript)
+                    and isinstance(node.ctx, (ast.Store, ast.Del))
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id in spread_aliases
+                    and id(node) not in claimed_subscript_effects
+                ):
+                    continue
+                raise DiscoveryError(
+                    f"dispatch mapping subscript effect is not guarded by a finite "
+                    f"selector in {source}:{node.lineno}"
+                )
             for node in ast.walk(function):
                 if not isinstance(node, ast.Call):
                     continue
@@ -3834,33 +4292,10 @@ def _discover_dispatch_settings(
                 if not isinstance(node, ast.Call):
                     continue
                 has_spread = validate_spreads(node, spread_aliases, source)
-                is_constructor = any(node is call for call in constructor_calls(function))
-                if not has_spread and not is_constructor:
+                if not has_spread:
                     continue
-                if id(node) in claimed_constructor_calls:
+                if id(node) in claimed_constructor_calls or id(node) in approved_fallback_calls:
                     continue
-                raw_target = _attribute_path(node.func)
-                is_diffusers_fallback = (
-                    not is_optimizer
-                    and raw_target == "schedule_func"
-                    and any(
-                        isinstance(binding, ast.Assign)
-                        and any(
-                            isinstance(target, ast.Name)
-                            and target.id == "schedule_func"
-                            for target in binding.targets
-                        )
-                        and isinstance(binding.value, ast.Subscript)
-                        and _attribute_path(binding.value.value)
-                        == "TYPE_TO_SCHEDULER_FUNCTION"
-                        and isinstance(binding.value.slice, ast.Name)
-                        and binding.value.slice.id == "name"
-                        for binding in ast.walk(function)
-                    )
-                )
-                if is_diffusers_fallback:
-                    continue
-                target = resolve_constructor(node)
                 raise DiscoveryError(
                     f"dispatch constructor call is not guarded by a finite selector "
                     f"in {source}:{node.lineno}"
