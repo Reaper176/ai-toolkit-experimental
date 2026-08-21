@@ -3255,6 +3255,362 @@ def _collect_source_paths(
     return tuple(paths[key] for key in sorted(paths))
 
 
+@dataclass(frozen=True)
+class _DispatchSelector:
+    kind: str
+    value: str
+
+
+def _dispatch_imports(tree: ast.Module) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for imported in node.names:
+                bound = imported.asname or imported.name.split(".", maxsplit=1)[0]
+                aliases[bound] = imported.name
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            for imported in node.names:
+                if imported.name == "*":
+                    continue
+                aliases[imported.asname or imported.name] = (
+                    f"{node.module}.{imported.name}"
+                )
+    return aliases
+
+
+def _dispatch_call_path(node: ast.AST, aliases: dict[str, str]) -> str | None:
+    path = _attribute_path(node)
+    if path is None:
+        return None
+    root, separator, remainder = path.partition(".")
+    resolved = aliases.get(root, root)
+    return resolved + (separator + remainder if separator else "")
+
+
+def _dispatch_selector(node: ast.AST, names: set[str]) -> _DispatchSelector | None:
+    if (
+        isinstance(node, ast.Compare)
+        and len(node.ops) == 1
+        and isinstance(node.ops[0], ast.Eq)
+        and len(node.comparators) == 1
+    ):
+        pairs = ((node.left, node.comparators[0]), (node.comparators[0], node.left))
+        for variable, literal in pairs:
+            if (
+                isinstance(variable, ast.Name)
+                and variable.id in names
+                and isinstance(literal, ast.Constant)
+                and isinstance(literal.value, str)
+            ):
+                return _DispatchSelector("exact", literal.value)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"startswith", "endswith"}
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id in names
+        and len(node.args) == 1
+        and not node.keywords
+        and isinstance(node.args[0], ast.Constant)
+        and isinstance(node.args[0].value, str)
+    ):
+        kind = "prefix" if node.func.attr == "startswith" else "suffix"
+        return _DispatchSelector(kind, node.args[0].value)
+    return None
+
+
+def _combine_dispatch_selectors(
+    outer: _DispatchSelector | None,
+    inner: _DispatchSelector,
+) -> _DispatchSelector | None:
+    if outer is None:
+        return inner
+    if inner.kind == "exact":
+        if outer.kind == "exact" and outer.value != inner.value:
+            return None
+        if outer.kind == "prefix" and not inner.value.startswith(outer.value):
+            return None
+        if outer.kind == "suffix" and not inner.value.endswith(outer.value):
+            return None
+        return inner
+    if outer.kind == "exact":
+        if inner.kind == "prefix" and outer.value.startswith(inner.value):
+            return outer
+        if inner.kind == "suffix" and outer.value.endswith(inner.value):
+            return outer
+        return None
+    if {outer.kind, inner.kind} == {"prefix", "suffix"}:
+        prefix = outer.value if outer.kind == "prefix" else inner.value
+        suffix = outer.value if outer.kind == "suffix" else inner.value
+        return _DispatchSelector("exact", prefix + suffix)
+    if outer.kind == inner.kind and outer.value == inner.value:
+        return outer
+    return None
+
+
+def _dispatch_subscript_key(node: ast.AST, name: str) -> str | None:
+    if not (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == name
+        and isinstance(node.slice, ast.Constant)
+        and isinstance(node.slice.value, str)
+    ):
+        return None
+    return node.slice.value
+
+
+def _dispatch_key(selector: _DispatchSelector, parameter: str | None = None) -> str:
+    choice = "".join(
+        character if character.isalnum() or character in "_-" else "_"
+        for character in selector.value
+    )
+    return choice if parameter is None else f"{choice}__{parameter}"
+
+
+def _discover_dispatch_settings(
+    parsed: Sequence[tuple[str, ast.Module]],
+) -> tuple[DiscoveredSetting, ...]:
+    facts: list[DiscoveredSetting] = []
+    optimizer_targets: list[
+        tuple[_DispatchSelector, str, int, str, str]
+    ] = []
+
+    def spread_call(node: ast.AST, spread_name: str) -> ast.Call | None:
+        if not isinstance(node, ast.Call):
+            return None
+        if any(
+            keyword.arg is None
+            and isinstance(keyword.value, ast.Name)
+            and keyword.value.id == spread_name
+            for keyword in node.keywords
+        ):
+            return node
+        return None
+
+    for source, tree in parsed:
+        aliases = _dispatch_imports(tree)
+        for function in (
+            node
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in {"get_optimizer", "get_lr_scheduler"}
+        ):
+            is_optimizer = function.name == "get_optimizer"
+            spread_name = "optimizer_params" if is_optimizer else "kwargs"
+            selector_names = {"optimizer_type", "lower_type"} if is_optimizer else {"name"}
+            scope = "optimizer" if is_optimizer else "scheduler"
+            registry_prefix = "optimizer" if is_optimizer else "scheduler"
+
+            def add_branch_facts(
+                statement: ast.stmt,
+                selector: _DispatchSelector,
+            ) -> None:
+                for node in ast.walk(statement):
+                    call = spread_call(node, spread_name)
+                    if call is None:
+                        continue
+                    target = _dispatch_call_path(call.func, aliases)
+                    if target is None:
+                        continue
+                    read_kind = (
+                        f"{registry_prefix}.registry"
+                        if selector.kind == "exact"
+                        else f"{registry_prefix}.registry_{selector.kind}"
+                    )
+                    key = _dispatch_key(selector)
+                    facts.append(
+                        DiscoveredSetting(
+                            source, function.name, call.lineno, key,
+                            read_kind, scope, target,
+                        )
+                    )
+                    if is_optimizer:
+                        optimizer_targets.append(
+                            (selector, target, call.lineno, source, function.name)
+                        )
+                        if not target.startswith("toolkit.optimizers."):
+                            facts.append(
+                                DiscoveredSetting(
+                                    source, function.name, call.lineno, key,
+                                    "optimizer.external_boundary", scope, target,
+                                )
+                            )
+                        for keyword in call.keywords:
+                            if keyword.arg is not None:
+                                facts.append(
+                                    DiscoveredSetting(
+                                        source,
+                                        function.name,
+                                        call.lineno,
+                                        _dispatch_key(selector, keyword.arg),
+                                        "optimizer.injected",
+                                        scope,
+                                        _source_expression(keyword.value),
+                                    )
+                                )
+
+                if isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                    targets = (
+                        statement.targets
+                        if isinstance(statement, ast.Assign)
+                        else (statement.target,)
+                    )
+                    value = statement.value
+                    if value is None:
+                        return
+                    for target_node in targets:
+                        target_key = _dispatch_subscript_key(target_node, spread_name)
+                        if target_key is None:
+                            continue
+                        normalized_from = None
+                        if (
+                            isinstance(value, ast.Call)
+                            and isinstance(value.func, ast.Attribute)
+                            and value.func.attr == "pop"
+                            and isinstance(value.func.value, ast.Name)
+                            and value.func.value.id == spread_name
+                            and value.args
+                            and isinstance(value.args[0], ast.Constant)
+                            and isinstance(value.args[0].value, str)
+                        ):
+                            normalized_from = value.args[0].value
+                        if normalized_from is not None:
+                            facts.append(
+                                DiscoveredSetting(
+                                    source, function.name, statement.lineno,
+                                    _dispatch_key(selector, normalized_from),
+                                    f"{registry_prefix}.normalized", scope,
+                                    target_key,
+                                )
+                            )
+                        else:
+                            facts.append(
+                                DiscoveredSetting(
+                                    source, function.name, statement.lineno,
+                                    _dispatch_key(selector, target_key),
+                                    f"{registry_prefix}.injected", scope,
+                                    _source_expression(value),
+                                )
+                            )
+                elif isinstance(statement, ast.Delete):
+                    for target_node in statement.targets:
+                        target_key = _dispatch_subscript_key(target_node, spread_name)
+                        if target_key is not None:
+                            facts.append(
+                                DiscoveredSetting(
+                                    source, function.name, statement.lineno,
+                                    _dispatch_key(selector, target_key),
+                                    f"{registry_prefix}.consumed", scope,
+                                    "removed",
+                                )
+                            )
+
+            def visit_statements(
+                statements: Sequence[ast.stmt],
+                inherited: _DispatchSelector | None = None,
+            ) -> None:
+                for statement in statements:
+                    if isinstance(statement, ast.If):
+                        branch = _dispatch_selector(statement.test, selector_names)
+                        if branch is None:
+                            visit_statements(statement.body, inherited)
+                            visit_statements(statement.orelse, inherited)
+                            continue
+                        combined = _combine_dispatch_selectors(inherited, branch)
+                        if combined is not None:
+                            visit_statements(statement.body, combined)
+                        visit_statements(statement.orelse, inherited)
+                    elif inherited is not None:
+                        add_branch_facts(statement, inherited)
+
+            visit_statements(function.body)
+
+    local_classes: dict[str, tuple[str, ast.ClassDef]] = {}
+    for source, tree in parsed:
+        if not source.startswith("toolkit/optimizers/") or not source.endswith(".py"):
+            continue
+        module = source[:-3].replace("/", ".")
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef):
+                local_classes[f"{module}.{node.name}"] = (source, node)
+
+    emitted_constructor_params: set[tuple[str, str, str]] = set()
+    emitted_fused: set[tuple[str, str, str, str]] = set()
+    for selector, target, line, factory_source, factory_symbol in optimizer_targets:
+        local = local_classes.get(target)
+        if local is None:
+            continue
+        class_source, class_node = local
+        constructor = next(
+            (
+                node for node in class_node.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == "__init__"
+            ),
+            None,
+        )
+        if constructor is None:
+            continue
+        symbol = f"{class_node.name}.__init__"
+        positional = (*constructor.args.posonlyargs, *constructor.args.args)
+        defaults: dict[str, ast.AST | None] = {
+            argument.arg: None for argument in positional
+        }
+        for argument, default in zip(
+            positional[-len(constructor.args.defaults):],
+            constructor.args.defaults,
+        ):
+            defaults[argument.arg] = default
+        defaults.update(
+            {
+                argument.arg: default
+                for argument, default in zip(
+                    constructor.args.kwonlyargs, constructor.args.kw_defaults
+                )
+            }
+        )
+        for parameter, default in defaults.items():
+            identity = (class_source, symbol, parameter)
+            if parameter in {"self", "params"} or identity in emitted_constructor_params:
+                continue
+            emitted_constructor_params.add(identity)
+            facts.append(
+                DiscoveredSetting(
+                    class_source, symbol, constructor.lineno, parameter,
+                    "optimizer.parameter", "optimizer",
+                    _source_expression(default),
+                )
+            )
+
+        backward_hook = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "register_post_accumulate_grad_hook"
+            and any(
+                isinstance(inner, ast.Attribute)
+                and inner.attr == "_make_backward_hook"
+                for argument in node.args
+                for inner in ast.walk(argument)
+            )
+            for node in ast.walk(constructor)
+        )
+        fused_identity = (
+            factory_source, factory_symbol, _dispatch_key(selector),
+            "optimizer.fused_backward",
+        )
+        if backward_hook and fused_identity not in emitted_fused:
+            emitted_fused.add(fused_identity)
+            facts.append(
+                DiscoveredSetting(
+                    factory_source, factory_symbol, line,
+                    _dispatch_key(selector), "optimizer.fused_backward",
+                    "optimizer", "optional" if "fused" in defaults else "required",
+                )
+            )
+    return tuple(facts)
+
+
 def discover_python_settings(
     repository_root: Path, globs: Sequence[str]
 ) -> tuple[DiscoveredSetting, ...]:
@@ -3661,6 +4017,7 @@ def discover_python_settings(
         )
         visitor.visit(tree)
         facts.extend(visitor.facts)
+    facts.extend(_discover_dispatch_settings(parsed))
 
     reserved_kwargs_reads = {
         (fact.source, fact.symbol, fact.key)

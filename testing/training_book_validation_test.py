@@ -2237,6 +2237,277 @@ class DiscoveryContractTests(unittest.TestCase):
         source_path.write_text(source, encoding="utf-8")
         return source_path
 
+    def test_training_dispatch_contract_discovers_optimizer_and_scheduler_registries(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            """def get_optimizer(params, optimizer_type, learning_rate, optimizer_params):
+    lower_type = optimizer_type.lower()
+    if lower_type == "adamw":
+        return torch.optim.AdamW(params, lr=learning_rate, **optimizer_params)
+    elif lower_type == "localmagic":
+        from toolkit.optimizers.magic import Magic
+        return Magic(params, lr=learning_rate, **optimizer_params)
+    elif lower_type.startswith("localfamily"):
+        from toolkit.optimizers.magic import Magic
+        return Magic(params, lr=learning_rate, **optimizer_params)
+    raise ValueError(lower_type)
+""",
+        )
+        self.write_source(
+            "toolkit/optimizers/magic.py",
+            """class Magic:
+    def __init__(self, params, lr=1e-4):
+        pass
+""",
+        )
+        self.write_source(
+            "toolkit/scheduler.py",
+            """def get_lr_scheduler(name, optimizer, **kwargs):
+    if name == "cosine":
+        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, **kwargs)
+    elif name == "constant":
+        return torch.optim.lr_scheduler.ConstantLR(optimizer, **kwargs)
+    raise ValueError(name)
+""",
+        )
+
+        discovered = discover_python_settings(
+            self.repository_root,
+            ("toolkit/optimizer.py", "toolkit/optimizers/*.py", "toolkit/scheduler.py"),
+        )
+
+        registry = {
+            (fact.source, fact.symbol, fact.key, fact.read_kind, fact.scope,
+             fact.default_expression)
+            for fact in discovered
+            if fact.read_kind in {
+                "optimizer.registry", "optimizer.registry_prefix",
+                "scheduler.registry",
+            }
+        }
+        self.assertEqual(
+            registry,
+            {
+                ("toolkit/optimizer.py", "get_optimizer", "adamw",
+                 "optimizer.registry", "optimizer", "torch.optim.AdamW"),
+                ("toolkit/optimizer.py", "get_optimizer", "localmagic",
+                 "optimizer.registry", "optimizer", "toolkit.optimizers.magic.Magic"),
+                ("toolkit/optimizer.py", "get_optimizer", "localfamily",
+                 "optimizer.registry_prefix", "optimizer",
+                 "toolkit.optimizers.magic.Magic"),
+                ("toolkit/scheduler.py", "get_lr_scheduler", "constant",
+                 "scheduler.registry", "scheduler",
+                 "torch.optim.lr_scheduler.ConstantLR"),
+                ("toolkit/scheduler.py", "get_lr_scheduler", "cosine",
+                 "scheduler.registry", "scheduler",
+                 "torch.optim.lr_scheduler.CosineAnnealingLR"),
+            },
+        )
+
+    def test_training_dispatch_contract_discovers_local_parameters_and_injections(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            """def get_optimizer(params, optimizer_type, learning_rate, optimizer_params):
+    lower_type = optimizer_type.lower()
+    if lower_type == "adamw":
+        return torch.optim.AdamW(
+            params, lr=float(learning_rate), eps=1e-6, **optimizer_params
+        )
+    elif lower_type == "localmagic":
+        from toolkit.optimizers.magic import Magic
+        return Magic(params, lr=float(learning_rate), **optimizer_params)
+    raise ValueError(lower_type)
+""",
+        )
+        self.write_source(
+            "toolkit/optimizers/magic.py",
+            """class Magic:
+    def __init__(self, params, lr=1e-4, beta=0.9, fused=True):
+        pass
+""",
+        )
+        self.write_source(
+            "toolkit/scheduler.py",
+            """def get_lr_scheduler(name, optimizer, **kwargs):
+    if name == "cosine":
+        if "total_iters" in kwargs:
+            kwargs["T_max"] = kwargs.pop("total_iters")
+        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, **kwargs)
+    elif name == "constant":
+        if "factor" not in kwargs:
+            kwargs["factor"] = 1.0
+        return torch.optim.lr_scheduler.ConstantLR(optimizer, **kwargs)
+    raise ValueError(name)
+""",
+        )
+
+        discovered = discover_python_settings(
+            self.repository_root,
+            ("toolkit/optimizer.py", "toolkit/optimizers/*.py", "toolkit/scheduler.py"),
+        )
+
+        parameters = {
+            (fact.source, fact.symbol, fact.key, fact.read_kind,
+             fact.default_expression)
+            for fact in discovered
+            if fact.read_kind in {
+                "optimizer.parameter", "optimizer.injected",
+                "scheduler.injected", "scheduler.normalized",
+            }
+        }
+        self.assertEqual(
+            parameters,
+            {
+                ("toolkit/optimizer.py", "get_optimizer", "adamw__eps",
+                 "optimizer.injected", "1e-06"),
+                ("toolkit/optimizer.py", "get_optimizer", "adamw__lr",
+                 "optimizer.injected", "float(learning_rate)"),
+                ("toolkit/optimizer.py", "get_optimizer", "localmagic__lr",
+                 "optimizer.injected", "float(learning_rate)"),
+                ("toolkit/optimizers/magic.py", "Magic.__init__", "beta",
+                 "optimizer.parameter", "0.9"),
+                ("toolkit/optimizers/magic.py", "Magic.__init__", "fused",
+                 "optimizer.parameter", "True"),
+                ("toolkit/optimizers/magic.py", "Magic.__init__", "lr",
+                 "optimizer.parameter", "0.0001"),
+                ("toolkit/scheduler.py", "get_lr_scheduler", "constant__factor",
+                 "scheduler.injected", "1.0"),
+                ("toolkit/scheduler.py", "get_lr_scheduler", "cosine__total_iters",
+                 "scheduler.normalized", "T_max"),
+            },
+        )
+
+    def test_training_dispatch_contract_discovers_fused_backward_compatibility(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            """def get_optimizer(params, optimizer_type, learning_rate, optimizer_params):
+    lower_type = optimizer_type.lower()
+    if lower_type == "alwaysfused":
+        from toolkit.optimizers.always import AlwaysFused
+        return AlwaysFused(params, **optimizer_params)
+    elif lower_type == "switchable":
+        from toolkit.optimizers.switchable import Switchable
+        return Switchable(params, **optimizer_params)
+    raise ValueError(lower_type)
+""",
+        )
+        self.write_source(
+            "toolkit/optimizers/always.py",
+            """class AlwaysFused:
+    def __init__(self, params):
+        for param in params:
+            param.register_post_accumulate_grad_hook(self._make_backward_hook())
+""",
+        )
+        self.write_source(
+            "toolkit/optimizers/switchable.py",
+            """class Switchable:
+    def __init__(self, params, fused=True):
+        self.fused = fused
+        for param in params:
+            if self.fused:
+                param.register_post_accumulate_grad_hook(self._make_backward_hook())
+""",
+        )
+
+        discovered = discover_python_settings(
+            self.repository_root,
+            ("toolkit/optimizer.py", "toolkit/optimizers/*.py"),
+        )
+
+        fused = {
+            (fact.key, fact.default_expression)
+            for fact in discovered
+            if fact.read_kind == "optimizer.fused_backward"
+        }
+        self.assertEqual(fused, {("alwaysfused", "required"), ("switchable", "optional")})
+
+    def test_training_dispatch_contract_new_registry_choice_is_unowned(self):
+        path = self.write_source(
+            "toolkit/optimizer.py",
+            """def get_optimizer(params, optimizer_type, optimizer_params):
+    lower_type = optimizer_type.lower()
+    if lower_type == "adamw":
+        return torch.optim.AdamW(params, **optimizer_params)
+    raise ValueError(lower_type)
+""",
+        )
+        baseline = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        claims = tuple(
+            SourceClaim(fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in baseline
+        )
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "    raise ValueError(lower_type)",
+                "    elif lower_type == 'newmagic':\n"
+                "        return torch.optim.SGD(params, **optimizer_params)\n"
+                "    raise ValueError(lower_type)",
+            ),
+            encoding="utf-8",
+        )
+
+        changed = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+
+        with self.assertRaisesRegex(DiscoveryError, "newmagic"):
+            validate_setting_ownership(changed, claims, ())
+
+    def test_training_dispatch_contract_excludes_exact_external_constructor_boundary(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            """def get_optimizer(params, optimizer_type, optimizer_params):
+    lower_type = optimizer_type.lower()
+    if lower_type == "optional":
+        from optional_library import OptionalOptimizer
+        return OptionalOptimizer(params, **optimizer_params)
+    raise ValueError(lower_type)
+""",
+        )
+
+        discovered = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        boundaries = tuple(
+            fact for fact in discovered
+            if fact.read_kind == "optimizer.external_boundary"
+        )
+        self.assertEqual(len(boundaries), 1)
+        boundary = boundaries[0]
+        self.assertEqual(
+            boundary,
+            DiscoveredSetting(
+                "toolkit/optimizer.py", "get_optimizer", boundary.line,
+                "optional", "optimizer.external_boundary", "optimizer",
+                "optional_library.OptionalOptimizer",
+            ),
+        )
+        claims = tuple(
+            SourceClaim(fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in discovered
+            if fact is not boundary
+        )
+        validate_setting_ownership(
+            discovered,
+            claims,
+            (
+                Exclusion(
+                    boundary.source, boundary.symbol, boundary.key,
+                    boundary.read_kind,
+                    "arbitrary third-party constructor surface",
+                ),
+            ),
+        )
+        self.assertFalse(
+            any(
+                fact.symbol == "OptionalOptimizer.__init__"
+                for fact in discovered
+            )
+        )
+
     def test_discovery_reports_exact_literal_reads_without_importing_modules(self):
         self.write_source(
             "fixtures/sample.py",
