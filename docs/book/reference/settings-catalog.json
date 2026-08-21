@@ -52,7 +52,7 @@
         "description": "Provides the job configuration object consumed by the selected job implementation.",
         "benefits": "Makes the root.config configuration boundary explicit.",
         "drawbacks": "An invalid root.config value stops job configuration or process loading.",
-        "example": "config: <value>"
+        "example": "config: {name: example_job, process: []}"
       }
     },
     {
@@ -106,7 +106,7 @@
         "description": "Selects the top-level job implementation that consumes the configuration.",
         "benefits": "Makes the root.job configuration boundary explicit.",
         "drawbacks": "An invalid root.job value stops job configuration or process loading.",
-        "example": "job: <value>"
+        "example": "job: extension"
       }
     },
     {
@@ -167,7 +167,7 @@
         "description": "Carries optional metadata from the job envelope into each process.",
         "benefits": "Makes the root.meta configuration boundary explicit.",
         "drawbacks": "An invalid root.meta value stops job configuration or process loading.",
-        "example": "meta: <value>"
+        "example": "meta: {owner: local}"
       }
     },
     {
@@ -221,7 +221,7 @@
         "description": "Names the job and supplies the inherited process name fallback.",
         "benefits": "Makes the job.name configuration boundary explicit.",
         "drawbacks": "An invalid job.name value stops job configuration or process loading.",
-        "example": "config.name: <value>"
+        "example": "name: example_job"
       }
     },
     {
@@ -281,7 +281,7 @@
         "description": "Defines the nonempty ordered list of processes loaded for the job.",
         "benefits": "Makes the job.processes configuration boundary explicit.",
         "drawbacks": "An invalid job.processes value stops job configuration or process loading.",
-        "example": "config.process: <value>"
+        "example": "process: [{type: diffusion_trainer}]"
       }
     },
     {
@@ -341,7 +341,7 @@
         "description": "Selects the registered implementation for each process entry.",
         "benefits": "Makes the process.type configuration boundary explicit.",
         "drawbacks": "An invalid process.type value stops job configuration or process loading.",
-        "example": "config.process[*].type: <value>"
+        "example": "type: diffusion_trainer"
       }
     },
     {
@@ -4486,7 +4486,7 @@
         "description": "Overrides animation playback rate for this item.",
         "benefits": "Tests a different playback rate without changing every sample.",
         "drawbacks": "It changes playback timing, not generated motion.",
-        "example": "fps: <inherited>"
+        "example": "fps: 24"
       }
     },
     {
@@ -4554,7 +4554,7 @@
         "description": "Overrides classifier-free guidance strength for this item.",
         "benefits": "Tests prompt adherence at an item-specific strength.",
         "drawbacks": "Different strengths make direct visual comparisons less controlled.",
-        "example": "guidance_scale: <inherited>"
+        "example": "guidance_scale: 4.0"
       }
     },
     {
@@ -4627,7 +4627,7 @@
         "description": "Overrides output height for this item.",
         "benefits": "Supports fixed evaluation at multiple aspect ratios.",
         "drawbacks": "Larger sizes increase generation memory and time.",
-        "example": "height: <inherited>"
+        "example": "height: 1024"
       }
     },
     {
@@ -4695,7 +4695,7 @@
         "description": "Overrides the shared negative prompt for this item.",
         "benefits": "Targets item-specific unwanted traits.",
         "drawbacks": "A broad negative prompt can suppress intended content.",
-        "example": "neg: <inherited>"
+        "example": "neg: low quality"
       }
     },
     {
@@ -4768,7 +4768,7 @@
         "description": "Overrides trained-network strength for this item.",
         "benefits": "Compares the learned effect at a chosen multiplier.",
         "drawbacks": "A deployment-mismatched value can misrepresent progress.",
-        "example": "network_multiplier: <inherited>"
+        "example": "network_multiplier: 1.0"
       }
     },
     {
@@ -4841,7 +4841,7 @@
         "description": "Overrides generated frame count for this item.",
         "benefits": "Evaluates a specific temporal length.",
         "drawbacks": "More frames increase generation memory and time.",
-        "example": "num_frames: <inherited>"
+        "example": "num_frames: 1"
       }
     },
     {
@@ -4973,7 +4973,7 @@
         "description": "Overrides denoising steps for this item.",
         "benefits": "Tests a chosen quality/speed point.",
         "drawbacks": "Many steps slow sampling and can reduce comparability.",
-        "example": "sample_steps: <inherited>"
+        "example": "sample_steps: 20"
       }
     },
     {
@@ -5032,7 +5032,7 @@
         "description": "Sets an optional fixed seed; null requests automatic seed selection.",
         "benefits": "Supports either exact repeatability or automatic variation.",
         "drawbacks": "Automatic seeds make repeated progress samples harder to compare.",
-        "example": "seed: <inherited>"
+        "example": "seed: 42"
       }
     },
     {
@@ -5105,7 +5105,7 @@
         "description": "Overrides output width for this item.",
         "benefits": "Supports fixed evaluation at multiple aspect ratios.",
         "drawbacks": "Larger sizes increase generation memory and time.",
-        "example": "width: <inherited>"
+        "example": "width: 1024"
       }
     },
     {
@@ -9200,7 +9200,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-adapter-type",
         "description": "Selects the concrete adapter architecture variant used by adapter implementations.",
-        "benefits": "Provides explicit control of adapter type for compatible adapter workflows.",
+        "benefits": "Selects the concrete T2I adapter architecture variant constructed for the run.",
         "drawbacks": "An unsupported variant fails construction or is incompatible with the selected model.",
         "example": "adapter_type: full_adapter"
       }
@@ -9264,7 +9264,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-channels",
         "description": "Sets the channel width at each T2I-adapter stage.",
-        "benefits": "Provides explicit control of channels for compatible adapter workflows.",
+        "benefits": "Defines per-stage feature widths so adapter capacity follows the target feature pyramid.",
         "drawbacks": "Widths that do not match the model produce shape errors and larger widths consume more memory.",
         "example": "channels: [320, 640, 1280, 1280]"
       }
@@ -9323,7 +9323,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-class-names",
         "description": "Lists class names used by class-aware adapter workflows.",
-        "benefits": "Provides explicit control of class names for compatible adapter workflows.",
+        "benefits": "Supplies an ordered label vocabulary for adapters that consume class-conditioned inputs.",
         "drawbacks": "Incorrect ordering or names mislabel class-conditioned data.",
         "example": "class_names: [\"cat\", \"dog\"]"
       }
@@ -9391,7 +9391,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-clip-layer",
         "description": "Selects which CLIP vision representation supplies adapter features.",
-        "benefits": "Provides explicit control of clip layer for compatible adapter workflows.",
+        "benefits": "Chooses which CLIP representation supplies image conditioning to IP-style adapters.",
         "drawbacks": "The wrong representation can degrade conditioning or mismatch adapter weights.",
         "example": "clip_layer: image_embeds"
       }
@@ -9455,7 +9455,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-control-image-dropout",
         "description": "Sets the chance that control input is replaced with noise during training.",
-        "benefits": "Provides explicit control of control image dropout for compatible adapter workflows.",
+        "benefits": "Regularizes control dependence by replacing a chosen fraction of control images with noise.",
         "drawbacks": "High dropout weakens control adherence; zero provides no dropout regularization.",
         "example": "control_image_dropout: 0.1"
       }
@@ -9514,7 +9514,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-conv-pooling",
         "description": "Enables convolutional pooling of adapter embeddings.",
-        "benefits": "Provides explicit control of conv pooling for compatible adapter workflows.",
+        "benefits": "Enables a trainable convolutional pooling stage for image-encoder embeddings.",
         "drawbacks": "Pooling changes embedding shape and must match the adapter implementation.",
         "example": "conv_pooling: true"
       }
@@ -9578,7 +9578,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-conv-pooling-stacks",
         "description": "Sets the number of convolutional pooling stacks.",
-        "benefits": "Provides explicit control of conv pooling stacks for compatible adapter workflows.",
+        "benefits": "Sets the depth of the convolutional pooling stack used for image embeddings.",
         "drawbacks": "More stacks add capacity, memory use, and training cost.",
         "example": "conv_pooling_stacks: 2"
       }
@@ -9642,7 +9642,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-downscale-factor",
         "description": "Sets the spatial downscale factor used by the adapter.",
-        "benefits": "Provides explicit control of downscale factor for compatible adapter workflows.",
+        "benefits": "Aligns adapter spatial reduction with the latent scale expected by the model.",
         "drawbacks": "A factor inconsistent with model latent resolution causes shape or quality problems.",
         "example": "downscale_factor: 8"
       }
@@ -9701,7 +9701,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-flux-only-double",
         "description": "Restricts Flux adapter application to double-stream blocks.",
-        "benefits": "Provides explicit control of flux only double for compatible adapter workflows.",
+        "benefits": "Restricts Flux adaptation to double-stream blocks when single-stream coverage is unnecessary.",
         "drawbacks": "It omits single-stream blocks and can reduce adapter reach.",
         "example": "flux_only_double: true"
       }
@@ -9760,7 +9760,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-has-inpainting-input",
         "description": "Adds the inpainting input channel behavior expected by control adapters.",
-        "benefits": "Provides explicit control of has inpainting input for compatible adapter workflows.",
+        "benefits": "Declares the additional inpainting input so compatible control adapters accept mask-conditioned channels.",
         "drawbacks": "Enabling it without matching data/model channels produces incompatible inputs.",
         "example": "has_inpainting_input: true"
       }
@@ -9824,7 +9824,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-head-dim",
         "description": "Sets the feature dimension per iLoRA attention head.",
-        "benefits": "Provides explicit control of head dim for compatible adapter workflows.",
+        "benefits": "Sets the feature width assigned to each iLoRA attention head.",
         "drawbacks": "Incompatible dimensions cause shape errors; large dimensions cost memory.",
         "example": "head_dim: 1024"
       }
@@ -9883,7 +9883,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-i2v-do-start-frame",
         "description": "Appends the masked start frame for image-to-video adapter pretraining.",
-        "benefits": "Provides explicit control of i2v do start frame for compatible adapter workflows.",
+        "benefits": "Appends the masked starting frame used by compatible image-to-video adapter pretraining.",
         "drawbacks": "It changes the expected input layout and is only meaningful for compatible I2V adapters.",
         "example": "i2v_do_start_frame: true"
       }
@@ -9942,8 +9942,8 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-ilora-down",
         "description": "Enables iLoRA modules in down blocks.",
-        "benefits": "Provides explicit control of ilora down for compatible adapter workflows.",
-        "drawbacks": "Disabling the stage reduces capacity and changes checkpoint structure.",
+        "benefits": "Keeps the iLoRA downsampling stage trainable for low-resolution feature adaptation.",
+        "drawbacks": "Disabling the downsampling stage removes its contribution and changes checkpoint structure.",
         "example": "ilora_down: true"
       }
     },
@@ -10001,8 +10001,8 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-ilora-mid",
         "description": "Enables iLoRA modules in the middle block.",
-        "benefits": "Provides explicit control of ilora mid for compatible adapter workflows.",
-        "drawbacks": "Disabling the stage reduces capacity and changes checkpoint structure.",
+        "benefits": "Keeps the iLoRA middle stage trainable for bottleneck feature adaptation.",
+        "drawbacks": "Disabling the middle stage removes bottleneck capacity and changes checkpoint structure.",
         "example": "ilora_mid: true"
       }
     },
@@ -10060,8 +10060,8 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-ilora-up",
         "description": "Enables iLoRA modules in up blocks.",
-        "benefits": "Provides explicit control of ilora up for compatible adapter workflows.",
-        "drawbacks": "Disabling the stage reduces capacity and changes checkpoint structure.",
+        "benefits": "Keeps the iLoRA upsampling stage trainable for restored-resolution feature adaptation.",
+        "drawbacks": "Disabling the upsampling stage removes its contribution and changes checkpoint structure.",
         "example": "ilora_up: true"
       }
     },
@@ -10119,7 +10119,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-image-dir",
         "description": "Points to adapter image inputs used by applicable workflows.",
-        "benefits": "Provides explicit control of image dir for compatible adapter workflows.",
+        "benefits": "Points adapter workflows at the image directory they use for conditioning inputs.",
         "drawbacks": "A missing or mismatched directory leaves the adapter without expected images.",
         "example": "image_dir: /workspace/adapter-images"
       }
@@ -10178,7 +10178,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-image-encoder-arch",
         "description": "Selects the image-encoder architecture used by the adapter.",
-        "benefits": "Provides explicit control of image encoder arch for compatible adapter workflows.",
+        "benefits": "Selects the image-encoder implementation that interprets the configured checkpoint.",
         "drawbacks": "Architecture and checkpoint must agree or loading fails.",
         "example": "image_encoder_arch: clip"
       }
@@ -10237,7 +10237,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-image-encoder-path",
         "description": "Overrides the image-encoder checkpoint path.",
-        "benefits": "Provides explicit control of image encoder path for compatible adapter workflows.",
+        "benefits": "Loads a chosen image-encoder checkpoint instead of relying on an implicit source.",
         "drawbacks": "A missing or incompatible checkpoint prevents encoder loading.",
         "example": "image_encoder_path: /workspace/image-encoder"
       }
@@ -10301,7 +10301,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-in-channels",
         "description": "Sets adapter input channel count.",
-        "benefits": "Provides explicit control of in channels for compatible adapter workflows.",
+        "benefits": "Matches the adapter input projection to the channel count of prepared control tensors.",
         "drawbacks": "It must match prepared control inputs or tensor shapes fail.",
         "example": "in_channels: 3"
       }
@@ -10365,7 +10365,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-invert-inpaint-mask-chance",
         "description": "Sets the chance of inverting an inpainting mask during training.",
-        "benefits": "Provides explicit control of invert inpaint mask chance for compatible adapter workflows.",
+        "benefits": "Adds stochastic mask inversion so an inpainting adapter sees both mask orientations.",
         "drawbacks": "High values change mask semantics frequently and can confuse preservation behavior.",
         "example": "invert_inpaint_mask_chance: 0.1"
       }
@@ -10429,7 +10429,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-lora-config",
         "description": "Provides nested network settings for control-LoRA adapters.",
-        "benefits": "Provides explicit control of lora config for compatible adapter workflows.",
+        "benefits": "Builds the nested NetworkConfig that controls rank and related Control-LoRA behavior.",
         "drawbacks": "Invalid network settings fail nested NetworkConfig parsing or produce incompatible weights.",
         "example": "lora_config: {linear: 8}"
       }
@@ -10495,7 +10495,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-merge-scaler",
         "description": "Merges a trained channel scaler into adapter weights on save.",
-        "benefits": "Provides explicit control of merge scaler for compatible adapter workflows.",
+        "benefits": "Folds the trained channel scaler into saved adapter weights for simpler deployment.",
         "drawbacks": "Merged output is harder to resume as a separately trainable scaler.",
         "example": "merge_scaler: true"
       }
@@ -10554,7 +10554,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-name-or-path",
         "description": "Selects an existing adapter name or local path to load.",
-        "benefits": "Provides explicit control of name or path for compatible adapter workflows.",
+        "benefits": "Initializes the adapter from a named or filesystem checkpoint source.",
         "drawbacks": "Incompatible weights or a missing path prevent initialization.",
         "example": "name_or_path: /workspace/adapter"
       }
@@ -10618,7 +10618,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-num-cloned-blocks",
         "description": "Sets how many model blocks are cloned for LLM adapter training.",
-        "benefits": "Provides explicit control of num cloned blocks for compatible adapter workflows.",
+        "benefits": "Sets how many language-model blocks are cloned for LLM adapter capacity.",
         "drawbacks": "More cloned blocks sharply increase memory and parameter count.",
         "example": "num_cloned_blocks: 2"
       }
@@ -10682,7 +10682,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-num-control-images",
         "description": "Sets the number of control images expected per example.",
-        "benefits": "Provides explicit control of num control images for compatible adapter workflows.",
+        "benefits": "Configures Control-LoRA to consume the intended number of simultaneous control images.",
         "drawbacks": "Dataset and model inputs must supply the same count.",
         "example": "num_control_images: 2"
       }
@@ -10746,7 +10746,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-num-heads",
         "description": "Sets the number of iLoRA attention heads.",
-        "benefits": "Provides explicit control of num heads for compatible adapter workflows.",
+        "benefits": "Sets the number of attention heads used by the iLoRA adapter.",
         "drawbacks": "More heads change shapes and increase computation.",
         "example": "num_heads: 4"
       }
@@ -10810,7 +10810,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-num-res-blocks",
         "description": "Sets residual blocks per T2I-adapter stage.",
-        "benefits": "Provides explicit control of num res blocks for compatible adapter workflows.",
+        "benefits": "Controls residual-block depth and therefore representational capacity in the adapter.",
         "drawbacks": "More blocks add compute and capacity; checkpoint shapes must match.",
         "example": "num_res_blocks: 2"
       }
@@ -10879,7 +10879,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-num-tokens",
         "description": "Sets the number of adapter conditioning tokens.",
-        "benefits": "Provides explicit control of num tokens for compatible adapter workflows.",
+        "benefits": "Determines how many learned image-conditioning tokens an IP adapter emits.",
         "drawbacks": "Token count changes memory and checkpoint shapes and must match the adapter type.",
         "example": "num_tokens: 16"
       }
@@ -10943,7 +10943,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-pixtral-max-image-size",
         "description": "Caps image size for Pixtral adapter preprocessing.",
-        "benefits": "Provides explicit control of pixtral max image size for compatible adapter workflows.",
+        "benefits": "Caps Pixtral encoder input size to balance retained detail against memory use.",
         "drawbacks": "Large caps increase encoder memory; small caps discard detail.",
         "example": "pixtral_max_image_size: 512"
       }
@@ -11002,7 +11002,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-pixtral-random-image-size",
         "description": "Randomizes Pixtral image size during training.",
-        "benefits": "Provides explicit control of pixtral random image size for compatible adapter workflows.",
+        "benefits": "Introduces input-size variation when preparing images for the Pixtral encoder.",
         "drawbacks": "It adds scale variation but reduces exact batch-shape predictability.",
         "example": "pixtral_random_image_size: true"
       }
@@ -11061,7 +11061,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-quad-image",
         "description": "Enables four-image composition for applicable vision adapters.",
-        "benefits": "Provides explicit control of quad image for compatible adapter workflows.",
+        "benefits": "Enables the adapter's quad-image input mode when that implementation supports it.",
         "drawbacks": "It changes expected inputs and increases image-encoding work.",
         "example": "quad_image: true"
       }
@@ -11120,7 +11120,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-quantize-llm",
         "description": "Quantizes the LLM used by applicable adapter workflows.",
-        "benefits": "Provides explicit control of quantize llm for compatible adapter workflows.",
+        "benefits": "Reduces memory required by the language-model component through quantized loading.",
         "drawbacks": "Quantization saves memory but can reduce fidelity or add backend constraints.",
         "example": "quantize_llm: true"
       }
@@ -11184,7 +11184,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-safe-channels",
         "description": "Sets SAFE adapter hidden channel width.",
-        "benefits": "Provides explicit control of safe channels for compatible adapter workflows.",
+        "benefits": "Sets the main feature width used by SAFE image-encoder adapter components.",
         "drawbacks": "Larger widths cost memory and must match saved weights.",
         "example": "safe_channels: 2048"
       }
@@ -11248,7 +11248,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-safe-reducer-channels",
         "description": "Sets SAFE reducer channel width.",
-        "benefits": "Provides explicit control of safe reducer channels for compatible adapter workflows.",
+        "benefits": "Sets the SAFE reducer width that compresses encoder features before conditioning.",
         "drawbacks": "An incompatible width causes shape mismatch and larger widths cost memory.",
         "example": "safe_reducer_channels: 512"
       }
@@ -11312,7 +11312,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-safe-tokens",
         "description": "Sets the number of SAFE adapter tokens.",
-        "benefits": "Provides explicit control of safe tokens for compatible adapter workflows.",
+        "benefits": "Sets how many conditioning tokens the SAFE image encoder produces.",
         "drawbacks": "Token count changes conditioning shape and checkpoint compatibility.",
         "example": "safe_tokens: 8"
       }
@@ -11383,7 +11383,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-scaler-lr",
         "description": "Overrides learning rate for the trainable adapter scaler.",
-        "benefits": "Provides explicit control of scaler lr for compatible adapter workflows.",
+        "benefits": "Tunes the channel scaler with a learning rate independent of other adapter parameters.",
         "drawbacks": "An excessive scaler rate can destabilize its channel weights.",
         "example": "scaler_lr: 0.0001"
       }
@@ -11447,7 +11447,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-sparse-autoencoder-dim",
         "description": "Sets sparse-autoencoder feature dimension for applicable adapters.",
-        "benefits": "Provides explicit control of sparse autoencoder dim for compatible adapter workflows.",
+        "benefits": "Chooses the latent width of the optional sparse autoencoder pooling path.",
         "drawbacks": "Large dimensions increase memory; incompatible dimensions fail shape construction.",
         "example": "sparse_autoencoder_dim: 4096"
       }
@@ -11511,7 +11511,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-subpixel-downscale-factor",
         "description": "Sets the subpixel adapter downscale factor.",
-        "benefits": "Provides explicit control of subpixel downscale factor for compatible adapter workflows.",
+        "benefits": "Matches subpixel spatial packing to the scale expected by that adapter architecture.",
         "drawbacks": "It must match the intended spatial packing or shapes and quality suffer.",
         "example": "subpixel_downscale_factor: 8"
       }
@@ -11575,7 +11575,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-test-img-path",
         "description": "Provides one or more fixed test image paths for adapter evaluation.",
-        "benefits": "Provides explicit control of test img path for compatible adapter workflows.",
+        "benefits": "Provides fixed test images for repeatable adapter evaluation during development.",
         "drawbacks": "Missing files prevent fixed-image evaluation.",
         "example": "test_img_path: [\"/workspace/test.png\"]"
       }
@@ -11634,7 +11634,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-text-encoder-arch",
         "description": "Selects the adapter text-encoder architecture.",
-        "benefits": "Provides explicit control of text encoder arch for compatible adapter workflows.",
+        "benefits": "Selects the text-encoder architecture used by adapters with textual conditioning.",
         "drawbacks": "It must match the configured checkpoint and adapter implementation.",
         "example": "text_encoder_arch: clip"
       }
@@ -11693,7 +11693,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-text-encoder-path",
         "description": "Overrides the adapter text-encoder checkpoint path.",
-        "benefits": "Provides explicit control of text encoder path for compatible adapter workflows.",
+        "benefits": "Loads a specific text-encoder checkpoint for the adapter conditioning path.",
         "drawbacks": "A missing or incompatible checkpoint prevents loading.",
         "example": "text_encoder_path: /workspace/text-encoder"
       }
@@ -11752,7 +11752,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-train",
         "description": "Enables training of the configured adapter.",
-        "benefits": "Provides explicit control of train for compatible adapter workflows.",
+        "benefits": "Includes adapter parameters in training instead of using the adapter only for conditioning.",
         "drawbacks": "Leaving it false keeps the adapter out of the trainable adapter path.",
         "example": "train: true"
       }
@@ -11811,7 +11811,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-train-image-encoder",
         "description": "Enables image-encoder parameter training.",
-        "benefits": "Provides explicit control of train image encoder for compatible adapter workflows.",
+        "benefits": "Allows the image encoder to adapt its representations to the training dataset.",
         "drawbacks": "It raises memory use and can overfit a small image set.",
         "example": "train_image_encoder: true"
       }
@@ -11882,7 +11882,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-train-only-image-encoder",
         "description": "Restricts adapter training to the image encoder.",
-        "benefits": "Provides explicit control of train only image encoder for compatible adapter workflows.",
+        "benefits": "Focuses optimization on the image encoder while leaving other adapter parameters fixed.",
         "drawbacks": "It prevents other adapter parameters from learning.",
         "example": "train_only_image_encoder: true"
       }
@@ -11948,7 +11948,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-train-only-image-encoder-positional-embedding",
         "description": "Restricts image-encoder training to positional embeddings.",
-        "benefits": "Provides explicit control of train only image encoder positional embedding for compatible adapter workflows.",
+        "benefits": "Limits image-encoder updates to positional embeddings for a narrowly scoped adaptation.",
         "drawbacks": "It offers very limited capacity and is only useful for targeted adaptation.",
         "example": "train_only_image_encoder_positional_embedding: true"
       }
@@ -12007,7 +12007,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-train-scaler",
         "description": "Enables training of the adapter channel scaler.",
-        "benefits": "Provides explicit control of train scaler for compatible adapter workflows.",
+        "benefits": "Adds a trainable channel scaler that can correct systematic conditioning bias.",
         "drawbacks": "It adds a separate trainable component that needs an appropriate learning rate.",
         "example": "train_scaler: true"
       }
@@ -12066,7 +12066,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-trigger",
         "description": "Sets the token that activates applicable adapter conditioning.",
-        "benefits": "Provides explicit control of trigger for compatible adapter workflows.",
+        "benefits": "Defines the trigger token used to associate prompts with adapter conditioning.",
         "drawbacks": "A common or inconsistent trigger can entangle adapter behavior.",
         "example": "trigger: tri993r"
       }
@@ -12125,7 +12125,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-trigger-class-name",
         "description": "Sets the class name associated with the adapter trigger for masked-prior workflows.",
-        "benefits": "Provides explicit control of trigger class name for compatible adapter workflows.",
+        "benefits": "Names the semantic class used when constructing preservation-aware adapter prompts.",
         "drawbacks": "An incorrect class name gives the preservation target the wrong semantics.",
         "example": "trigger_class_name: person"
       }
@@ -12194,7 +12194,7 @@
         "page": "reference/advanced-only-settings.md",
         "anchor": "adapter-type",
         "description": "Selects the top-level adapter family.",
-        "benefits": "Provides explicit control of type for compatible adapter workflows.",
+        "benefits": "Dispatches construction to the intended adapter family, such as IP or Control-LoRA.",
         "drawbacks": "Each family requires different inputs, weights, and compatible model support.",
         "example": "type: control_lora"
       }

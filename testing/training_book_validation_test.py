@@ -999,6 +999,66 @@ class CatalogContractTests(unittest.TestCase):
             settings_catalog_schema(),
         )
 
+    def test_catalog_render_metadata_contains_only_concrete_examples(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        placeholder = re.compile(
+            r"<[^>]+>|\b(?:todo|tbd|placeholder|fill[- ]?me[- ]?in)\b",
+            re.IGNORECASE,
+        )
+        for setting in catalog.settings:
+            with self.subTest(setting=setting.id):
+                render_fields = (
+                    setting.render.description,
+                    setting.render.benefits,
+                    setting.render.drawbacks,
+                    setting.render.example,
+                )
+                self.assertFalse(any(placeholder.search(text) for text in render_fields))
+                separator = (
+                    "="
+                    if all(location.kind == "environment" for location in setting.locations)
+                    else ":"
+                )
+                key, found, value = setting.render.example.partition(separator)
+                self.assertEqual(found, separator)
+                self.assertTrue(key.strip())
+                self.assertTrue(value.strip())
+
+    def test_catalog_adapter_teaching_is_setting_specific_and_non_repetitive(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        adapters = tuple(
+            setting for setting in catalog.settings if setting.id.startswith("adapter.")
+        )
+        self.assertEqual(len(adapters), 49)
+        generic_template = re.compile(
+            r"provides explicit control of|for compatible adapter workflows",
+            re.IGNORECASE,
+        )
+        for setting in adapters:
+            with self.subTest(setting=setting.id):
+                self.assertIsNone(generic_template.search(setting.render.benefits))
+                self.assertGreaterEqual(len(setting.render.benefits.split()), 6)
+        self.assertEqual(
+            len({setting.render.benefits.casefold() for setting in adapters}),
+            len(adapters),
+        )
+        self.assertEqual(
+            len({setting.render.drawbacks.casefold() for setting in adapters}),
+            len(adapters),
+        )
+        self.assertEqual(
+            len({setting.render.example.casefold() for setting in adapters}),
+            len(adapters),
+        )
+
     def test_catalog_contract_cli_rejects_committed_schema_drift(self):
         schema_path = (
             REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json"
