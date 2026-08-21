@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -1018,6 +1019,53 @@ class CatalogProductionSliceTests(unittest.TestCase):
         self.assert_catalog_selector_green(
             "--target-symbol",
             "toolkit/config_modules.py::NetworkConfig.__init__",
+        )
+
+    def test_catalog_network_type_matches_active_dispatch_spellings(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        setting = next(item for item in catalog.settings if item.id == "network.type")
+        config_source = (
+            REPOSITORY_ROOT / "toolkit/config_modules.py"
+        ).read_text(encoding="utf-8")
+        process_source = (
+            REPOSITORY_ROOT / "jobs/process/BaseSDTrainProcess.py"
+        ).read_text(encoding="utf-8")
+        lora_source = (
+            REPOSITORY_ROOT / "toolkit/lora_special.py"
+        ).read_text(encoding="utf-8")
+        declared_match = re.search(r"NetworkType = Literal\[([^]]+)\]", config_source)
+        self.assertIsNotNone(declared_match)
+        declared = set(re.findall(r"['\"]([^'\"]+)['\"]", declared_match.group(1)))
+        dispatcher = set(
+            re.findall(
+                r"network_config\.type\.lower\(\) == ['\"]([^'\"]+)['\"]",
+                process_source,
+            )
+        )
+        downstream_modes = set(
+            re.findall(
+                r"(?:self\.)?network_type\.lower\(\) == ['\"]([^'\"]+)['\"]",
+                lora_source,
+            )
+        )
+        active_spellings = declared | dispatcher | downstream_modes
+
+        self.assertEqual(set(setting.contract.accepted_values or ()), active_spellings)
+        self.assertIn("lycoris", active_spellings)
+        normalization_descriptions = {
+            item.description for item in setting.normalizations
+        }
+        self.assertIn(
+            "Runtime dispatch and downstream implementation-mode checks normalize network.type with lower().",
+            normalization_descriptions,
+        )
+        self.assertIn(
+            "locon and lycoris dispatch to LycorisSpecialNetwork; lora, lorm, lokr, dora, and fullrank dispatch to LoRASpecialNetwork.",
+            normalization_descriptions,
         )
 
     def test_catalog_toolkit_network_mixin_symbol_is_exactly_classified(self):

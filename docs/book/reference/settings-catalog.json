@@ -6659,8 +6659,11 @@
         "accepted_values": [
           "lora",
           "locon",
+          "lycoris",
           "lorm",
-          "lokr"
+          "lokr",
+          "dora",
+          "fullrank"
         ],
         "range": null,
         "null": "rejected"
@@ -6676,6 +6679,14 @@
       "normalizations": [
         {
           "description": "LoRM forces linear/rank to 4 and forces conv to 4 when LoRM convolution extraction is enabled.",
+          "applicability": []
+        },
+        {
+          "description": "Runtime dispatch and downstream implementation-mode checks normalize network.type with lower().",
+          "applicability": []
+        },
+        {
+          "description": "locon and lycoris dispatch to LycorisSpecialNetwork; lora, lorm, lokr, dora, and fullrank dispatch to LoRASpecialNetwork.",
           "applicability": []
         }
       ],
@@ -6694,7 +6705,7 @@
         "page": "reference/network.md",
         "anchor": "network-type",
         "description": "Selects the network implementation family.",
-        "benefits": "Chooses LoRA, LoCon, LoRM, or LoKr construction behavior.",
+        "benefits": "Chooses the LoRA-family or LyCORIS constructor and its supported implementation mode.",
         "drawbacks": "Changing type changes supported parameters and checkpoint compatibility.",
         "example": "type: \"lora\""
       }
