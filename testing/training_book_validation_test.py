@@ -4660,14 +4660,32 @@ def get_optimizer(params, optimizer_type, optimizer_params):
                         self.repository_root, ("toolkit/optimizer.py",)
                     )
 
-    def test_training_dispatch_contract_module_audit_skips_deferred_scopes(self):
+    def test_training_dispatch_contract_module_audit_executes_class_bodies(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            """import torch
+class ExecutedClass:
+    torch.optim.SGD = fake
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+""",
+        )
+
+        with self.assertRaisesRegex(DiscoveryError, "module imported namespace"):
+            discover_python_settings(
+                self.repository_root, ("toolkit/optimizer.py",)
+            )
+
+    def test_training_dispatch_contract_module_audit_skips_deferred_bodies(self):
         self.write_source(
             "toolkit/optimizer.py",
             """import torch
 def deferred_function():
     torch.optim.SGD = fake
 class DeferredClass:
-    torch.optim.SGD = fake
+    def deferred_method(self):
+        torch.optim.SGD = fake
 deferred_lambda = lambda: setattr(torch.optim, "SGD", fake)
 def get_optimizer(params, optimizer_type, optimizer_params):
     if optimizer_type == "sgd":
@@ -4687,6 +4705,178 @@ import math
                 for fact in discovered
             },
         )
+
+    def test_training_dispatch_contract_audits_definition_time_expressions(self):
+        contexts = {
+            "function_decorator": '@setattr(torch.optim, "SGD", fake)\ndef helper():\n    pass',
+            "async_function_decorator": '@setattr(torch.optim, "SGD", fake)\nasync def helper():\n    pass',
+            "class_decorator": '@setattr(torch.optim, "SGD", fake)\nclass Helper:\n    pass',
+            "positional_default": 'def helper(value=setattr(torch.optim, "SGD", fake)):\n    pass',
+            "keyword_default": 'def helper(*, value=setattr(torch.optim, "SGD", fake)):\n    pass',
+            "argument_annotation": 'def helper(value: setattr(torch.optim, "SGD", fake)):\n    pass',
+            "return_annotation": 'def helper() -> delattr(torch.optim, "SGD"):\n    pass',
+            "lambda_default": 'helper = lambda value=setattr(torch.optim, "SGD", fake): value',
+            "class_base": 'class Helper(setattr(torch.optim, "SGD", fake)):\n    pass',
+            "class_keyword": 'class Helper(metaclass=setattr(torch.optim, "SGD", fake)):\n    pass',
+            "function_type_parameter": 'def helper[T: setattr(torch.optim, "SGD", fake)]():\n    pass',
+            "class_type_parameter": 'class Helper[T: setattr(torch.optim, "SGD", fake)]:\n    pass',
+            "nested_method_default": 'class Helper:\n    def method(self, value=setattr(torch.optim, "SGD", fake)):\n        pass',
+        }
+        for shape, definition in contexts.items():
+            with self.subTest(shape=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f'''import torch
+{definition}
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+                )
+                with self.assertRaisesRegex(
+                    DiscoveryError, "module imported namespace"
+                ):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+    def test_training_dispatch_contract_postpones_only_annotations(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            '''from __future__ import annotations
+import torch
+def helper(value: setattr(torch.optim, "SGD", fake)) -> delattr(torch.optim, "SGD"):
+    pass
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+        )
+        discovered = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        self.assertTrue(any(fact.read_kind == "optimizer.registry" for fact in discovered))
+
+        eager_contexts = {
+            "decorator": '@setattr(torch.optim, "SGD", fake)\ndef helper():\n    pass',
+            "default": 'def helper(value=setattr(torch.optim, "SGD", fake)):\n    pass',
+        }
+        for shape, definition in eager_contexts.items():
+            with self.subTest(shape=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f'''from __future__ import annotations
+import torch
+{definition}
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+                )
+                with self.assertRaisesRegex(
+                    DiscoveryError, "module imported namespace"
+                ):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+    def test_training_dispatch_contract_resolves_builtin_mutation_aliases(self):
+        cases = {
+            "builtins_attribute": (
+                "import builtins", 'builtins.setattr(torch.optim, "SGD", fake)',
+            ),
+            "builtins_alias": (
+                "import builtins as bi", 'bi.delattr(torch.optim, "SGD")',
+            ),
+            "from_builtin_alias": (
+                "from builtins import setattr as mutate",
+                'mutate(torch.optim, "SGD", fake)',
+            ),
+            "namespace_alias": (
+                "namespace = torch.optim", 'setattr(namespace, "SGD", fake)',
+            ),
+            "conditional_alias": (
+                "if enabled:\n    namespace = torch.optim",
+                'setattr(namespace, "SGD", fake)',
+            ),
+            "reassigned_builtin_alias": (
+                "from builtins import setattr as mutate\nmutate = wrapper",
+                'mutate(torch.optim, "SGD", fake)',
+            ),
+        }
+        for shape, (binding, operation) in cases.items():
+            with self.subTest(shape=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f'''import torch
+{binding}
+{operation}
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+                )
+                with self.assertRaisesRegex(
+                    DiscoveryError, "module imported namespace"
+                ):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+    def test_training_dispatch_contract_rejects_namespace_accessors_and_unknown_calls(self):
+        operations = {
+            "dict_store": 'torch.optim.__dict__["SGD"] = fake',
+            "dict_delete": 'del torch.optim.__dict__["SGD"]',
+            "dict_augmented": 'torch.optim.__dict__["SGD"] += fake',
+            "dict_escape": 'namespace = torch.optim.__dict__',
+            "vars_accessor": 'vars(torch.optim)["SGD"] = fake',
+            "getattr_accessor": 'getattr(torch.optim, "__dict__")["SGD"] = fake',
+            "unknown_direct": 'mutate_namespace(torch.optim)',
+            "unknown_alias": 'namespace = torch.optim\nmutate_namespace(namespace)',
+        }
+        for shape, operation in operations.items():
+            with self.subTest(shape=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f'''import torch
+{operation}
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+                )
+                with self.assertRaisesRegex(
+                    DiscoveryError, "module imported namespace"
+                ):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+    def test_training_dispatch_contract_allows_safe_module_definition_shapes(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            '''import builtins
+from builtins import delattr as remove
+import torch
+marker = harmless(1)
+local = object
+builtins.setattr(local, "value", 1)
+remove(local, "value")
+def deferred_function():
+    setattr(torch.optim, "SGD", fake)
+class DeferredClass:
+    def deferred_method(self):
+        delattr(torch.optim, "SGD")
+deferred_lambda = lambda: setattr(torch.optim, "SGD", fake)
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+        )
+        discovered = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        self.assertTrue(any(fact.read_kind == "optimizer.registry" for fact in discovered))
 
     def test_training_dispatch_contract_rejects_nested_or_conditional_mapping_effects(self):
         operations = {

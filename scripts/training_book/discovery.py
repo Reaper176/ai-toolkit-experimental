@@ -3708,12 +3708,67 @@ def _discover_dispatch_settings(
                 )
 
             def module_execution_nodes() -> Iterable[ast.AST]:
+                future_annotations = any(
+                    isinstance(statement, ast.ImportFrom)
+                    and statement.module == "__future__"
+                    and any(
+                        imported.name == "annotations"
+                        for imported in statement.names
+                    )
+                    for statement in tree.body
+                )
+
+                def visit_annotation(node: ast.AST | None) -> Iterable[ast.AST]:
+                    if node is not None and not future_annotations:
+                        yield from visit(node)
+
+                def visit_arguments(arguments: ast.arguments) -> Iterable[ast.AST]:
+                    for default in arguments.defaults:
+                        yield from visit(default)
+                    for default in arguments.kw_defaults:
+                        if default is not None:
+                            yield from visit(default)
+                    for argument in (
+                        *arguments.posonlyargs,
+                        *arguments.args,
+                        *arguments.kwonlyargs,
+                    ):
+                        yield from visit_annotation(argument.annotation)
+                    if arguments.vararg is not None:
+                        yield from visit_annotation(arguments.vararg.annotation)
+                    if arguments.kwarg is not None:
+                        yield from visit_annotation(arguments.kwarg.annotation)
+
                 def visit(node: ast.AST) -> Iterable[ast.AST]:
                     yield node
-                    if isinstance(
-                        node,
-                        (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
-                    ):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        for decorator in node.decorator_list:
+                            yield from visit(decorator)
+                        yield from visit_arguments(node.args)
+                        yield from visit_annotation(node.returns)
+                        for type_parameter in getattr(node, "type_params", ()):
+                            yield from visit(type_parameter)
+                        return
+                    if isinstance(node, ast.Lambda):
+                        yield from visit_arguments(node.args)
+                        return
+                    if isinstance(node, ast.ClassDef):
+                        for decorator in node.decorator_list:
+                            yield from visit(decorator)
+                        for base in node.bases:
+                            yield from visit(base)
+                        for keyword in node.keywords:
+                            yield from visit(keyword.value)
+                        for type_parameter in getattr(node, "type_params", ()):
+                            yield from visit(type_parameter)
+                        for statement in node.body:
+                            yield from visit(statement)
+                        return
+                    if isinstance(node, ast.AnnAssign):
+                        yield from visit(node.target)
+                        yield from visit_annotation(node.annotation)
+                        if node.value is not None:
+                            yield from visit(node.value)
                         return
                     for child in ast.iter_child_nodes(node):
                         yield from visit(child)
@@ -3729,11 +3784,106 @@ def _discover_dispatch_settings(
                 for name in _dispatch_import_bindings(node)
             }
 
+            def expression_references_names(
+                node: ast.AST,
+                names: set[str],
+            ) -> bool:
+                path = _attribute_path(node)
+                if path is not None and path.split(".", maxsplit=1)[0] in names:
+                    return True
+                if isinstance(node, ast.Lambda):
+                    return any(
+                        expression_references_names(default, names)
+                        for default in (
+                            *node.args.defaults,
+                            *(default for default in node.args.kw_defaults if default),
+                        )
+                    )
+                return any(
+                    expression_references_names(child, names)
+                    for child in ast.iter_child_nodes(node)
+                )
+
+            # An executed alias of an imported namespace remains sensitive even
+            # when the binding is conditional or later reassigned.  Proving the
+            # opposite would require runtime control flow outside this closed
+            # dispatch grammar.
+            sensitive_roots = set(module_import_roots)
+            changed = True
+            while changed:
+                changed = False
+                for node in module_nodes:
+                    value: ast.AST | None = None
+                    targets: tuple[ast.AST, ...] = ()
+                    if isinstance(node, ast.Assign):
+                        value = node.value
+                        targets = tuple(node.targets)
+                    elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                        value = node.value
+                        targets = (node.target,)
+                    elif isinstance(node, ast.NamedExpr):
+                        value = node.value
+                        targets = (node.target,)
+                    if value is None or not expression_references_names(
+                        value, sensitive_roots
+                    ):
+                        continue
+                    for target in targets:
+                        for inner in ast.walk(target):
+                            if (
+                                isinstance(inner, ast.Name)
+                                and isinstance(inner.ctx, ast.Store)
+                                and inner.id not in sensitive_roots
+                            ):
+                                sensitive_roots.add(inner.id)
+                                changed = True
+
             def module_path_is_imported(node: ast.AST) -> bool:
                 path = _attribute_path(node)
                 return (
                     path is not None
-                    and path.split(".", maxsplit=1)[0] in module_import_roots
+                    and path.split(".", maxsplit=1)[0] in sensitive_roots
+                )
+
+            module_import_bindings: dict[str, str | None] = {
+                "setattr": "builtins.setattr",
+                "delattr": "builtins.delattr",
+            }
+            imported_binding_names: set[str] = set()
+            for node in module_nodes:
+                if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                    continue
+                for name, target in _dispatch_import_bindings(node).items():
+                    imported_binding_names.add(name)
+                    existing = module_import_bindings.get(name, target)
+                    module_import_bindings[name] = (
+                        target if existing == target else None
+                    )
+            for node in module_nodes:
+                if not (
+                    isinstance(node, ast.Name)
+                    and isinstance(node.ctx, (ast.Store, ast.Del))
+                    and node.id in imported_binding_names
+                ):
+                    continue
+                module_import_bindings[node.id] = None
+
+            def resolved_module_callable(node: ast.AST) -> str | None:
+                path = _attribute_path(node)
+                if path is None:
+                    return None
+                root, separator, tail = path.partition(".")
+                target = module_import_bindings.get(root)
+                if target is None:
+                    return None
+                return target + (separator + tail if separator else "")
+
+            def imported_dict_access(node: ast.AST) -> bool:
+                path = _attribute_path(node)
+                return (
+                    path is not None
+                    and module_path_is_imported(node)
+                    and "__dict__" in path.split(".")
                 )
 
             for node in module_nodes:
@@ -3742,18 +3892,55 @@ def _discover_dispatch_settings(
                     and isinstance(node.ctx, (ast.Store, ast.Del))
                     and module_path_is_imported(node)
                 )
+                namespace_subscript_mutation = (
+                    isinstance(node, ast.Subscript)
+                    and isinstance(node.ctx, (ast.Store, ast.Del))
+                    and expression_references_names(node.value, sensitive_roots)
+                )
                 mutation_call = (
                     isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Name)
-                    and node.func.id in {"setattr", "delattr"}
+                    and resolved_module_callable(node.func)
+                    in {"builtins.setattr", "builtins.delattr"}
                     and node.args
-                    and module_path_is_imported(node.args[0])
+                    and expression_references_names(node.args[0], sensitive_roots)
                 )
-                if mutation or mutation_call:
+                dict_access = isinstance(node, ast.Attribute) and imported_dict_access(node)
+                resolved_callable = (
+                    resolved_module_callable(node.func)
+                    if isinstance(node, ast.Call)
+                    else None
+                )
+                arguments_reference_namespace = (
+                    isinstance(node, ast.Call)
+                    and any(
+                        expression_references_names(argument, sensitive_roots)
+                        for argument in node.args
+                    )
+                    or isinstance(node, ast.Call)
+                    and any(
+                        expression_references_names(keyword.value, sensitive_roots)
+                        for keyword in node.keywords
+                    )
+                )
+                unknown_namespace_call = (
+                    isinstance(node, ast.Call)
+                    and (
+                        arguments_reference_namespace
+                        or resolved_callable
+                        not in {"builtins.setattr", "builtins.delattr"}
+                        and expression_references_names(node.func, sensitive_roots)
+                    )
+                )
+                if (
+                    mutation
+                    or namespace_subscript_mutation
+                    or mutation_call
+                    or dict_access
+                    or unknown_namespace_call
+                ):
                     detail = (
-                        node.func.id
+                        resolved_module_callable(node.func) or "unknown call"
                         if isinstance(node, ast.Call)
-                        and isinstance(node.func, ast.Name)
                         else type(node.ctx).__name__
                     )
                     raise DiscoveryError(
