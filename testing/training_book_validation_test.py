@@ -905,6 +905,12 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "toolkit/config_modules.py::ValidationConfig.__init__",
         )
 
+    def test_catalog_validation_item_symbol_is_exactly_owned(self):
+        self.assert_catalog_selector_green(
+            "--target-symbol",
+            "toolkit/config_modules.py::ValidationItem.__init__",
+        )
+
 
 class DiscoveryContractTests(unittest.TestCase):
     def setUp(self):

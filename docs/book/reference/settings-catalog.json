@@ -10902,6 +10902,124 @@
         "drawbacks": "More sigma levels multiply validation work; unsuitable levels may not represent the training regime.",
         "example": "validation_sigmas: [1.0, 0.5, 0.25]"
       }
+    },
+    {
+      "id": "train.validation.item.image_path",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.validation_config.validation_items[*].image_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "existing-image-path",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ValidationItem.__init__",
+          "key": "image_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-validation-item-image-path",
+        "description": "Points to the fixed image encoded for one validation case.",
+        "benefits": "Makes each validation item's image path explicit and repeatable.",
+        "drawbacks": "An empty or missing path causes the item to be skipped.",
+        "example": "image_path: /workspace/validation.png"
+      }
+    },
+    {
+      "id": "train.validation.item.prompt",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.validation_config.validation_items[*].prompt"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ValidationItem.__init__",
+          "key": "prompt",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-validation-item-prompt",
+        "description": "Sets the prompt paired with this validation image.",
+        "benefits": "Makes each validation item's prompt explicit and repeatable.",
+        "drawbacks": "A prompt unrelated to the image makes the validation loss harder to interpret.",
+        "example": "prompt: a portrait photo"
+      }
     }
   ]
 }
