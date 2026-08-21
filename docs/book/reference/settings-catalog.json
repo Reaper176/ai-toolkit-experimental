@@ -10646,6 +10646,262 @@
         "drawbacks": "Each family requires different inputs, weights, and compatible model support.",
         "example": "type: control_lora"
       }
+    },
+    {
+      "id": "train.validation.resolution",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.validation_config.resolution"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 512,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ValidationConfig.__init__",
+          "key": "resolution",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-validation-resolution",
+        "description": "Sets the square resolution used to cache and compare validation latents.",
+        "benefits": "Makes resolution explicit for repeatable validation checks.",
+        "drawbacks": "Higher resolution increases validation memory and time and must suit the model.",
+        "example": "resolution: 512"
+      }
+    },
+    {
+      "id": "train.validation.validate_every_n_steps",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.validation_config.validate_every_n_steps"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 10,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ValidationConfig.__init__",
+          "key": "validate_every_n_steps",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-validation-validate-every-n-steps",
+        "description": "Sets the optimizer-step interval between validation loss evaluations.",
+        "benefits": "Makes validate every n steps explicit for repeatable validation checks.",
+        "drawbacks": "Short intervals add repeated validation work and slow training.",
+        "example": "validate_every_n_steps: 10"
+      }
+    },
+    {
+      "id": "train.validation.validation_items",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.validation_config.validation_items"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object-list",
+        "supported_type": "validation-item-list",
+        "ui_type": null,
+        "example_type": "object-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": [],
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Mapping items are converted to ValidationItem objects; existing ValidationItem objects are retained.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ValidationConfig.__init__",
+          "key": "validation_items",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-validation-validation-items",
+        "description": "Lists fixed images and prompts used for validation.",
+        "benefits": "Makes validation items explicit for repeatable validation checks.",
+        "drawbacks": "Missing or invalid image items are skipped, and an empty usable list disables validation.",
+        "example": "validation_items: [{image_path: /workspace/val.png, prompt: \"a portrait\"}]"
+      }
+    },
+    {
+      "id": "train.validation.validation_sigmas",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.validation_config.validation_sigmas"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number-list",
+        "supported_type": "sigma-list",
+        "ui_type": null,
+        "example_type": "number-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": [
+            1,
+            0.75,
+            0.5,
+            0.25
+          ],
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ValidationConfig.__init__",
+          "key": "validation_sigmas",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-validation-validation-sigmas",
+        "description": "Lists noise sigma levels evaluated for each validation item.",
+        "benefits": "Makes validation sigmas explicit for repeatable validation checks.",
+        "drawbacks": "More sigma levels multiply validation work; unsuitable levels may not represent the training regime.",
+        "example": "validation_sigmas: [1.0, 0.5, 0.25]"
+      }
     }
   ]
 }
