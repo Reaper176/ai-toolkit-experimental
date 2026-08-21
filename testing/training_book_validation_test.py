@@ -526,7 +526,6 @@ class CatalogContractTests(unittest.TestCase):
         missing = self.valid_catalog_entry()
         del missing["id"]
         duplicate = deepcopy(self.valid_catalog_entry())
-        duplicate["source_claims"] = []
 
         for settings, message in (
             ([missing], "id"),
@@ -562,7 +561,7 @@ class CatalogContractTests(unittest.TestCase):
     def test_catalog_contract_rejects_overlapping_location_applicability_claims(self):
         overlapping = deepcopy(self.valid_catalog_entry())
         overlapping["id"] = "train.steps-shadow"
-        overlapping["source_claims"] = []
+        overlapping["source_claims"][0]["key"] = "steps-shadow"
         disjoint = deepcopy(overlapping)
         disjoint["applicability"] = [{"process_type": "other_trainer"}]
 
@@ -579,7 +578,18 @@ class CatalogContractTests(unittest.TestCase):
                 "schema_version": 1,
                 "settings": [self.valid_catalog_entry(), disjoint],
             },
-            self.discovered_steps(),
+            self.discovered_steps()
+            + (
+                DiscoveredSetting(
+                    "toolkit/config_modules.py",
+                    "TrainConfig.__init__",
+                    11,
+                    "steps-shadow",
+                    "kwargs.get",
+                    "core",
+                    "2000",
+                ),
+            ),
         )
 
     def test_catalog_contract_rejects_blank_teaching_prose(self):
@@ -658,6 +668,15 @@ class CatalogContractTests(unittest.TestCase):
                     validate_settings_catalog(
                         {"schema_version": 1, "settings": [candidate]}, discovered
                     )
+
+    def test_catalog_contract_rejects_empty_source_claims(self):
+        entry = self.valid_catalog_entry()
+        entry["source_claims"] = []
+
+        with self.assertRaisesRegex(CatalogError, "source_claims"):
+            validate_settings_catalog(
+                {"schema_version": 1, "settings": [entry]}, ()
+            )
 
     def test_catalog_contract_is_strict_and_rejects_boolean_numbers(self):
         cases = (

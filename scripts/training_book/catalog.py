@@ -246,7 +246,7 @@ class Setting(_StrictModel):
     interactions: tuple[Interaction, ...]
     aliases: tuple[Alias, ...]
     section: _NonBlank
-    source_claims: tuple[CatalogSourceClaim, ...]
+    source_claims: tuple[CatalogSourceClaim, ...] = Field(min_length=1)
     render: RenderMetadata
 
     @model_validator(mode="after")

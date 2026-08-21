@@ -447,6 +447,7 @@
           "items": {
             "$ref": "#/$defs/CatalogSourceClaim"
           },
+          "minItems": 1,
           "title": "Source Claims",
           "type": "array"
         },
