@@ -725,6 +725,18 @@ class CatalogContractTests(unittest.TestCase):
                         self.discovered_steps(),
                     )
 
+    def test_catalog_contract_rejects_null_as_a_semantic_type_name(self):
+        for field in ("ui_type", "example_type"):
+            with self.subTest(field=field):
+                entry = self.valid_catalog_entry()
+                entry["contract"][field] = "null"
+
+                with self.assertRaisesRegex(CatalogError, f"contract.{field}"):
+                    validate_settings_catalog(
+                        {"schema_version": 1, "settings": [entry]},
+                        self.discovered_steps(),
+                    )
+
     def test_catalog_contract_checks_committed_schema_drift_before_catalog_data(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

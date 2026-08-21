@@ -557,8 +557,7 @@
             "number-list",
             "string-list",
             "object",
-            "object-list",
-            "null"
+            "object-list"
           ],
           "title": "Example Type",
           "type": "string"
@@ -606,8 +605,7 @@
                 "number-list",
                 "string-list",
                 "object",
-                "object-list",
-                "null"
+                "object-list"
               ],
               "type": "string"
             },

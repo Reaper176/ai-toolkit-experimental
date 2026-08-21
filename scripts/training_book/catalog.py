@@ -55,7 +55,6 @@ _SemanticType = Literal[
     "string-list",
     "object",
     "object-list",
-    "null",
 ]
 
 
