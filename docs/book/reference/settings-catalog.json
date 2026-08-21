@@ -11020,6 +11020,316 @@
         "drawbacks": "A prompt unrelated to the image makes the validation loss harder to interpret.",
         "example": "prompt: a portrait photo"
       }
+    },
+    {
+      "id": "embedding.init_words",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].embedding.init_words"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "initialization-text",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "*",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "EmbeddingConfig.__init__",
+          "key": "init_words",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "embedding-init-words",
+        "description": "Sets the source text used to initialize new embedding token vectors.",
+        "benefits": "Provides explicit control of embedding init words.",
+        "drawbacks": "Poor initialization can slow convergence or bias the learned token toward an unrelated concept.",
+        "example": "init_words: person"
+      }
+    },
+    {
+      "id": "embedding.save_format",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].embedding.save_format"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "embedding-save-format",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "safetensors",
+          "pt"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "safetensors",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "EmbeddingConfig.__init__",
+          "key": "save_format",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "embedding-save-format",
+        "description": "Chooses safetensors or PyTorch serialization for the learned embedding.",
+        "benefits": "Provides explicit control of embedding save format.",
+        "drawbacks": "PyTorch and safetensors outputs target different consumers and have different safety properties.",
+        "example": "save_format: safetensors"
+      }
+    },
+    {
+      "id": "embedding.tokens",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].embedding.tokens"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 4,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "EmbeddingConfig.__init__",
+          "key": "tokens",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "embedding-tokens",
+        "description": "Sets the number of trainable tokens allocated to the embedding.",
+        "benefits": "Provides explicit control of embedding tokens.",
+        "drawbacks": "More tokens add capacity but make prompting and optimization more complex.",
+        "example": "tokens: 4"
+      }
+    },
+    {
+      "id": "embedding.trigger",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].embedding.trigger"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "nonblank-trigger",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "custom_embedding",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "EmbeddingConfig.__init__",
+          "key": "trigger",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "embedding-trigger",
+        "description": "Sets the prompt trigger that expands to the learned embedding tokens.",
+        "benefits": "Provides explicit control of embedding trigger.",
+        "drawbacks": "A common trigger can collide with existing vocabulary and entangle the concept.",
+        "example": "trigger: my_embedding"
+      }
+    },
+    {
+      "id": "embedding.trigger_class_name",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].embedding.trigger_class_name"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string-or-null",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "embedding.trigger",
+          "kind": "affects",
+          "description": "The class name supplies the preservation class associated with the trigger.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "EmbeddingConfig.__init__",
+          "key": "trigger_class_name",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "embedding-trigger-class-name",
+        "description": "Sets the class name used with the embedding trigger for inverted masked-prior behavior.",
+        "benefits": "Provides explicit control of embedding trigger class name.",
+        "drawbacks": "An incorrect class name gives preservation prompts the wrong semantic target.",
+        "example": "trigger_class_name: person"
+      }
     }
   ]
 }
