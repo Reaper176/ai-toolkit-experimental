@@ -30356,7 +30356,7 @@
       ],
       "normalizations": [
         {
-          "description": "Zero disables random-trigger insertion. A positive maximum randomly chooses a count from zero through that maximum before sampling, and must be less than or equal to the resolved trigger population length; otherwise randint can intermittently choose an oversized count and random.sample raises ValueError.",
+          "description": "Zero disables random-trigger insertion. One deterministically inserts exactly one when triggers are truthy. A value greater than one uses randint from zero through the configured maximum before sampling, and must be less than or equal to the resolved trigger population length; otherwise randint can intermittently choose an oversized count and random.sample raises ValueError.",
           "applicability": []
         }
       ],

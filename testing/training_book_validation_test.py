@@ -3000,8 +3000,10 @@ class CatalogProductionSliceTests(unittest.TestCase):
             + [item.description for item in maximum.interactions]
         ).casefold()
         for phrase in (
-            "zero", "disables", "positive", "resolved trigger population",
-            "less than or equal", "valueerror", "intermittent",
+            "zero disables", "one deterministically inserts exactly one",
+            "triggers are truthy", "greater than one uses randint",
+            "resolved trigger population", "less than or equal", "valueerror",
+            "intermittent",
         ):
             self.assertIn(phrase, maximum_teaching)
         trigger_constraints = [
@@ -3025,6 +3027,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "random.sample(self.dataset_config.random_triggers, num_triggers)",
             consumer_source,
         )
+        self.assertIn("if num_triggers > 1:", consumer_source)
         self.assertIn("if num_triggers > 0:", consumer_source)
         with mock.patch.object(random, "randint", return_value=2):
             oversized_count = random.randint(0, 2)
