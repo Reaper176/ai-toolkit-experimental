@@ -5288,6 +5288,279 @@
         "drawbacks": "A high threshold can exclude layers needed by the concept.",
         "example": "parameter_threshold: 0"
       }
+    },
+    {
+      "id": "network.lorm.module.contains",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.lorm.module_settings[*].contains"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "substring-pieces",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "4nt$3",
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Matching retries after replacing dots in the contains expression with underscores.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "LormModuleSettingsConfig.__init__",
+          "key": "contains",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-lorm-module-contains",
+        "description": "Matches module names; pipe-separated pieces must all occur, with a second check using underscores for dots.",
+        "benefits": "Targets extraction settings to a chosen family of module names.",
+        "drawbacks": "A broad pattern can affect unintended modules; a nonmatching pattern is silently unused.",
+        "example": "contains: \"4nt$3\""
+      }
+    },
+    {
+      "id": "network.lorm.module.extract_mode",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.lorm.module_settings[*].extract_mode"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "extract-mode",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "fixed",
+          "threshold",
+          "ratio",
+          "quantile"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "ratio",
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "LoRMConfig first fills an omitted module override from the corresponding top-level LoRM value.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "LormModuleSettingsConfig.__init__",
+          "key": "extract_mode",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-lorm-module-extract-mode",
+        "description": "Overrides the extraction rule for matching modules.",
+        "benefits": "Lets one module group use a different rank-selection strategy.",
+        "drawbacks": "Its parameter meaning changes with the selected mode.",
+        "example": "extract_mode: \"ratio\""
+      }
+    },
+    {
+      "id": "network.lorm.module.extract_mode_param",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.lorm.module_settings[*].extract_mode_param"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "mode-dependent-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0.25,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "LoRMConfig first fills an omitted module override from the corresponding top-level LoRM value.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "network.lorm.module.extract_mode",
+          "kind": "requires",
+          "description": "Its interpretation is selected by the module rule's extraction mode.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "LormModuleSettingsConfig.__init__",
+          "key": "extract_mode_param",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-lorm-module-extract-mode-param",
+        "description": "Overrides the numeric extraction parameter for matching modules.",
+        "benefits": "Tunes compression separately for a module family.",
+        "drawbacks": "An unsuitable value can retain too much or too little rank.",
+        "example": "extract_mode_param: 0.25"
+      }
+    },
+    {
+      "id": "network.lorm.module.parameter_threshold",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.lorm.module_settings[*].parameter_threshold"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "nonnegative-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "LoRMConfig first fills an omitted module override from the corresponding top-level LoRM value.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "LormModuleSettingsConfig.__init__",
+          "key": "parameter_threshold",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-lorm-module-parameter-threshold",
+        "description": "Overrides the parameter-count eligibility threshold for matching modules.",
+        "benefits": "Skips small modules within the matched family.",
+        "drawbacks": "A high threshold can remove intended adaptation targets.",
+        "example": "parameter_threshold: 0"
+      }
     }
   ]
 }
