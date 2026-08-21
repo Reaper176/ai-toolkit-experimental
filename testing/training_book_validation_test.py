@@ -802,6 +802,154 @@ class CatalogProductionSliceTests(unittest.TestCase):
     def test_catalog_core_process_scope_is_exactly_owned(self):
         self.assert_catalog_selector_green("--scope", "core-process")
 
+    def test_catalog_process_get_conf_null_semantics_are_exhaustive(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        expected = {
+            "name": (
+                "process.name",
+                {"expression": "job.name"},
+                "BaseProcess.get_conf treats explicit null like omission and inherits job.name.",
+                "job.name",
+            ),
+            "performance_log_every": (
+                "process.performance_log_every",
+                0,
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback 0.",
+                None,
+            ),
+            "training_seed": (
+                "process.training_seed",
+                {"expression": "job.training_seed when defined, otherwise null"},
+                "BaseProcess.get_conf treats explicit null like omission and inherits job.training_seed when available, otherwise leaving the seed unset.",
+                "job.training_seed",
+            ),
+            "training_folder": (
+                "process.training_folder",
+                {"expression": "job.training_folder when defined, otherwise null"},
+                "BaseProcess.get_conf treats explicit null like omission and inherits job.training_folder when available, otherwise leaving the folder unresolved.",
+                "job.training_folder",
+            ),
+            "log_dir": (
+                "process.log_dir",
+                {"expression": "job.log_dir when defined, otherwise null"},
+                "BaseProcess.get_conf treats explicit null like omission and inherits job.log_dir when available, otherwise leaving logging disabled.",
+                "job.log_dir",
+            ),
+            "network": (
+                "process.network", None,
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback null.", None,
+            ),
+            "train": (
+                "process.train", {},
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback empty object.", None,
+            ),
+            "model": (
+                "process.model", {},
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback empty object.", None,
+            ),
+            "save": (
+                "process.save", {},
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback empty object.", None,
+            ),
+            "sample": (
+                "process.sample", {},
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback empty object.", None,
+            ),
+            "first_sample": (
+                "process.first_sample", None,
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback null.", None,
+            ),
+            "logging": (
+                "process.logging", {},
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback empty object.", None,
+            ),
+            "trigger_word": (
+                "process.trigger_word", None,
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback null.", None,
+            ),
+            "guidance": (
+                "process.guidance", None,
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback null.", None,
+            ),
+            "datasets": (
+                "process.datasets", None,
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback null.", None,
+            ),
+            "embedding": (
+                "process.embedding", None,
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback null.", None,
+            ),
+            "decorator": (
+                "process.decorator", None,
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback null.", None,
+            ),
+            "adapter": (
+                "process.adapter", None,
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback null.", None,
+            ),
+            "do_lorm": (
+                "process.do_lorm", False,
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback false.", None,
+            ),
+            "lorm_extract_mode": (
+                "process.lorm_extract_mode", "ratio",
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback ratio.", None,
+            ),
+            "lorm_extract_mode_param": (
+                "process.lorm_extract_mode_param", 0.25,
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback 0.25.", None,
+            ),
+            "torch_profiler": (
+                "process.torch_profiler", False,
+                "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback false.", None,
+            ),
+        }
+        actual = {}
+        for setting in catalog.settings:
+            for claim in setting.source_claims:
+                if (
+                    claim.source.startswith("jobs/process/")
+                    and claim.read_kind == "get_conf"
+                ):
+                    self.assertNotIn(claim.key, actual)
+                    actual[claim.key] = setting
+
+        self.assertEqual(set(actual), set(expected))
+        self.assertEqual(len(actual), 22)
+        for key, (setting_id, fallback, normalization, inherited) in expected.items():
+            with self.subTest(key=key):
+                setting = actual[key]
+                self.assertEqual(setting.id, setting_id)
+                self.assertEqual(setting.contract.null, "normalized-to-absent")
+                self.assertEqual(len(setting.defaults), 1)
+                self.assertEqual(setting.defaults[0].kind, "engine-fallback")
+                self.assertEqual(setting.defaults[0].presence, "present")
+                self.assertEqual(setting.defaults[0].value, fallback)
+                self.assertEqual(setting.defaults[0].applicability, ())
+                null_normalizations = tuple(
+                    item
+                    for item in setting.normalizations
+                    if item.description.startswith("BaseProcess.get_conf treats")
+                )
+                self.assertEqual(len(null_normalizations), 1)
+                self.assertEqual(null_normalizations[0].description, normalization)
+                self.assertEqual(null_normalizations[0].applicability, ())
+                fallback_interactions = tuple(
+                    interaction
+                    for interaction in setting.interactions
+                    if interaction.kind == "fallback"
+                )
+                if inherited is None:
+                    self.assertEqual(fallback_interactions, ())
+                else:
+                    self.assertEqual(len(fallback_interactions), 1)
+                    self.assertEqual(fallback_interactions[0].setting, inherited)
+                    self.assertEqual(fallback_interactions[0].applicability, ())
+
     def test_catalog_save_config_symbol_is_exactly_owned(self):
         self.assert_catalog_selector_green(
             "--target-symbol",

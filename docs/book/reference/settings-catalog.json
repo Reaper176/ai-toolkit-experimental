@@ -423,7 +423,7 @@
         "example_type": "string",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -435,8 +435,20 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
-      "interactions": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and inherits job.name.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "job.name",
+          "kind": "fallback",
+          "description": "Omission or explicit null inherits job.name.",
+          "applicability": []
+        }
+      ],
       "aliases": [],
       "section": "job-and-model",
       "source_claims": [
@@ -485,7 +497,7 @@
           "minimum_inclusive": true,
           "maximum_inclusive": true
         },
-        "null": "rejected"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -495,7 +507,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback 0.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "job-and-model",
@@ -540,7 +557,7 @@
         "example_type": "path",
         "accepted_values": null,
         "range": null,
-        "null": "accepted"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -552,8 +569,20 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
-      "interactions": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and inherits job.log_dir when available, otherwise leaving logging disabled.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "job.log_dir",
+          "kind": "fallback",
+          "description": "Omission or explicit null inherits job.log_dir.",
+          "applicability": []
+        }
+      ],
       "aliases": [],
       "section": "training",
       "source_claims": [
@@ -567,9 +596,9 @@
       "render": {
         "page": "reference/training.md",
         "anchor": "process-log-dir",
-        "description": "Overrides the inherited TensorBoard log directory for one process.",
+        "description": "Sets the TensorBoard log directory, inheriting job.log_dir when omitted or null.",
         "benefits": "Keeps TensorBoard event files in a chosen location.",
-        "drawbacks": "A null value disables TensorBoard setup, while an unwritable path fails logging.",
+        "drawbacks": "An unwritable resolved path fails logging; when neither process nor job supplies a path, TensorBoard setup remains disabled.",
         "example": "log_dir: /workspace/logs"
       }
     },
@@ -597,7 +626,7 @@
         "example_type": "path",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -609,8 +638,20 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
-      "interactions": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and inherits job.training_folder when available, otherwise leaving the folder unresolved.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "job.training_folder",
+          "kind": "fallback",
+          "description": "Omission or explicit null inherits job.training_folder.",
+          "applicability": []
+        }
+      ],
       "aliases": [],
       "section": "training",
       "source_claims": [
@@ -624,7 +665,7 @@
       "render": {
         "page": "reference/training.md",
         "anchor": "process-training-folder",
-        "description": "Overrides the inherited root folder used for training artifacts.",
+        "description": "Sets the training artifact root, inheriting job.training_folder when omitted or null.",
         "benefits": "Controls where the named process folder and saved configuration are created.",
         "drawbacks": "The process cannot initialize its output path when no usable folder is supplied.",
         "example": "training_folder: /workspace/output"
@@ -654,7 +695,7 @@
         "example_type": "integer",
         "accepted_values": null,
         "range": null,
-        "null": "accepted"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -670,9 +711,20 @@
         {
           "description": "A present seed is applied to PyTorch, available CUDA generators, and Python random.",
           "applicability": []
+        },
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and inherits job.training_seed when available, otherwise leaving the seed unset.",
+          "applicability": []
         }
       ],
-      "interactions": [],
+      "interactions": [
+        {
+          "setting": "job.training_seed",
+          "kind": "fallback",
+          "description": "Omission or explicit null inherits job.training_seed.",
+          "applicability": []
+        }
+      ],
       "aliases": [],
       "section": "training",
       "source_claims": [
@@ -720,7 +772,7 @@
         "example_type": "object",
         "accepted_values": null,
         "range": null,
-        "null": "accepted"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -730,7 +782,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback null.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -779,7 +836,7 @@
         "example_type": "object-list",
         "accepted_values": null,
         "range": null,
-        "null": "accepted"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -789,7 +846,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback null.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -838,7 +900,7 @@
         "example_type": "object",
         "accepted_values": null,
         "range": null,
-        "null": "accepted"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -848,7 +910,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback null.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -897,7 +964,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -907,7 +974,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback false.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -956,7 +1028,7 @@
         "example_type": "object",
         "accepted_values": null,
         "range": null,
-        "null": "accepted"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -966,7 +1038,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback null.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -1015,7 +1092,7 @@
         "example_type": "object",
         "accepted_values": null,
         "range": null,
-        "null": "accepted"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -1025,7 +1102,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback null.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "saving-and-sampling",
@@ -1074,7 +1156,7 @@
         "example_type": "object",
         "accepted_values": null,
         "range": null,
-        "null": "accepted"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -1084,7 +1166,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback null.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -1133,7 +1220,7 @@
         "example_type": "object",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -1143,7 +1230,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback empty object.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -1197,7 +1289,7 @@
           "quantile"
         ],
         "range": null,
-        "null": "rejected"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -1207,7 +1299,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback ratio.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -1256,7 +1353,7 @@
         "example_type": "number",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -1266,7 +1363,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback 0.25.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -1315,7 +1417,7 @@
         "example_type": "object",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -1328,6 +1430,10 @@
       "normalizations": [
         {
           "description": "The process overwrites model.dtype with the parsed training dtype before ModelConfig is created.",
+          "applicability": []
+        },
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback empty object.",
           "applicability": []
         }
       ],
@@ -1379,7 +1485,7 @@
         "example_type": "object",
         "accepted_values": null,
         "range": null,
-        "null": "accepted"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -1389,7 +1495,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback null.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -1438,7 +1549,7 @@
         "example_type": "object",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -1448,7 +1559,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback empty object.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "saving-and-sampling",
@@ -1497,7 +1613,7 @@
         "example_type": "object",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -1507,7 +1623,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback empty object.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -1556,7 +1677,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -1566,7 +1687,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback false.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -1615,7 +1741,7 @@
         "example_type": "object",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -1625,7 +1751,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback empty object.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -1640,7 +1771,7 @@
       "render": {
         "page": "reference/training.md",
         "anchor": "process-train",
-        "description": "Training configuration forwarded to TrainConfig.",
+        "description": "Training configuration forwarded to TrainConfig; omission or null becomes an empty object.",
         "benefits": "Controls the optimizer-step and precision behavior of the process.",
         "drawbacks": "Invalid combinations can fail validation or produce poor training behavior.",
         "example": "train: {}"
@@ -1674,7 +1805,7 @@
         "example_type": "string",
         "accepted_values": null,
         "range": null,
-        "null": "accepted"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -1684,7 +1815,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback null.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
