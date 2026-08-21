@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 from typing import Annotated, Any, Literal, Sequence
@@ -127,13 +128,34 @@ class SettingContract(_StrictModel):
     def _accepted_values_and_range(self) -> "SettingContract":
         if self.accepted_values is not None and self.range is not None:
             if not self.accepted_values or any(
-                isinstance(value, bool) or not isinstance(value, (int, float))
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
                 for value in self.accepted_values
             ):
                 raise ValueError(
                     "accepted_values and range are mutually exclusive unless the "
                     "range constrains a numeric enum"
                 )
+            for value in self.accepted_values:
+                below_minimum = self.range.minimum is not None and (
+                    value < self.range.minimum
+                    or (
+                        value == self.range.minimum
+                        and not self.range.minimum_inclusive
+                    )
+                )
+                above_maximum = self.range.maximum is not None and (
+                    value > self.range.maximum
+                    or (
+                        value == self.range.maximum
+                        and not self.range.maximum_inclusive
+                    )
+                )
+                if below_minimum or above_maximum:
+                    raise ValueError(
+                        "accepted_values must all be inside the numeric range"
+                    )
         return self
 
 

@@ -737,6 +737,47 @@ class CatalogContractTests(unittest.TestCase):
                         self.discovered_steps(),
                     )
 
+    def test_catalog_contract_constrains_every_numeric_enum_value_by_its_range(self):
+        valid = self.valid_catalog_entry()
+        valid["contract"]["accepted_values"] = [1, 3.5, 5]
+        valid["contract"]["range"] = {
+            "minimum": 1,
+            "maximum": 5,
+            "minimum_inclusive": True,
+            "maximum_inclusive": True,
+        }
+        validate_settings_catalog(
+            {"schema_version": 1, "settings": [valid]},
+            self.discovered_steps(),
+        )
+
+        cases = (
+            ("below minimum", [0], True, True),
+            ("above maximum", [6], True, True),
+            ("exclusive minimum", [1], False, True),
+            ("exclusive maximum", [5], True, False),
+            ("boolean", [True], True, True),
+        )
+        for label, values, minimum_inclusive, maximum_inclusive in cases:
+            with self.subTest(label=label):
+                entry = deepcopy(valid)
+                entry["contract"]["accepted_values"] = values
+                entry["contract"]["range"]["minimum_inclusive"] = (
+                    minimum_inclusive
+                )
+                entry["contract"]["range"]["maximum_inclusive"] = (
+                    maximum_inclusive
+                )
+
+                with self.assertRaisesRegex(
+                    CatalogError,
+                    "accepted_values.*range",
+                ):
+                    validate_settings_catalog(
+                        {"schema_version": 1, "settings": [entry]},
+                        self.discovered_steps(),
+                    )
+
     def test_catalog_contract_checks_committed_schema_drift_before_catalog_data(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
