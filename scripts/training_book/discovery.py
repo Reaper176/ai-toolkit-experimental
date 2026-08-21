@@ -83,6 +83,7 @@ _APPROVED_EXCLUSION_REASONS = {
     "generation-only",
     "reference-dataset-only",
     "arbitrary third-party constructor surface",
+    "runtime-forced duplicate-key boundary",
     "external extension",
     "model-developer API",
 }

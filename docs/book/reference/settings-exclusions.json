@@ -1141,6 +1141,13 @@
       "key": "max_shift",
       "read_kind": "attribute.get",
       "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "adamw8__decouple",
+      "read_kind": "optimizer.injected",
+      "reason": "runtime-forced duplicate-key boundary"
     }
   ]
 }

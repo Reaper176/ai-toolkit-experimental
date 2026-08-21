@@ -1944,7 +1944,13 @@ class CatalogProductionSliceTests(unittest.TestCase):
             for setting in parameter_settings
             for claim in setting.source_claims
         ]
-        self.assertEqual(set(claimed), discovered)
+        parameter_exclusions = {
+            (item.source, item.symbol, item.key, item.read_kind)
+            for item in self.exclusions
+            if item.reason == "runtime-forced duplicate-key boundary"
+        }
+        self.assertEqual(set(claimed) | parameter_exclusions, discovered)
+        self.assertFalse(set(claimed) & parameter_exclusions)
         self.assertEqual(len(claimed), len(set(claimed)))
         discovered_defaults = {
             (fact.source, fact.symbol, fact.key, fact.read_kind): fact.default_expression
@@ -2105,6 +2111,210 @@ class CatalogProductionSliceTests(unittest.TestCase):
         self.assertIn("ValueError", scheduler_text)
         self.assertIn("Diffusers", scheduler_text)
         self.assertIn("translated", scheduler_text)
+
+    def test_catalog_optimizer_duplicate_keyword_boundary_is_source_derived(self):
+        tree = ast.parse(
+            (REPOSITORY_ROOT / "toolkit/optimizer.py").read_text(encoding="utf-8")
+        )
+        explicit_keywords = {
+            keyword.arg
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and any(
+                keyword.arg is None
+                and isinstance(keyword.value, ast.Name)
+                and keyword.value.id == "optimizer_params"
+                for keyword in node.keywords
+            )
+            for keyword in node.keywords
+            if keyword.arg is not None
+        }
+        duplicate_facts = {
+            (fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in self.discovered
+            if fact.source == "toolkit/optimizer.py"
+            and fact.read_kind == "optimizer.injected"
+            and fact.key.split("__")[-1] in explicit_keywords
+        }
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = tuple(
+            setting for setting in catalog.settings
+            if setting.scope == "optimizer"
+            and any("optimizer_params." in location.path for location in setting.locations)
+        )
+        boundary_exclusions = {
+            (item.source, item.symbol, item.key, item.read_kind)
+            for item in self.exclusions
+            if item.reason == "runtime-forced duplicate-key boundary"
+        }
+        claimed_duplicate_facts = {
+            (claim.source, claim.symbol, claim.key, claim.read_kind)
+            for setting in settings for claim in setting.source_claims
+            if (claim.source, claim.symbol, claim.key, claim.read_kind) in duplicate_facts
+        }
+        self.assertEqual(claimed_duplicate_facts | boundary_exclusions, duplicate_facts)
+        self.assertFalse(claimed_duplicate_facts & boundary_exclusions)
+        by_claim = {
+            (claim.source, claim.symbol, claim.key, claim.read_kind): setting
+            for setting in settings for claim in setting.source_claims
+        }
+        for fact_id in claimed_duplicate_facts:
+            setting = by_claim[fact_id]
+            self.assertEqual(setting.authority, "runtime-forced")
+            self.assertEqual(setting.render.example, "optimizer_params: {}")
+            self.assertIn("duplicate", setting.render.drawbacks.casefold())
+            self.assertIn("TypeError", setting.render.drawbacks)
+        self.assertIn(
+            ("toolkit/optimizer.py", "get_optimizer", "adamw8__decouple", "optimizer.injected"),
+            boundary_exclusions,
+        )
+        adam8 = next(s for s in settings if s.id == "optimizer.adam8.param.decouple")
+        self.assertEqual(adam8.authority, "user")
+        self.assertEqual({item.optimizer for item in adam8.applicability}, {"adam8"})
+
+    def test_catalog_fused_optimizer_compatibility_is_choice_specific(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        optimizer_text = " ".join(vars(settings["train.optimizer"].render).values())
+        for phrase in ("Automagic2", "always fused", "gradient accumulation", "gradient clipping"):
+            self.assertIn(phrase, optimizer_text)
+        for choice in ("automagic3", "automagicexperiment"):
+            fused = settings[f"optimizer.{choice}.param.fused"]
+            self.assertEqual(fused.defaults[0].value[next(iter(fused.defaults[0].value))], "True")
+            text = " ".join(vars(fused.render).values()).casefold()
+            for phrase in ("fused=true", "fused=false", "ordinary", "gradient accumulation", "gradient clipping"):
+                self.assertIn(phrase, text)
+            self.assertIn(
+                ("train.gradient_accumulation", "conflicts"),
+                {(item.setting, item.kind) for item in fused.interactions},
+            )
+            self.assertIn(
+                ("train.max_grad_norm", "conflicts"),
+                {(item.setting, item.kind) for item in fused.interactions},
+            )
+
+    def test_catalog_optimizer_parameter_contracts_match_source_edge_cases(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        self.assertEqual(settings["optimizer.automagic.param.eps"].contract.parser_type, "number-or-number-pair")
+        experiment_betas = settings["optimizer.automagicexperiment.param.betas"]
+        self.assertEqual(experiment_betas.render.example, "betas: [0.0, 0.999]")
+        self.assertIn("beta1 must be exactly 0", experiment_betas.render.drawbacks)
+        for setting_id in (
+            "optimizer.adam8-adamw8.param.betas",
+            "optimizer.prodigy8bit*.param.betas",
+        ):
+            setting = settings[setting_id]
+            self.assertIn("[0, 1)", setting.contract.supported_type)
+            self.assertEqual(setting.render.example, "betas: [0.0, 0.999]")
+        for choice in ("automagic3", "automagicexperiment"):
+            polarity = settings[f"optimizer.{choice}.param.polarity_history"]
+            normalization = " ".join(item.description for item in polarity.normalizations)
+            self.assertIn("clamps", normalization)
+            self.assertIn("2", normalization)
+            self.assertIn("64", normalization)
+        automagic2_lr = settings["optimizer.automagic2.param.lr"]
+        self.assertTrue(any("above 1e-3" in n.description and "1e-6" in n.description for n in automagic2_lr.normalizations))
+        automagic3_min = settings["optimizer.automagic3.param.min_lr"]
+        self.assertIn(
+            ("optimizer.automagic3.param.max_lr", "constrains"),
+            {(item.setting, item.kind) for item in automagic3_min.interactions},
+        )
+        self.assertIn("ValueError", automagic3_min.render.drawbacks)
+
+    def test_catalog_optimizer_boolean_constructor_null_semantics_are_exhaustive(self):
+        boolean_facts = {
+            (fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in self.discovered
+            if fact.read_kind == "optimizer.parameter"
+            and fact.default_expression in {"True", "False"}
+        }
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        rows = {
+            (claim.source, claim.symbol, claim.key, claim.read_kind): setting
+            for setting in catalog.settings
+            for claim in setting.source_claims
+            if (claim.source, claim.symbol, claim.key, claim.read_kind) in boolean_facts
+        }
+        self.assertEqual(set(rows), boolean_facts)
+        for fact_id, setting in rows.items():
+            with self.subTest(fact=fact_id):
+                self.assertEqual(set(setting.contract.accepted_values or ()), {True, False, None})
+                self.assertEqual(setting.contract.null, "accepted")
+                normalization = " ".join(item.description for item in setting.normalizations).casefold()
+                self.assertIn("explicit null", normalization)
+                self.assertIn("preserved", normalization)
+                self.assertIn("falsey", normalization)
+
+    def test_catalog_scheduler_total_iters_precedence_is_source_derived(self):
+        source = (REPOSITORY_ROOT / "jobs/process/BaseSDTrainProcess.py").read_text(encoding="utf-8")
+        self.assertIn("if 'max_iterations' not in lr_scheduler_params", source)
+        self.assertIn("lr_scheduler_params['total_iters'] = self.train_config.steps", source)
+        scheduler_source = (REPOSITORY_ROOT / "toolkit/scheduler.py").read_text(encoding="utf-8")
+        self.assertIn("del kwargs['total_iters']", scheduler_source)
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        rows = [s for s in catalog.settings if s.id.endswith(".param.total_iters")]
+        self.assertEqual(len(rows), 3)
+        for setting in rows:
+            self.assertEqual(setting.authority, "server-overwritten")
+            self.assertEqual(setting.render.example, "lr_scheduler_params: {}")
+            teaching = " ".join(vars(setting.render).values())
+            self.assertIn("train.steps", teaching)
+            self.assertIn("max_iterations", teaching)
+            self.assertIn("TypeError", teaching)
+        warmup = next(s for s in rows if ".constant_with_warmup." in s.id)
+        self.assertIn("deletes", " ".join(n.description for n in warmup.normalizations))
+
+    def test_catalog_dispatch_parameter_teaching_is_concrete_and_choice_specific(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        rows = [
+            setting for setting in catalog.settings
+            if setting.id.startswith(("optimizer.", "scheduler."))
+            and ".param." in setting.id
+        ]
+        self.assertEqual(len(rows), 93)
+        forbidden = (
+            "configures ", "keeps ", "scoped to the constructor behavior",
+            "values outside the selected", "constructor contract can fail",
+        )
+        for setting in rows:
+            with self.subTest(setting=setting.id):
+                teaching = " ".join(vars(setting.render).values()).casefold()
+                self.assertFalse(any(text in teaching for text in forbidden))
+                choices = {
+                    item.optimizer or item.scheduler for item in setting.applicability
+                }
+                self.assertTrue(all(choice.casefold() in teaching for choice in choices))
+                self.assertIn("use", setting.render.benefits.casefold())
+                self.assertTrue(
+                    any(word in setting.render.drawbacks.casefold() for word in ("risk", "fail", "raise", "duplicate", "ignored"))
+                )
+                key, separator, value = setting.render.example.partition(":")
+                self.assertTrue(separator and key.strip() and value.strip())
 
     def test_catalog_training_scope_is_exactly_owned(self):
         self.assert_catalog_selector_green("--scope", "training")

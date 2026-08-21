@@ -22778,7 +22778,7 @@
         "anchor": "optimizer-adafactor-param-lr",
         "description": "Configures lr for adafactor.",
         "benefits": "Keeps lr scoped to the constructor behavior of adafactor.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For adafactor, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -23370,7 +23370,7 @@
         "anchor": "optimizer-adagrad-param-lr",
         "description": "Configures lr for adagrad.",
         "benefits": "Keeps lr scoped to the constructor behavior of adagrad.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For adagrad, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -23388,7 +23388,7 @@
         "advanced-yaml"
       ],
       "persistence": "config",
-      "authority": "user",
+      "authority": "runtime-forced",
       "lifecycle": "supported",
       "applicability": [
         {
@@ -23444,8 +23444,8 @@
         "anchor": "optimizer-adam-param-eps",
         "description": "Configures eps for adam.",
         "benefits": "Keeps eps scoped to the constructor behavior of adam.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "eps: 1e-8"
+        "drawbacks": "For adam, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "example": "optimizer_params: {}"
       }
     },
     {
@@ -23518,7 +23518,7 @@
         "anchor": "optimizer-adam-param-lr",
         "description": "Configures lr for adam.",
         "benefits": "Keeps lr scoped to the constructor behavior of adam.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For adam, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -23596,7 +23596,7 @@
       }
     },
     {
-      "id": "optimizer.adam8-adamw8.param.decouple",
+      "id": "optimizer.adam8.param.decouple",
       "ui_label": null,
       "scope": "optimizer",
       "locations": [
@@ -23615,10 +23615,6 @@
         {
           "process_type": "diffusion_trainer",
           "optimizer": "adam8"
-        },
-        {
-          "process_type": "diffusion_trainer",
-          "optimizer": "adamw8"
         }
       ],
       "contract": {
@@ -23654,12 +23650,6 @@
       "section": "optimizers-and-schedulers",
       "source_claims": [
         {
-          "source": "toolkit/optimizer.py",
-          "symbol": "get_optimizer",
-          "key": "adamw8__decouple",
-          "read_kind": "optimizer.injected"
-        },
-        {
           "source": "toolkit/optimizers/adam8bit.py",
           "symbol": "Adam8bit.__init__",
           "key": "decouple",
@@ -23668,7 +23658,7 @@
       ],
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
-        "anchor": "optimizer-adam8-adamw8-param-decouple",
+        "anchor": "optimizer-adam8-param-decouple",
         "description": "Configures decouple for adam8 or adamw8.",
         "benefits": "Keeps decouple scoped to the constructor behavior of adam8 or adamw8.",
         "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
@@ -23689,7 +23679,7 @@
         "advanced-yaml"
       ],
       "persistence": "config",
-      "authority": "user",
+      "authority": "runtime-forced",
       "lifecycle": "supported",
       "applicability": [
         {
@@ -23763,8 +23753,8 @@
         "anchor": "optimizer-adam8-adamw8-param-eps",
         "description": "Configures eps for adam8 or adamw8.",
         "benefits": "Keeps eps scoped to the constructor behavior of adam8 or adamw8.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "eps: 1e-8"
+        "drawbacks": "For adam8 or adamw8, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "example": "optimizer_params: {}"
       }
     },
     {
@@ -23855,7 +23845,7 @@
         "anchor": "optimizer-adam8-adamw8-param-lr",
         "description": "Configures lr for adam8 or adamw8.",
         "benefits": "Keeps lr scoped to the constructor behavior of adam8 or adamw8.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For adam8 or adamw8, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -23951,7 +23941,7 @@
         "advanced-yaml"
       ],
       "persistence": "config",
-      "authority": "user",
+      "authority": "runtime-forced",
       "lifecycle": "supported",
       "applicability": [
         {
@@ -24007,8 +23997,8 @@
         "anchor": "optimizer-adam8bit-param-eps",
         "description": "Configures eps for adam8bit.",
         "benefits": "Keeps eps scoped to the constructor behavior of adam8bit.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "eps: 1e-8"
+        "drawbacks": "For adam8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "example": "optimizer_params: {}"
       }
     },
     {
@@ -24081,7 +24071,7 @@
         "anchor": "optimizer-adam8bit-param-lr",
         "description": "Configures lr for adam8bit.",
         "benefits": "Keeps lr scoped to the constructor behavior of adam8bit.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For adam8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -24099,7 +24089,7 @@
         "advanced-yaml"
       ],
       "persistence": "config",
-      "authority": "user",
+      "authority": "runtime-forced",
       "lifecycle": "supported",
       "applicability": [
         {
@@ -24155,8 +24145,8 @@
         "anchor": "optimizer-adamw-param-eps",
         "description": "Configures eps for adamw.",
         "benefits": "Keeps eps scoped to the constructor behavior of adamw.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "eps: 1e-8"
+        "drawbacks": "For adamw, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "example": "optimizer_params: {}"
       }
     },
     {
@@ -24229,7 +24219,7 @@
         "anchor": "optimizer-adamw-param-lr",
         "description": "Configures lr for adamw.",
         "benefits": "Keeps lr scoped to the constructor behavior of adamw.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For adamw, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -24247,7 +24237,7 @@
         "advanced-yaml"
       ],
       "persistence": "config",
-      "authority": "user",
+      "authority": "runtime-forced",
       "lifecycle": "supported",
       "applicability": [
         {
@@ -24303,8 +24293,8 @@
         "anchor": "optimizer-adamw8bit-param-eps",
         "description": "Configures eps for adamw8bit.",
         "benefits": "Keeps eps scoped to the constructor behavior of adamw8bit.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "eps: 1e-8"
+        "drawbacks": "For adamw8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "example": "optimizer_params: {}"
       }
     },
     {
@@ -24377,7 +24367,7 @@
         "anchor": "optimizer-adamw8bit-param-lr",
         "description": "Configures lr for adamw8bit.",
         "benefits": "Keeps lr scoped to the constructor behavior of adamw8bit.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For adamw8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -24395,7 +24385,7 @@
         "advanced-yaml"
       ],
       "persistence": "config",
-      "authority": "user",
+      "authority": "runtime-forced",
       "lifecycle": "supported",
       "applicability": [
         {
@@ -24451,8 +24441,8 @@
         "anchor": "optimizer-ademamix8bit-param-eps",
         "description": "Configures eps for ademamix8bit.",
         "benefits": "Keeps eps scoped to the constructor behavior of ademamix8bit.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "eps: 1e-8"
+        "drawbacks": "For ademamix8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "example": "optimizer_params: {}"
       }
     },
     {
@@ -24525,7 +24515,7 @@
         "anchor": "optimizer-ademamix8bit-param-lr",
         "description": "Configures lr for ademamix8bit.",
         "benefits": "Keeps lr scoped to the constructor behavior of ademamix8bit.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For ademamix8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -24892,7 +24882,7 @@
         "anchor": "optimizer-automagic-param-lr",
         "description": "Configures lr for automagic.",
         "benefits": "Keeps lr scoped to the constructor behavior of automagic.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For automagic, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -25639,7 +25629,7 @@
         "anchor": "optimizer-automagic2-param-lr",
         "description": "Configures lr for automagic2.",
         "benefits": "Keeps lr scoped to the constructor behavior of automagic2.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For automagic2, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -26307,7 +26297,7 @@
         "anchor": "optimizer-automagic3-param-lr",
         "description": "Configures lr for automagic3.",
         "benefits": "Keeps lr scoped to the constructor behavior of automagic3.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For automagic3, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -26970,7 +26960,7 @@
         "anchor": "optimizer-automagicexperiment-param-lr",
         "description": "Configures lr for automagicexperiment.",
         "benefits": "Keeps lr scoped to the constructor behavior of automagicexperiment.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For automagicexperiment, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -27284,7 +27274,7 @@
         "advanced-yaml"
       ],
       "persistence": "config",
-      "authority": "user",
+      "authority": "runtime-forced",
       "lifecycle": "supported",
       "applicability": [
         {
@@ -27340,8 +27330,8 @@
         "anchor": "optimizer-dadaptation-param-eps",
         "description": "Configures eps for dadaptation.",
         "benefits": "Keeps eps scoped to the constructor behavior of dadaptation.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "eps: 1e-8"
+        "drawbacks": "For dadaptation, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "example": "optimizer_params: {}"
       }
     },
     {
@@ -27423,7 +27413,7 @@
         "anchor": "optimizer-dadaptation-param-lr",
         "description": "Configures lr for dadaptation.",
         "benefits": "Keeps lr scoped to the constructor behavior of dadaptation.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For dadaptation, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -27441,7 +27431,7 @@
         "advanced-yaml"
       ],
       "persistence": "config",
-      "authority": "user",
+      "authority": "runtime-forced",
       "lifecycle": "supported",
       "applicability": [
         {
@@ -27497,8 +27487,8 @@
         "anchor": "optimizer-dadaptationadam-param-eps",
         "description": "Configures eps for dadaptationadam.",
         "benefits": "Keeps eps scoped to the constructor behavior of dadaptationadam.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "eps: 1e-8"
+        "drawbacks": "For dadaptationadam, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "example": "optimizer_params: {}"
       }
     },
     {
@@ -27580,7 +27570,7 @@
         "anchor": "optimizer-dadaptationadam-param-lr",
         "description": "Configures lr for dadaptationadam.",
         "benefits": "Keeps lr scoped to the constructor behavior of dadaptationadam.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For dadaptationadam, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -27598,7 +27588,7 @@
         "advanced-yaml"
       ],
       "persistence": "config",
-      "authority": "user",
+      "authority": "runtime-forced",
       "lifecycle": "supported",
       "applicability": [
         {
@@ -27654,8 +27644,8 @@
         "anchor": "optimizer-dadaptationlion-param-eps",
         "description": "Configures eps for dadaptationlion.",
         "benefits": "Keeps eps scoped to the constructor behavior of dadaptationlion.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "eps: 1e-8"
+        "drawbacks": "For dadaptationlion, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "example": "optimizer_params: {}"
       }
     },
     {
@@ -27737,7 +27727,7 @@
         "anchor": "optimizer-dadaptationlion-param-lr",
         "description": "Configures lr for dadaptationlion.",
         "benefits": "Keeps lr scoped to the constructor behavior of dadaptationlion.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For dadaptationlion, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -27811,7 +27801,7 @@
         "anchor": "optimizer-lion-param-lr",
         "description": "Configures lr for lion.",
         "benefits": "Keeps lr scoped to the constructor behavior of lion.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For lion, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -27885,7 +27875,7 @@
         "anchor": "optimizer-lion8bit-param-lr",
         "description": "Configures lr for lion8bit.",
         "benefits": "Keeps lr scoped to the constructor behavior of lion8bit.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For lion8bit, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -27903,7 +27893,7 @@
         "advanced-yaml"
       ],
       "persistence": "config",
-      "authority": "user",
+      "authority": "runtime-forced",
       "lifecycle": "supported",
       "applicability": [
         {
@@ -27959,8 +27949,8 @@
         "anchor": "optimizer-prodigyprefix-param-eps",
         "description": "Configures eps for prodigy*.",
         "benefits": "Keeps eps scoped to the constructor behavior of prodigy*.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "eps: 1e-8"
+        "drawbacks": "For prodigy*, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "example": "optimizer_params: {}"
       }
     },
     {
@@ -28042,7 +28032,7 @@
         "anchor": "optimizer-prodigyprefix-param-lr",
         "description": "Configures lr for prodigy*.",
         "benefits": "Keeps lr scoped to the constructor behavior of prodigy*.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For prodigy*, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
@@ -28420,7 +28410,7 @@
         "advanced-yaml"
       ],
       "persistence": "config",
-      "authority": "user",
+      "authority": "runtime-forced",
       "lifecycle": "supported",
       "applicability": [
         {
@@ -28483,8 +28473,8 @@
         "anchor": "optimizer-prodigy8bitprefix-param-eps",
         "description": "Configures eps for prodigy8bit*.",
         "benefits": "Keeps eps scoped to the constructor behavior of prodigy8bit*.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "eps: 1e-8"
+        "drawbacks": "For prodigy8bit*, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
+        "example": "optimizer_params: {}"
       }
     },
     {
@@ -28716,7 +28706,7 @@
         "anchor": "optimizer-prodigy8bitprefix-param-lr",
         "description": "Configures lr for prodigy8bit*.",
         "benefits": "Keeps lr scoped to the constructor behavior of prodigy8bit*.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "drawbacks": "For prodigy8bit*, optimizer_params presence for this key duplicates an unconditional dispatcher keyword and raises TypeError.",
         "example": "optimizer_params: {}"
       }
     },
