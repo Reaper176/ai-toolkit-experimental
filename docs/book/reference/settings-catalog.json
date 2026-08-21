@@ -20869,7 +20869,28 @@
         "supported_type": "string",
         "ui_type": null,
         "example_type": "string",
-        "accepted_values": null,
+        "accepted_values": [
+          "adafactor",
+          "adagrad",
+          "adam",
+          "adam8",
+          "adam8bit",
+          "adamw",
+          "adamw8",
+          "adamw8bit",
+          "ademamix8bit",
+          "automagic",
+          "automagic2",
+          "automagic3",
+          "automagicexperiment",
+          "dadaptation",
+          "dadaptationadam",
+          "dadaptationlion",
+          "lion",
+          "lion8bit",
+          "prodigy*",
+          "prodigy8bit*"
+        ],
         "range": null,
         "null": "rejected"
       },
@@ -20891,6 +20912,144 @@
           "symbol": "TrainConfig.__init__",
           "key": "optimizer",
           "read_kind": "kwargs.get"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adafactor",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adagrad",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adam",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adam8",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adam8bit",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adamw",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adamw8",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adamw8bit",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "ademamix8bit",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "automagic",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "automagic2",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "automagic3",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "automagicexperiment",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "dadaptation",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "dadaptationadam",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "dadaptationlion",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "lion",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "lion8bit",
+          "read_kind": "optimizer.registry"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "prodigy",
+          "read_kind": "optimizer.registry_prefix"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "prodigy8bit",
+          "read_kind": "optimizer.registry_prefix"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "automagic2",
+          "read_kind": "optimizer.fused_backward"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "automagic3",
+          "read_kind": "optimizer.fused_backward"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "automagicexperiment",
+          "read_kind": "optimizer.fused_backward"
         }
       ],
       "render": {
@@ -20898,7 +21057,7 @@
         "anchor": "train-optimizer",
         "description": "Selects the optimizer dispatched by toolkit.optimizer.get_optimizer.",
         "benefits": "Makes optimizer algorithm and state-memory tradeoffs configurable.",
-        "drawbacks": "Optional choices fail when their Python libraries are unavailable, and prefix dispatch accepts families.",
+        "drawbacks": "dadaptation, prodigyopt, bitsandbytes, and lion_pytorch choices fail when those optional libraries are unavailable; prodigy and prodigy8bit dispatch by prefix.",
         "example": "optimizer: adamw"
       }
     },
@@ -20925,12 +21084,12 @@
       ],
       "contract": {
         "parser_type": "object",
-        "supported_type": "object-or-null",
+        "supported_type": "object",
         "ui_type": null,
         "example_type": "object",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "normalized-to-absent"
       },
       "defaults": [
         {
@@ -20940,7 +21099,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "get_optimizer replaces an omitted or explicit null optimizer_params value with an empty object.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
@@ -21693,6 +21857,2571 @@
         "benefits": "Can reduce attention memory on installations with compatible xFormers kernels.",
         "drawbacks": "It requires xFormers support and can overlap the explicit attention-backend setting.",
         "example": "xformers: false"
+      }
+    },
+    {
+      "id": "optimizer.param.agreement_threshold",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.agreement_threshold"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": false
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Automagic2.__init__.agreement_threshold": "0.5"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether agreement_threshold is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/automagic2.py",
+          "symbol": "Automagic2.__init__",
+          "key": "agreement_threshold",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-agreement-threshold",
+        "description": "Sets Automagic2's sign-agreement threshold.",
+        "benefits": "Controls how much update-direction agreement is needed before its adaptive response.",
+        "drawbacks": "Extreme thresholds make the controller almost always or almost never agree.",
+        "example": "agreement_threshold: 0.5"
+      }
+    },
+    {
+      "id": "optimizer.param.beta1",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.beta1"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Adafactor.__init__.beta1": "None"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether beta1 is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/adafactor.py",
+          "symbol": "Adafactor.__init__",
+          "key": "beta1",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-beta1",
+        "description": "Enables Adafactor's optional first-moment coefficient.",
+        "benefits": "Adds momentum-like smoothing when a first moment is desired.",
+        "drawbacks": "The toolkit default is null, so enabling it increases optimizer state.",
+        "example": "beta1: 0.9"
+      }
+    },
+    {
+      "id": "optimizer.param.beta2",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.beta2"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": false
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Automagic.__init__.beta2": "0.999",
+            "Automagic2.__init__.beta2": "0.999",
+            "Automagic3.__init__.beta2": "0.999"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether beta2 is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/automagic.py",
+          "symbol": "Automagic.__init__",
+          "key": "beta2",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic2.py",
+          "symbol": "Automagic2.__init__",
+          "key": "beta2",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic3.py",
+          "symbol": "Automagic3.__init__",
+          "key": "beta2",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-beta2",
+        "description": "Sets the scalar second-moment decay used by Automagic optimizers.",
+        "benefits": "Smooths squared-gradient estimates across steps.",
+        "drawbacks": "Values too near one react slowly; small values make estimates noisy.",
+        "example": "beta2: 0.999"
+      }
+    },
+    {
+      "id": "optimizer.param.beta3",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.beta3"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": false
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Prodigy8bit.__init__.beta3": "None"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether beta3 is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/prodigy_8bit.py",
+          "symbol": "Prodigy8bit.__init__",
+          "key": "beta3",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-beta3",
+        "description": "Overrides Prodigy8bit's third decay coefficient.",
+        "benefits": "Allows direct control instead of deriving beta3 from beta2.",
+        "drawbacks": "A poor coefficient destabilizes the D-estimate accumulator.",
+        "example": "beta3: 0.999"
+      }
+    },
+    {
+      "id": "optimizer.param.betas",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.betas"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number-pair",
+        "supported_type": "two-probabilities",
+        "ui_type": null,
+        "example_type": "number-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Adam8bit.__init__.betas": "(0.9, 0.999)",
+            "AutomagicEXPERIMENT.__init__.betas": "(0.0, 0.999)",
+            "Prodigy8bit.__init__.betas": "(0.9, 0.999)"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether betas is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/adam8bit.py",
+          "symbol": "Adam8bit.__init__",
+          "key": "betas",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagicEXPERIMENT.py",
+          "symbol": "AutomagicEXPERIMENT.__init__",
+          "key": "betas",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/prodigy_8bit.py",
+          "symbol": "Prodigy8bit.__init__",
+          "key": "betas",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-betas",
+        "description": "Sets paired moment coefficients for optimizers that expose betas.",
+        "benefits": "Controls first- and second-moment smoothing together.",
+        "drawbacks": "AutomagicEXPERIMENT requires a zero first coefficient for its sign-window design.",
+        "example": "betas: [0.9, 0.999]"
+      }
+    },
+    {
+      "id": "optimizer.param.clip_threshold",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.clip_threshold"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "positive-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": false,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Adafactor.__init__.clip_threshold": "1.0",
+            "Automagic.__init__.clip_threshold": "1.0",
+            "Automagic2.__init__.clip_threshold": "1.0",
+            "Automagic3.__init__.clip_threshold": "1.0",
+            "AutomagicEXPERIMENT.__init__.clip_threshold": "1.0"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether clip_threshold is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/adafactor.py",
+          "symbol": "Adafactor.__init__",
+          "key": "clip_threshold",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic.py",
+          "symbol": "Automagic.__init__",
+          "key": "clip_threshold",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic2.py",
+          "symbol": "Automagic2.__init__",
+          "key": "clip_threshold",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic3.py",
+          "symbol": "Automagic3.__init__",
+          "key": "clip_threshold",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagicEXPERIMENT.py",
+          "symbol": "AutomagicEXPERIMENT.__init__",
+          "key": "clip_threshold",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-clip-threshold",
+        "description": "Sets optimizer-internal RMS update clipping.",
+        "benefits": "Limits unusually large normalized updates inside first-party optimizers.",
+        "drawbacks": "It is distinct from trainer max_grad_norm and too small suppresses learning.",
+        "example": "clip_threshold: 1.0"
+      }
+    },
+    {
+      "id": "optimizer.param.d0",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.d0"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "positive-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": false,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Prodigy8bit.__init__.d0": "1e-06"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether d0 is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/prodigy_8bit.py",
+          "symbol": "Prodigy8bit.__init__",
+          "key": "d0",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-d0",
+        "description": "Sets Prodigy8bit's initial D estimate.",
+        "benefits": "Provides a positive starting scale for adaptive step-size estimation.",
+        "drawbacks": "Nonpositive values are rejected and large starts can overshoot.",
+        "example": "d0: 1e-6"
+      }
+    },
+    {
+      "id": "optimizer.param.d_coef",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.d_coef"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "positive-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": false,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Prodigy8bit.__init__.d_coef": "1.0"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether d_coef is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/prodigy_8bit.py",
+          "symbol": "Prodigy8bit.__init__",
+          "key": "d_coef",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-d-coef",
+        "description": "Scales Prodigy8bit's estimated D value.",
+        "benefits": "Offers the optimizer's preferred tuning control for adaptation strength.",
+        "drawbacks": "Large coefficients can accelerate D growth into instability.",
+        "example": "d_coef: 1.0"
+      }
+    },
+    {
+      "id": "optimizer.param.decay_rate",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.decay_rate"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Adafactor.__init__.decay_rate": "-0.8"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether decay_rate is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/adafactor.py",
+          "symbol": "Adafactor.__init__",
+          "key": "decay_rate",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-decay-rate",
+        "description": "Sets Adafactor's squared-gradient decay exponent.",
+        "benefits": "Controls how its factored running average changes with step count.",
+        "drawbacks": "Changing the negative default alters Adafactor's long-run adaptation.",
+        "example": "decay_rate: -0.8"
+      }
+    },
+    {
+      "id": "optimizer.param.decouple",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.decouple"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "get_optimizer.adamw8__decouple": "True",
+            "Adam8bit.__init__.decouple": "True",
+            "Prodigy8bit.__init__.decouple": "True"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether decouple is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adamw8__decouple",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizers/adam8bit.py",
+          "symbol": "Adam8bit.__init__",
+          "key": "decouple",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/prodigy_8bit.py",
+          "symbol": "Prodigy8bit.__init__",
+          "key": "decouple",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-decouple",
+        "description": "Selects decoupled rather than coupled weight decay where supported.",
+        "benefits": "Provides AdamW-style decay for Adam8bit and Prodigy8bit.",
+        "drawbacks": "adamw8 already injects true, so repeating it there causes a duplicate keyword.",
+        "example": "decouple: true"
+      }
+    },
+    {
+      "id": "optimizer.param.do_paramiter_swapping",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.do_paramiter_swapping"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Adafactor.__init__.do_paramiter_swapping": "False",
+            "Automagic.__init__.do_paramiter_swapping": "False"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether do_paramiter_swapping is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/adafactor.py",
+          "symbol": "Adafactor.__init__",
+          "key": "do_paramiter_swapping",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic.py",
+          "symbol": "Automagic.__init__",
+          "key": "do_paramiter_swapping",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-do-paramiter-swapping",
+        "description": "Enables optimizer-local parameter swapping in Adafactor or Automagic.",
+        "benefits": "Lets those optimizers manage a rotating active subset.",
+        "drawbacks": "The misspelled key is the actual API and unsupported optimizers do not accept it.",
+        "example": "do_paramiter_swapping: true"
+      }
+    },
+    {
+      "id": "optimizer.param.eps",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.eps"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "positive-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": false,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "get_optimizer.adam8__eps": "1e-06",
+            "get_optimizer.adam8bit__eps": "1e-06",
+            "get_optimizer.adam__eps": "1e-06",
+            "get_optimizer.adamw8__eps": "1e-06",
+            "get_optimizer.adamw8bit__eps": "1e-06",
+            "get_optimizer.adamw__eps": "1e-06",
+            "get_optimizer.ademamix8bit__eps": "1e-06",
+            "get_optimizer.dadaptation__eps": "1e-06",
+            "get_optimizer.dadaptationadam__eps": "1e-06",
+            "get_optimizer.dadaptationlion__eps": "1e-06",
+            "get_optimizer.prodigy8bit__eps": "1e-06",
+            "get_optimizer.prodigy__eps": "1e-06",
+            "Adafactor.__init__.eps": "(1e-30, 0.001)",
+            "Adam8bit.__init__.eps": "1e-08",
+            "Automagic.__init__.eps": "(1e-30, 0.001)",
+            "Automagic2.__init__.eps": "1e-30",
+            "Automagic3.__init__.eps": "1e-30",
+            "AutomagicEXPERIMENT.__init__.eps": "1e-08",
+            "Prodigy8bit.__init__.eps": "1e-08"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether eps is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adam8__eps",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adam8bit__eps",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adam__eps",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adamw8__eps",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adamw8bit__eps",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adamw__eps",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "ademamix8bit__eps",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "dadaptation__eps",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "dadaptationadam__eps",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "dadaptationlion__eps",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "prodigy8bit__eps",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "prodigy__eps",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizers/adafactor.py",
+          "symbol": "Adafactor.__init__",
+          "key": "eps",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/adam8bit.py",
+          "symbol": "Adam8bit.__init__",
+          "key": "eps",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic.py",
+          "symbol": "Automagic.__init__",
+          "key": "eps",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic2.py",
+          "symbol": "Automagic2.__init__",
+          "key": "eps",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic3.py",
+          "symbol": "Automagic3.__init__",
+          "key": "eps",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagicEXPERIMENT.py",
+          "symbol": "AutomagicEXPERIMENT.__init__",
+          "key": "eps",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/prodigy_8bit.py",
+          "symbol": "Prodigy8bit.__init__",
+          "key": "eps",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-eps",
+        "description": "Sets numerical-stability epsilon or Adafactor's epsilon pair.",
+        "benefits": "Prevents division by zero in normalized optimizer updates.",
+        "drawbacks": "Several dispatcher branches inject 1e-6, and supplying eps again to those choices duplicates the keyword.",
+        "example": "eps: 1e-8"
+      }
+    },
+    {
+      "id": "optimizer.param.fsdp_in_use",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.fsdp_in_use"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Prodigy8bit.__init__.fsdp_in_use": "False"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether fsdp_in_use is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/prodigy_8bit.py",
+          "symbol": "Prodigy8bit.__init__",
+          "key": "fsdp_in_use",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-fsdp-in-use",
+        "description": "Tells Prodigy8bit that sharded flat parameters are in use.",
+        "benefits": "Enables distributed reduction behavior when auto-detection is insufficient.",
+        "drawbacks": "Setting it incorrectly can cause missing or unnecessary distributed synchronization.",
+        "example": "fsdp_in_use: true"
+      }
+    },
+    {
+      "id": "optimizer.param.fused",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.fused"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Automagic3.__init__.fused": "True",
+            "AutomagicEXPERIMENT.__init__.fused": "True"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether fused is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/automagic3.py",
+          "symbol": "Automagic3.__init__",
+          "key": "fused",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagicEXPERIMENT.py",
+          "symbol": "AutomagicEXPERIMENT.__init__",
+          "key": "fused",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-fused",
+        "description": "Controls fused-backward updates for Automagic3 and AutomagicEXPERIMENT.",
+        "benefits": "False restores an ordinary optimizer step compatible with outer clipping and accumulation.",
+        "drawbacks": "True updates inside backward; Automagic2 is always fused and has no switch.",
+        "example": "fused: false"
+      }
+    },
+    {
+      "id": "optimizer.param.growth_rate",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.growth_rate"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "positive-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": false,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Prodigy8bit.__init__.growth_rate": "float('inf')"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether growth_rate is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/prodigy_8bit.py",
+          "symbol": "Prodigy8bit.__init__",
+          "key": "growth_rate",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-growth-rate",
+        "description": "Caps multiplicative growth of Prodigy8bit's D estimate.",
+        "benefits": "A finite cap can act like an adaptation warmup.",
+        "drawbacks": "The source default is unbounded infinity and a tight cap can slow convergence.",
+        "example": "growth_rate: 1.02"
+      }
+    },
+    {
+      "id": "optimizer.param.lr",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.lr"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "runtime-forced",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "get_optimizer.adafactor__lr": "float(learning_rate)",
+            "get_optimizer.adagrad__lr": "float(learning_rate)",
+            "get_optimizer.adam8__lr": "learning_rate",
+            "get_optimizer.adam8bit__lr": "learning_rate",
+            "get_optimizer.adam__lr": "float(learning_rate)",
+            "get_optimizer.adamw8__lr": "learning_rate",
+            "get_optimizer.adamw8bit__lr": "learning_rate",
+            "get_optimizer.adamw__lr": "float(learning_rate)",
+            "get_optimizer.ademamix8bit__lr": "learning_rate",
+            "get_optimizer.automagic2__lr": "float(learning_rate)",
+            "get_optimizer.automagic3__lr": "float(learning_rate)",
+            "get_optimizer.automagic__lr": "float(learning_rate)",
+            "get_optimizer.automagicexperiment__lr": "float(learning_rate)",
+            "get_optimizer.dadaptation__lr": "use_lr",
+            "get_optimizer.dadaptationadam__lr": "use_lr",
+            "get_optimizer.dadaptationlion__lr": "use_lr",
+            "get_optimizer.lion8bit__lr": "learning_rate",
+            "get_optimizer.lion__lr": "learning_rate",
+            "get_optimizer.prodigy8bit__lr": "use_lr",
+            "get_optimizer.prodigy__lr": "use_lr",
+            "Adafactor.__init__.lr": "None",
+            "Adam8bit.__init__.lr": "0.001",
+            "Automagic.__init__.lr": "1e-06",
+            "Automagic2.__init__.lr": "1e-06",
+            "Automagic3.__init__.lr": "1e-06",
+            "AutomagicEXPERIMENT.__init__.lr": "1e-06",
+            "Prodigy8bit.__init__.lr": "1.0"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether lr is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adafactor__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adagrad__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adam8__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adam8bit__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adam__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adamw8__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adamw8bit__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adamw__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "ademamix8bit__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "automagic2__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "automagic3__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "automagic__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "automagicexperiment__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "dadaptation__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "dadaptationadam__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "dadaptationlion__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "lion8bit__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "lion__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "prodigy8bit__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "prodigy__lr",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizers/adafactor.py",
+          "symbol": "Adafactor.__init__",
+          "key": "lr",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/adam8bit.py",
+          "symbol": "Adam8bit.__init__",
+          "key": "lr",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic.py",
+          "symbol": "Automagic.__init__",
+          "key": "lr",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic2.py",
+          "symbol": "Automagic2.__init__",
+          "key": "lr",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic3.py",
+          "symbol": "Automagic3.__init__",
+          "key": "lr",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagicEXPERIMENT.py",
+          "symbol": "AutomagicEXPERIMENT.__init__",
+          "key": "lr",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/prodigy_8bit.py",
+          "symbol": "Prodigy8bit.__init__",
+          "key": "lr",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-lr",
+        "description": "Represents constructor learning rates that dispatcher code normally injects from train.lr.",
+        "benefits": "Documents first-party constructor defaults and the per-choice injected expressions.",
+        "drawbacks": "Do not repeat lr in optimizer_params: explicit dispatcher injection would create a duplicate keyword.",
+        "example": "optimizer_params: {}"
+      }
+    },
+    {
+      "id": "optimizer.param.lr_bump",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.lr_bump"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Automagic.__init__.lr_bump": "1e-06",
+            "Automagic2.__init__.lr_bump": "1e-06"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether lr_bump is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/automagic.py",
+          "symbol": "Automagic.__init__",
+          "key": "lr_bump",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic2.py",
+          "symbol": "Automagic2.__init__",
+          "key": "lr_bump",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-lr-bump",
+        "description": "Sets the learning-rate adjustment increment in Automagic v1 and v2.",
+        "benefits": "Controls how quickly their scalar adaptive rate moves.",
+        "drawbacks": "Large bumps cause oscillation; tiny bumps react slowly.",
+        "example": "lr_bump: 1e-6"
+      }
+    },
+    {
+      "id": "optimizer.param.max_lr",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.max_lr"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Automagic.__init__.max_lr": "0.001",
+            "Automagic2.__init__.max_lr": "0.001",
+            "Automagic3.__init__.max_lr": "1000.0",
+            "AutomagicEXPERIMENT.__init__.max_lr": "1000.0"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether max_lr is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/automagic.py",
+          "symbol": "Automagic.__init__",
+          "key": "max_lr",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic2.py",
+          "symbol": "Automagic2.__init__",
+          "key": "max_lr",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic3.py",
+          "symbol": "Automagic3.__init__",
+          "key": "max_lr",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagicEXPERIMENT.py",
+          "symbol": "AutomagicEXPERIMENT.__init__",
+          "key": "max_lr",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-max-lr",
+        "description": "Sets the upper adaptive-rate safeguard for Automagic variants.",
+        "benefits": "Prevents the controller from increasing its internal rate without bound.",
+        "drawbacks": "Defaults differ sharply between versions, so copying one version's value changes another's design.",
+        "example": "max_lr: 0.001"
+      }
+    },
+    {
+      "id": "optimizer.param.min_lr",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.min_lr"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Automagic.__init__.min_lr": "1e-07",
+            "Automagic2.__init__.min_lr": "1e-07",
+            "Automagic3.__init__.min_lr": "1e-08",
+            "AutomagicEXPERIMENT.__init__.min_lr": "1e-30"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether min_lr is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/automagic.py",
+          "symbol": "Automagic.__init__",
+          "key": "min_lr",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic2.py",
+          "symbol": "Automagic2.__init__",
+          "key": "min_lr",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic3.py",
+          "symbol": "Automagic3.__init__",
+          "key": "min_lr",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagicEXPERIMENT.py",
+          "symbol": "AutomagicEXPERIMENT.__init__",
+          "key": "min_lr",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-min-lr",
+        "description": "Sets the lower adaptive-rate safeguard for Automagic variants.",
+        "benefits": "Prevents adaptive learning rates from collapsing below a chosen floor.",
+        "drawbacks": "A high floor can keep unstable parameters from reducing their step size.",
+        "example": "min_lr: 1e-7"
+      }
+    },
+    {
+      "id": "optimizer.param.paramiter_swapping_factor",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.paramiter_swapping_factor"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": false
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Adafactor.__init__.paramiter_swapping_factor": "0.1",
+            "Automagic.__init__.paramiter_swapping_factor": "0.1"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether paramiter_swapping_factor is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/adafactor.py",
+          "symbol": "Adafactor.__init__",
+          "key": "paramiter_swapping_factor",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic.py",
+          "symbol": "Automagic.__init__",
+          "key": "paramiter_swapping_factor",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-paramiter-swapping-factor",
+        "description": "Sets the optimizer-local active parameter fraction.",
+        "benefits": "Controls memory savings and coverage for Adafactor and Automagic swapping.",
+        "drawbacks": "Small fractions update fewer parameters per swap and slow full coverage.",
+        "example": "paramiter_swapping_factor: 0.1"
+      }
+    },
+    {
+      "id": "optimizer.param.polarity_history",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.polarity_history"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer-clamped-2-through-64",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 2,
+          "maximum": 64,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Automagic3.__init__.polarity_history": "8",
+            "AutomagicEXPERIMENT.__init__.polarity_history": "8"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether polarity_history is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/automagic3.py",
+          "symbol": "Automagic3.__init__",
+          "key": "polarity_history",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagicEXPERIMENT.py",
+          "symbol": "AutomagicEXPERIMENT.__init__",
+          "key": "polarity_history",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-polarity-history",
+        "description": "Sets Automagic3 sign-history window length.",
+        "benefits": "Longer history smooths the pooled polarity vote.",
+        "drawbacks": "Constructors clamp the value to 2 through 64, and longer windows use more state.",
+        "example": "polarity_history: 8"
+      }
+    },
+    {
+      "id": "optimizer.param.relative_step",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.relative_step"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "get_optimizer.adafactor__relative_step": "False",
+            "Adafactor.__init__.relative_step": "True"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether relative_step is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adafactor__relative_step",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizers/adafactor.py",
+          "symbol": "Adafactor.__init__",
+          "key": "relative_step",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-relative-step",
+        "description": "Selects Adafactor's internally computed relative learning rate.",
+        "benefits": "Can remove the need for an externally scheduled absolute rate.",
+        "drawbacks": "get_optimizer defaults it to false because it also injects an external train.lr.",
+        "example": "relative_step: false"
+      }
+    },
+    {
+      "id": "optimizer.param.safeguard_warmup",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.safeguard_warmup"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Prodigy8bit.__init__.safeguard_warmup": "False"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether safeguard_warmup is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/prodigy_8bit.py",
+          "symbol": "Prodigy8bit.__init__",
+          "key": "safeguard_warmup",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-safeguard-warmup",
+        "description": "Changes Prodigy8bit's D-estimate denominator during warmup.",
+        "benefits": "Can protect D estimation while an external warmup changes learning rate.",
+        "drawbacks": "It changes adaptation dynamics and should match the chosen scheduler.",
+        "example": "safeguard_warmup: true"
+      }
+    },
+    {
+      "id": "optimizer.param.scale_parameter",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.scale_parameter"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "get_optimizer.adafactor__scale_parameter": "False",
+            "Adafactor.__init__.scale_parameter": "True"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether scale_parameter is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adafactor__scale_parameter",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizers/adafactor.py",
+          "symbol": "Adafactor.__init__",
+          "key": "scale_parameter",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-scale-parameter",
+        "description": "Lets Adafactor scale its rate by parameter RMS.",
+        "benefits": "Provides parameter-scale-aware steps in relative-rate configurations.",
+        "drawbacks": "get_optimizer defaults it to false for external-rate training.",
+        "example": "scale_parameter: false"
+      }
+    },
+    {
+      "id": "optimizer.param.stochastic_accumulation",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.stochastic_accumulation"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Adafactor.__init__.stochastic_accumulation": "True"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether stochastic_accumulation is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/adafactor.py",
+          "symbol": "Adafactor.__init__",
+          "key": "stochastic_accumulation",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-stochastic-accumulation",
+        "description": "Enables low-precision stochastic gradient accumulation in Adafactor.",
+        "benefits": "Preserves small accumulated gradients that deterministic rounding might drop.",
+        "drawbacks": "It registers post-accumulate hooks and adds hook-side state work.",
+        "example": "stochastic_accumulation: true"
+      }
+    },
+    {
+      "id": "optimizer.param.stochastic_rounding",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.stochastic_rounding"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Adafactor.__init__.stochastic_rounding": "True"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether stochastic_rounding is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/adafactor.py",
+          "symbol": "Adafactor.__init__",
+          "key": "stochastic_rounding",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-stochastic-rounding",
+        "description": "Enables stochastic rounding when Adafactor writes low-precision parameters.",
+        "benefits": "Reduces systematic rounding bias for small updates.",
+        "drawbacks": "It introduces randomness and only matters for low-precision values.",
+        "example": "stochastic_rounding: true"
+      }
+    },
+    {
+      "id": "optimizer.param.use_bias_correction",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.use_bias_correction"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Prodigy8bit.__init__.use_bias_correction": "False"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether use_bias_correction is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/prodigy_8bit.py",
+          "symbol": "Prodigy8bit.__init__",
+          "key": "use_bias_correction",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-use-bias-correction",
+        "description": "Enables Adam-style bias correction in Prodigy8bit.",
+        "benefits": "Corrects early moment estimates when that behavior is desired.",
+        "drawbacks": "It changes the effective adaptive step during early iterations.",
+        "example": "use_bias_correction: false"
+      }
+    },
+    {
+      "id": "optimizer.param.warmup_init",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.warmup_init"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "get_optimizer.adafactor__warmup_init": "False",
+            "Adafactor.__init__.warmup_init": "False"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether warmup_init is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizer.py",
+          "symbol": "get_optimizer",
+          "key": "adafactor__warmup_init",
+          "read_kind": "optimizer.injected"
+        },
+        {
+          "source": "toolkit/optimizers/adafactor.py",
+          "symbol": "Adafactor.__init__",
+          "key": "warmup_init",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-warmup-init",
+        "description": "Selects Adafactor's warmup initialization for relative steps.",
+        "benefits": "Provides a gradual start when Adafactor owns its learning-rate schedule.",
+        "drawbacks": "True requires relative_step true; get_optimizer defaults both to false.",
+        "example": "warmup_init: false"
+      }
+    },
+    {
+      "id": "optimizer.param.weight_decay",
+      "ui_label": null,
+      "scope": "optimizer",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimizer_params.weight_decay"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "Adafactor.__init__.weight_decay": "0.0",
+            "Adam8bit.__init__.weight_decay": "0",
+            "Automagic.__init__.weight_decay": "0.0",
+            "Automagic2.__init__.weight_decay": "0.0",
+            "Automagic3.__init__.weight_decay": "0.0",
+            "AutomagicEXPERIMENT.__init__.weight_decay": "0.0",
+            "Prodigy8bit.__init__.weight_decay": "0"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.optimizer",
+          "kind": "requires",
+          "description": "The selected optimizer determines whether weight_decay is accepted, injected, or ignored.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/optimizers/adafactor.py",
+          "symbol": "Adafactor.__init__",
+          "key": "weight_decay",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/adam8bit.py",
+          "symbol": "Adam8bit.__init__",
+          "key": "weight_decay",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic.py",
+          "symbol": "Automagic.__init__",
+          "key": "weight_decay",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic2.py",
+          "symbol": "Automagic2.__init__",
+          "key": "weight_decay",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagic3.py",
+          "symbol": "Automagic3.__init__",
+          "key": "weight_decay",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/automagicEXPERIMENT.py",
+          "symbol": "AutomagicEXPERIMENT.__init__",
+          "key": "weight_decay",
+          "read_kind": "optimizer.parameter"
+        },
+        {
+          "source": "toolkit/optimizers/prodigy_8bit.py",
+          "symbol": "Prodigy8bit.__init__",
+          "key": "weight_decay",
+          "read_kind": "optimizer.parameter"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "optimizer-param-weight-decay",
+        "description": "Sets optimizer weight-decay strength.",
+        "benefits": "Regularizes parameter magnitude in coupled or decoupled form.",
+        "drawbacks": "Excessive decay erases learned weights, and decouple determines its exact update form.",
+        "example": "weight_decay: 0.01"
       }
     }
   ]

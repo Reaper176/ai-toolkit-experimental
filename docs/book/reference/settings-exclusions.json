@@ -1015,6 +1015,104 @@
       "key": "rank_dropout",
       "read_kind": "kwargs.get",
       "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "adagrad",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "adam",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "adam8bit",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "adamw",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "adamw8bit",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "ademamix8bit",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "dadaptation",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "dadaptationadam",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "dadaptationlion",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "lion",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "lion8bit",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "prodigy",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizers/optimizer_utils.py",
+      "symbol": "Auto8bitTensor.to",
+      "key": "dtype",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/optimizers/optimizer_utils.py",
+      "symbol": "Auto8bitTensor.to",
+      "key": "dtype",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
     }
   ]
 }

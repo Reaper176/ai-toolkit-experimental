@@ -1550,6 +1550,16 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 and item.symbol == "TrainConfig.__init__"
                 and item.key in cls.TRAIN_COMPONENT_KEYS
             )
+        if scope == "optimizers":
+            return (
+                item.source == "toolkit/optimizer.py"
+                or item.source.startswith("toolkit/optimizers/")
+                or (
+                    item.source == "toolkit/config_modules.py"
+                    and item.symbol == "TrainConfig.__init__"
+                    and item.key in {"optimizer", "optimizer_params"}
+                )
+            )
         raise AssertionError(f"unknown catalog test scope {scope!r}")
 
     def assert_catalog_selector_green(self, *arguments):
@@ -1721,6 +1731,71 @@ class CatalogProductionSliceTests(unittest.TestCase):
             for item in settings["train.do_paramiter_swapping"].interactions
         }
         self.assertIn(("train.optimizer", "requires"), swapping_interactions)
+
+    def test_catalog_optimizer_registry_and_parameters_are_exactly_owned(self):
+        try:
+            self.assert_catalog_selector_green("--scope", "optimizers")
+        except DiscoveryError as error:
+            self.fail(str(error))
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        optimizer = settings["train.optimizer"]
+        registry_facts = tuple(
+            fact for fact in self.discovered
+            if fact.read_kind in {"optimizer.registry", "optimizer.registry_prefix"}
+        )
+        registry_claims = {
+            (claim.source, claim.symbol, claim.key, claim.read_kind)
+            for claim in optimizer.source_claims
+            if claim.read_kind.startswith("optimizer.registry")
+        }
+        self.assertEqual(
+            registry_claims,
+            {
+                (fact.source, fact.symbol, fact.key, fact.read_kind)
+                for fact in registry_facts
+            },
+        )
+        expected_choices = {
+            fact.key + ("*" if fact.read_kind == "optimizer.registry_prefix" else "")
+            for fact in registry_facts
+        }
+        self.assertEqual(set(optimizer.contract.accepted_values or ()), expected_choices)
+        for library in ("dadaptation", "prodigyopt", "bitsandbytes", "lion_pytorch"):
+            self.assertIn(library, optimizer.render.drawbacks)
+        parameter_facts = tuple(
+            fact for fact in self.discovered
+            if fact.read_kind in {"optimizer.parameter", "optimizer.injected"}
+        )
+        parameter_settings = {
+            setting.id: setting
+            for setting in catalog.settings
+            if setting.id.startswith("optimizer.param.")
+        }
+        self.assertEqual(
+            set(parameter_settings),
+            {f"optimizer.param.{fact.key.split('__')[-1]}" for fact in parameter_facts},
+        )
+        for setting in parameter_settings.values():
+            with self.subTest(setting=setting.id):
+                self.assertEqual(len(setting.defaults), 1)
+                self.assertIsInstance(setting.defaults[0].value, dict)
+                self.assertTrue(setting.defaults[0].value)
+        boundary_ids = {
+            (fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in self.discovered
+            if fact.read_kind == "optimizer.external_boundary"
+        }
+        boundary_exclusions = {
+            (item.source, item.symbol, item.key, item.read_kind)
+            for item in self.exclusions
+            if item.reason == "arbitrary third-party constructor surface"
+        }
+        self.assertEqual(boundary_exclusions, boundary_ids)
 
     def test_catalog_process_get_conf_null_semantics_are_exhaustive(self):
         catalog = load_settings_catalog(
