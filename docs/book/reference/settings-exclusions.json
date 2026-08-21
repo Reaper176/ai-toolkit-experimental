@@ -567,6 +567,62 @@
       "key": "weight",
       "read_kind": "kwargs.get",
       "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/network_mixins.py",
+      "symbol": "ToolkitNetworkMixin.__init__",
+      "key": "is_lorm",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/network_mixins.py",
+      "symbol": "ToolkitNetworkMixin.__init__",
+      "key": "is_sdxl",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/network_mixins.py",
+      "symbol": "ToolkitNetworkMixin.__init__",
+      "key": "is_ssd",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/network_mixins.py",
+      "symbol": "ToolkitNetworkMixin.__init__",
+      "key": "is_v2",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/network_mixins.py",
+      "symbol": "ToolkitNetworkMixin.__init__",
+      "key": "is_vega",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/network_mixins.py",
+      "symbol": "ToolkitNetworkMixin.__init__",
+      "key": "network_config",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/network_mixins.py",
+      "symbol": "ToolkitNetworkMixin.__init__",
+      "key": "train_text_encoder",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/network_mixins.py",
+      "symbol": "ToolkitNetworkMixin.__init__",
+      "key": "train_unet",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
     }
   ]
 }

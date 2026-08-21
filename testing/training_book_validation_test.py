@@ -18,6 +18,7 @@ from scripts.training_book.manifest import (  # noqa: E402
 )
 from scripts.training_book.catalog import (  # noqa: E402
     CatalogError,
+    catalog_source_claims,
     load_settings_catalog,
     settings_catalog_schema,
     validate_settings_catalog,
@@ -822,6 +823,12 @@ class CatalogProductionSliceTests(unittest.TestCase):
         self.assert_catalog_selector_green(
             "--target-symbol",
             "toolkit/config_modules.py::NetworkConfig.__init__",
+        )
+
+    def test_catalog_toolkit_network_mixin_symbol_is_exactly_classified(self):
+        self.assert_catalog_selector_green(
+            "--target-symbol",
+            "toolkit/network_mixins.py::ToolkitNetworkMixin.__init__",
         )
 
 
@@ -4685,13 +4692,18 @@ def build(network_kwargs):
         )
 
         self.assertEqual(len(expected), 81)
-        self.assertEqual(exclusions, expected)
+        initial_exclusions = tuple(
+            item
+            for item in exclusions
+            if (item.source, item.symbol) in INITIAL_EXCLUDED_SYMBOL_REASONS
+        )
+        self.assertEqual(initial_exclusions, expected)
         selected = tuple(
             fact
             for fact in discovered
             if (fact.source, fact.symbol) in INITIAL_EXCLUDED_SYMBOL_REASONS
         )
-        validate_setting_ownership(selected, (), exclusions)
+        validate_setting_ownership(selected, (), initial_exclusions)
 
         declared_sources = tuple(sorted({fact.source for fact in discovered}))
         for source, symbol in INITIAL_EXCLUDED_SYMBOL_REASONS:
@@ -4818,13 +4830,6 @@ def build(network_kwargs):
         self.assertGreaterEqual(inventory["summary"]["major_groups"]["ModelConfig"], 60)
         self.assertGreaterEqual(inventory["summary"]["major_groups"]["DatasetConfig"], 78)
         self.assertGreaterEqual(inventory["summary"]["major_groups"]["AdapterConfig"], 49)
-        self.assertEqual(
-            inventory["summary"]["by_ownership"]["excluded"], 81
-        )
-        self.assertEqual(
-            inventory["summary"]["by_ownership"]["unowned"],
-            inventory["summary"]["total"] - 81,
-        )
         excluded_identities = {
             (row["source"], row["symbol"], row["key"], row["read_kind"])
             for row in inventory["settings"]
@@ -4832,6 +4837,29 @@ def build(network_kwargs):
         }
         declared_exclusions = load_exclusions(
             REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
+        )
+        declared_catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        catalog_identities = {
+            (item.source, item.symbol, item.key, item.read_kind)
+            for item in catalog_source_claims(declared_catalog)
+        }
+        self.assertEqual(
+            inventory["summary"]["by_ownership"]["excluded"],
+            len(declared_exclusions),
+        )
+        self.assertEqual(
+            inventory["summary"]["by_ownership"]["cataloged"],
+            len(catalog_identities),
+        )
+        self.assertEqual(
+            inventory["summary"]["by_ownership"]["unowned"],
+            inventory["summary"]["total"]
+            - len(declared_exclusions)
+            - len(catalog_identities),
         )
         self.assertEqual(
             excluded_identities,
@@ -4842,10 +4870,18 @@ def build(network_kwargs):
         )
         self.assertTrue(
             all(
-                row["ownership"] == "excluded"
-                if (row["source"], row["symbol"])
-                in INITIAL_EXCLUDED_SYMBOL_REASONS
-                else row["ownership"] == "unowned"
+                row["ownership"]
+                == (
+                    "excluded"
+                    if (
+                        row["source"], row["symbol"], row["key"], row["read_kind"]
+                    ) in excluded_identities
+                    else "cataloged"
+                    if (
+                        row["source"], row["symbol"], row["key"], row["read_kind"]
+                    ) in catalog_identities
+                    else "unowned"
+                )
                 for row in inventory["settings"]
             )
         )
