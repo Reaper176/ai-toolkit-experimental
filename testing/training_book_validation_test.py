@@ -831,6 +831,12 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "toolkit/network_mixins.py::ToolkitNetworkMixin.__init__",
         )
 
+    def test_catalog_lora_special_network_symbol_is_exactly_classified(self):
+        self.assert_catalog_selector_green(
+            "--target-symbol",
+            "toolkit/lora_special.py::LoRASpecialNetwork.__init__",
+        )
+
 
 class DiscoveryContractTests(unittest.TestCase):
     def setUp(self):

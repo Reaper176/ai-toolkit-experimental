@@ -623,6 +623,237 @@
       "key": "train_unet",
       "read_kind": "network_kwargs.reserved",
       "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "alpha",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "base_model",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "conv_alpha",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "conv_lora_dim",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "dropout",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_auraflow",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_flux",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_lorm",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_lumina2",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_pixart",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_sdxl",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_transformer",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_v2",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_v3",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "lora_dim",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "multiplier",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "network_config",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "network_type",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "text_encoder",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "train_text_encoder",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "train_unet",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "transformer_only",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "unet",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "use_bias",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "use_text_encoder_1",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "use_text_encoder_2",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_ara",
+      "read_kind": "network_kwargs.accepted",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_assistant_adapter",
+      "read_kind": "network_kwargs.accepted",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "module_class",
+      "read_kind": "network_kwargs.accepted",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "modules_alpha",
+      "read_kind": "network_kwargs.accepted",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "modules_dim",
+      "read_kind": "network_kwargs.accepted",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "target_conv_modules",
+      "read_kind": "network_kwargs.accepted",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "target_lin_modules",
+      "read_kind": "network_kwargs.accepted",
+      "reason": "model-developer API"
     }
   ]
 }

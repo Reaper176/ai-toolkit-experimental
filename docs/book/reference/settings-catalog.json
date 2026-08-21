@@ -6645,6 +6645,876 @@
         "drawbacks": "Higher rank increases memory, training time, and checkpoint size; low rank may underfit.",
         "example": "linear: 16"
       }
+    },
+    {
+      "id": "network.kwargs.attn_only",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.attn_only"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "unconsumed",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/lora_special.py",
+          "symbol": "LoRASpecialNetwork.__init__",
+          "key": "attn_only",
+          "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-attn-only",
+        "description": "Records the historical attention-only switch accepted by the active constructor.",
+        "benefits": "Preserves compatibility with configurations that still carry the field.",
+        "drawbacks": "The current constructor does not use the value to filter modules.",
+        "example": "attn_only: false"
+      }
+    },
+    {
+      "id": "network.kwargs.block_alphas",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.block_alphas"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number-list",
+        "supported_type": "number-list-or-null",
+        "ui_type": null,
+        "example_type": "number-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "network.kwargs.block_dims",
+          "kind": "requires",
+          "description": "Alpha entries correspond positionally to block_dims.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/lora_special.py",
+          "symbol": "LoRASpecialNetwork.__init__",
+          "key": "block_alphas",
+          "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-block-alphas",
+        "description": "Supplies per-block alpha values paired with block dimensions.",
+        "benefits": "Tunes update scaling independently for each selected block.",
+        "drawbacks": "Length or ordering mismatches with block dimensions produce invalid or unintended shapes.",
+          "example": "block_alphas: [1.0, 1.0]"
+      }
+    },
+    {
+      "id": "network.kwargs.block_dims",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.block_dims"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer-list",
+        "supported_type": "positive-integer-list-or-null",
+        "ui_type": null,
+        "example_type": "integer-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/lora_special.py",
+          "symbol": "LoRASpecialNetwork.__init__",
+          "key": "block_dims",
+          "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-block-dims",
+        "description": "Supplies per-block ranks for linear and 1x1 convolution targets.",
+        "benefits": "Allocates network capacity differently across model blocks.",
+        "drawbacks": "Large ranks increase memory and size; list shape must match the architecture.",
+          "example": "block_dims: [8, 16]"
+      }
+    },
+    {
+      "id": "network.kwargs.conv_block_alphas",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.conv_block_alphas"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number-list",
+        "supported_type": "number-list-or-null",
+        "ui_type": null,
+        "example_type": "number-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "network.kwargs.conv_block_dims",
+          "kind": "requires",
+          "description": "Alpha entries correspond positionally to conv_block_dims.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/lora_special.py",
+          "symbol": "LoRASpecialNetwork.__init__",
+          "key": "conv_block_alphas",
+          "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-conv-block-alphas",
+        "description": "Supplies per-block alpha values for 3x3 convolution targets.",
+        "benefits": "Tunes convolution scaling by model block.",
+        "drawbacks": "It requires matching convolution block dimensions and architecture ordering.",
+          "example": "conv_block_alphas: [1.0, 1.0]"
+      }
+    },
+    {
+      "id": "network.kwargs.conv_block_dims",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.conv_block_dims"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer-list",
+        "supported_type": "positive-integer-list-or-null",
+        "ui_type": null,
+        "example_type": "integer-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/lora_special.py",
+          "symbol": "LoRASpecialNetwork.__init__",
+          "key": "conv_block_dims",
+          "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-conv-block-dims",
+        "description": "Supplies per-block ranks for 3x3 convolution targets.",
+        "benefits": "Allocates convolution capacity by block.",
+        "drawbacks": "It increases parameters and must align with convolution block alphas.",
+          "example": "conv_block_dims: [4, 8]"
+      }
+    },
+    {
+      "id": "network.kwargs.full_if_contains",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.full_if_contains"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string-list",
+        "supported_type": "string-or-string-list-or-null",
+        "ui_type": null,
+        "example_type": "string-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "A single string is converted to a one-element list; null becomes an empty list.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/lora_special.py",
+          "symbol": "LoRASpecialNetwork.__init__",
+          "key": "full_if_contains",
+          "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-full-if-contains",
+        "description": "Replaces matching weighted leaf modules with full-weight modules instead of ordinary LoRA modules.",
+        "benefits": "Gives selected layers full adaptation capacity.",
+        "drawbacks": "Matching broad substrings can greatly increase trainable parameters and checkpoint size.",
+          "example": "full_if_contains: [\"proj_out\"]"
+      }
+    },
+    {
+      "id": "network.kwargs.full_train_in_out",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.full_train_in_out"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/lora_special.py",
+          "symbol": "LoRASpecialNetwork.__init__",
+          "key": "full_train_in_out",
+          "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-full-train-in-out",
+        "description": "Adds full training modules for supported network input and output layers.",
+        "benefits": "Can adapt boundary projections that ordinary target replacement omits.",
+        "drawbacks": "It adds full-weight parameters and may reduce checkpoint portability.",
+        "example": "full_train_in_out: false"
+      }
+    },
+    {
+      "id": "network.kwargs.ignore_if_contains",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.ignore_if_contains"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string-list",
+        "supported_type": "string-list-or-null",
+        "ui_type": null,
+        "example_type": "string-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Null becomes an empty exclusion list.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/lora_special.py",
+          "symbol": "LoRASpecialNetwork.__init__",
+          "key": "ignore_if_contains",
+          "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-ignore-if-contains",
+        "description": "Skips candidate modules whose names contain any listed substring.",
+        "benefits": "Removes unwanted or unstable targets from the network.",
+        "drawbacks": "Broad filters can silently exclude most trainable layers.",
+          "example": "ignore_if_contains: [\"text_encoder\"]"
+      }
+    },
+    {
+      "id": "network.kwargs.module_dropout",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.module_dropout"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability-or-null",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/lora_special.py",
+          "symbol": "LoRASpecialNetwork.__init__",
+          "key": "module_dropout",
+          "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-module-dropout",
+        "description": "Sets whole-module dropout probability for each LoRA module.",
+        "benefits": "Regularizes by occasionally bypassing an adapter module.",
+        "drawbacks": "High probability weakens training and increases stochastic variation.",
+        "example": "module_dropout: 0.1"
+      }
+    },
+    {
+      "id": "network.kwargs.only_if_contains",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.only_if_contains"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string-list",
+        "supported_type": "string-list-or-null",
+        "ui_type": null,
+        "example_type": "string-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/lora_special.py",
+          "symbol": "LoRASpecialNetwork.__init__",
+          "key": "only_if_contains",
+          "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-only-if-contains",
+        "description": "Keeps candidate modules only when their names contain a listed substring.",
+        "benefits": "Restricts adaptation to a deliberate subnetwork.",
+        "drawbacks": "Overly narrow filters can leave few or no trainable modules.",
+          "example": "only_if_contains: [\"transformer_blocks\"]"
+      }
+    },
+    {
+      "id": "network.kwargs.parameter_threshold",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.parameter_threshold"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/lora_special.py",
+          "symbol": "LoRASpecialNetwork.__init__",
+          "key": "parameter_threshold",
+          "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-parameter-threshold",
+        "description": "Skips candidate modules whose parameter count is below the threshold.",
+        "benefits": "Avoids spending adapter capacity on small layers.",
+        "drawbacks": "A high threshold can remove important targets.",
+        "example": "parameter_threshold: 0"
+      }
+    },
+    {
+      "id": "network.kwargs.peft_format",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.peft_format"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Transformer-family networks force PEFT format unless legacy LoKr format is active; PEFT format sets alpha equal to rank.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/lora_special.py",
+          "symbol": "LoRASpecialNetwork.__init__",
+          "key": "peft_format",
+          "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-peft-format",
+        "description": "Uses PEFT-style module names and scaling behavior.",
+        "benefits": "Improves compatibility with PEFT-oriented checkpoints for supported architectures.",
+        "drawbacks": "It changes key names and forces alpha to rank, affecting interoperability with legacy formats.",
+        "example": "peft_format: false"
+      }
+    },
+    {
+      "id": "network.kwargs.rank_dropout",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.rank_dropout"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability-or-null",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/lora_special.py",
+          "symbol": "LoRASpecialNetwork.__init__",
+          "key": "rank_dropout",
+          "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-rank-dropout",
+        "description": "Sets rank-component dropout probability.",
+        "benefits": "Regularizes individual low-rank components.",
+        "drawbacks": "High values reduce effective capacity and slow learning.",
+        "example": "rank_dropout: 0.1"
+      }
+    },
+    {
+      "id": "network.kwargs.varbose",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.varbose"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/lora_special.py",
+          "symbol": "LoRASpecialNetwork.__init__",
+          "key": "varbose",
+          "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-varbose",
+        "description": "Prints the list of skipped modules using the constructor's legacy misspelled key.",
+        "benefits": "Helps diagnose target selection.",
+        "drawbacks": "It can produce long output and the misspelled key is retained only for compatibility.",
+        "example": "varbose: false"
+      }
     }
   ]
 }
