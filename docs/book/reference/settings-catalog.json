@@ -21466,9 +21466,9 @@
       "render": {
         "page": "reference/training.md",
         "anchor": "train-optimizer",
-        "description": "Dispatches optimizer names exactly: dadaptationadam dispatches DAdaptLion, dadaptationlion also constructs DAdaptLion, while bare dadaptation constructs deprecated DAdaptAdam and prints a migration warning.",
+        "description": "Dispatches optimizer names exactly: dadaptationadam dispatches DAdaptLion, dadaptationlion also constructs DAdaptLion, while bare dadaptation constructs deprecated DAdaptAdam and prints a migration warning. Automagic2 is always fused into backward; Automagic3 and AutomagicEXPERIMENT default to fused but accept fused=false for ordinary optimizer stepping.",
         "benefits": "Makes optimizer algorithm, optional-library, and adaptive learning-rate behavior explicit.",
-        "drawbacks": "dadaptation, prodigyopt, bitsandbytes, and lion_pytorch choices fail when unavailable; Prodigy branches and DAdaptation replace train.lr below 0.1 with 1.0.",
+        "drawbacks": "dadaptation, prodigyopt, bitsandbytes, and lion_pytorch choices fail when unavailable; Prodigy branches and DAdaptation replace train.lr below 0.1 with 1.0. Automagic2 always fused bypasses ordinary gradient accumulation and pre-step gradient clipping.",
         "example": "optimizer: adamw"
       }
     },
@@ -26195,9 +26195,15 @@
       "normalizations": [],
       "interactions": [
         {
-          "setting": "train.optimizer",
-          "kind": "requires",
-          "description": "The selected optimizer determines whether fused is accepted, injected, or ignored.",
+          "setting": "train.gradient_accumulation",
+          "kind": "conflicts",
+          "description": "fused=true updates during each backward pass before micro-batch gradients can accumulate; fused=false restores ordinary accumulation.",
+          "applicability": []
+        },
+        {
+          "setting": "train.max_grad_norm",
+          "kind": "conflicts",
+          "description": "fused=true consumes and clears gradients before the trainer can clip them; fused=false restores pre-step clipping.",
           "applicability": []
         }
       ],
@@ -26214,9 +26220,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic3-param-fused",
-        "description": "Configures fused for automagic3.",
-        "benefits": "Keeps fused scoped to the constructor behavior of automagic3.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "automagic3 fused=true applies parameter updates inside backward and frees each gradient; fused=false restores ordinary .step() updates.",
+        "benefits": "Use fused=false with automagic3 when gradient accumulation or pre-step gradient clipping must operate normally.",
+        "drawbacks": "With automagic3 fused=true, updates occur before ordinary gradient accumulation and gradient clipping, risking different optimization behavior.",
         "example": "fused: false"
       }
     },
@@ -26858,9 +26864,15 @@
       "normalizations": [],
       "interactions": [
         {
-          "setting": "train.optimizer",
-          "kind": "requires",
-          "description": "The selected optimizer determines whether fused is accepted, injected, or ignored.",
+          "setting": "train.gradient_accumulation",
+          "kind": "conflicts",
+          "description": "fused=true updates during each backward pass before micro-batch gradients can accumulate; fused=false restores ordinary accumulation.",
+          "applicability": []
+        },
+        {
+          "setting": "train.max_grad_norm",
+          "kind": "conflicts",
+          "description": "fused=true consumes and clears gradients before the trainer can clip them; fused=false restores pre-step clipping.",
           "applicability": []
         }
       ],
@@ -26877,9 +26889,9 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagicexperiment-param-fused",
-        "description": "Configures fused for automagicexperiment.",
-        "benefits": "Keeps fused scoped to the constructor behavior of automagicexperiment.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
+        "description": "automagicexperiment fused=true applies parameter updates inside backward and frees each gradient; fused=false restores ordinary .step() updates.",
+        "benefits": "Use fused=false with automagicexperiment when gradient accumulation or pre-step gradient clipping must operate normally.",
+        "drawbacks": "With automagicexperiment fused=true, updates occur before ordinary gradient accumulation and gradient clipping, risking different optimization behavior.",
         "example": "fused: false"
       }
     },
