@@ -1701,6 +1701,15 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "toolkit/data_transfer_object/data_loader.py",
         }
     )
+    SAVE_SAMPLE_SYMBOLS = frozenset(
+        {
+            "SampleConfig.__init__",
+            "SampleItem.__init__",
+            "SaveConfig.__init__",
+            "ValidationConfig.__init__",
+            "ValidationItem.__init__",
+        }
+    )
 
     @classmethod
     def setUpClass(cls):
@@ -1840,6 +1849,25 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 item.source == "toolkit/config_modules.py"
                 and item.symbol == "DatasetConfig.__init__"
                 and item.key in cls.DATASET_CACHE_KEYS
+            )
+        if scope == "save-sample-validation":
+            return (
+                item.source == "toolkit/config_modules.py"
+                and (
+                    item.symbol in cls.SAVE_SAMPLE_SYMBOLS
+                    or (
+                        item.symbol == "NetworkConfig.__init__"
+                        and item.key == "pretrained_lora_path"
+                    )
+                    or (
+                        item.symbol == "TrainConfig.__init__"
+                        and item.key in {"lr", "start_step"}
+                    )
+                )
+            ) or (
+                item.source == "jobs/process/BaseSDTrainProcess.py"
+                and item.symbol == "BaseSDTrainProcess.__init__"
+                and item.key in {"first_sample", "sample", "save"}
             )
         raise AssertionError(f"unknown catalog test scope {scope!r}")
 
@@ -3134,6 +3162,109 @@ class CatalogProductionSliceTests(unittest.TestCase):
             for snippet in snippets:
                 with self.subTest(source=source, snippet=snippet):
                     self.assertIn(snippet, source_text)
+
+    def test_catalog_save_sample_validation_scope_teaches_compatible_resume(self):
+        self.assert_catalog_selector_green("--scope", "save-sample-validation")
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        setting_ids = {
+            "network.pretrained_lora_path",
+            "process.first_sample",
+            "process.sample",
+            "process.save",
+            "train.lr",
+            "train.start_step",
+            *(
+                setting.id
+                for setting in catalog.settings
+                if setting.scope in {"sample", "save"}
+                or setting.id.startswith("train.validation")
+            ),
+        }
+        teaching = " ".join(
+            text
+            for setting in catalog.settings
+            if setting.id in setting_ids
+            for text in (
+                [*vars(setting.render).values()]
+                + [item.description for item in setting.normalizations]
+                + [item.description for item in setting.interactions]
+            )
+        ).casefold()
+        for phrase in (
+            "optimizer.pt",
+            "save root",
+            "compatible",
+            "configured learning rate",
+        ):
+            self.assertIn(phrase, teaching)
+
+    def test_catalog_save_sample_validation_scope_is_complete_and_source_derived(self):
+        facts = tuple(
+            fact for fact in self.discovered
+            if self._in_scope(fact, "save-sample-validation")
+        )
+        self.assertEqual(len(facts), 56)
+        by_symbol = {}
+        for fact in facts:
+            by_symbol.setdefault(fact.symbol, set()).add(fact.key)
+        self.assertEqual(
+            by_symbol["SaveConfig.__init__"],
+            {
+                "dtype", "hf_private", "hf_repo_id", "max_step_saves_to_keep",
+                "push_to_hub", "save_every", "save_format",
+            },
+        )
+        self.assertEqual(
+            by_symbol["ValidationConfig.__init__"],
+            {
+                "resolution", "validate_every_n_steps", "validation_items",
+                "validation_sigmas",
+            },
+        )
+        self.assertEqual(
+            by_symbol["ValidationItem.__init__"],
+            {"image_path", "prompt"},
+        )
+        self.assertTrue(
+            {
+                "prompts", "samples", "sample_every", "sample_start_step",
+                "seed", "walk_seed", "guidance_scale", "width", "height",
+                "num_frames", "fps",
+            }.issubset(by_symbol["SampleConfig.__init__"])
+        )
+        self.assertTrue(
+            {
+                "prompt", "neg", "ctrl_img", "ctrl_img_1", "ctrl_img_2",
+                "ctrl_img_3", "ctrl_idx", "seed", "guidance_scale", "width",
+                "height", "num_frames", "fps",
+            }.issubset(by_symbol["SampleItem.__init__"])
+        )
+
+        process_source = (
+            REPOSITORY_ROOT / "jobs/process/BaseSDTrainProcess.py"
+        ).read_text(encoding="utf-8")
+        for snippet in (
+            "filename = f'optimizer.pt'",
+            "file_path = os.path.join(self.save_root, filename)",
+            "torch.save(state_dict, file_path)",
+            "optimizer_state_file_path = os.path.join(self.save_root, optimizer_state_filename)",
+            "optimizer_state_dict = torch.load(optimizer_state_file_path, weights_only=True)",
+            "if self.network.did_change_weights:",
+            "previous_lrs.append(group['lr'])",
+            "group['lr'] = previous_lrs[i]",
+            "group['initial_lr'] = previous_lrs[i]",
+        ):
+            with self.subTest(snippet=snippet):
+                self.assertIn(snippet, process_source)
+
+        base_process = (
+            REPOSITORY_ROOT / "jobs/process/BaseTrainProcess.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("os.path.join(self.training_folder, self.name)", base_process)
 
     def test_catalog_process_get_conf_null_semantics_are_exhaustive(self):
         catalog = load_settings_catalog(

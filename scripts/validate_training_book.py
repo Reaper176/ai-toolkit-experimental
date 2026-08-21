@@ -144,6 +144,15 @@ DATA_LOADER_SOURCES = frozenset(
         "toolkit/data_transfer_object/data_loader.py",
     }
 )
+SAVE_SAMPLE_SYMBOLS = frozenset(
+    {
+        "SampleConfig.__init__",
+        "SampleItem.__init__",
+        "SaveConfig.__init__",
+        "ValidationConfig.__init__",
+        "ValidationItem.__init__",
+    }
+)
 
 
 def _in_core_io_network(item) -> bool:
@@ -365,6 +374,7 @@ def main() -> None:
             ["training"], ["train-schedule"], ["train-numerics"],
             ["train-components"], ["optimizers"], ["schedulers"],
             ["dataset-core"], ["dataset-modalities"], ["data-loader-cache"],
+            ["save-sample-validation"],
         ):
             production_scope = arguments.scope[0]
         elif arguments.scope != ["discovery-fixtures"]:
@@ -475,6 +485,24 @@ def main() -> None:
                     and item.symbol == "DatasetConfig.__init__"
                     and item.key in DATASET_CACHE_KEYS
                 )
+            ),
+            "save-sample-validation": lambda item: (
+                item.source == "toolkit/config_modules.py"
+                and (
+                    item.symbol in SAVE_SAMPLE_SYMBOLS
+                    or (
+                        item.symbol == "NetworkConfig.__init__"
+                        and item.key == "pretrained_lora_path"
+                    )
+                    or (
+                        item.symbol == "TrainConfig.__init__"
+                        and item.key in {"lr", "start_step"}
+                    )
+                )
+            ) or (
+                item.source == "jobs/process/BaseSDTrainProcess.py"
+                and item.symbol == "BaseSDTrainProcess.__init__"
+                and item.key in {"first_sample", "sample", "save"}
             ),
         }
         if production_scope in slice_predicates:

@@ -2206,7 +2206,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Retention cleanup applies to numbered checkpoint artifacts; the single save-root optimizer.pt is overwritten on a successful optimizer-state save rather than retained as one file per checkpoint.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "saving-and-sampling",
@@ -2329,7 +2334,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Each scheduled model/network save also attempts to serialize the active optimizer state to optimizer.pt at the save root; optimizer-state save failures are reported without making optimizer.pt a LoRA checkpoint.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "saving-and-sampling",
@@ -6637,8 +6647,20 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
-      "interactions": [],
+      "normalizations": [
+        {
+          "description": "This path supplies LoRA weights only. Compatible optimizer state is discovered separately at <training_folder>/<name>/optimizer.pt, the run's save root, not beside pretrained_lora_path.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "train.start_step",
+          "kind": "affects",
+          "description": "A continuation must align the loaded LoRA weights, explicit step counter, unchanged save-root identity, and any compatible optimizer.pt state.",
+          "applicability": []
+        }
+      ],
       "aliases": [],
       "section": "network",
       "source_claims": [
@@ -13694,7 +13716,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Before loading a compatible save-root optimizer.pt, BaseSDTrainProcess records the newly configured learning rates and reapplies each configured learning rate and initial_lr afterward, so restored optimizer state does not silently replace the current LR.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -14790,12 +14817,23 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "A non-null value sets the loop counter directly; it does not locate LoRA weights or optimizer.pt. BaseSDTrainProcess separately looks for compatible optimizer.pt at the unchanged save root, skips it when network weights changed, and continues after a load failure.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.steps",
           "kind": "constrains",
           "description": "start_step changes the initial counter used by the loop and must remain meaningful relative to the target step count.",
+          "applicability": []
+        },
+        {
+          "setting": "network.pretrained_lora_path",
+          "kind": "affects",
+          "description": "Resume progression is coherent only when the explicit counter matches the loaded checkpoint and the same job name/training folder preserves save-root discovery.",
           "applicability": []
         }
       ],
