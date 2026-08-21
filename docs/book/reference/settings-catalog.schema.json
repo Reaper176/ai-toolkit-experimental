@@ -77,6 +77,19 @@
           "default": null,
           "title": "Job Type"
         },
+        "network_type": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Network Type"
+        },
         "process_type": {
           "anyOf": [
             {

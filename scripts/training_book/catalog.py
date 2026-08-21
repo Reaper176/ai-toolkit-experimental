@@ -78,6 +78,7 @@ class CatalogLocation(_StrictModel):
 class Applicability(_StrictModel):
     job_type: _NonBlank | None = None
     process_type: _NonBlank | None = None
+    network_type: _NonBlank | None = None
     ui_architecture: _NonBlank | None = None
     engine_architecture: _NonBlank | None = None
 
@@ -88,6 +89,7 @@ class Applicability(_StrictModel):
             for value in (
                 self.job_type,
                 self.process_type,
+                self.network_type,
                 self.ui_architecture,
                 self.engine_architecture,
             )
@@ -294,7 +296,11 @@ def _predicates_overlap(
     left_clauses: tuple[Applicability | None, ...] = left or (None,)
     right_clauses: tuple[Applicability | None, ...] = right or (None,)
     fields = (
-        "job_type", "process_type", "ui_architecture", "engine_architecture"
+        "job_type",
+        "process_type",
+        "network_type",
+        "ui_architecture",
+        "engine_architecture",
     )
     for left_clause in left_clauses:
         for right_clause in right_clauses:

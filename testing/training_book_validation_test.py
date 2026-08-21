@@ -592,6 +592,34 @@ class CatalogContractTests(unittest.TestCase):
             ),
         )
 
+    def test_catalog_contract_uses_network_type_to_disambiguate_locations(self):
+        lora = self.valid_catalog_entry()
+        lora["applicability"] = [{"network_type": "lora"}]
+        lycoris = deepcopy(lora)
+        lycoris["id"] = "train.steps-lycoris"
+        lycoris["applicability"] = [{"network_type": "lycoris"}]
+        lycoris["source_claims"][0]["key"] = "steps-lycoris"
+        discovered = self.discovered_steps() + (
+            DiscoveredSetting(
+                "toolkit/config_modules.py",
+                "TrainConfig.__init__",
+                11,
+                "steps-lycoris",
+                "kwargs.get",
+                "core",
+                "2000",
+            ),
+        )
+
+        validate_settings_catalog(
+            {"schema_version": 1, "settings": [lora, lycoris]}, discovered
+        )
+        lycoris["applicability"] = [{"network_type": "lora"}]
+        with self.assertRaisesRegex(CatalogError, "overlapping.*location"):
+            validate_settings_catalog(
+                {"schema_version": 1, "settings": [lora, lycoris]}, discovered
+            )
+
     def test_catalog_contract_rejects_blank_teaching_prose(self):
         entry = self.valid_catalog_entry()
         entry["render"]["drawbacks"] = "   "
