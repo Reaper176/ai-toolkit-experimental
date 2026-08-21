@@ -2073,7 +2073,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -2208,7 +2208,7 @@
       ],
       "normalizations": [
         {
-          "description": "Retention cleanup applies to numbered checkpoint artifacts; the single save-root optimizer.pt is overwritten on a successful optimizer-state save rather than retained as one file per checkpoint.",
+          "description": "Zero means unlimited numbered checkpoints: Python's [:-0] slice is empty, so retention performs no cleanup. Positive values retain that many numbered checkpoint artifacts; the single save-root optimizer.pt is overwritten on a successful optimizer-state save rather than retained as one file per checkpoint.",
           "applicability": []
         }
       ],
@@ -2260,7 +2260,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -2314,12 +2314,12 @@
       ],
       "contract": {
         "parser_type": "integer",
-        "supported_type": "positive-integer",
+        "supported_type": "nonnegative-integer",
         "ui_type": null,
         "example_type": "integer",
         "accepted_values": null,
         "range": {
-          "minimum": 1,
+          "minimum": 0,
           "maximum": null,
           "minimum_inclusive": true,
           "maximum_inclusive": true
@@ -2336,7 +2336,7 @@
       ],
       "normalizations": [
         {
-          "description": "Each scheduled model/network save also attempts to serialize the active optimizer state to optimizer.pt at the save root; optimizer-state save failures are reported without making optimizer.pt a LoRA checkpoint.",
+          "description": "Zero disables periodic save cadence; the unconditional final save still occurs at training completion. Each scheduled model/network save also attempts to serialize the active optimizer state to optimizer.pt at the save root; optimizer-state save failures are reported without making optimizer.pt a LoRA checkpoint.",
           "applicability": []
         }
       ],
@@ -2873,7 +2873,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -3317,7 +3317,7 @@
         "example_type": "string",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -3565,12 +3565,12 @@
       ],
       "contract": {
         "parser_type": "integer",
-        "supported_type": "positive-integer",
+        "supported_type": "nonnegative-integer",
         "ui_type": null,
         "example_type": "integer",
         "accepted_values": null,
         "range": {
-          "minimum": 1,
+          "minimum": 0,
           "maximum": null,
           "minimum_inclusive": true,
           "maximum_inclusive": true
@@ -3585,7 +3585,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Zero disables periodic sample cadence; sampling explicitly requested through first/final or manual paths is separate from this periodic truthiness check.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "saving-and-sampling",
@@ -3880,7 +3885,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -4390,7 +4395,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -12303,12 +12308,12 @@
       ],
       "contract": {
         "parser_type": "integer",
-        "supported_type": "positive-integer",
+        "supported_type": "nonnegative-integer",
         "ui_type": null,
         "example_type": "integer",
         "accepted_values": null,
         "range": {
-          "minimum": 1,
+          "minimum": 0,
           "maximum": null,
           "minimum_inclusive": true,
           "maximum_inclusive": true
@@ -12323,7 +12328,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Zero disables periodic validation cadence, but initial validation still runs when the current step equals start_step.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "training",
@@ -30117,7 +30127,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -30645,7 +30655,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -30775,7 +30785,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -30841,7 +30851,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -31028,7 +31038,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -31038,7 +31048,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Omission uses true. An explicit null is preserved by kwargs.get and is falsey at loader consumers, so it disables bucketing rather than restoring the true fallback; video loading then rejects the disabled bucket mode.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "dataset",
@@ -31156,7 +31171,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -31215,7 +31230,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -31466,7 +31481,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -31525,7 +31540,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -31716,7 +31731,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -31775,7 +31790,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -31834,7 +31849,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -32070,7 +32085,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -32129,7 +32144,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -32139,7 +32154,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Omission uses true. An explicit null is preserved and is falsey at the augmentation consumer, so it disables replaying the source transform onto controls rather than restoring the true fallback.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "dataset",
@@ -32395,7 +32415,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -32461,7 +32481,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -32782,7 +32802,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -32979,7 +32999,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -32989,7 +33009,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Omission uses true. An explicit null is preserved and is falsey at the control-image consumer, so it disables full-size control handling and follows the crop path rather than restoring the true fallback.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "dataset",
@@ -33215,7 +33240,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -33333,7 +33358,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -33527,7 +33552,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -33537,7 +33562,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Omission uses true. An explicit null is preserved and is falsey at frame selection, so it disables whole-video shrinking and follows the configured-FPS path when the other frame-selection conditions do not take precedence.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "dataset",
@@ -33586,7 +33616,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -33650,7 +33680,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -33660,7 +33690,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Omission uses true. An explicit null is preserved and is falsey at auto-frame consumers, so it disables tail-trim behavior rather than restoring the true fallback.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "dataset.auto_frame_count",
@@ -33716,7 +33751,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -33841,7 +33876,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -33900,7 +33935,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -33966,7 +34001,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -34032,7 +34067,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -34098,7 +34133,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -34169,7 +34204,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -34235,7 +34270,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -34294,7 +34329,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -34358,7 +34393,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -34625,7 +34660,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {
@@ -34689,7 +34724,7 @@
         "example_type": "boolean",
         "accepted_values": null,
         "range": null,
-        "null": "rejected"
+        "null": "accepted"
       },
       "defaults": [
         {

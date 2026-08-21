@@ -3423,6 +3423,129 @@ class CatalogProductionSliceTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("os.path.join(self.training_folder, self.name)", base_process)
 
+    def test_catalog_task5_boolean_null_contracts_are_exhaustive_and_consumer_derived(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        relevant_symbols = {
+            "DatasetConfig.__init__",
+            "SaveConfig.__init__",
+            "SampleConfig.__init__",
+            "SampleItem.__init__",
+            "ValidationConfig.__init__",
+            "ValidationItem.__init__",
+        }
+        boolean_facts = {
+            (fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in self.discovered
+            if fact.source == "toolkit/config_modules.py"
+            and fact.symbol in relevant_symbols
+            and fact.default_expression in {"False", "True"}
+        }
+        owned = {}
+        for setting in catalog.settings:
+            for claim in setting.source_claims:
+                identity = (claim.source, claim.symbol, claim.key, claim.read_kind)
+                if identity in boolean_facts:
+                    self.assertNotIn(identity, owned)
+                    owned[identity] = setting
+        self.assertEqual(set(owned), boolean_facts)
+        self.assertEqual(len(owned), 41)
+        for identity, setting in owned.items():
+            with self.subTest(setting=setting.id, source=identity):
+                self.assertEqual(setting.contract.null, "accepted")
+
+        settings = {setting.id: setting for setting in catalog.settings}
+        true_default_falsey_consumers = {
+            "dataset.buckets",
+            "dataset.full_size_control_images",
+            "dataset.replay_transforms",
+            "dataset.shrink_video_to_frames",
+            "dataset.trim_auto_frame_count_tail",
+        }
+        for setting_id in true_default_falsey_consumers:
+            teaching = " ".join(
+                item.description for item in settings[setting_id].normalizations
+            ).casefold()
+            with self.subTest(true_default=setting_id):
+                self.assertIn("explicit null", teaching)
+                self.assertIn("disables", teaching)
+
+        config_source = (
+            REPOSITORY_ROOT / "toolkit/config_modules.py"
+        ).read_text(encoding="utf-8")
+        for snippet in (
+            "self.buckets: bool = kwargs.get('buckets', True)",
+            "self.replay_transforms: bool = kwargs.get('replay_transforms', True)",
+            "self.push_to_hub: bool = kwargs.get(\"push_to_hub\", False)",
+            "self.neg = kwargs.get('neg', False)",
+        ):
+            self.assertIn(snippet, config_source)
+        process_source = (
+            REPOSITORY_ROOT / "jobs/process/BaseSDTrainProcess.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("if self.save_config.push_to_hub:", process_source)
+        self.assertIn("private=self.save_config.hf_private", process_source)
+        self.assertIn("negative_prompt=sample_item.neg", process_source)
+        self.assertIn("if sample_config.walk_seed:", process_source)
+
+    def test_catalog_zero_cadence_and_retention_semantics_match_consumers(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        cadence_ids = {
+            "save.save_every",
+            "sample.sample_every",
+            "train.validation.validate_every_n_steps",
+        }
+        for setting_id in cadence_ids:
+            setting = settings[setting_id]
+            teaching = " ".join(
+                [*vars(setting.render).values()]
+                + [item.description for item in setting.normalizations]
+            ).casefold()
+            with self.subTest(cadence=setting_id):
+                self.assertEqual(setting.contract.supported_type, "nonnegative-integer")
+                self.assertEqual(setting.contract.range.minimum, 0)
+                self.assertIn("zero", teaching)
+                self.assertIn("periodic", teaching)
+                self.assertIn("disables", teaching)
+
+        validation_teaching = " ".join(
+            [*vars(settings["train.validation.validate_every_n_steps"].render).values()]
+            + [
+                item.description
+                for item in settings["train.validation.validate_every_n_steps"].normalizations
+            ]
+        ).casefold()
+        self.assertIn("initial validation", validation_teaching)
+        self.assertIn("still runs", validation_teaching)
+
+        retention = settings["save.max_step_saves_to_keep"]
+        retention_teaching = " ".join(
+            [*vars(retention.render).values()]
+            + [item.description for item in retention.normalizations]
+        ).casefold()
+        self.assertEqual(retention.contract.range.minimum, 0)
+        for phrase in ("zero", "unlimited", "no cleanup"):
+            self.assertIn(phrase, retention_teaching)
+
+        process_source = (
+            REPOSITORY_ROOT / "jobs/process/BaseSDTrainProcess.py"
+        ).read_text(encoding="utf-8")
+        for snippet in (
+            "is_save_step = self.save_config.save_every and self.step_num % self.save_config.save_every == 0",
+            "self.sample_config.sample_every\n                    and self.step_num >= self.sample_config.sample_start_step",
+            "self.step_num == self.start_step\n                    or (val_config.validate_every_n_steps and self.step_num % val_config.validate_every_n_steps == 0)",
+            ":-num_saves_to_keep] if safetensors_files else []",
+        ):
+            self.assertIn(snippet, process_source)
+
     def test_catalog_combined_data_scope_is_exactly_owned(self):
         self.assert_catalog_selector_green("--scope", "data")
 
