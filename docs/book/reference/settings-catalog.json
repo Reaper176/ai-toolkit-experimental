@@ -7195,6 +7195,12 @@
           "symbol": "LoRASpecialNetwork.__init__",
           "key": "module_dropout",
           "read_kind": "network_kwargs.accepted"
+        },
+        {
+          "source": "toolkit/lycoris_special.py",
+          "symbol": "LycorisSpecialNetwork.__init__",
+          "key": "module_dropout",
+          "read_kind": "network_kwargs.accepted"
         }
       ],
       "render": {
@@ -7446,6 +7452,12 @@
           "symbol": "LoRASpecialNetwork.__init__",
           "key": "rank_dropout",
           "read_kind": "network_kwargs.accepted"
+        },
+        {
+          "source": "toolkit/lycoris_special.py",
+          "symbol": "LycorisSpecialNetwork.__init__",
+          "key": "rank_dropout",
+          "read_kind": "network_kwargs.accepted"
         }
       ],
       "render": {
@@ -7514,6 +7526,72 @@
         "benefits": "Helps diagnose target selection.",
         "drawbacks": "It can produce long output and the misspelled key is retained only for compatibility.",
         "example": "varbose: false"
+      }
+    },
+    {
+      "id": "network.kwargs.use_cp",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].network.network_kwargs.use_cp"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "network.type",
+          "kind": "requires",
+          "description": "This option is consumed by the active LyCORIS/LoCon constructor.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "network",
+      "source_claims": [
+        {
+          "source": "toolkit/lycoris_special.py",
+          "symbol": "LycorisSpecialNetwork.__init__",
+          "key": "use_cp",
+          "read_kind": "network_kwargs.accepted"
+        }
+      ],
+      "render": {
+        "page": "reference/network.md",
+        "anchor": "network-kwargs-use-cp",
+        "description": "Enables CP decomposition for eligible non-1x1 LoCon convolution modules.",
+        "benefits": "Can reduce the parameter cost of convolution adaptation.",
+        "drawbacks": "It changes module shape and checkpoint compatibility and applies only to eligible convolutions.",
+        "example": "use_cp: true"
       }
     }
   ]

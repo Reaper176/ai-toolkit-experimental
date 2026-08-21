@@ -854,6 +854,111 @@
       "key": "target_lin_modules",
       "read_kind": "network_kwargs.accepted",
       "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "alpha",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "conv_alpha",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "conv_lora_dim",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "dropout",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "is_lorm",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "lora_dim",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "multiplier",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "text_encoder",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "train_text_encoder",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "train_unet",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "unet",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "use_bias",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "use_text_encoder_1",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "use_text_encoder_2",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "network_module",
+      "read_kind": "network_kwargs.accepted",
+      "reason": "model-developer API"
     }
   ]
 }
