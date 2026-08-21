@@ -14093,10 +14093,17 @@
       ],
       "contract": {
         "parser_type": "string",
-        "supported_type": "string",
+        "supported_type": "local-or-diffusers-scheduler-name",
         "ui_type": null,
         "example_type": "string",
-        "accepted_values": null,
+        "accepted_values": [
+          "constant",
+          "constant_with_warmup",
+          "cosine",
+          "cosine_with_restarts",
+          "linear",
+          "step"
+        ],
         "range": null,
         "null": "rejected"
       },
@@ -14118,14 +14125,50 @@
           "symbol": "TrainConfig.__init__",
           "key": "lr_scheduler",
           "read_kind": "kwargs.get"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "constant",
+          "read_kind": "scheduler.registry"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "constant_with_warmup",
+          "read_kind": "scheduler.registry"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "cosine",
+          "read_kind": "scheduler.registry"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "cosine_with_restarts",
+          "read_kind": "scheduler.registry"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "linear",
+          "read_kind": "scheduler.registry"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "step",
+          "read_kind": "scheduler.registry"
         }
       ],
       "render": {
         "page": "reference/training.md",
         "anchor": "train-lr-scheduler",
-        "description": "Selects the learning-rate scheduler dispatched by the toolkit.",
+        "description": "Selects constant, constant_with_warmup, cosine, cosine_with_restarts, linear, or step locally; other names are attempted through the installed Diffusers SchedulerType registry.",
         "benefits": "Use a constant schedule when a fixed rate is easier to reason about across short fine-tuning runs.",
-        "drawbacks": "An unsuitable scheduler risks decaying too soon or applying warmup parameters that do not fit the run length.",
+        "drawbacks": "An unsuitable scheduler risks decaying too soon; invalid local parameters or a failed Diffusers lookup end in the dispatcher's scheduler ValueError.",
         "example": "lr_scheduler: constant"
       }
     },
@@ -24422,6 +24465,289 @@
         "benefits": "Regularizes parameter magnitude in coupled or decoupled form.",
         "drawbacks": "Excessive decay erases learned weights, and decouple determines its exact update form.",
         "example": "weight_decay: 0.01"
+      }
+    },
+    {
+      "id": "scheduler.param.factor",
+      "ui_label": null,
+      "scope": "scheduler",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.lr_scheduler_params.factor"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "constant-factor",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": false,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "get_lr_scheduler.factor": "required",
+            "constant.factor": "1.0"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "The local constant scheduler injects factor 1.0 only when factor is absent.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "train.lr_scheduler",
+          "kind": "requires",
+          "description": "factor is locally defaulted for constant and otherwise passes through only to the selected constructor.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "factor",
+          "read_kind": "kwargs.contains"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "constant__factor",
+          "read_kind": "scheduler.injected"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "scheduler-param-factor",
+        "description": "Sets ConstantLR's multiplicative learning-rate factor.",
+        "benefits": "Allows a constant scheduler to hold a fixed fraction of each base learning rate.",
+        "drawbacks": "The supported ConstantLR factor must be above zero and at most one; other scheduler constructors interpret their own kwargs.",
+        "example": "factor: 1.0"
+      }
+    },
+    {
+      "id": "scheduler.param.num_warmup_steps",
+      "ui_label": null,
+      "scope": "scheduler",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.lr_scheduler_params.num_warmup_steps"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "nonnegative-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "get_lr_scheduler.num_warmup_steps": "required",
+            "constant_with_warmup.num_warmup_steps": "1000"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "constant_with_warmup injects 1000 and prints a warning when num_warmup_steps is absent.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "train.lr_scheduler",
+          "kind": "requires",
+          "description": "The local default is consumed by constant_with_warmup; Diffusers schedulers may accept their own warmup parameter.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "num_warmup_steps",
+          "read_kind": "kwargs.contains"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "constant_with_warmup__num_warmup_steps",
+          "read_kind": "scheduler.injected"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "scheduler-param-num-warmup-steps",
+        "description": "Sets the number of initial optimizer steps used for learning-rate warmup.",
+        "benefits": "Warmup can reduce instability while full learning rate would be too abrupt.",
+        "drawbacks": "A long warmup can consume much of a short run, and the local fallback of 1000 is large for small step budgets.",
+        "example": "num_warmup_steps: 100"
+      }
+    },
+    {
+      "id": "scheduler.param.total_iters",
+      "ui_label": null,
+      "scope": "scheduler",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.lr_scheduler_params.total_iters"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "get_lr_scheduler.total_iters": "required",
+            "cosine.target": "T_max",
+            "cosine_with_restarts.target": "T_0",
+            "constant_with_warmup.action": "removed"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "cosine renames total_iters to the PyTorch constructor key T_max.",
+          "applicability": []
+        },
+        {
+          "description": "cosine_with_restarts renames total_iters to the PyTorch constructor key T_0.",
+          "applicability": []
+        },
+        {
+          "description": "constant_with_warmup removes total_iters before calling the Diffusers warmup helper.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "train.steps",
+          "kind": "fallback",
+          "description": "BaseSDTrainProcess inserts train.steps as total_iters when max_iterations is absent from lr_scheduler_params.",
+          "applicability": []
+        },
+        {
+          "setting": "train.lr_scheduler",
+          "kind": "requires",
+          "description": "The selected scheduler decides whether total_iters is renamed, removed, or passed through.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "optimizers-and-schedulers",
+      "source_claims": [
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "total_iters",
+          "read_kind": "kwargs.contains"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "cosine__total_iters",
+          "read_kind": "scheduler.normalized"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "cosine_with_restarts__total_iters",
+          "read_kind": "scheduler.normalized"
+        },
+        {
+          "source": "toolkit/scheduler.py",
+          "symbol": "get_lr_scheduler",
+          "key": "constant_with_warmup__total_iters",
+          "read_kind": "scheduler.consumed"
+        }
+      ],
+      "render": {
+        "page": "reference/optimizers-and-schedulers.md",
+        "anchor": "scheduler-param-total-iters",
+        "description": "Supplies the run length consumed by local cosine-family scheduler normalization.",
+        "benefits": "Aligns cosine cycles with the intended training step budget when it matches train.steps.",
+        "drawbacks": "Direct constant_with_warmup dispatch without total_iters reaches an unconditional deletion and raises KeyError; incompatible constructor kwargs later become scheduler ValueError.",
+        "example": "total_iters: 3000"
       }
     }
   ]

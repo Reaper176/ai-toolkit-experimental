@@ -1113,6 +1113,34 @@
       "key": "dtype",
       "read_kind": "kwargs[]",
       "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/samplers/custom_flowmatch_sampler.py",
+      "symbol": "CustomFlowMatchEulerDiscreteScheduler.set_train_timesteps",
+      "key": "base_image_seq_len",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/samplers/custom_flowmatch_sampler.py",
+      "symbol": "CustomFlowMatchEulerDiscreteScheduler.set_train_timesteps",
+      "key": "base_shift",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/samplers/custom_flowmatch_sampler.py",
+      "symbol": "CustomFlowMatchEulerDiscreteScheduler.set_train_timesteps",
+      "key": "max_image_seq_len",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/samplers/custom_flowmatch_sampler.py",
+      "symbol": "CustomFlowMatchEulerDiscreteScheduler.set_train_timesteps",
+      "key": "max_shift",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
     }
   ]
 }

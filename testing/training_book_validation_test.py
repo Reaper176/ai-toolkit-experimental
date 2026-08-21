@@ -1560,6 +1560,16 @@ class CatalogProductionSliceTests(unittest.TestCase):
                     and item.key in {"optimizer", "optimizer_params"}
                 )
             )
+        if scope == "schedulers":
+            return (
+                item.source == "toolkit/scheduler.py"
+                or item.source.startswith("toolkit/samplers/")
+                or (
+                    item.source == "toolkit/config_modules.py"
+                    and item.symbol == "TrainConfig.__init__"
+                    and item.key in {"lr_scheduler", "lr_scheduler_params"}
+                )
+            )
         raise AssertionError(f"unknown catalog test scope {scope!r}")
 
     def assert_catalog_selector_green(self, *arguments):
@@ -1796,6 +1806,67 @@ class CatalogProductionSliceTests(unittest.TestCase):
             if item.reason == "arbitrary third-party constructor surface"
         }
         self.assertEqual(boundary_exclusions, boundary_ids)
+
+    def test_catalog_scheduler_registry_parameters_and_normalization_are_exactly_owned(self):
+        try:
+            self.assert_catalog_selector_green("--scope", "schedulers")
+        except DiscoveryError as error:
+            self.fail(str(error))
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        scheduler = settings["train.lr_scheduler"]
+        registry_facts = tuple(
+            fact for fact in self.discovered
+            if fact.read_kind == "scheduler.registry"
+        )
+        self.assertEqual(
+            {
+                (claim.source, claim.symbol, claim.key, claim.read_kind)
+                for claim in scheduler.source_claims
+                if claim.read_kind == "scheduler.registry"
+            },
+            {
+                (fact.source, fact.symbol, fact.key, fact.read_kind)
+                for fact in registry_facts
+            },
+        )
+        local_choices = {fact.key for fact in registry_facts}
+        self.assertEqual(set(scheduler.contract.accepted_values or ()), local_choices)
+        self.assertIn("diffusers", scheduler.contract.supported_type)
+        for choice in local_choices:
+            self.assertIn(choice, scheduler.render.description)
+        parameter_facts = tuple(
+            fact for fact in self.discovered
+            if fact.source == "toolkit/scheduler.py"
+            and fact.read_kind != "scheduler.registry"
+        )
+        self.assertEqual(
+            {
+                f"scheduler.param.{fact.key.split('__')[-1]}"
+                for fact in parameter_facts
+            },
+            {
+                setting.id
+                for setting in catalog.settings
+                if setting.id.startswith("scheduler.param.")
+            },
+        )
+        total_iters = settings["scheduler.param.total_iters"]
+        normalization_text = " ".join(
+            item.description for item in total_iters.normalizations
+        )
+        self.assertIn("T_max", normalization_text)
+        self.assertIn("T_0", normalization_text)
+        self.assertIn("removes", normalization_text)
+        self.assertIn("KeyError", total_iters.render.drawbacks)
+        self.assertIn(
+            ("train.steps", "fallback"),
+            {(item.setting, item.kind) for item in total_iters.interactions},
+        )
 
     def test_catalog_process_get_conf_null_semantics_are_exhaustive(self):
         catalog = load_settings_catalog(
