@@ -11330,6 +11330,71 @@
         "drawbacks": "An incorrect class name gives preservation prompts the wrong semantic target.",
         "example": "trigger_class_name: person"
       }
+    },
+    {
+      "id": "process.decorator.num_tokens",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].decorator.num_tokens"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer",
+          "engine_architecture": "flux"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 4,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "DecoratorConfig.__init__",
+          "key": "num_tokens",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "process-decorator-num-tokens",
+        "description": "Sets the number of trainable decorator tokens created for a supported Flux process.",
+        "benefits": "Controls decorator representation capacity.",
+        "drawbacks": "More tokens increase trainable state and prompt complexity; decorator configuration is rejected for non-Flux models.",
+        "example": "num_tokens: 4"
+      }
     }
   ]
 }
