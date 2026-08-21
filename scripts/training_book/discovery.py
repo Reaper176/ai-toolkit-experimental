@@ -3707,246 +3707,498 @@ def _discover_dispatch_settings(
                     f"for {function.name}"
                 )
 
-            def module_execution_nodes() -> Iterable[ast.AST]:
-                future_annotations = any(
-                    isinstance(statement, ast.ImportFrom)
-                    and statement.module == "__future__"
-                    and any(
-                        imported.name == "annotations"
-                        for imported in statement.names
-                    )
-                    for statement in tree.body
+            future_annotations = any(
+                isinstance(statement, ast.ImportFrom)
+                and statement.module == "__future__"
+                and any(
+                    imported.name == "annotations"
+                    for imported in statement.names
                 )
-
-                def visit_annotation(node: ast.AST | None) -> Iterable[ast.AST]:
-                    if node is not None and not future_annotations:
-                        yield from visit(node)
-
-                def visit_arguments(arguments: ast.arguments) -> Iterable[ast.AST]:
-                    for default in arguments.defaults:
-                        yield from visit(default)
-                    for default in arguments.kw_defaults:
-                        if default is not None:
-                            yield from visit(default)
-                    for argument in (
-                        *arguments.posonlyargs,
-                        *arguments.args,
-                        *arguments.kwonlyargs,
-                    ):
-                        yield from visit_annotation(argument.annotation)
-                    if arguments.vararg is not None:
-                        yield from visit_annotation(arguments.vararg.annotation)
-                    if arguments.kwarg is not None:
-                        yield from visit_annotation(arguments.kwarg.annotation)
-
-                def visit(node: ast.AST) -> Iterable[ast.AST]:
-                    yield node
-                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        for decorator in node.decorator_list:
-                            yield from visit(decorator)
-                        yield from visit_arguments(node.args)
-                        yield from visit_annotation(node.returns)
-                        for type_parameter in getattr(node, "type_params", ()):
-                            yield from visit(type_parameter)
-                        return
-                    if isinstance(node, ast.Lambda):
-                        yield from visit_arguments(node.args)
-                        return
-                    if isinstance(node, ast.ClassDef):
-                        for decorator in node.decorator_list:
-                            yield from visit(decorator)
-                        for base in node.bases:
-                            yield from visit(base)
-                        for keyword in node.keywords:
-                            yield from visit(keyword.value)
-                        for type_parameter in getattr(node, "type_params", ()):
-                            yield from visit(type_parameter)
-                        for statement in node.body:
-                            yield from visit(statement)
-                        return
-                    if isinstance(node, ast.AnnAssign):
-                        yield from visit(node.target)
-                        yield from visit_annotation(node.annotation)
-                        if node.value is not None:
-                            yield from visit(node.value)
-                        return
-                    for child in ast.iter_child_nodes(node):
-                        yield from visit(child)
-
-                for statement in tree.body:
-                    yield from visit(statement)
-
-            module_nodes = tuple(module_execution_nodes())
-            module_import_roots = {
-                name
-                for node in module_nodes
-                if isinstance(node, (ast.Import, ast.ImportFrom))
-                for name in _dispatch_import_bindings(node)
+                for statement in tree.body
+            )
+            safe_builtin_targets = {
+                f"builtins.{name}"
+                for name in {
+                    "abs", "all", "any", "bool", "bytes", "classmethod",
+                    "delattr", "dict", "enumerate", "float", "frozenset",
+                    "globals", "int", "isinstance", "issubclass", "len",
+                    "list", "locals", "max", "min", "object", "property",
+                    "range", "repr", "reversed", "round", "set", "setattr",
+                    "slice", "sorted", "staticmethod", "str", "sum", "tuple",
+                    "type", "vars", "zip",
+                }
             }
 
-            def expression_references_names(
+            class ModuleFrame:
+                def __init__(
+                    self,
+                    kind: str,
+                    module: "ModuleFrame | None" = None,
+                ) -> None:
+                    self.kind = kind
+                    self.module = self if module is None else module
+                    self.bindings: dict[str, tuple[str, str | None]] = {}
+
+                def copy(self) -> "ModuleFrame":
+                    clone = ModuleFrame(
+                        self.kind,
+                        None if self.kind == "module" else self.module,
+                    )
+                    clone.bindings = dict(self.bindings)
+                    return clone
+
+                def lookup(self, name: str) -> tuple[str, str | None]:
+                    if name in self.bindings:
+                        return self.bindings[name]
+                    if self.kind == "class":
+                        return self.module.lookup(name)
+                    builtin = f"builtins.{name}"
+                    if builtin in safe_builtin_targets:
+                        return ("safe", builtin)
+                    return ("unknown", None)
+
+            module_frame = ModuleFrame("module")
+
+            def module_error(
                 node: ast.AST,
-                names: set[str],
+                category: str,
+                detail: str,
+            ) -> DiscoveryError:
+                label = (
+                    "imported namespace"
+                    if category == "sensitive namespace"
+                    else category
+                )
+                return DiscoveryError(
+                    f"module {label} {detail} is unsupported in "
+                    f"{source}:{getattr(node, 'lineno', function.lineno)} "
+                    f"for {function.name}"
+                )
+
+            def accessor_frame(
+                node: ast.AST,
+                frame: ModuleFrame,
+            ) -> ModuleFrame | None:
+                if not (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in {"globals", "locals", "vars"}
+                    and not node.args
+                    and not node.keywords
+                ):
+                    return None
+                if node.func.id == "globals":
+                    return frame if frame.kind == "module" else frame.module
+                return frame
+
+            def expression_binding(
+                node: ast.AST,
+                frame: ModuleFrame,
+            ) -> tuple[str, str | None]:
+                if isinstance(node, ast.Name):
+                    return frame.lookup(node.id)
+                if isinstance(node, ast.Lambda):
+                    return ("local-callable", None)
+                if isinstance(node, ast.Attribute):
+                    kind, target = expression_binding(node.value, frame)
+                    if kind == "builtin-namespace":
+                        resolved = f"{target}.{node.attr}"
+                        return (
+                            ("safe", resolved)
+                            if resolved in safe_builtin_targets
+                            else ("sensitive", resolved)
+                        )
+                    if kind in {"sensitive", "local-callable"}:
+                        resolved = None if target is None else f"{target}.{node.attr}"
+                        return (kind, resolved)
+                    return ("unknown", None)
+                if isinstance(node, ast.Subscript):
+                    namespace = accessor_frame(node.value, frame)
+                    if namespace is not None:
+                        if not (
+                            isinstance(node.slice, ast.Constant)
+                            and isinstance(node.slice.value, str)
+                        ):
+                            if any(
+                                kind == "sensitive"
+                                for kind, _ in visible_bindings(namespace).values()
+                            ):
+                                raise module_error(
+                                    node, "sensitive namespace", "dynamic accessor"
+                                )
+                            return ("unknown", None)
+                        return namespace.lookup(node.slice.value)
+                    kind, target = expression_binding(node.value, frame)
+                    if kind in {"sensitive", "local-callable"}:
+                        return (kind, target)
+                    return ("unknown", None)
+                return ("unknown", None)
+
+            def visible_bindings(
+                frame: ModuleFrame,
+            ) -> dict[str, tuple[str, str | None]]:
+                if frame.kind == "module":
+                    return dict(frame.bindings)
+                visible = dict(frame.module.bindings)
+                visible.update(frame.bindings)
+                return visible
+
+            def contains_binding_kind(
+                node: ast.AST,
+                frame: ModuleFrame,
+                expected: str,
             ) -> bool:
-                path = _attribute_path(node)
-                if path is not None and path.split(".", maxsplit=1)[0] in names:
+                if expression_binding(node, frame)[0] == expected:
                     return True
                 if isinstance(node, ast.Lambda):
                     return any(
-                        expression_references_names(default, names)
+                        contains_binding_kind(default, frame, expected)
                         for default in (
                             *node.args.defaults,
                             *(default for default in node.args.kw_defaults if default),
                         )
                     )
                 return any(
-                    expression_references_names(child, names)
+                    contains_binding_kind(child, frame, expected)
                     for child in ast.iter_child_nodes(node)
                 )
 
-            # An executed alias of an imported namespace remains sensitive even
-            # when the binding is conditional or later reassigned.  Proving the
-            # opposite would require runtime control flow outside this closed
-            # dispatch grammar.
-            sensitive_roots = set(module_import_roots)
-            changed = True
-            while changed:
-                changed = False
-                for node in module_nodes:
-                    value: ast.AST | None = None
-                    targets: tuple[ast.AST, ...] = ()
-                    if isinstance(node, ast.Assign):
-                        value = node.value
-                        targets = tuple(node.targets)
-                    elif isinstance(node, ast.AnnAssign) and node.value is not None:
-                        value = node.value
-                        targets = (node.target,)
-                    elif isinstance(node, ast.NamedExpr):
-                        value = node.value
-                        targets = (node.target,)
-                    if value is None or not expression_references_names(
-                        value, sensitive_roots
+            def contains_sensitive(node: ast.AST, frame: ModuleFrame) -> bool:
+                return contains_binding_kind(node, frame, "sensitive")
+
+            def audit_expression(node: ast.AST, frame: ModuleFrame) -> None:
+                if isinstance(node, ast.Lambda):
+                    for default in (
+                        *node.args.defaults,
+                        *(default for default in node.args.kw_defaults if default),
                     ):
-                        continue
-                    for target in targets:
-                        for inner in ast.walk(target):
-                            if (
-                                isinstance(inner, ast.Name)
-                                and isinstance(inner.ctx, ast.Store)
-                                and inner.id not in sensitive_roots
-                            ):
-                                sensitive_roots.add(inner.id)
-                                changed = True
-
-            def module_path_is_imported(node: ast.AST) -> bool:
-                path = _attribute_path(node)
-                return (
-                    path is not None
-                    and path.split(".", maxsplit=1)[0] in sensitive_roots
-                )
-
-            module_import_bindings: dict[str, str | None] = {
-                "setattr": "builtins.setattr",
-                "delattr": "builtins.delattr",
-            }
-            imported_binding_names: set[str] = set()
-            for node in module_nodes:
-                if not isinstance(node, (ast.Import, ast.ImportFrom)):
-                    continue
-                for name, target in _dispatch_import_bindings(node).items():
-                    imported_binding_names.add(name)
-                    existing = module_import_bindings.get(name, target)
-                    module_import_bindings[name] = (
-                        target if existing == target else None
+                        audit_expression(default, frame)
+                    return
+                if isinstance(node, ast.NamedExpr):
+                    audit_expression(node.value, frame)
+                    if contains_sensitive(node.value, frame):
+                        raise module_error(
+                            node, "sensitive namespace", "assignment escape"
+                        )
+                    bind_target(
+                        node.target, expression_binding(node.value, frame), frame
                     )
-            for node in module_nodes:
-                if not (
-                    isinstance(node, ast.Name)
-                    and isinstance(node.ctx, (ast.Store, ast.Del))
-                    and node.id in imported_binding_names
-                ):
-                    continue
-                module_import_bindings[node.id] = None
-
-            def resolved_module_callable(node: ast.AST) -> str | None:
-                path = _attribute_path(node)
-                if path is None:
-                    return None
-                root, separator, tail = path.partition(".")
-                target = module_import_bindings.get(root)
-                if target is None:
-                    return None
-                return target + (separator + tail if separator else "")
-
-            def imported_dict_access(node: ast.AST) -> bool:
-                path = _attribute_path(node)
-                return (
-                    path is not None
-                    and module_path_is_imported(node)
-                    and "__dict__" in path.split(".")
-                )
-
-            for node in module_nodes:
-                mutation = (
-                    isinstance(node, ast.Attribute)
-                    and isinstance(node.ctx, (ast.Store, ast.Del))
-                    and module_path_is_imported(node)
-                )
-                namespace_subscript_mutation = (
-                    isinstance(node, ast.Subscript)
-                    and isinstance(node.ctx, (ast.Store, ast.Del))
-                    and expression_references_names(node.value, sensitive_roots)
-                )
-                mutation_call = (
-                    isinstance(node, ast.Call)
-                    and resolved_module_callable(node.func)
-                    in {"builtins.setattr", "builtins.delattr"}
-                    and node.args
-                    and expression_references_names(node.args[0], sensitive_roots)
-                )
-                dict_access = isinstance(node, ast.Attribute) and imported_dict_access(node)
-                resolved_callable = (
-                    resolved_module_callable(node.func)
-                    if isinstance(node, ast.Call)
-                    else None
-                )
-                arguments_reference_namespace = (
-                    isinstance(node, ast.Call)
-                    and any(
-                        expression_references_names(argument, sensitive_roots)
+                    return
+                if isinstance(node, ast.Call):
+                    audit_expression(node.func, frame)
+                    for argument in node.args:
+                        audit_expression(argument, frame)
+                    for keyword in node.keywords:
+                        audit_expression(keyword.value, frame)
+                    kind, target = expression_binding(node.func, frame)
+                    if kind == "local-callable":
+                        raise module_error(
+                            node, "local callable", "execution"
+                        )
+                    arguments_are_sensitive = any(
+                        contains_sensitive(argument, frame)
                         for argument in node.args
-                    )
-                    or isinstance(node, ast.Call)
-                    and any(
-                        expression_references_names(keyword.value, sensitive_roots)
+                    ) or any(
+                        contains_sensitive(keyword.value, frame)
                         for keyword in node.keywords
                     )
+                    arguments_have_local_callable = any(
+                        contains_binding_kind(
+                            argument, frame, "local-callable"
+                        )
+                        for argument in node.args
+                    ) or any(
+                        contains_binding_kind(
+                            keyword.value, frame, "local-callable"
+                        )
+                        for keyword in node.keywords
+                    )
+                    if arguments_have_local_callable:
+                        raise module_error(
+                            node, "local callable", "argument execution"
+                        )
+                    if kind == "sensitive" or arguments_are_sensitive:
+                        raise module_error(
+                            node, "sensitive namespace", target or "call escape"
+                        )
+                    if kind != "safe":
+                        raise module_error(
+                            node, "local callable", "unproven execution"
+                        )
+                    return
+                if isinstance(node, ast.Attribute):
+                    audit_expression(node.value, frame)
+                    if node.attr == "__dict__" and contains_sensitive(
+                        node.value, frame
+                    ):
+                        raise module_error(
+                            node, "sensitive namespace", "__dict__ access"
+                        )
+                    return
+                if isinstance(node, ast.Subscript):
+                    audit_expression(node.value, frame)
+                    audit_expression(node.slice, frame)
+                    kind, target = expression_binding(node, frame)
+                    if kind == "sensitive" and accessor_frame(
+                        node.value, frame
+                    ) is not None:
+                        raise module_error(
+                            node,
+                            "sensitive namespace",
+                            target or "accessor escape",
+                        )
+                    return
+                for child in ast.iter_child_nodes(node):
+                    audit_expression(child, frame)
+
+            def audit_callable_trigger(
+                node: ast.AST,
+                frame: ModuleFrame,
+            ) -> None:
+                audit_expression(node, frame)
+                kind, target = expression_binding(node, frame)
+                if kind == "local-callable":
+                    raise module_error(node, "local callable", "execution")
+                if kind == "sensitive":
+                    raise module_error(
+                        node, "sensitive namespace", target or "call escape"
+                    )
+                if kind != "safe":
+                    raise module_error(
+                        node, "local callable", "unproven execution"
+                    )
+
+            def bind_target(
+                target: ast.AST,
+                value: tuple[str, str | None],
+                frame: ModuleFrame,
+            ) -> None:
+                if isinstance(target, ast.Name):
+                    frame.bindings[target.id] = value
+                    return
+                if isinstance(target, (ast.Tuple, ast.List)):
+                    for element in target.elts:
+                        bind_target(element, ("unknown", None), frame)
+                    return
+                owner = (
+                    target.value
+                    if isinstance(target, (ast.Attribute, ast.Subscript))
+                    else target
                 )
-                unknown_namespace_call = (
-                    isinstance(node, ast.Call)
-                    and (
-                        arguments_reference_namespace
-                        or resolved_callable
-                        not in {"builtins.setattr", "builtins.delattr"}
-                        and expression_references_names(node.func, sensitive_roots)
+                audit_expression(owner, frame)
+                if contains_sensitive(owner, frame):
+                    raise module_error(
+                        target, "sensitive namespace", "mutation"
                     )
-                )
-                if (
-                    mutation
-                    or namespace_subscript_mutation
-                    or mutation_call
-                    or dict_access
-                    or unknown_namespace_call
-                ):
-                    detail = (
-                        resolved_module_callable(node.func) or "unknown call"
-                        if isinstance(node, ast.Call)
-                        else type(node.ctx).__name__
-                    )
-                    raise DiscoveryError(
-                        f"module imported namespace mutation {detail} is unsupported "
-                        f"in {source}:{node.lineno} for {function.name}"
-                    )
+
+            def merge_frames(
+                frame: ModuleFrame,
+                branches: Sequence[ModuleFrame],
+            ) -> None:
+                names = set().union(*(branch.bindings for branch in branches))
+                for name in names:
+                    values = [branch.lookup(name) for branch in branches]
+                    if all(value == values[0] for value in values[1:]):
+                        frame.bindings[name] = values[0]
+                    elif any(kind == "sensitive" for kind, _ in values):
+                        frame.bindings[name] = ("sensitive", None)
+                    elif any(kind == "local-callable" for kind, _ in values):
+                        frame.bindings[name] = ("local-callable", None)
+                    else:
+                        frame.bindings[name] = ("unknown", None)
+
+            def process_import(
+                node: ast.Import | ast.ImportFrom,
+                frame: ModuleFrame,
+            ) -> None:
+                if isinstance(node, ast.ImportFrom) and node.module == "__future__":
+                    return
+                for name, target in _dispatch_import_bindings(node).items():
+                    if target == "builtins":
+                        frame.bindings[name] = ("builtin-namespace", target)
+                    elif target in safe_builtin_targets:
+                        frame.bindings[name] = ("safe", target)
+                    else:
+                        frame.bindings[name] = ("sensitive", target)
+
+            def process_function(
+                node: ast.FunctionDef | ast.AsyncFunctionDef,
+                frame: ModuleFrame,
+            ) -> None:
+                for decorator in node.decorator_list:
+                    audit_callable_trigger(decorator, frame)
+                for default in node.args.defaults:
+                    audit_expression(default, frame)
+                for default in node.args.kw_defaults:
+                    if default is not None:
+                        audit_expression(default, frame)
+                if not future_annotations:
+                    for argument in (
+                        *node.args.posonlyargs,
+                        *node.args.args,
+                        *node.args.kwonlyargs,
+                        node.args.vararg,
+                        node.args.kwarg,
+                    ):
+                        if argument is not None and argument.annotation is not None:
+                            audit_expression(argument.annotation, frame)
+                    if node.returns is not None:
+                        audit_expression(node.returns, frame)
+                for type_parameter in getattr(node, "type_params", ()):
+                    audit_expression(type_parameter, frame)
+                frame.bindings[node.name] = ("local-callable", None)
+
+            def process_class(node: ast.ClassDef, frame: ModuleFrame) -> None:
+                for decorator in node.decorator_list:
+                    audit_callable_trigger(decorator, frame)
+                for base in node.bases:
+                    audit_callable_trigger(base, frame)
+                for keyword in node.keywords:
+                    audit_callable_trigger(keyword.value, frame)
+                for type_parameter in getattr(node, "type_params", ()):
+                    audit_expression(type_parameter, frame)
+                class_frame = ModuleFrame("class", frame.module)
+                process_statements(node.body, class_frame)
+                frame.bindings[node.name] = ("local-callable", None)
+
+            def process_statement(node: ast.stmt, frame: ModuleFrame) -> None:
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    process_import(node, frame)
+                    return
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    process_function(node, frame)
+                    return
+                if isinstance(node, ast.ClassDef):
+                    process_class(node, frame)
+                    return
+                if isinstance(node, ast.Assign):
+                    audit_expression(node.value, frame)
+                    if contains_sensitive(node.value, frame):
+                        raise module_error(
+                            node, "sensitive namespace", "assignment escape"
+                        )
+                    value = expression_binding(node.value, frame)
+                    for target in node.targets:
+                        bind_target(target, value, frame)
+                    return
+                if isinstance(node, ast.AnnAssign):
+                    if not future_annotations:
+                        audit_expression(node.annotation, frame)
+                    if node.value is not None:
+                        audit_expression(node.value, frame)
+                        if contains_sensitive(node.value, frame):
+                            raise module_error(
+                                node, "sensitive namespace", "assignment escape"
+                            )
+                        bind_target(
+                            node.target, expression_binding(node.value, frame), frame
+                        )
+                    return
+                if isinstance(node, ast.AugAssign):
+                    audit_expression(node.target, frame)
+                    audit_expression(node.value, frame)
+                    if contains_sensitive(node.target, frame):
+                        raise module_error(
+                            node, "sensitive namespace", "mutation"
+                        )
+                    bind_target(node.target, ("unknown", None), frame)
+                    return
+                if isinstance(node, ast.Delete):
+                    for target in node.targets:
+                        if contains_sensitive(target, frame):
+                            raise module_error(
+                                node, "sensitive namespace", "deletion"
+                            )
+                        if isinstance(target, ast.Name):
+                            frame.bindings.pop(target.id, None)
+                        else:
+                            bind_target(target, ("unknown", None), frame)
+                    return
+                if isinstance(node, ast.Expr):
+                    audit_expression(node.value, frame)
+                    return
+                if isinstance(node, ast.If):
+                    audit_expression(node.test, frame)
+                    body = frame.copy()
+                    process_statements(node.body, body)
+                    alternate = frame.copy()
+                    process_statements(node.orelse, alternate)
+                    merge_frames(frame, (body, alternate))
+                    return
+                if isinstance(node, (ast.For, ast.AsyncFor)):
+                    audit_expression(node.iter, frame)
+                    body = frame.copy()
+                    bind_target(node.target, ("unknown", None), body)
+                    process_statements(node.body, body)
+                    process_statements(node.orelse, body)
+                    merge_frames(frame, (frame.copy(), body))
+                    return
+                if isinstance(node, ast.While):
+                    audit_expression(node.test, frame)
+                    body = frame.copy()
+                    process_statements(node.body, body)
+                    process_statements(node.orelse, body)
+                    merge_frames(frame, (frame.copy(), body))
+                    return
+                if isinstance(node, (ast.With, ast.AsyncWith)):
+                    for item in node.items:
+                        audit_expression(item.context_expr, frame)
+                        if item.optional_vars is not None:
+                            bind_target(item.optional_vars, ("unknown", None), frame)
+                    process_statements(node.body, frame)
+                    return
+                if isinstance(node, ast.Try):
+                    body = frame.copy()
+                    process_statements(node.body, body)
+                    process_statements(node.orelse, body)
+                    branches = [body]
+                    for handler in node.handlers:
+                        branch = frame.copy()
+                        if handler.type is not None:
+                            audit_expression(handler.type, branch)
+                        if handler.name:
+                            branch.bindings[handler.name] = ("unknown", None)
+                        process_statements(handler.body, branch)
+                        branches.append(branch)
+                    merge_frames(frame, branches)
+                    process_statements(node.finalbody, frame)
+                    return
+                if isinstance(node, ast.Match):
+                    audit_expression(node.subject, frame)
+                    branches = [frame.copy()]
+                    for case in node.cases:
+                        branch = frame.copy()
+                        if case.guard is not None:
+                            audit_expression(case.guard, branch)
+                        process_statements(case.body, branch)
+                        branches.append(branch)
+                    merge_frames(frame, branches)
+                    return
+                if isinstance(node, ast.Assert):
+                    audit_expression(node.test, frame)
+                    if node.msg is not None:
+                        audit_expression(node.msg, frame)
+                    return
+                if isinstance(node, ast.Raise):
+                    if node.exc is not None:
+                        audit_expression(node.exc, frame)
+                    if node.cause is not None:
+                        audit_expression(node.cause, frame)
+                    return
+                if isinstance(node, (ast.Pass, ast.Break, ast.Continue)):
+                    return
+                if isinstance(node, (ast.Global, ast.Nonlocal)):
+                    raise module_error(node, "binding grammar", type(node).__name__)
+                raise module_error(node, "binding grammar", type(node).__name__)
+
+            def process_statements(
+                statements: Sequence[ast.stmt],
+                frame: ModuleFrame,
+            ) -> None:
+                for statement in statements:
+                    process_statement(statement, frame)
+
+            process_statements(tree.body, module_frame)
 
             module_prefix = tree.body[:tree.body.index(function)]
             dispatch_imports: list[ast.ImportFrom] = [

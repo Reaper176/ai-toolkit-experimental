@@ -4858,7 +4858,7 @@ def get_optimizer(params, optimizer_type, optimizer_params):
             '''import builtins
 from builtins import delattr as remove
 import torch
-marker = harmless(1)
+marker = len((1,))
 local = object
 builtins.setattr(local, "value", 1)
 remove(local, "value")
@@ -4877,6 +4877,248 @@ def get_optimizer(params, optimizer_type, optimizer_params):
             self.repository_root, ("toolkit/optimizer.py",)
         )
         self.assertTrue(any(fact.read_kind == "optimizer.registry" for fact in discovered))
+
+    def test_training_dispatch_contract_rejects_eager_local_callable_execution(self):
+        definitions = {
+            "bare_function_decorator": '''def mutate(target):
+    torch.optim.SGD = target
+@mutate
+def configured():
+    pass''',
+            "class_decorator_factory": '''class Mutator:
+    def __call__(self, target):
+        torch.optim.SGD = target
+@Mutator()
+def configured():
+    pass''',
+            "function_default": '''def mutate():
+    torch.optim.SGD = fake
+def configured(value=mutate()):
+    pass''',
+            "local_class_base": '''class LocalBase:
+    def __init_subclass__(cls):
+        torch.optim.SGD = cls
+class Configured(LocalBase):
+    pass''',
+            "local_metaclass": '''class LocalMeta(type):
+    def __new__(cls, name, bases, namespace):
+        torch.optim.SGD = cls
+class Configured(metaclass=LocalMeta):
+    pass''',
+            "nested_class_decorator": '''class Outer:
+    def mutate(target):
+        torch.optim.SGD = target
+    @mutate
+    def configured():
+        pass''',
+            "container_callable": '''def mutate():
+    torch.optim.SGD = fake
+callbacks = [mutate]
+def configured(value=callbacks[0]()):
+    pass''',
+            "local_instance": '''class Mutator:
+    def __call__(self, target):
+        torch.optim.SGD = target
+instance = object.__new__(Mutator)
+@instance
+def configured():
+    pass''',
+            "unproven_callable": '''def configured(value=external()):
+    pass''',
+            "builtin_callback": '''def mutate(value):
+    torch.optim.SGD = value
+configured = sorted([1], key=mutate)''',
+        }
+        for shape, definition in definitions.items():
+            with self.subTest(shape=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f'''import torch
+{definition}
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+                )
+                with self.assertRaisesRegex(DiscoveryError, "module.*callable"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+    def test_training_dispatch_contract_allows_deferred_locals_and_safe_builtins(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            '''import torch
+def unused_function():
+    torch.optim.SGD = fake
+class UnusedClass:
+    def unused_method(self):
+        torch.optim.SGD = fake
+safe_length = len((1, 2))
+safe_tuple = tuple([1, 2])
+safe_number = int("2")
+class Plain(object):
+    pass
+def configured(value=tuple()):
+    pass
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+        )
+
+        discovered = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+
+        self.assertTrue(any(fact.read_kind == "optimizer.registry" for fact in discovered))
+
+    def test_training_dispatch_contract_rejects_sensitive_namespace_indirection(self):
+        operations = {
+            "direct_holder": "holder = torch.optim",
+            "list_holder": "holder = [torch.optim]",
+            "tuple_holder": "holder = (torch.optim,)",
+            "dict_holder": 'holder = {"optimizer": torch.optim}',
+            "set_holder": "holder = {torch.optim}",
+            "nested_holder": 'holder = {"optimizer": [(torch.optim,)]}',
+            "holder_subscript": "holder = [torch.optim]\nholder[0].SGD = fake",
+            "globals_attribute": 'globals()["torch"].optim.SGD = fake',
+            "globals_holder": 'holder = globals()["torch"]',
+            "locals_holder": 'holder = locals()["torch"]',
+            "vars_holder": 'holder = vars()["torch"]',
+            "globals_bare": 'globals()["torch"]',
+            "locals_bare": 'locals()["torch"]',
+            "vars_bare": 'vars()["torch"]',
+            "dynamic_globals": "holder = globals()[name]",
+        }
+        for shape, operation in operations.items():
+            with self.subTest(shape=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f'''import torch
+{operation}
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+                )
+                with self.assertRaisesRegex(DiscoveryError, "module.*namespace"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+    def test_training_dispatch_contract_allows_unrelated_module_containers(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            '''import torch
+sequence = [1, ("optimizer",)]
+mapping = {"torch": "text", "values": [1, 2]}
+unique = {"torch", "optimizer"}
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+        )
+
+        discovered = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+
+        self.assertTrue(any(fact.read_kind == "optimizer.registry" for fact in discovered))
+
+    def test_training_dispatch_contract_isolates_class_execution_frames(self):
+        safe_sources = {
+            "reviewer_backend": '''class ClassScope:
+    import torch as backend
+import builtins as backend
+import torch
+local = object
+backend.setattr(local, "value", 1)''',
+            "class_rebinding": '''import builtins as backend
+import torch
+local = object
+class ClassScope:
+    backend = Local
+backend.setattr(local, "value", 1)''',
+            "class_local_torch": '''import torch
+class ClassScope:
+    class Local:
+        pass
+    torch = Local
+    torch.value = 1''',
+            "nested_class_local_torch": '''import torch
+class Outer:
+    class Inner:
+        class Local:
+            pass
+        torch = Local
+        torch.value = 1''',
+        }
+        for shape, prefix in safe_sources.items():
+            with self.subTest(safe=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f'''{prefix}
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+                )
+                discovered = discover_python_settings(
+                    self.repository_root, ("toolkit/optimizer.py",)
+                )
+                self.assertTrue(
+                    any(fact.read_kind == "optimizer.registry" for fact in discovered)
+                )
+
+        self.write_source(
+            "toolkit/optimizer.py",
+            '''import torch
+class Outer:
+    class Local:
+        pass
+    torch = Local
+    class Inner:
+        torch.optim.SGD = fake
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+        )
+        with self.assertRaisesRegex(DiscoveryError, "module.*namespace"):
+            discover_python_settings(
+                self.repository_root, ("toolkit/optimizer.py",)
+            )
+
+        provenance_sources = {
+            "conditional_class_import": '''if enabled:
+    import torch as backend
+    class Scope:
+        backend.optim.SGD = fake''',
+            "conditional_globals": '''if enabled:
+    import torch
+    holder = globals()["torch"]''',
+            "try_star_body": '''import torch
+try:
+    pass
+except* Exception:
+    torch.optim.SGD = fake''',
+        }
+        for shape, prefix in provenance_sources.items():
+            with self.subTest(provenance=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f'''{prefix}
+import torch
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+                )
+                with self.assertRaisesRegex(DiscoveryError, "module"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
 
     def test_training_dispatch_contract_rejects_nested_or_conditional_mapping_effects(self):
         operations = {
