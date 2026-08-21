@@ -5120,6 +5120,199 @@ def get_optimizer(params, optimizer_type, optimizer_params):
                         self.repository_root, ("toolkit/optimizer.py",)
                     )
 
+    def test_training_dispatch_contract_resolves_semantic_builtin_accessors(self):
+        operations = {
+            "builtins_globals": (
+                "import builtins",
+                'builtins.globals()["torch"].optim.SGD = fake',
+            ),
+            "aliased_builtins_vars": (
+                "import builtins as bi",
+                'bi.vars()["torch"].optim.SGD = fake',
+            ),
+            "from_globals_alias": (
+                "from builtins import globals as namespace",
+                'namespace()["torch"].optim.SGD = fake',
+            ),
+            "from_locals_alias": (
+                "from builtins import locals as namespace",
+                'namespace()["torch"].optim.SGD = fake',
+            ),
+            "from_vars_alias": (
+                "from builtins import vars as namespace",
+                'namespace()["torch"].optim.SGD = fake',
+            ),
+        }
+        for shape, (binding, operation) in operations.items():
+            with self.subTest(shape=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f'''import torch
+{binding}
+{operation}
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+                )
+                with self.assertRaisesRegex(DiscoveryError, "module.*namespace"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+        self.write_source(
+            "toolkit/optimizer.py",
+            '''import torch
+from builtins import globals as namespace
+unrelated = namespace()["unrelated"]
+namespace = tuple
+empty = namespace()
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+        )
+        discovered = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        self.assertTrue(any(fact.read_kind == "optimizer.registry" for fact in discovered))
+
+    def test_training_dispatch_contract_preserves_finite_binder_provenance(self):
+        definitions = {
+            "for_sensitive": '''for backend in (torch.optim,):
+    backend.SGD = fake''',
+            "for_local_callable": '''def mutate(value):
+    torch.optim.SGD = value
+for callback in (mutate,):
+    configured = sorted([1], key=callback)''',
+            "for_destructuring": '''for left, right in ((torch.optim, 1),):
+    left.SGD = fake''',
+            "for_starred_destructuring": '''for *rest, in ((torch.optim,),):
+    rest[0].SGD = fake''',
+            "match_capture": '''match torch.optim:
+    case backend:
+        backend.SGD = fake''',
+            "match_sequence": '''match (torch.optim,):
+    case (backend,):
+        backend.SGD = fake''',
+            "match_mapping": '''match {"backend": torch.optim}:
+    case {"backend": backend}:
+        backend.SGD = fake''',
+            "comprehension_sensitive": '''[
+    setattr(backend, "SGD", fake)
+    for backend in (torch.optim,)
+]''',
+            "comprehension_local_callable": '''def mutate(value):
+    torch.optim.SGD = value
+callbacks = [callback for callback in (mutate,)]
+configured = sorted([1], key=callbacks[0])''',
+            "unsupported_match_class": '''class Local:
+    pass
+match object():
+    case Local():
+        pass''',
+        }
+        for shape, definition in definitions.items():
+            with self.subTest(shape=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f'''import torch
+{definition}
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+                )
+                with self.assertRaisesRegex(DiscoveryError, "module"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+        self.write_source(
+            "toolkit/optimizer.py",
+            '''import torch
+for value in (1, 2):
+    marker = value
+match (1, 2):
+    case (left, right):
+        marker = left
+safe = [value for value in (1, 2)]
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+        )
+        discovered = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        self.assertTrue(any(fact.read_kind == "optimizer.registry" for fact in discovered))
+
+    def test_training_dispatch_contract_tracks_finite_callable_containers(self):
+        definitions = {
+            "list": '''callbacks = [mutate]
+configured = sorted([1], key=callbacks[0])''',
+            "tuple": '''callbacks = (mutate,)
+configured = sorted([1], key=callbacks[0])''',
+            "mapping": '''callbacks = {"key": mutate}
+configured = sorted([1], key=callbacks["key"])''',
+            "nested": '''callbacks = [(mutate,)]
+configured = sorted([1], key=callbacks[0][0])''',
+            "dynamic_uniform": '''callbacks = [mutate, mutate]
+configured = sorted([1], key=callbacks[index])''',
+            "starred_sequence": '''source = [mutate]
+callbacks = [*source]
+configured = sorted([1], key=callbacks[0])''',
+            "mapping_unpack": '''source = {"key": mutate}
+callbacks = {**source}
+configured = sorted([1], key=callbacks["key"])''',
+            "subscript_store": '''callbacks = [str]
+callbacks[0] = mutate
+configured = sorted([1], key=callbacks[0])''',
+            "mapping_store": '''callbacks = {"key": str}
+callbacks["key"] = mutate
+configured = sorted([1], key=callbacks["key"])''',
+            "subscript_delete": '''callbacks = [str]
+del callbacks[0]''',
+            "augmented_container": '''callbacks = [str]
+callbacks += [mutate]
+configured = sorted([1], key=callbacks[0])''',
+        }
+        for shape, definition in definitions.items():
+            with self.subTest(shape=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f'''import torch
+def mutate(value):
+    torch.optim.SGD = value
+{definition}
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+                )
+                with self.assertRaisesRegex(DiscoveryError, "module"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+        self.write_source(
+            "toolkit/optimizer.py",
+            '''import torch
+def unused(value):
+    torch.optim.SGD = value
+unused_callbacks = [unused]
+safe_callbacks = [str]
+configured = sorted([1], key=safe_callbacks[0])
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+        )
+        discovered = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        self.assertTrue(any(fact.read_kind == "optimizer.registry" for fact in discovered))
+
     def test_training_dispatch_contract_rejects_nested_or_conditional_mapping_effects(self):
         operations = {
             "nested_write": 'forwarded["nested"]["value"] = 1',

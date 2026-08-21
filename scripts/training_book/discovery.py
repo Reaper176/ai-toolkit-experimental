@@ -3728,6 +3728,7 @@ def _discover_dispatch_settings(
                     "type", "vars", "zip",
                 }
             }
+            Binding = tuple[str, object | None]
 
             class ModuleFrame:
                 def __init__(
@@ -3737,7 +3738,7 @@ def _discover_dispatch_settings(
                 ) -> None:
                     self.kind = kind
                     self.module = self if module is None else module
-                    self.bindings: dict[str, tuple[str, str | None]] = {}
+                    self.bindings: dict[str, Binding] = {}
 
                 def copy(self) -> "ModuleFrame":
                     clone = ModuleFrame(
@@ -3747,7 +3748,7 @@ def _discover_dispatch_settings(
                     clone.bindings = dict(self.bindings)
                     return clone
 
-                def lookup(self, name: str) -> tuple[str, str | None]:
+                def lookup(self, name: str) -> Binding:
                     if name in self.bindings:
                         return self.bindings[name]
                     if self.kind == "class":
@@ -3781,20 +3782,23 @@ def _discover_dispatch_settings(
             ) -> ModuleFrame | None:
                 if not (
                     isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Name)
-                    and node.func.id in {"globals", "locals", "vars"}
                     and not node.args
                     and not node.keywords
                 ):
                     return None
-                if node.func.id == "globals":
+                kind, target = expression_binding(node.func, frame)
+                if kind != "safe" or target not in {
+                    "builtins.globals", "builtins.locals", "builtins.vars",
+                }:
+                    return None
+                if target == "builtins.globals":
                     return frame if frame.kind == "module" else frame.module
                 return frame
 
             def expression_binding(
                 node: ast.AST,
                 frame: ModuleFrame,
-            ) -> tuple[str, str | None]:
+            ) -> Binding:
                 if isinstance(node, ast.Name):
                     return frame.lookup(node.id)
                 if isinstance(node, ast.Lambda):
@@ -3809,9 +3813,67 @@ def _discover_dispatch_settings(
                             else ("sensitive", resolved)
                         )
                     if kind in {"sensitive", "local-callable"}:
-                        resolved = None if target is None else f"{target}.{node.attr}"
+                        resolved = (
+                            None if target is None else f"{target}.{node.attr}"
+                        )
                         return (kind, resolved)
                     return ("unknown", None)
+                if isinstance(node, (ast.List, ast.Tuple)):
+                    values: list[Binding] = []
+                    for element in node.elts:
+                        if isinstance(element, ast.Starred):
+                            kind, contained = expression_binding(
+                                element.value, frame
+                            )
+                            if not (
+                                kind == "finite-sequence"
+                                and isinstance(contained, tuple)
+                            ):
+                                raise module_error(
+                                    element,
+                                    "binding grammar",
+                                    "ambiguous starred container",
+                                )
+                            values.extend(contained)
+                        else:
+                            values.append(expression_binding(element, frame))
+                    return (
+                        "finite-sequence",
+                        tuple(values),
+                    )
+                if isinstance(node, ast.Set):
+                    return (
+                        "finite-set",
+                        tuple(expression_binding(element, frame) for element in node.elts),
+                    )
+                if isinstance(node, ast.Dict):
+                    entries: list[tuple[object, Binding]] = []
+                    for key, value in zip(node.keys, node.values):
+                        if key is None:
+                            kind, contained = expression_binding(value, frame)
+                            if not (
+                                kind == "finite-mapping"
+                                and isinstance(contained, tuple)
+                            ):
+                                raise module_error(
+                                    value,
+                                    "binding grammar",
+                                    "ambiguous mapping unpack",
+                                )
+                            entries.extend(contained)
+                            continue
+                        if not (
+                            isinstance(key, ast.Constant)
+                            and isinstance(key.value, (str, int, float, bytes, bool))
+                        ):
+                            return ("unknown", None)
+                        entries.append((key.value, expression_binding(value, frame)))
+                    return ("finite-mapping", tuple(entries))
+                if isinstance(
+                    node,
+                    (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp),
+                ):
+                    return comprehension_binding(node, frame, audit=False)
                 if isinstance(node, ast.Subscript):
                     namespace = accessor_frame(node.value, frame)
                     if namespace is not None:
@@ -3829,6 +3891,23 @@ def _discover_dispatch_settings(
                             return ("unknown", None)
                         return namespace.lookup(node.slice.value)
                     kind, target = expression_binding(node.value, frame)
+                    if kind == "finite-sequence":
+                        values = tuple(target) if isinstance(target, tuple) else ()
+                        if isinstance(node.slice, ast.Constant) and isinstance(
+                            node.slice.value, int
+                        ):
+                            index = node.slice.value
+                            if -len(values) <= index < len(values):
+                                return values[index]
+                            return ("unknown", None)
+                        return uniform_binding(values, node, "dynamic sequence index")
+                    if kind == "finite-mapping":
+                        entries = dict(target) if isinstance(target, tuple) else {}
+                        if isinstance(node.slice, ast.Constant):
+                            return entries.get(node.slice.value, ("unknown", None))
+                        return uniform_binding(
+                            tuple(entries.values()), node, "dynamic mapping key"
+                        )
                     if kind in {"sensitive", "local-callable"}:
                         return (kind, target)
                     return ("unknown", None)
@@ -3836,19 +3915,49 @@ def _discover_dispatch_settings(
 
             def visible_bindings(
                 frame: ModuleFrame,
-            ) -> dict[str, tuple[str, str | None]]:
+            ) -> dict[str, Binding]:
                 if frame.kind == "module":
                     return dict(frame.bindings)
                 visible = dict(frame.module.bindings)
                 visible.update(frame.bindings)
                 return visible
 
+            def binding_contains_kind(binding: Binding, expected: str) -> bool:
+                kind, target = binding
+                if kind == expected:
+                    return True
+                if kind in {"finite-sequence", "finite-set"} and isinstance(
+                    target, tuple
+                ):
+                    return any(
+                        binding_contains_kind(value, expected) for value in target
+                    )
+                if kind == "finite-mapping" and isinstance(target, tuple):
+                    return any(
+                        binding_contains_kind(value, expected)
+                        for _, value in target
+                    )
+                return False
+
+            def uniform_binding(
+                values: Sequence[Binding],
+                node: ast.AST,
+                detail: str,
+            ) -> Binding:
+                if not values:
+                    return ("unknown", None)
+                if all(value == values[0] for value in values[1:]):
+                    return values[0]
+                raise module_error(node, "binding grammar", detail)
+
             def contains_binding_kind(
                 node: ast.AST,
                 frame: ModuleFrame,
                 expected: str,
             ) -> bool:
-                if expression_binding(node, frame)[0] == expected:
+                if binding_contains_kind(
+                    expression_binding(node, frame), expected
+                ):
                     return True
                 if isinstance(node, ast.Lambda):
                     return any(
@@ -3873,6 +3982,12 @@ def _discover_dispatch_settings(
                         *(default for default in node.args.kw_defaults if default),
                     ):
                         audit_expression(default, frame)
+                    return
+                if isinstance(
+                    node,
+                    (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp),
+                ):
+                    comprehension_binding(node, frame, audit=True)
                     return
                 if isinstance(node, ast.NamedExpr):
                     audit_expression(node.value, frame)
@@ -3968,17 +4083,96 @@ def _discover_dispatch_settings(
                         node, "local callable", "unproven execution"
                     )
 
+            def iterated_binding(
+                iterable: Binding,
+                node: ast.AST,
+            ) -> Binding:
+                kind, target = iterable
+                if kind in {"finite-sequence", "finite-set"} and isinstance(
+                    target, tuple
+                ):
+                    return uniform_binding(target, node, "ambiguous finite iterator")
+                if kind == "finite-mapping":
+                    return ("unknown", None)
+                if binding_contains_kind(iterable, "sensitive") or (
+                    binding_contains_kind(iterable, "local-callable")
+                ):
+                    raise module_error(
+                        node, "binding grammar", "unsupported iterator provenance"
+                    )
+                return ("unknown", None)
+
+            def comprehension_binding(
+                node: ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp,
+                frame: ModuleFrame,
+                audit: bool,
+            ) -> Binding:
+                if len(node.generators) != 1 or node.generators[0].is_async:
+                    raise module_error(
+                        node, "binding grammar", "ambiguous comprehension"
+                    )
+                generator = node.generators[0]
+                if audit:
+                    audit_expression(generator.iter, frame)
+                value = iterated_binding(
+                    expression_binding(generator.iter, frame), generator.iter
+                )
+                comprehension_frame = frame.copy()
+                bind_target(generator.target, value, comprehension_frame)
+                for condition in generator.ifs:
+                    if audit:
+                        audit_expression(condition, comprehension_frame)
+                if isinstance(node, ast.DictComp):
+                    if audit:
+                        audit_expression(node.key, comprehension_frame)
+                        audit_expression(node.value, comprehension_frame)
+                    if not (
+                        isinstance(node.key, ast.Constant)
+                        and isinstance(
+                            node.key.value, (str, int, float, bytes, bool)
+                        )
+                    ):
+                        raise module_error(
+                            node, "binding grammar", "dynamic comprehension key"
+                        )
+                    return (
+                        "finite-mapping",
+                        ((node.key.value, expression_binding(
+                            node.value, comprehension_frame
+                        )),),
+                    )
+                if audit:
+                    audit_expression(node.elt, comprehension_frame)
+                result = expression_binding(node.elt, comprehension_frame)
+                return (
+                    "finite-set" if isinstance(node, ast.SetComp) else "finite-sequence",
+                    (result,),
+                )
+
             def bind_target(
                 target: ast.AST,
-                value: tuple[str, str | None],
+                value: Binding,
                 frame: ModuleFrame,
             ) -> None:
                 if isinstance(target, ast.Name):
                     frame.bindings[target.id] = value
                     return
+                if isinstance(target, ast.Starred):
+                    raise module_error(
+                        target, "binding grammar", "starred binder"
+                    )
                 if isinstance(target, (ast.Tuple, ast.List)):
-                    for element in target.elts:
-                        bind_target(element, ("unknown", None), frame)
+                    kind, contained = value
+                    if not (
+                        kind == "finite-sequence"
+                        and isinstance(contained, tuple)
+                        and len(contained) == len(target.elts)
+                    ):
+                        raise module_error(
+                            target, "binding grammar", "ambiguous destructuring"
+                        )
+                    for element, element_value in zip(target.elts, contained):
+                        bind_target(element, element_value, frame)
                     return
                 owner = (
                     target.value
@@ -3986,10 +4180,85 @@ def _discover_dispatch_settings(
                     else target
                 )
                 audit_expression(owner, frame)
+                if expression_binding(owner, frame)[0].startswith("finite-"):
+                    raise module_error(
+                        target, "binding grammar", "finite container mutation"
+                    )
                 if contains_sensitive(owner, frame):
                     raise module_error(
                         target, "sensitive namespace", "mutation"
                     )
+
+            def bind_pattern(
+                pattern: ast.pattern,
+                value: Binding,
+                frame: ModuleFrame,
+            ) -> None:
+                if isinstance(pattern, ast.MatchAs):
+                    if pattern.pattern is not None:
+                        bind_pattern(pattern.pattern, value, frame)
+                    if pattern.name is not None:
+                        frame.bindings[pattern.name] = value
+                    return
+                if isinstance(pattern, (ast.MatchValue, ast.MatchSingleton)):
+                    if isinstance(pattern, ast.MatchValue):
+                        audit_expression(pattern.value, frame)
+                    return
+                if isinstance(pattern, ast.MatchSequence):
+                    kind, contained = value
+                    if not (
+                        kind == "finite-sequence"
+                        and isinstance(contained, tuple)
+                        and len(contained) == len(pattern.patterns)
+                        and not any(
+                            isinstance(item, ast.MatchStar)
+                            for item in pattern.patterns
+                        )
+                    ):
+                        raise module_error(
+                            pattern, "binding grammar", "ambiguous sequence pattern"
+                        )
+                    for item, item_value in zip(pattern.patterns, contained):
+                        bind_pattern(item, item_value, frame)
+                    return
+                if isinstance(pattern, ast.MatchMapping):
+                    kind, contained = value
+                    if not (
+                        kind == "finite-mapping" and isinstance(contained, tuple)
+                    ):
+                        raise module_error(
+                            pattern, "binding grammar", "ambiguous mapping pattern"
+                        )
+                    entries = dict(contained)
+                    matched: set[object] = set()
+                    for key, item in zip(pattern.keys, pattern.patterns):
+                        if not isinstance(key, ast.Constant) or key.value not in entries:
+                            raise module_error(
+                                pattern, "binding grammar", "dynamic mapping pattern"
+                            )
+                        matched.add(key.value)
+                        bind_pattern(item, entries[key.value], frame)
+                    if pattern.rest is not None:
+                        frame.bindings[pattern.rest] = (
+                            "finite-mapping",
+                            tuple(
+                                (key, item)
+                                for key, item in contained
+                                if key not in matched
+                            ),
+                        )
+                    return
+                if isinstance(pattern, ast.MatchOr):
+                    branches = []
+                    for option in pattern.patterns:
+                        branch = frame.copy()
+                        bind_pattern(option, value, branch)
+                        branches.append(branch)
+                    merge_frames(frame, branches)
+                    return
+                raise module_error(
+                    pattern, "binding grammar", type(pattern).__name__
+                )
 
             def merge_frames(
                 frame: ModuleFrame,
@@ -4000,9 +4269,15 @@ def _discover_dispatch_settings(
                     values = [branch.lookup(name) for branch in branches]
                     if all(value == values[0] for value in values[1:]):
                         frame.bindings[name] = values[0]
-                    elif any(kind == "sensitive" for kind, _ in values):
+                    elif any(
+                        binding_contains_kind(value, "sensitive")
+                        for value in values
+                    ):
                         frame.bindings[name] = ("sensitive", None)
-                    elif any(kind == "local-callable" for kind, _ in values):
+                    elif any(
+                        binding_contains_kind(value, "local-callable")
+                        for value in values
+                    ):
                         frame.bindings[name] = ("local-callable", None)
                     else:
                         frame.bindings[name] = ("unknown", None)
@@ -4097,6 +4372,12 @@ def _discover_dispatch_settings(
                 if isinstance(node, ast.AugAssign):
                     audit_expression(node.target, frame)
                     audit_expression(node.value, frame)
+                    if expression_binding(node.target, frame)[0].startswith(
+                        "finite-"
+                    ):
+                        raise module_error(
+                            node, "binding grammar", "finite container mutation"
+                        )
                     if contains_sensitive(node.target, frame):
                         raise module_error(
                             node, "sensitive namespace", "mutation"
@@ -4128,7 +4409,13 @@ def _discover_dispatch_settings(
                 if isinstance(node, (ast.For, ast.AsyncFor)):
                     audit_expression(node.iter, frame)
                     body = frame.copy()
-                    bind_target(node.target, ("unknown", None), body)
+                    bind_target(
+                        node.target,
+                        iterated_binding(
+                            expression_binding(node.iter, frame), node.iter
+                        ),
+                        body,
+                    )
                     process_statements(node.body, body)
                     process_statements(node.orelse, body)
                     merge_frames(frame, (frame.copy(), body))
@@ -4165,9 +4452,11 @@ def _discover_dispatch_settings(
                     return
                 if isinstance(node, ast.Match):
                     audit_expression(node.subject, frame)
+                    subject = expression_binding(node.subject, frame)
                     branches = [frame.copy()]
                     for case in node.cases:
                         branch = frame.copy()
+                        bind_pattern(case.pattern, subject, branch)
                         if case.guard is not None:
                             audit_expression(case.guard, branch)
                         process_statements(case.body, branch)
