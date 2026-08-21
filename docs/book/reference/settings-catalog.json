@@ -11395,6 +11395,278 @@
         "drawbacks": "More tokens increase trainable state and prompt complexity; decorator configuration is rejected for non-Flux models.",
         "example": "num_tokens: 4"
       }
+    },
+    {
+      "id": "train.ema.ema_decay",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.ema_config.ema_decay"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "fraction",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": false
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0.999,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.ema.use_ema",
+          "kind": "requires",
+          "description": "This setting is effective only when EMA is enabled.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "EMAConfig.__init__",
+          "key": "ema_decay",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-ema-ema-decay",
+        "description": "Sets exponential moving-average decay for shadow parameters.",
+        "benefits": "Provides explicit control of EMA ema decay.",
+        "drawbacks": "High decay responds slowly; low decay follows noisy current weights too closely.",
+        "example": "ema_decay: 0.999"
+      }
+    },
+    {
+      "id": "train.ema.param_multiplier",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.ema_config.param_multiplier"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "positive-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": false,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.ema.use_ema",
+          "kind": "requires",
+          "description": "This setting is effective only when EMA is enabled.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "EMAConfig.__init__",
+          "key": "param_multiplier",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-ema-param-multiplier",
+        "description": "Multiplies live parameters after every EMA update.",
+        "benefits": "Provides explicit control of EMA param multiplier.",
+        "drawbacks": "Values other than one directly grow or shrink live weights and can destabilize training.",
+        "example": "param_multiplier: 1.0"
+      }
+    },
+    {
+      "id": "train.ema.use_ema",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.ema_config.use_ema"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "TrainConfig replaces the entire EMA object with {use_ema: false} unless the input object explicitly enables EMA.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "EMAConfig.__init__",
+          "key": "use_ema",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-ema-use-ema",
+        "description": "Enables creation and updates of exponential moving-average shadow weights.",
+        "benefits": "Provides explicit control of EMA use ema.",
+        "drawbacks": "EMA consumes an additional copy of trainable parameters and update time.",
+        "example": "use_ema: true"
+      }
+    },
+    {
+      "id": "train.ema.use_feedback",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.ema_config.use_feedback"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.ema.use_ema",
+          "kind": "requires",
+          "description": "This setting is effective only when EMA is enabled.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "EMAConfig.__init__",
+          "key": "use_feedback",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-ema-use-feedback",
+        "description": "Feeds a scaled EMA difference back into live parameters.",
+        "benefits": "Provides explicit control of EMA use feedback.",
+        "drawbacks": "Feedback changes optimization dynamics and can destabilize an otherwise tuned run.",
+        "example": "use_feedback: false"
+      }
     }
   ]
 }
