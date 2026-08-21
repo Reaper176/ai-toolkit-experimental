@@ -4382,7 +4382,7 @@
       ],
       "persistence": "config",
       "authority": "user",
-      "lifecycle": "supported",
+      "lifecycle": "unconsumed",
       "applicability": [
         {
           "process_type": "diffusion_trainer"
@@ -4405,8 +4405,20 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
-      "interactions": [],
+      "normalizations": [
+        {
+          "description": "This value is parsed and stored on SampleItem, but the sampling process never reads it and instead forwards the top-level sample.do_cfg_norm value, so this per-item field is unconsumed and has no runtime effect.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "sample.do_cfg_norm",
+          "kind": "affects",
+          "description": "Use sample.do_cfg_norm for the consumed CFG-normalization control; this stored item-level value does not override it.",
+          "applicability": []
+        }
+      ],
       "aliases": [],
       "section": "saving-and-sampling",
       "source_claims": [
@@ -4420,9 +4432,9 @@
       "render": {
         "page": "reference/saving-and-sampling.md",
         "anchor": "sample-item-do-cfg-norm",
-        "description": "Enables classifier-free-guidance normalization for this item.",
-        "benefits": "Allows one model-specific evaluation item to use normalized guidance.",
-        "drawbacks": "It changes output characteristics and is unsupported by many models.",
+        "description": "Parses and stores an item-level classifier-free-guidance normalization flag that current sampling code does not consume.",
+        "benefits": "Documents the inert field so configurations do not imply an item-level override that does not exist.",
+        "drawbacks": "Changing it has no runtime effect; only the top-level sample.do_cfg_norm value is forwarded.",
         "example": "do_cfg_norm: false"
       }
     },
@@ -6654,7 +6666,7 @@
       ],
       "normalizations": [
         {
-          "description": "This path supplies LoRA weights only. Compatible optimizer state is discovered separately at <training_folder>/<name>/optimizer.pt, the run's save root, not beside pretrained_lora_path.",
+          "description": "This path supplies LoRA weights only. Optimizer state uses separate path-based auto-discovery at <training_folder>/<name>/optimizer.pt, the run's save root, not beside pretrained_lora_path; that lookup does not prove the optimizer state belongs to these weights.",
           "applicability": []
         }
       ],
@@ -6662,7 +6674,7 @@
         {
           "setting": "train.start_step",
           "kind": "affects",
-          "description": "A continuation must align the loaded LoRA weights, explicit step counter, unchanged save-root identity, and any compatible optimizer.pt state.",
+          "description": "It is the user's responsibility to align loaded LoRA weights, the explicit step counter, save-root identity, and any auto-discovered optimizer.pt state.",
           "applicability": []
         }
       ],
@@ -13728,7 +13740,7 @@
       ],
       "normalizations": [
         {
-          "description": "Before loading a compatible save-root optimizer.pt, BaseSDTrainProcess records the newly configured learning rates and reapplies each configured learning rate and initial_lr afterward, so restored optimizer state does not silently replace the current LR.",
+          "description": "Before loading any structurally loadable save-root optimizer.pt, BaseSDTrainProcess records the newly configured learning rates and reapplies each configured learning rate and initial_lr afterward, so restored optimizer state does not silently replace the current LR.",
           "applicability": []
         }
       ],
@@ -14829,7 +14841,7 @@
       ],
       "normalizations": [
         {
-          "description": "A non-null value sets the loop counter directly; it does not locate LoRA weights or optimizer.pt. BaseSDTrainProcess separately looks for compatible optimizer.pt at the unchanged save root, skips it when network weights changed, and continues after a load failure.",
+          "description": "A non-null value sets the loop counter directly; it does not locate LoRA weights or optimizer.pt. Optimizer auto-discovery is path-based at the save root: if optimizer.pt exists and its state is structurally loadable, it can load with no checkpoint, no step, and no provenance binding. The did_change_weights guard is only set for LoRA rank-shape conversion, not general weight changes. A stale optimizer state can therefore load, and a load failure merely logs and continues; it is the user responsibility to align weights, step, and save root.",
           "applicability": []
         }
       ],
@@ -14843,7 +14855,7 @@
         {
           "setting": "network.pretrained_lora_path",
           "kind": "affects",
-          "description": "Resume progression is coherent only when the explicit counter matches the loaded checkpoint and the same job name/training folder preserves save-root discovery.",
+          "description": "Resume progression is coherent only when the user aligns the explicit counter and weights while intentionally choosing the same job name/training folder for save-root optimizer discovery.",
           "applicability": []
         }
       ],

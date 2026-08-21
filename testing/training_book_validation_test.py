@@ -3320,7 +3320,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
         self.assertIn("portablePath === 'media/_t_e_cache'", cache_boundary)
         self.assertNotIn("endsWith", cache_boundary)
 
-    def test_catalog_save_sample_validation_scope_teaches_compatible_resume(self):
+    def test_catalog_save_sample_validation_scope_teaches_path_based_optimizer_resume(self):
         self.assert_catalog_selector_green("--scope", "save-sample-validation")
         catalog = load_settings_catalog(
             REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
@@ -3354,10 +3354,80 @@ class CatalogProductionSliceTests(unittest.TestCase):
         for phrase in (
             "optimizer.pt",
             "save root",
-            "compatible",
+            "path-based",
+            "structurally loadable",
+            "no checkpoint",
+            "no step",
+            "no provenance",
+            "stale",
+            "user responsibility",
+            "rank-shape conversion",
             "configured learning rate",
         ):
             self.assertIn(phrase, teaching)
+        self.assertNotIn("compatible optimizer state", teaching)
+
+    def test_catalog_sample_item_cfg_norm_is_honestly_unconsumed(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        item = settings["sample.item.do_cfg_norm"]
+        self.assertEqual(item.lifecycle, "unconsumed")
+        teaching = " ".join(
+            [*vars(item.render).values()]
+            + [entry.description for entry in item.normalizations]
+            + [entry.description for entry in item.interactions]
+        ).casefold()
+        for phrase in ("parsed", "stored", "unconsumed", "no runtime effect", "sample.do_cfg_norm"):
+            self.assertIn(phrase, teaching)
+
+        config_source = (
+            REPOSITORY_ROOT / "toolkit/config_modules.py"
+        ).read_text(encoding="utf-8")
+        process_source = (
+            REPOSITORY_ROOT / "jobs/process/BaseSDTrainProcess.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "self.do_cfg_norm: bool = kwargs.get('do_cfg_norm', False)",
+            config_source,
+        )
+        self.assertIn("do_cfg_norm=sample_config.do_cfg_norm", process_source)
+        self.assertNotIn("sample_item.do_cfg_norm", process_source)
+
+    def test_catalog_optimizer_state_contract_matches_unbound_path_loader(self):
+        process_source = (
+            REPOSITORY_ROOT / "jobs/process/BaseSDTrainProcess.py"
+        ).read_text(encoding="utf-8")
+        optimizer_loader = process_source.split(
+            "optimizer_state_filename = f'optimizer.pt'", 1
+        )[1].split("# set up the ema", 1)[0]
+        for snippet in (
+            "optimizer_state_file_path = os.path.join(self.save_root, optimizer_state_filename)",
+            "if os.path.exists(optimizer_state_file_path):",
+            "torch.load(optimizer_state_file_path, weights_only=True)",
+            "optimizer.load_state_dict(optimizer_state_dict)",
+            "if self.network.did_change_weights:",
+            "group['lr'] = previous_lrs[i]",
+            "group['initial_lr'] = previous_lrs[i]",
+        ):
+            self.assertIn(snippet, optimizer_loader)
+        for absent_binding in ("latest_path", "step_num", "metadata", "sha256"):
+            self.assertNotIn(absent_binding, optimizer_loader)
+
+        network_source = (
+            REPOSITORY_ROOT / "toolkit/network_mixins.py"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(network_source.count("self.did_change_weights = True"), 4)
+        for phrase in (
+            "Expanding {key}",
+            "Shrinking {key}",
+            "lora_down",
+            "lora_up",
+        ):
+            self.assertIn(phrase, network_source)
 
     def test_catalog_save_sample_validation_scope_is_complete_and_source_derived(self):
         facts = tuple(
