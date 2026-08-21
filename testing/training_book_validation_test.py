@@ -1570,6 +1570,17 @@ class CatalogProductionSliceTests(unittest.TestCase):
                     and item.key in {"lr_scheduler", "lr_scheduler_params"}
                 )
             )
+        if scope == "training":
+            return (
+                (
+                    item.source == "toolkit/config_modules.py"
+                    and item.symbol == "TrainConfig.__init__"
+                )
+                or item.source == "toolkit/optimizer.py"
+                or item.source.startswith("toolkit/optimizers/")
+                or item.source == "toolkit/scheduler.py"
+                or item.source.startswith("toolkit/samplers/")
+            )
         raise AssertionError(f"unknown catalog test scope {scope!r}")
 
     def assert_catalog_selector_green(self, *arguments):
@@ -1867,6 +1878,9 @@ class CatalogProductionSliceTests(unittest.TestCase):
             ("train.steps", "fallback"),
             {(item.setting, item.kind) for item in total_iters.interactions},
         )
+
+    def test_catalog_training_scope_is_exactly_owned(self):
+        self.assert_catalog_selector_green("--scope", "training")
 
     def test_catalog_process_get_conf_null_semantics_are_exhaustive(self):
         catalog = load_settings_catalog(

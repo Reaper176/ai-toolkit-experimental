@@ -99,6 +99,19 @@ def _in_core(item) -> bool:
     )
 
 
+def _in_training(item) -> bool:
+    return (
+        (
+            item.source == "toolkit/config_modules.py"
+            and item.symbol == "TrainConfig.__init__"
+        )
+        or item.source == "toolkit/optimizer.py"
+        or item.source.startswith("toolkit/optimizers/")
+        or item.source == "toolkit/scheduler.py"
+        or item.source.startswith("toolkit/samplers/")
+    )
+
+
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inventory-json", type=Path)
@@ -251,7 +264,8 @@ def main() -> None:
                 )
             target_mode = True
         elif arguments.scope in (
-            ["core-process"], ["core-io-network"], ["core-modules"], ["core"]
+            ["core-process"], ["core-io-network"], ["core-modules"], ["core"],
+            ["training"],
         ):
             production_scope = arguments.scope[0]
         elif arguments.scope != ["discovery-fixtures"]:
@@ -332,6 +346,12 @@ def main() -> None:
                 tuple(fact for fact in discovered if _in_core(fact)),
                 tuple(claim for claim in claims if _in_core(claim)),
                 tuple(item for item in exclusions if _in_core(item)),
+            )
+        if production_scope == "training":
+            validate_setting_ownership(
+                tuple(fact for fact in discovered if _in_training(fact)),
+                tuple(claim for claim in claims if _in_training(claim)),
+                tuple(item for item in exclusions if _in_training(item)),
             )
 
 
