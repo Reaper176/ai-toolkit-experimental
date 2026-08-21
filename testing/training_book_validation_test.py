@@ -1967,7 +1967,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 )
         eps_rows = {setting.id: setting for setting in parameter_settings if setting.id.endswith(".param.eps")}
         self.assertEqual(eps_rows["optimizer.adafactor.param.eps"].contract.parser_type, "number-pair")
-        self.assertEqual(eps_rows["optimizer.automagic.param.eps"].contract.parser_type, "number-pair")
+        self.assertEqual(eps_rows["optimizer.automagic.param.eps"].contract.parser_type, "number-or-number-pair")
         for setting_id, setting in eps_rows.items():
             if setting_id not in {"optimizer.adafactor.param.eps", "optimizer.automagic.param.eps"}:
                 self.assertEqual(setting.contract.parser_type, "number")

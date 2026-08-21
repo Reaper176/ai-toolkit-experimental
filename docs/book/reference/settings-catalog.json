@@ -23550,7 +23550,7 @@
       ],
       "contract": {
         "parser_type": "number-pair",
-        "supported_type": "two-positive-numbers",
+        "supported_type": "two-numbers-in-[0, 1)",
         "ui_type": null,
         "example_type": "number-list",
         "accepted_values": null,
@@ -23592,7 +23592,7 @@
         "description": "Configures betas for adam8 or adamw8.",
         "benefits": "Keeps betas scoped to the constructor behavior of adam8 or adamw8.",
         "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "betas: [1e-30, 0.001]"
+        "example": "betas: [0.0, 0.999]"
       }
     },
     {
@@ -24759,8 +24759,8 @@
         }
       ],
       "contract": {
-        "parser_type": "number-pair",
-        "supported_type": "two-positive-numbers",
+        "parser_type": "number-or-number-pair",
+        "supported_type": "positive-number-or-two-positive-numbers",
         "ui_type": null,
         "example_type": "number-list",
         "accepted_values": null,
@@ -24799,10 +24799,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic-param-eps",
-        "description": "Configures eps for automagic.",
-        "benefits": "Keeps eps scoped to the constructor behavior of automagic.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "eps: [1e-30, 0.001]"
+        "description": "Automagic uses scalar eps directly and uses the first element when eps is a tuple or list to stabilize its squared-gradient update.",
+        "benefits": "Use eps: 1e-30 to match Automagic’s scalar update floor without changing its denominator scale.",
+        "drawbacks": "A large Automagic eps can dominate small gradients and risks suppressing useful updates.",
+        "example": "eps: 1e-30"
       }
     },
     {
@@ -25599,7 +25599,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Automagic2 replaces a starting train.lr above 1e-3 with 1e-6 before optimizer state is created.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
@@ -26378,7 +26383,7 @@
         "description": "Configures max_lr for automagic3.",
         "benefits": "Keeps max_lr scoped to the constructor behavior of automagic3.",
         "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "max_lr: 0.001"
+        "example": "max_lr: 1000.0"
       }
     },
     {
@@ -26434,6 +26439,12 @@
           "kind": "requires",
           "description": "The selected optimizer determines whether min_lr is accepted, injected, or ignored.",
           "applicability": []
+        },
+        {
+          "setting": "optimizer.automagic3.param.max_lr",
+          "kind": "constrains",
+          "description": "Automagic3 requires min_lr <= max_lr during construction.",
+          "applicability": []
         }
       ],
       "aliases": [],
@@ -26451,8 +26462,8 @@
         "anchor": "optimizer-automagic3-param-min_lr",
         "description": "Configures min_lr for automagic3.",
         "benefits": "Keeps min_lr scoped to the constructor behavior of automagic3.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "min_lr: 1e-7"
+        "drawbacks": "If Automagic3 min_lr exceeds max_lr, construction raises ValueError; a floor that is too high risks preventing the controller from reducing unstable steps.",
+        "example": "min_lr: 1e-8"
       }
     },
     {
@@ -26501,7 +26512,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "automagic3 converts polarity_history to int and clamps it to the inclusive range 2 through 64.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
@@ -26627,7 +26643,7 @@
       ],
       "contract": {
         "parser_type": "number-pair",
-        "supported_type": "two-positive-numbers",
+        "supported_type": "pair-beta1-exactly-0-beta2-in-[0,1)",
         "ui_type": null,
         "example_type": "number-list",
         "accepted_values": null,
@@ -26666,10 +26682,10 @@
       "render": {
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagicexperiment-param-betas",
-        "description": "Configures betas for automagicexperiment.",
-        "benefits": "Keeps betas scoped to the constructor behavior of automagicexperiment.",
-        "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "betas: [1e-30, 0.001]"
+        "description": "AutomagicEXPERIMENT requires beta1=0 and uses beta2 for its bias-corrected squared-gradient EMA.",
+        "benefits": "Use betas: [0.0, 0.999] to preserve the source default and its sign-history controller.",
+        "drawbacks": "beta1 must be exactly 0 or AutomagicEXPERIMENT raises ValueError; beta2 outside [0, 1) risks invalid EMA behavior.",
+        "example": "betas: [0.0, 0.999]"
       }
     },
     {
@@ -27047,7 +27063,7 @@
         "description": "Configures max_lr for automagicexperiment.",
         "benefits": "Keeps max_lr scoped to the constructor behavior of automagicexperiment.",
         "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "max_lr: 0.001"
+        "example": "max_lr: 1000.0"
       }
     },
     {
@@ -27121,7 +27137,7 @@
         "description": "Configures min_lr for automagicexperiment.",
         "benefits": "Keeps min_lr scoped to the constructor behavior of automagicexperiment.",
         "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "min_lr: 1e-7"
+        "example": "min_lr: 1e-30"
       }
     },
     {
@@ -27170,7 +27186,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "automagicexperiment converts polarity_history to int and clamps it to the inclusive range 2 through 64.",
+          "applicability": []
+        }
+      ],
       "interactions": [
         {
           "setting": "train.optimizer",
@@ -28146,7 +28167,7 @@
       ],
       "contract": {
         "parser_type": "number-pair",
-        "supported_type": "two-positive-numbers",
+        "supported_type": "two-numbers-in-[0, 1)",
         "ui_type": null,
         "example_type": "number-list",
         "accepted_values": null,
@@ -28188,7 +28209,7 @@
         "description": "Configures betas for prodigy8bit*.",
         "benefits": "Keeps betas scoped to the constructor behavior of prodigy8bit*.",
         "drawbacks": "Values outside the selected optimizer constructor contract can fail during optimizer construction.",
-        "example": "betas: [1e-30, 0.001]"
+        "example": "betas: [0.0, 0.999]"
       }
     },
     {
