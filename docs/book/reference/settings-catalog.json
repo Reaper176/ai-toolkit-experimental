@@ -14927,7 +14927,7 @@
         "anchor": "train-gradient-accumulation",
         "description": "Sets the number of micro-batches accumulated for each visible training step.",
         "benefits": "Use accumulation to increase effective batch size when a full batch does not fit in memory.",
-        "drawbacks": "More accumulation risks slower feedback and cannot be combined with a nondefault legacy accumulation interval.",
+        "drawbacks": "More accumulation risks slower feedback and cannot be combined with a nondefault legacy interval; fused-backward optimizers update during each backward call instead of waiting for this outer accumulation loop.",
         "example": "gradient_accumulation: 4"
       }
     },
@@ -15391,6 +15391,4359 @@
         "benefits": "Use 1 to alternate at every supported boundary opportunity or a larger interval for longer stage runs.",
         "drawbacks": "A long interval risks imbalanced stage updates; the setting is inert for single-stage models.",
         "example": "switch_boundary_every: 1"
+      }
+    },
+    {
+      "id": "train.adaptive_scaling_factor",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.adaptive_scaling_factor"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "adaptive_scaling_factor",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-adaptive-scaling-factor",
+        "description": "Lets supported loaders adapt latent scaling from observed image norms.",
+        "benefits": "Can compensate when encoded magnitudes differ from the model's expected scale.",
+        "drawbacks": "Adaptive scaling changes input statistics and can make runs harder to compare.",
+        "example": "adaptive_scaling_factor: false"
+      }
+    },
+    {
+      "id": "train.audio_loss_multiplier",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.audio_loss_multiplier"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "audio_loss_multiplier",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-audio-loss-multiplier",
+        "description": "Scales the audio loss contribution in audio-capable training.",
+        "benefits": "Balances audio supervision against other loss terms in multimodal batches.",
+        "drawbacks": "A large multiplier can let audio dominate the shared update.",
+        "example": "audio_loss_multiplier: 1.0"
+      }
+    },
+    {
+      "id": "train.batch_noise_correction_scale",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.batch_noise_correction_scale"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0.1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "batch_noise_correction_scale",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-batch-noise-correction-scale",
+        "description": "Sets the strength of noise borrowed from other items for batch correction.",
+        "benefits": "Can discourage the model from drifting toward unrelated examples in the same batch.",
+        "drawbacks": "Strong correction adds cross-example interference and depends on meaningful batches.",
+        "example": "batch_noise_correction_scale: 0.1"
+      }
+    },
+    {
+      "id": "train.blank_prompt_preservation",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.blank_prompt_preservation"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.diff_output_preservation",
+          "kind": "conflicts",
+          "description": "Configuration validation rejects enabling both preservation modes.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "blank_prompt_preservation",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-blank-prompt-preservation",
+        "description": "Adds a preservation target generated from an empty prompt.",
+        "benefits": "Helps retain the base model's unconditional behavior while a network learns a concept.",
+        "drawbacks": "It requires a network and cannot run with differential output preservation.",
+        "example": "blank_prompt_preservation: false"
+      }
+    },
+    {
+      "id": "train.blank_prompt_preservation_multiplier",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.blank_prompt_preservation_multiplier"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.blank_prompt_preservation",
+          "kind": "requires",
+          "description": "The multiplier is consumed only when blank-prompt preservation supplies the active target.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "blank_prompt_preservation_multiplier",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-blank-prompt-preservation-multiplier",
+        "description": "Scales the blank-prompt preservation loss.",
+        "benefits": "Allows preservation strength to be balanced against the main objective.",
+        "drawbacks": "Too much preservation can suppress learning of the requested concept.",
+        "example": "blank_prompt_preservation_multiplier: 1.0"
+      }
+    },
+    {
+      "id": "train.blended_blur_noise",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.blended_blur_noise"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "blended_blur_noise",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-blended-blur-noise",
+        "description": "Blends blurred structure into generated training noise.",
+        "benefits": "Can expose the denoiser to a structured-noise variant for targeted experiments.",
+        "drawbacks": "The altered noise distribution may not match the base model's training process.",
+        "example": "blended_blur_noise: false"
+      }
+    },
+    {
+      "id": "train.cfg_rescale",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.cfg_rescale"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number-or-null",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission or explicit null is replaced with cfg_scale.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "train.cfg_scale",
+          "kind": "fallback",
+          "description": "Omission is normalized to cfg_scale before training uses the value.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "cfg_rescale",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-cfg-rescale",
+        "description": "Sets the CFG rescale used during CFG-enabled training targets.",
+        "benefits": "Separates guidance amplitude correction from the primary CFG scale.",
+        "drawbacks": "Omission falls back to cfg_scale, while an ill-chosen value can distort targets.",
+        "example": "cfg_rescale: 1.0"
+      }
+    },
+    {
+      "id": "train.cfg_scale",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.cfg_scale"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "cfg_scale",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-cfg-scale",
+        "description": "Sets the base classifier-free guidance scale used by training paths.",
+        "benefits": "Provides direct control over conditional extrapolation when CFG training is enabled.",
+        "drawbacks": "High guidance can amplify prediction errors and destabilize targets.",
+        "example": "cfg_scale: 1.0"
+      }
+    },
+    {
+      "id": "train.correct_pred_norm",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.correct_pred_norm"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "correct_pred_norm",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-correct-pred-norm",
+        "description": "Corrects target statistics using the prediction mean and standard deviation.",
+        "benefits": "Can counter prediction-norm drift when a prior prediction is available.",
+        "drawbacks": "The extra prior pass and normalization can increase cost and alter loss geometry.",
+        "example": "correct_pred_norm: false"
+      }
+    },
+    {
+      "id": "train.correct_pred_norm_multiplier",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.correct_pred_norm_multiplier"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "correct_pred_norm_multiplier",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-correct-pred-norm-multiplier",
+        "description": "Scales prediction-norm correction before it is applied.",
+        "benefits": "Allows the norm correction to be introduced gently.",
+        "drawbacks": "Large multipliers can overcorrect and replace useful target variation.",
+        "example": "correct_pred_norm_multiplier: 1.0"
+      }
+    },
+    {
+      "id": "train.diff_output_preservation",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.diff_output_preservation"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.blank_prompt_preservation",
+          "kind": "conflicts",
+          "description": "Configuration validation rejects enabling both preservation modes.",
+          "applicability": []
+        },
+        {
+          "setting": "train.train_text_encoder",
+          "kind": "conflicts",
+          "description": "SDTrainer rejects differential output preservation while text encoders are trained.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "diff_output_preservation",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-diff-output-preservation",
+        "description": "Preserves the network-off output for a prompt with the trigger removed.",
+        "benefits": "Helps a LoRA learn the trigger-specific difference instead of rewriting the whole class.",
+        "drawbacks": "It requires a trigger and network, conflicts with text-encoder training, and excludes blank preservation.",
+        "example": "diff_output_preservation: false"
+      }
+    },
+    {
+      "id": "train.diff_output_preservation_class",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.diff_output_preservation_class"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "diff_output_preservation_class",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-diff-output-preservation-class",
+        "description": "Replaces the trigger with a class phrase for differential preservation.",
+        "benefits": "Provides a stable class prompt when the trigger should be removed from the reference pass.",
+        "drawbacks": "A poor replacement class teaches preservation against the wrong semantic baseline.",
+        "example": "diff_output_preservation_class: person"
+      }
+    },
+    {
+      "id": "train.diff_output_preservation_multiplier",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.diff_output_preservation_multiplier"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.diff_output_preservation",
+          "kind": "requires",
+          "description": "The multiplier is consumed only when differential preservation supplies the active preservation target.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "diff_output_preservation_multiplier",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-diff-output-preservation-multiplier",
+        "description": "Scales the differential-output preservation loss.",
+        "benefits": "Balances class preservation against trigger-specific learning.",
+        "drawbacks": "Excessive weight can prevent the network from making the desired change.",
+        "example": "diff_output_preservation_multiplier: 1.0"
+      }
+    },
+    {
+      "id": "train.differential_guidance_scale",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.differential_guidance_scale"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 3,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.do_differential_guidance",
+          "kind": "requires",
+          "description": "The scale is consumed by the differential-guidance path.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "differential_guidance_scale",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-differential-guidance-scale",
+        "description": "Sets the extrapolation scale for differential guidance loss.",
+        "benefits": "Controls how strongly the guided difference contributes to training.",
+        "drawbacks": "Large extrapolation magnifies noisy differences and can destabilize loss.",
+        "example": "differential_guidance_scale: 3.0"
+      }
+    },
+    {
+      "id": "train.disable_sampling",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.disable_sampling"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.skip_first_sample",
+          "kind": "overrides",
+          "description": "Disabling sampling subsumes the first-sample skip.",
+          "applicability": []
+        },
+        {
+          "setting": "train.force_first_sample",
+          "kind": "overrides",
+          "description": "Disabling sampling prevents even a forced first sample.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "disable_sampling",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-disable-sampling",
+        "description": "Disables first, periodic, and final sample generation for the run.",
+        "benefits": "Saves generation time and memory in runs evaluated by other means.",
+        "drawbacks": "Removing samples makes qualitative regressions harder to catch during training.",
+        "example": "disable_sampling: false"
+      }
+    },
+    {
+      "id": "train.do_batch_noise_correction",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.do_batch_noise_correction"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "do_batch_noise_correction",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-do-batch-noise-correction",
+        "description": "Enables batch-derived noise correction.",
+        "benefits": "Can push each item away from features represented by its batch neighbors.",
+        "drawbacks": "It adds a batch-dependent signal and has little meaning for isolated items.",
+        "example": "do_batch_noise_correction: false"
+      }
+    },
+    {
+      "id": "train.do_blank_stabilization",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.do_blank_stabilization"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "do_blank_stabilization",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-do-blank-stabilization",
+        "description": "Enables zero-prediction stabilization for empty prompts.",
+        "benefits": "Can reduce unwanted output from unconditional text conditioning.",
+        "drawbacks": "The extra objective may weaken useful unconditional behavior if overemphasized.",
+        "example": "do_blank_stabilization: false"
+      }
+    },
+    {
+      "id": "train.do_cfg",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.do_cfg"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "do_cfg",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-do-cfg",
+        "description": "Enables classifier-free-guidance construction during training.",
+        "benefits": "Can train against conditional and unconditional predictions explicitly.",
+        "drawbacks": "CFG training adds model work and depends on compatible prompt handling.",
+        "example": "do_cfg: false"
+      }
+    },
+    {
+      "id": "train.do_differential_guidance",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.do_differential_guidance"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.differential_guidance_scale",
+          "kind": "requires",
+          "description": "The scale controls the differential-guidance extrapolation.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "do_differential_guidance",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-do-differential-guidance",
+        "description": "Enables the differential-guidance objective.",
+        "benefits": "Can emphasize the change produced by guidance instead of only absolute prediction error.",
+        "drawbacks": "The additional extrapolated target can be noisy and is architecture-sensitive.",
+        "example": "do_differential_guidance: false"
+      }
+    },
+    {
+      "id": "train.do_fft_loss",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.do_fft_loss"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "do_fft_loss",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-do-fft-loss",
+        "description": "Adds a frequency-domain loss term.",
+        "benefits": "Can emphasize frequency structure that pixel losses underweight.",
+        "drawbacks": "FFT loss increases computation and may over-prioritize texture frequencies.",
+        "example": "do_fft_loss: false"
+      }
+    },
+    {
+      "id": "train.do_fft_velocity_equiv_weight",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.do_fft_velocity_equiv_weight"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "do_fft_velocity_equiv_weight",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-do-fft-velocity-equiv-weight",
+        "description": "Applies velocity-equivalent weighting to the FFT objective.",
+        "benefits": "Can align frequency loss weighting with velocity-style timestep behavior.",
+        "drawbacks": "Combining specialized weights makes the effective objective harder to interpret.",
+        "example": "do_fft_velocity_equiv_weight: false"
+      }
+    },
+    {
+      "id": "train.do_guidance_loss",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.do_guidance_loss"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.guidance_loss_target",
+          "kind": "requires",
+          "description": "The target supplies the guidance value used by the auxiliary loss.",
+          "applicability": []
+        },
+        {
+          "setting": "train.guidance_loss_schedule",
+          "kind": "requires",
+          "description": "The schedule controls whether that target stays constant or decays with sigma.",
+          "applicability": []
+        },
+        {
+          "setting": "train.bypass_guidance_embedding",
+          "kind": "conflicts",
+          "description": "Configuration validation rejects guidance loss while guidance embedding is bypassed.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "do_guidance_loss",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-do-guidance-loss",
+        "description": "Enables a guidance-distillation loss toward a configured target.",
+        "benefits": "Supports models that need explicit guidance behavior during fine-tuning.",
+        "drawbacks": "It conflicts with bypassed guidance embeddings and adds another coupled objective.",
+        "example": "do_guidance_loss: false"
+      }
+    },
+    {
+      "id": "train.do_guidance_loss_cfg_zero",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.do_guidance_loss_cfg_zero"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "do_guidance_loss_cfg_zero",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-do-guidance-loss-cfg-zero",
+        "description": "Uses zero CFG conditioning for the guidance-loss auxiliary pass.",
+        "benefits": "Can isolate guidance behavior from a nonzero CFG baseline.",
+        "drawbacks": "Zero conditioning may be inappropriate for models trained around a fixed guidance value.",
+        "example": "do_guidance_loss_cfg_zero: false"
+      }
+    },
+    {
+      "id": "train.do_prior_divergence",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.do_prior_divergence"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "do_prior_divergence",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-do-prior-divergence",
+        "description": "Applies negative prior loss to encourage divergence from the base prediction.",
+        "benefits": "Can deliberately push a concept away from its pretrained prior.",
+        "drawbacks": "Negative loss can erase useful prior knowledge or produce unstable gradients.",
+        "example": "do_prior_divergence: false"
+      }
+    },
+    {
+      "id": "train.do_random_cfg",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.do_random_cfg"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.max_cfg_scale",
+          "kind": "requires",
+          "description": "Random CFG needs the configured maximum to define its scale range.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "do_random_cfg",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-do-random-cfg",
+        "description": "Randomizes CFG scale within the configured range.",
+        "benefits": "Exposes the model to more than one guidance strength.",
+        "drawbacks": "Random guidance adds target variance and depends on a sensible maximum scale.",
+        "example": "do_random_cfg: false"
+      }
+    },
+    {
+      "id": "train.do_signal_amplification",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.do_signal_amplification"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "do_signal_amplification",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-do-signal-amplification",
+        "description": "Amplifies selected training signal before target construction.",
+        "benefits": "Can strengthen a weak target signal in experimental recipes.",
+        "drawbacks": "Amplification also magnifies noise and can destabilize updates.",
+        "example": "do_signal_amplification: false"
+      }
+    },
+    {
+      "id": "train.do_signal_correction_noise",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.do_signal_correction_noise"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "do_signal_correction_noise",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-do-signal-correction-noise",
+        "description": "Adds signal-correction noise during noising.",
+        "benefits": "Can compensate for signal leakage in selected training setups.",
+        "drawbacks": "The corrected distribution differs from ordinary scheduler noise.",
+        "example": "do_signal_correction_noise: false"
+      }
+    },
+    {
+      "id": "train.dtype",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.dtype"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "float",
+          "fp32",
+          "single",
+          "float32",
+          "fp16",
+          "half",
+          "float16",
+          "bf16",
+          "bfloat16",
+          "8bit",
+          "e4m3fn",
+          "float8"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "fp32",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "dtype",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-dtype",
+        "description": "Selects the tensor dtype used by training components.",
+        "benefits": "Lower precision can reduce memory use and increase accelerator throughput.",
+        "drawbacks": "Low precision can overflow or lose small updates, and float8 needs hardware and kernels that support it.",
+        "example": "dtype: bf16"
+      }
+    },
+    {
+      "id": "train.dynamic_noise_offset",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.dynamic_noise_offset"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "dynamic_noise_offset",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-dynamic-noise-offset",
+        "description": "Makes noise offset vary dynamically instead of remaining fixed.",
+        "benefits": "Can diversify offset exposure across training examples.",
+        "drawbacks": "Dynamic offsets add variance and reduce reproducibility of the target distribution.",
+        "example": "dynamic_noise_offset: false"
+      }
+    },
+    {
+      "id": "train.ema_config",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.ema_config"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object-or-null",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission or null becomes an EMAConfig with use_ema false; an object with use_ema true is normalized before construction.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "ema_config",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-ema-config",
+        "description": "Configures the exponential moving average of trained parameters.",
+        "benefits": "EMA can provide a smoother parameter snapshot for saving or evaluation.",
+        "drawbacks": "It consumes additional memory and a slow decay can lag rapid learning.",
+        "example": "ema_config: {use_ema: true, ema_decay: 0.99}"
+      }
+    },
+    {
+      "id": "train.force_consistent_noise",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.force_consistent_noise"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "force_consistent_noise",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-force-consistent-noise",
+        "description": "Reuses consistent noise for the same image and size.",
+        "benefits": "Reduces noise variation when comparing repeated presentations of an example.",
+        "drawbacks": "Less noise diversity can encourage memorization of image-specific trajectories.",
+        "example": "force_consistent_noise: false"
+      }
+    },
+    {
+      "id": "train.force_first_sample",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.force_first_sample"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.disable_sampling",
+          "kind": "overrides",
+          "description": "disable_sampling takes precedence and prevents the forced first sample.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "force_first_sample",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-force-first-sample",
+        "description": "Forces initial sample generation even when ordinary first-sample logic would skip it.",
+        "benefits": "Provides a baseline sample at the start of a run.",
+        "drawbacks": "The extra generation delays training and disable_sampling still takes precedence.",
+        "example": "force_first_sample: false"
+      }
+    },
+    {
+      "id": "train.gradient_checkpointing",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.gradient_checkpointing"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "gradient_checkpointing",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-gradient-checkpointing",
+        "description": "Recomputes supported module activations during backward to save memory.",
+        "benefits": "Enables larger models or resolutions within the same VRAM budget.",
+        "drawbacks": "Backward becomes slower and only components exposing checkpoint support are affected.",
+        "example": "gradient_checkpointing: true"
+      }
+    },
+    {
+      "id": "train.guidance_loss_schedule",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.guidance_loss_schedule"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "constant",
+          "sigma"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "sigma",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.do_guidance_loss",
+          "kind": "requires",
+          "description": "The schedule affects training only while guidance loss is enabled.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "guidance_loss_schedule",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-guidance-loss-schedule",
+        "description": "Chooses constant or sigma-decayed guidance-loss targeting.",
+        "benefits": "Sigma decay reduces extrapolation as fresh-noise influence becomes less predictable.",
+        "drawbacks": "A schedule that does not match the model's guidance behavior can misweight timesteps.",
+        "example": "guidance_loss_schedule: sigma"
+      }
+    },
+    {
+      "id": "train.guidance_loss_target",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.guidance_loss_target"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 3,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "A tuple guidance target is converted to a list after parsing.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "train.do_guidance_loss",
+          "kind": "requires",
+          "description": "The target affects training only while guidance loss is enabled.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "guidance_loss_target",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-guidance-loss-target",
+        "description": "Sets the guidance target, optionally supplied as a list before normalization.",
+        "benefits": "Controls the endpoint used by the auxiliary guidance objective.",
+        "drawbacks": "An aggressive target can amplify unstable conditional differences.",
+        "example": "guidance_loss_target: 3.0"
+      }
+    },
+    {
+      "id": "train.img_multiplier",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.img_multiplier"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "img_multiplier",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-img-multiplier",
+        "description": "Scales image tensors before supported latent preparation.",
+        "benefits": "Can correct known input scaling differences in specialized pipelines.",
+        "drawbacks": "Changing image magnitude can invalidate model normalization assumptions.",
+        "example": "img_multiplier: 1.0"
+      }
+    },
+    {
+      "id": "train.inverted_mask_prior",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.inverted_mask_prior"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.inverted_mask_prior_multiplier",
+          "kind": "affects",
+          "description": "The multiplier directly scales the prior loss outside the active mask.",
+          "applicability": []
+        },
+        {
+          "setting": "train.train_turbo",
+          "kind": "conflicts",
+          "description": "SDTrainer asserts that Turbo training is disabled when it computes the inverted-mask prior.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "inverted_mask_prior",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-inverted-mask-prior",
+        "description": "Uses the network-off prediction as an unmasked-region prior target.",
+        "benefits": "Preserves areas outside a dataset mask while the masked concept changes.",
+        "drawbacks": "It requires masks and a prior prediction, and Turbo training triggers source assertions.",
+        "example": "inverted_mask_prior: false"
+      }
+    },
+    {
+      "id": "train.inverted_mask_prior_multiplier",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.inverted_mask_prior_multiplier"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0.5,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.inverted_mask_prior",
+          "kind": "requires",
+          "description": "The multiplier is used only when an inverted-mask prior prediction and mask are available.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "inverted_mask_prior_multiplier",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-inverted-mask-prior-multiplier",
+        "description": "Scales loss from the inverted-mask prior region.",
+        "benefits": "Balances unmasked preservation against learning inside the mask.",
+        "drawbacks": "A large value can dominate the main masked objective.",
+        "example": "inverted_mask_prior_multiplier: 0.5"
+      }
+    },
+    {
+      "id": "train.latent_multiplier",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.latent_multiplier"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "latent_multiplier",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-latent-multiplier",
+        "description": "Scales clean latents used by supported training paths.",
+        "benefits": "Can match a specialized model's latent magnitude convention.",
+        "drawbacks": "Incorrect scaling changes both noising and target magnitudes.",
+        "example": "latent_multiplier: 1.0"
+      }
+    },
+    {
+      "id": "train.loss_target",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.loss_target"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "noise",
+          "source",
+          "unaugmented",
+          "differential_noise"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "noise",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "loss_target",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-loss-target",
+        "description": "Selects which prediction target the loss compares against.",
+        "benefits": "Supports noise prediction and source-oriented objectives used by specialized recipes.",
+        "drawbacks": "A target incompatible with the scheduler or model prediction type produces misleading gradients.",
+        "example": "loss_target: noise"
+      }
+    },
+    {
+      "id": "train.loss_type",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.loss_type"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "mse",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "loss_type",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-loss-type",
+        "description": "Selects MSE or a recognized alternate loss calculation.",
+        "benefits": "MAE, pseudo-Huber, wavelet, stepped, and mean-flow paths allow task-specific error shaping.",
+        "drawbacks": "Unrecognized spellings fall through ordinary MSE paths instead of selecting a new loss.",
+        "example": "loss_type: pseudo_huber"
+      }
+    },
+    {
+      "id": "train.match_noise_norm",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.match_noise_norm"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "match_noise_norm",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-match-noise-norm",
+        "description": "Matches sampled noise norm before loss construction.",
+        "benefits": "Can retain the model's learned brightness or magnitude distribution.",
+        "drawbacks": "Norm matching removes natural variation and can bias the noise statistics.",
+        "example": "match_noise_norm: false"
+      }
+    },
+    {
+      "id": "train.max_cfg_scale",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.max_cfg_scale"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "train.cfg_scale"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission inherits cfg_scale; explicit null is preserved and is not a numeric upper bound.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "train.cfg_scale",
+          "kind": "constrains",
+          "description": "Random CFG draws use cfg_scale as the lower endpoint and max_cfg_scale as the upper endpoint.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "max_cfg_scale",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-max-cfg-scale",
+        "description": "Sets the upper CFG scale used when random CFG is enabled.",
+        "benefits": "Bounds random guidance to a deliberate range.",
+        "drawbacks": "A maximum below cfg_scale or an excessive ceiling makes randomization unhelpful or unstable.",
+        "example": "max_cfg_scale: 4.0"
+      }
+    },
+    {
+      "id": "train.max_grad_norm",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.max_grad_norm"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "max_grad_norm",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-max-grad-norm",
+        "description": "Clips ordinary optimizer gradients to the configured norm.",
+        "benefits": "Limits unusually large updates before non-fused optimizer steps.",
+        "drawbacks": "Fused-backward optimizers update inside backward before this clipping point, so the limit cannot constrain those updates.",
+        "example": "max_grad_norm: 1.0"
+      }
+    },
+    {
+      "id": "train.max_loss",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.max_loss"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number-or-null",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "max_loss",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-max-loss",
+        "description": "Clips supported per-step loss values at a maximum.",
+        "benefits": "Can keep rare extreme losses from dominating an update.",
+        "drawbacks": "Clipping can hide data or numerical failures and changes the objective above the cap.",
+        "example": "max_loss: 10.0"
+      }
+    },
+    {
+      "id": "train.max_loss_debug",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.max_loss_debug"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "max_loss_debug",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-max-loss-debug",
+        "description": "Enables detailed diagnostics when loss exceeds the configured maximum.",
+        "benefits": "Helps trace examples that create extreme loss values.",
+        "drawbacks": "Additional diagnostics can be noisy and do not fix the underlying instability.",
+        "example": "max_loss_debug: false"
+      }
+    },
+    {
+      "id": "train.max_negative_prompts",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.max_negative_prompts"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "max_negative_prompts",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-max-negative-prompts",
+        "description": "Limits how many negative prompts are retained for supported CFG paths.",
+        "benefits": "Bounds negative-conditioning work and memory.",
+        "drawbacks": "Too few negatives reduce variety; extra entries add encoding cost.",
+        "example": "max_negative_prompts: 1"
+      }
+    },
+    {
+      "id": "train.noise_multiplier",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.noise_multiplier"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "noise_multiplier",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-noise-multiplier",
+        "description": "Scales the primary sampled noise.",
+        "benefits": "Allows deliberate adjustment of noising strength in specialized recipes.",
+        "drawbacks": "Departing from scheduler scale changes the training distribution.",
+        "example": "noise_multiplier: 1.0"
+      }
+    },
+    {
+      "id": "train.noise_offset",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.noise_offset"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "noise_offset",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-noise-offset",
+        "description": "Adds an offset component to sampled training noise.",
+        "benefits": "Can improve learning of very bright or dark image distributions.",
+        "drawbacks": "Large offsets bias the model away from the scheduler's original noise process.",
+        "example": "noise_offset: 0.05"
+      }
+    },
+    {
+      "id": "train.noisy_latent_multiplier",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.noisy_latent_multiplier"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "noisy_latent_multiplier",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-noisy-latent-multiplier",
+        "description": "Scales latents after noise is applied.",
+        "benefits": "Can match specialized model input magnitude conventions.",
+        "drawbacks": "The multiplier alters the denoiser input without changing the nominal timestep.",
+        "example": "noisy_latent_multiplier: 1.0"
+      }
+    },
+    {
+      "id": "train.optimal_noise_pairing_samples",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.optimal_noise_pairing_samples"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "optimal_noise_pairing_samples",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-optimal-noise-pairing-samples",
+        "description": "Sets the candidate count for optimal noise pairing.",
+        "benefits": "Multiple candidates can choose noise better matched to an image under the pairing heuristic.",
+        "drawbacks": "More candidates increase preparation cost and can reduce stochastic diversity.",
+        "example": "optimal_noise_pairing_samples: 1"
+      }
+    },
+    {
+      "id": "train.pred_scaler",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.pred_scaler"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "pred_scaler",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-pred-scaler",
+        "description": "Scales model predictions before selected loss calculations.",
+        "benefits": "Can tune detail emphasis in experimental objectives.",
+        "drawbacks": "Prediction scaling changes loss magnitude and can require learning-rate retuning.",
+        "example": "pred_scaler: 1.0"
+      }
+    },
+    {
+      "id": "train.prompt_dropout_prob",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.prompt_dropout_prob"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "prompt_dropout_prob",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-prompt-dropout-prob",
+        "description": "Sets the probability of dropping text before encoding.",
+        "benefits": "Builds robustness to missing conditioning and supplies unconditional examples.",
+        "drawbacks": "Too much dropout weakens prompt alignment.",
+        "example": "prompt_dropout_prob: 0.1"
+      }
+    },
+    {
+      "id": "train.prompt_saturation_chance",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.prompt_saturation_chance"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "prompt_saturation_chance",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-prompt-saturation-chance",
+        "description": "Sets the chance of repeating a prompt to saturate the encoder.",
+        "benefits": "Can test stronger text-encoder activation for prompt-sensitive concepts.",
+        "drawbacks": "Repeated text may create unnatural conditioning and token truncation.",
+        "example": "prompt_saturation_chance: 0.1"
+      }
+    },
+    {
+      "id": "train.random_noise_multiplier",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.random_noise_multiplier"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "random_noise_multiplier",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-random-noise-multiplier",
+        "description": "Adds random variation to the noise multiplier.",
+        "benefits": "Broadens the noising strengths seen during training.",
+        "drawbacks": "Extra randomness makes targets less reproducible and can exceed useful scale.",
+        "example": "random_noise_multiplier: 0.1"
+      }
+    },
+    {
+      "id": "train.random_noise_shift",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.random_noise_shift"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "random_noise_shift",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-random-noise-shift",
+        "description": "Randomly shifts sampled noise values.",
+        "benefits": "Can diversify offset-like perturbations across batches.",
+        "drawbacks": "Large shifts bias the noise mean and destabilize scheduler assumptions.",
+        "example": "random_noise_shift: 0.05"
+      }
+    },
+    {
+      "id": "train.show_turbo_outputs",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.show_turbo_outputs"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.train_turbo",
+          "kind": "requires",
+          "description": "Raw Turbo output display is reached only in Turbo sampling.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "show_turbo_outputs",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-show-turbo-outputs",
+        "description": "Shows raw Turbo outputs in the sampling path.",
+        "benefits": "Makes Turbo-specific behavior visible during qualitative evaluation.",
+        "drawbacks": "It has no training effect without train_turbo and adds sample work.",
+        "example": "show_turbo_outputs: false"
+      }
+    },
+    {
+      "id": "train.signal_amplification_strength",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.signal_amplification_strength"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0.5,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "signal_amplification_strength",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-signal-amplification-strength",
+        "description": "Sets the strength used when signal amplification is enabled.",
+        "benefits": "Allows the experimental signal boost to be tuned gradually.",
+        "drawbacks": "High strength magnifies artifacts along with useful signal.",
+        "example": "signal_amplification_strength: 0.5"
+      }
+    },
+    {
+      "id": "train.signal_correction_noise_scale",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.signal_correction_noise_scale"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "signal_correction_noise_scale",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-signal-correction-noise-scale",
+        "description": "Scales the correction-noise term.",
+        "benefits": "Controls how much signal correction changes the sampled noise.",
+        "drawbacks": "Large values can overwhelm the scheduler noise.",
+        "example": "signal_correction_noise_scale: 1.0"
+      }
+    },
+    {
+      "id": "train.skip_first_sample",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.skip_first_sample"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.force_first_sample",
+          "kind": "overrides",
+          "description": "skip_first_sample is checked before force_first_sample in initial sampling logic.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "skip_first_sample",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-skip-first-sample",
+        "description": "Skips automatic sample generation at the first training step.",
+        "benefits": "Starts optimization sooner when a baseline sample is unnecessary.",
+        "drawbacks": "Without an initial sample there is no direct visual before-and-after reference.",
+        "example": "skip_first_sample: false"
+      }
+    },
+    {
+      "id": "train.standardize_images",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.standardize_images"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "standardize_images",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-standardize-images",
+        "description": "Standardizes image inputs to reference mean and variance.",
+        "benefits": "Can align atypical datasets with expected input statistics.",
+        "drawbacks": "Standardization changes colors and contrast when the model did not expect it.",
+        "example": "standardize_images: false"
+      }
+    },
+    {
+      "id": "train.standardize_latents",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.standardize_latents"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "standardize_latents",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-standardize-latents",
+        "description": "Standardizes encoded latents before training.",
+        "benefits": "Can compensate for latent statistics that differ from the model baseline.",
+        "drawbacks": "It changes the latent distribution and may conflict with fixed VAE scaling.",
+        "example": "standardize_latents: false"
+      }
+    },
+    {
+      "id": "train.t0_loss_target",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.t0_loss_target"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "t0_loss_target",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-t0-loss-target",
+        "description": "Adds a target based on prediction at timestep zero.",
+        "benefits": "Can directly supervise the fully denoised endpoint.",
+        "drawbacks": "The extra target increases compute and may compete with the sampled-timestep objective.",
+        "example": "t0_loss_target: false"
+      }
+    },
+    {
+      "id": "train.t0_velocity_equiv_weight",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.t0_velocity_equiv_weight"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "t0_velocity_equiv_weight",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-t0-velocity-equiv-weight",
+        "description": "Applies velocity-equivalent weighting to the timestep-zero loss.",
+        "benefits": "Can align the endpoint objective with velocity prediction scaling.",
+        "drawbacks": "Specialized weighting complicates comparison with ordinary t0 loss.",
+        "example": "t0_velocity_equiv_weight: false"
+      }
+    },
+    {
+      "id": "train.target_noise_multiplier",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.target_noise_multiplier"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "target_noise_multiplier",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-target-noise-multiplier",
+        "description": "Scales noise used in target construction independently of input noise.",
+        "benefits": "Allows experimental target magnitude adjustment.",
+        "drawbacks": "Different input and target scales can create inconsistent denoising supervision.",
+        "example": "target_noise_multiplier: 1.0"
+      }
+    },
+    {
+      "id": "train.target_norm_std",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.target_norm_std"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number-or-null",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "target_norm_std",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-target-norm-std",
+        "description": "Enables target standard-deviation correction when set.",
+        "benefits": "Can encourage predictions toward a chosen output spread.",
+        "drawbacks": "Forcing a target spread can remove useful variation or destabilize normalization.",
+        "example": "target_norm_std: 0.5"
+      }
+    },
+    {
+      "id": "train.target_norm_std_value",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.target_norm_std_value"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.target_norm_std",
+          "kind": "requires",
+          "description": "The target value is used when target standard-deviation correction is enabled.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "target_norm_std_value",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-target-norm-std-value",
+        "description": "Sets the desired standard deviation for target-norm correction.",
+        "benefits": "Provides the numeric endpoint used by the correction path.",
+        "drawbacks": "A mismatched value biases output contrast or magnitude.",
+        "example": "target_norm_std_value: 1.0"
+      }
+    },
+    {
+      "id": "train.unconditional_prompt",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.unconditional_prompt"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "unconditional_prompt",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-unconditional-prompt",
+        "description": "Sets the unconditional text used by guidance loss.",
+        "benefits": "Allows guidance training to use a deliberate negative or empty baseline.",
+        "drawbacks": "A semantically loaded baseline changes what the guidance difference means.",
+        "example": "unconditional_prompt: low quality"
       }
     }
   ]

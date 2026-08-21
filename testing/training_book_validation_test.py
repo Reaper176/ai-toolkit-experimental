@@ -1354,6 +1354,78 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "weight_jitter",
         }
     )
+    TRAIN_NUMERIC_KEYS = frozenset(
+        {
+            "adaptive_scaling_factor",
+            "audio_loss_multiplier",
+            "batch_noise_correction_scale",
+            "blank_prompt_preservation",
+            "blank_prompt_preservation_multiplier",
+            "blended_blur_noise",
+            "cfg_rescale",
+            "cfg_scale",
+            "correct_pred_norm",
+            "correct_pred_norm_multiplier",
+            "diff_output_preservation",
+            "diff_output_preservation_class",
+            "diff_output_preservation_multiplier",
+            "differential_guidance_scale",
+            "disable_sampling",
+            "do_batch_noise_correction",
+            "do_blank_stabilization",
+            "do_cfg",
+            "do_differential_guidance",
+            "do_fft_loss",
+            "do_fft_velocity_equiv_weight",
+            "do_guidance_loss",
+            "do_guidance_loss_cfg_zero",
+            "do_prior_divergence",
+            "do_random_cfg",
+            "do_signal_amplification",
+            "do_signal_correction_noise",
+            "dtype",
+            "dynamic_noise_offset",
+            "ema_config",
+            "force_consistent_noise",
+            "force_first_sample",
+            "gradient_checkpointing",
+            "guidance_loss_schedule",
+            "guidance_loss_target",
+            "img_multiplier",
+            "inverted_mask_prior",
+            "inverted_mask_prior_multiplier",
+            "latent_multiplier",
+            "loss_target",
+            "loss_type",
+            "match_noise_norm",
+            "max_cfg_scale",
+            "max_grad_norm",
+            "max_loss",
+            "max_loss_debug",
+            "max_negative_prompts",
+            "noise_multiplier",
+            "noise_offset",
+            "noisy_latent_multiplier",
+            "optimal_noise_pairing_samples",
+            "pred_scaler",
+            "prompt_dropout_prob",
+            "prompt_saturation_chance",
+            "random_noise_multiplier",
+            "random_noise_shift",
+            "show_turbo_outputs",
+            "signal_amplification_strength",
+            "signal_correction_noise_scale",
+            "skip_first_sample",
+            "standardize_images",
+            "standardize_latents",
+            "t0_loss_target",
+            "t0_velocity_equiv_weight",
+            "target_noise_multiplier",
+            "target_norm_std",
+            "target_norm_std_value",
+            "unconditional_prompt",
+        }
+    )
 
     @classmethod
     def setUpClass(cls):
@@ -1432,6 +1504,12 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 item.source == "toolkit/config_modules.py"
                 and item.symbol == "TrainConfig.__init__"
                 and item.key in cls.TRAIN_SCHEDULE_KEYS
+            )
+        if scope == "train-numerics":
+            return (
+                item.source == "toolkit/config_modules.py"
+                and item.symbol == "TrainConfig.__init__"
+                and item.key in cls.TRAIN_NUMERIC_KEYS
             )
         raise AssertionError(f"unknown catalog test scope {scope!r}")
 
@@ -1517,6 +1595,49 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 self.assertIn(literal, setting.render.example)
                 self.assertIn("use", setting.render.benefits.casefold())
                 self.assertIn("risk", setting.render.drawbacks.casefold())
+
+    def test_catalog_train_numerics_scope_is_exactly_owned_and_teaches_restrictions(self):
+        try:
+            self.assert_catalog_selector_green("--scope", "train-numerics")
+        except DiscoveryError as error:
+            self.fail(str(error))
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        self.assertEqual(
+            set(settings["train.dtype"].contract.accepted_values or ()),
+            {
+                "float", "fp32", "single", "float32", "fp16", "half",
+                "float16", "bf16", "bfloat16", "8bit", "e4m3fn", "float8",
+            },
+        )
+        self.assertIn(
+            "fused-backward",
+            settings["train.max_grad_norm"].render.drawbacks.casefold(),
+        )
+        self.assertIn(
+            "fused-backward",
+            settings["train.gradient_accumulation"].render.drawbacks.casefold(),
+        )
+        inverted_interactions = {
+            (item.setting, item.kind)
+            for item in settings["train.inverted_mask_prior"].interactions
+        }
+        self.assertIn(("train.inverted_mask_prior_multiplier", "affects"), inverted_interactions)
+        self.assertIn(("train.train_turbo", "conflicts"), inverted_interactions)
+        preservation_interactions = {
+            (item.setting, item.kind)
+            for item in settings["train.diff_output_preservation"].interactions
+        }
+        self.assertIn(("train.blank_prompt_preservation", "conflicts"), preservation_interactions)
+        self.assertIn(("train.train_text_encoder", "conflicts"), preservation_interactions)
+        self.assertEqual(
+            settings["train.ema_config"].defaults[0].value,
+            None,
+        )
 
     def test_catalog_process_get_conf_null_semantics_are_exhaustive(self):
         catalog = load_settings_catalog(
