@@ -2969,6 +2969,47 @@ class CatalogProductionSliceTests(unittest.TestCase):
         ):
             self.assertIn(source_contract, resolver)
 
+    def test_catalog_random_trigger_contract_matches_runtime_consumers(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        triggers = settings["dataset.random_triggers"]
+        trigger_teaching = " ".join(
+            [*vars(triggers.render).values()]
+            + [item.description for item in triggers.normalizations]
+        ).casefold()
+        for phrase in ("nonexistent", "remains a string", "characters"):
+            self.assertIn(phrase, trigger_teaching)
+
+        maximum = settings["dataset.random_triggers_max"]
+        self.assertEqual(maximum.contract.range.minimum, 0)
+        maximum_teaching = " ".join(
+            [*vars(maximum.render).values()]
+            + [item.description for item in maximum.normalizations]
+        ).casefold()
+        self.assertIn("zero", maximum_teaching)
+        self.assertIn("disables", maximum_teaching)
+
+        config_source = (
+            REPOSITORY_ROOT / "toolkit/config_modules.py"
+        ).read_text(encoding="utf-8")
+        consumer_source = (
+            REPOSITORY_ROOT / "toolkit/dataloader_mixins.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "if isinstance(random_triggers, str) and os.path.exists(random_triggers):",
+            config_source,
+        )
+        self.assertIn("self.random_triggers: List[str] = random_triggers", config_source)
+        self.assertIn(
+            "random.sample(self.dataset_config.random_triggers, num_triggers)",
+            consumer_source,
+        )
+        self.assertIn("if num_triggers > 0:", consumer_source)
+
     def test_catalog_dataset_modalities_scope_is_exactly_owned(self):
         self.assert_catalog_selector_green("--scope", "dataset-modalities")
 
@@ -3007,7 +3048,8 @@ class CatalogProductionSliceTests(unittest.TestCase):
         ).casefold()
         for phrase in (
             "white", "black", "all-white", "no mask", "mask_min_value",
-            "client", "server", "complementary",
+            "client", "server", "complementary", "browser save", "preset",
+            "trusted explicit", "non-preset", "canonical",
         ):
             self.assertIn(phrase, mask_teaching)
 
@@ -3027,6 +3069,9 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 "if (hasClientMaskPath(body.job_config))",
             ),
             "ui/src/server/jobDatasetPresetService.ts": (
+                "if (eligibility === 'save' && hasExternalAuxiliaryValue(dataset.mask_path))",
+                "if (nonblank(dataset.mask_path))",
+                "const canonicalMaskPath = await realpath(dataset.mask_path)",
                 "dataset.mask_path = await resolveLiveMaskDirectory",
                 "dataset.mask_path = manifest.files.some",
             ),
@@ -3049,6 +3094,33 @@ class CatalogProductionSliceTests(unittest.TestCase):
             for snippet in snippets:
                 with self.subTest(source=source, snippet=snippet):
                     self.assertIn(snippet, text)
+
+    def test_catalog_auto_frame_count_matches_pre_bucket_computation(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        setting = {
+            item.id: item for item in catalog.settings
+        }["dataset.auto_frame_count"]
+        teaching = " ".join(
+            [*vars(setting.render).values()]
+            + [item.description for item in setting.normalizations]
+        ).casefold()
+        self.assertIn("before", teaching)
+        self.assertIn("bucket key", teaching)
+        self.assertNotIn("not compatible with current bucketing", teaching)
+
+        dto_source = (
+            REPOSITORY_ROOT / "toolkit/data_transfer_object/data_loader.py"
+        ).read_text(encoding="utf-8")
+        compute = "self.num_frames = self.get_auto_frame_count(video_total_frames, video_fps)"
+        self.assertLess(dto_source.index(compute), dto_source.index("super().__init__(*args, **kwargs)"))
+        bucket_source = (
+            REPOSITORY_ROOT / "toolkit/dataloader_mixins.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("bucket_key += f'x{file_item.num_frames}f'", bucket_source)
 
     def test_catalog_data_loader_cache_scope_is_exactly_owned(self):
         self.assert_catalog_selector_green("--scope", "data-loader-cache")
@@ -3175,6 +3247,78 @@ class CatalogProductionSliceTests(unittest.TestCase):
             for snippet in snippets:
                 with self.subTest(source=source, snippet=snippet):
                     self.assertIn(snippet, source_text)
+
+    def test_catalog_cache_keys_and_snapshot_allowance_have_exact_boundaries(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        cache_teaching = " ".join(
+            item.description
+            for setting_id in (
+                "dataset.cache_latents_to_disk",
+                "dataset.cache_text_embeddings",
+            )
+            for item in settings[setting_id].normalizations
+        ).casefold()
+        for phrase in (
+            "exact roots", "media/_latent_cache", "media/_t_e_cache",
+            "nested", "rejected", "content digest", "in-place", "stale",
+            "clear",
+        ):
+            self.assertIn(phrase, cache_teaching)
+
+        latent_teaching = " ".join(
+            [*vars(settings["dataset.cache_latents_to_disk"].render).values()]
+            + [
+                item.description
+                for item in settings["dataset.cache_latents_to_disk"].normalizations
+            ]
+        ).casefold()
+        self.assertIn("omits source content identity", latent_teaching)
+
+        mixins = (
+            REPOSITORY_ROOT / "toolkit/dataloader_mixins.py"
+        ).read_text(encoding="utf-8")
+        latent_info = mixins.split("def get_latent_info_dict", 1)[1].split(
+            "def get_latent_path", 1
+        )[0]
+        for ingredient in (
+            '"filename"', '"scale_to_width"', '"scale_to_height"',
+            '"crop_x"', '"crop_y"', '"crop_width"', '"crop_height"',
+            '"latent_space_version"', '"latent_version"', '"flip_x"',
+            '"flip_y"', '"auto_frame_count"', '"trim_auto_frame_count_tail"',
+            '"num_frames"', '"fps"', '"do_i2v"', '"do_audio"',
+            '"audio_normalize"', '"audio_preserve_pitch"', '"is_audio_model"',
+            '"sample_rate"', '"cache_tensors_to_disk"',
+        ):
+            self.assertIn(ingredient, latent_info)
+        for absent_content_identity in ("sha256", "signature", "digest"):
+            self.assertNotIn(absent_content_identity, latent_info.casefold())
+
+        text_info = mixins.split("def get_text_embedding_info_dict", 1)[1].split(
+            "def _build_text_embedding_path", 1
+        )[0]
+        for ingredient in (
+            '"caption"', '"text_embedding_space_version"',
+            '"text_embedding_version"', '"control_path"',
+            '"first_frame_in_te"',
+        ):
+            self.assertIn(ingredient, text_info)
+        for absent_content_identity in ("sha256", "signature", "digest"):
+            self.assertNotIn(absent_content_identity, text_info.casefold())
+
+        snapshot_source = (
+            REPOSITORY_ROOT / "ui/src/server/datasetPresetSnapshotService.ts"
+        ).read_text(encoding="utf-8")
+        cache_boundary = snapshot_source.split(
+            "function isAllowedRuntimeCacheRoot", 1
+        )[1].split("function cloneManifest", 1)[0]
+        self.assertIn("portablePath === 'media/_latent_cache'", cache_boundary)
+        self.assertIn("portablePath === 'media/_t_e_cache'", cache_boundary)
+        self.assertNotIn("endsWith", cache_boundary)
 
     def test_catalog_save_sample_validation_scope_teaches_compatible_resume(self):
         self.assert_catalog_selector_green("--scope", "save-sample-validation")

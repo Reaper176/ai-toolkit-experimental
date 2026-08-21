@@ -30263,7 +30263,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "An existing string path is loaded as a line-delimited trigger list. A nonexistent string path remains a string, so the downstream random.sample consumer samples individual characters rather than treating it as one trigger.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "dataset",
@@ -30278,9 +30283,9 @@
       "render": {
         "page": "reference/dataset.md",
         "anchor": "dataset-random-triggers",
-        "description": "Provides alternate trigger strings, or a path to a line-delimited trigger file.",
+        "description": "Provides alternate trigger strings, or an existing path to a line-delimited trigger file.",
         "benefits": "Can vary trigger wording across samples when that variation is intentional.",
-        "drawbacks": "Uncurated alternates weaken a stable activation phrase and a missing string path is treated as one literal trigger.",
+        "drawbacks": "Uncurated alternates weaken a stable activation phrase; a nonexistent string path remains a string and causes individual characters to be sampled.",
         "example": "random_triggers: [sks_person, subject_token]"
       }
     },
@@ -30312,7 +30317,7 @@
         "example_type": "integer",
         "accepted_values": null,
         "range": {
-          "minimum": 1,
+          "minimum": 0,
           "maximum": null,
           "minimum_inclusive": true,
           "maximum_inclusive": true
@@ -30327,7 +30332,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Zero disables random-trigger insertion. One inserts one trigger whenever the trigger collection is truthy; values above one randomly choose a count from zero through the configured maximum before sampling.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "dataset",
@@ -32249,7 +32259,7 @@
       ],
       "normalizations": [
         {
-          "description": "The UI request builder writes mask_path as null, the jobs route rejects a nonempty client mask path, and the server resolves a trusted live-mask directory or immutable preset masks before training. The mask editor stores an all-white mask as DELETE, making that ordinary full-weight case maskless.",
+          "description": "A browser save request writes mask_path as null and the jobs route rejects a nonempty client override; preset mask paths are also server-managed. For a non-preset runtime job outside the save request, the server still supports a trusted explicit live mask_path when it is canonical, is a real directory rather than a symlink, and stays under the configured datasets root. Otherwise the server resolves managed live or immutable preset masks. The mask editor stores an all-white mask as DELETE, making that ordinary full-weight case maskless.",
           "applicability": []
         }
       ],
@@ -32282,7 +32292,7 @@
         "anchor": "dataset-mask-path",
         "description": "Names the resolved directory of grayscale masks matched to source basenames; ordinary white receives full weight and black maps toward mask_min_value.",
         "benefits": "Limits ordinary masked loss toward selected regions while preserving continuous grayscale weighting; after normalization, an all-white mask is equivalent to no mask for ordinary masked loss.",
-        "drawbacks": "UI save requests cannot supply this path; the server strips or rejects untrusted values and resolves managed live or preset masks.",
+        "drawbacks": "Browser save and preset paths are server-managed; only a trusted explicit canonical live directory remains supported for a non-preset runtime job outside that save path.",
         "example": "mask_path: null"
       }
     },
@@ -33586,7 +33596,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "FileItemDTO computes the effective frame count from source duration before bucket construction, and the resulting value is included in the video bucket key.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "dataset",
@@ -33603,7 +33618,7 @@
         "anchor": "dataset-auto-frame-count",
         "description": "Derives the number of frames from the source duration at the configured FPS.",
         "benefits": "Retains variable clip duration for models and batching paths that support it.",
-        "drawbacks": "It is not compatible with current bucketing assumptions and produces variable memory use.",
+        "drawbacks": "Variable frame counts produce variable memory use, and training rejects batch sizes greater than one when auto frame count is enabled.",
         "example": "auto_frame_count: false"
       }
     },
@@ -34095,7 +34110,7 @@
       ],
       "normalizations": [
         {
-          "description": "The cache filename hashes crop geometry, latent-space version, frame/audio options, and related preprocessing facts; immutable preset verification permits the version-local _latent_cache directory without treating it as manifest media. A source-missing file retained from a prior verified manifest is copied and hash-checked into the new immutable version, but runtime caches remain version-local provenance and may need regeneration there.",
+          "description": "The cache filename hashes source basename, crop geometry, latent-space versions, and enabled frame/audio preprocessing flags, not a source content digest. The latent key omits source content identity, so replacing source media in place may reuse a stale cache; clear the cache roots and regenerate after in-place media or conditioning changes. Immutable preset verification tolerates only the exact roots media/_latent_cache and media/_t_e_cache; nested cache roots are rejected. A source-missing file retained from a prior verified manifest is copied and hash-checked into the new immutable version, but runtime caches remain version-local provenance and may need regeneration there.",
           "applicability": []
         }
       ],
@@ -34120,9 +34135,9 @@
       "render": {
         "page": "reference/dataset.md",
         "anchor": "dataset-cache-latents-to-disk",
-        "description": "Writes versioned, content-shape-specific latent safetensors beneath each media directory's _latent_cache.",
+        "description": "Writes versioned latent safetensors keyed by source basename, crop geometry, and preprocessing flags beneath each media directory's _latent_cache; the key omits source content identity.",
         "benefits": "Reuses compatible encoded latents across later runs without keeping every latent in memory.",
-        "drawbacks": "Consumes disk space and cache identity is not a guarantee across model/VAE or preprocessing changes; incompatible hashes must be regenerated.",
+        "drawbacks": "Consumes disk space; because keys do not digest source bytes, in-place source changes can reuse stale entries and require manual clearing and regeneration.",
         "example": "cache_latents_to_disk: true"
       }
     },
@@ -34291,7 +34306,7 @@
       ],
       "normalizations": [
         {
-          "description": "Text cache keys include the effective caption and text-embedding-space version plus supported control or first-frame conditioning; immutable preset verification permits the version-local _t_e_cache directory.",
+          "description": "Text cache keys include the effective caption, text-embedding-space version, a control_path string, or a first-frame flag, not content digests for control or first-frame media. Replacing those files in place may reuse a stale cache; clear the exact roots media/_latent_cache and media/_t_e_cache and regenerate. Immutable preset verification tolerates those exact roots only; nested cache roots are rejected.",
           "applicability": []
         }
       ],
@@ -34311,7 +34326,7 @@
         "anchor": "dataset-cache-text-embeddings",
         "description": "Caches caption embeddings in versioned, caption-hashed safetensors beneath _t_e_cache.",
         "benefits": "Avoids repeated text-encoder work and can allow the text encoder to unload when it is not being trained.",
-        "drawbacks": "Caption, trigger, control, first-frame, or text-embedding-space changes create different cache identities; text-encoder training is incompatible with fixed cached embeddings.",
+        "drawbacks": "Caption or path/flag changes create different identities, but in-place control or first-frame content changes do not; clear stale caches manually. Text-encoder training is incompatible with fixed cached embeddings.",
         "example": "cache_text_embeddings: true"
       }
     },
