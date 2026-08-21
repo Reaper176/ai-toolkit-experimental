@@ -3822,6 +3822,8 @@ def _discover_dispatch_settings(
                     return frame.lookup(node.id)
                 if isinstance(node, ast.Lambda):
                     return ("local-callable", None)
+                if isinstance(node, ast.Constant) and node.value is None:
+                    return ("safe-disabled-callback", None)
                 if isinstance(node, ast.IfExp):
                     return join_bindings(
                         (
@@ -4065,6 +4067,22 @@ def _discover_dispatch_settings(
                         else:
                             targets.append(target)
                     return ("safe", tuple(dict.fromkeys(targets)))
+                callback_safe_kinds = {
+                    "safe", "safe-callback", "safe-disabled-callback",
+                }
+                if kinds.issubset(callback_safe_kinds):
+                    targets = []
+                    for kind, target in values:
+                        if kind == "safe-disabled-callback":
+                            continue
+                        if isinstance(target, tuple):
+                            targets.extend(target)
+                        else:
+                            targets.append(target)
+                    return (
+                        "safe-callback",
+                        tuple(dict.fromkeys(targets)),
+                    )
                 return ("unknown", None)
 
             def uniform_binding(
@@ -4138,9 +4156,9 @@ def _discover_dispatch_settings(
                     return
 
                 def validate_callback(value: ast.AST, keyword: str) -> None:
-                    if isinstance(value, ast.Constant) and value.value is None:
-                        return
-                    if expression_binding(value, frame)[0] != "safe":
+                    if expression_binding(value, frame)[0] not in {
+                        "safe", "safe-callback", "safe-disabled-callback",
+                    }:
                         raise module_error(
                             value,
                             "callback",

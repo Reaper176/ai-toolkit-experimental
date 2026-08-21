@@ -5456,6 +5456,12 @@ configured = sorted([1], **options)''',
 )''',
             "dynamic_literal_spread_key": '''name = "key"
 configured = sorted([1], **{name: str})''',
+            "unknown_or_disabled_ifexp": '''callback = (
+    external if flag else None
+)
+configured = sorted([1], key=callback)''',
+            "unknown_or_disabled_boolop": '''callback = external or None
+configured = sorted([1], key=callback)''',
         }
         for shape, definition in definitions.items():
             with self.subTest(shape=shape):
@@ -5503,6 +5509,50 @@ def get_optimizer(params, optimizer_type, optimizer_params):
             self.repository_root, ("toolkit/optimizer.py",)
         )
         self.assertTrue(any(fact.read_kind == "optimizer.registry" for fact in discovered))
+
+    def test_training_dispatch_contract_propagates_disabled_builtin_callbacks(self):
+        definitions = {
+            "assigned": '''callback = None
+configured = sorted([1], key=callback)''',
+            "ifexp": '''callback = None if flag else str
+configured = sorted([1], key=callback)''',
+            "boolop": '''callback = None or int
+configured = sorted([1], key=callback)''',
+            "finite_subscript": '''callbacks = [None]
+configured = sorted([1], key=callbacks[0])''',
+            "literal_spread": '''callback = None
+configured = sorted([1], **{"key": callback})''',
+            "min_alias": '''from builtins import min as choose
+callback = None
+configured = choose([1], key=callback)''',
+            "max_alias_container": '''import builtins as bi
+callbacks = {"key": None}
+configured = bi.max([1], key=callbacks["key"])''',
+        }
+        for shape, definition in definitions.items():
+            with self.subTest(shape=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f'''import torch
+flag = True
+{definition}
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+                )
+                try:
+                    discovered = discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+                except DiscoveryError as error:
+                    self.fail(f"disabled callback {shape} was rejected: {error}")
+                self.assertTrue(
+                    any(
+                        fact.read_kind == "optimizer.registry"
+                        for fact in discovered
+                    )
+                )
 
     def test_training_dispatch_contract_rejects_nested_or_conditional_mapping_effects(self):
         operations = {
