@@ -1321,6 +1321,39 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "GuidanceConfig.__init__",
         }
     )
+    TRAIN_SCHEDULE_KEYS = frozenset(
+        {
+            "adapter_lr",
+            "batch_size",
+            "content_or_style",
+            "embedding_lr",
+            "gradient_accumulation",
+            "gradient_accumulation_steps",
+            "learnable_snr_gos",
+            "linear_timesteps",
+            "linear_timesteps2",
+            "lr",
+            "lr_scheduler",
+            "lr_scheduler_params",
+            "max_denoising_steps",
+            "min_denoising_steps",
+            "min_snr_gamma",
+            "next_sample_timesteps",
+            "noise_scheduler",
+            "num_train_timesteps",
+            "refiner_lr",
+            "reg_weight",
+            "single_item_batching",
+            "snr_gamma",
+            "start_step",
+            "steps",
+            "switch_boundary_every",
+            "text_encoder_lr",
+            "timestep_type",
+            "unet_lr",
+            "weight_jitter",
+        }
+    )
 
     @classmethod
     def setUpClass(cls):
@@ -1394,6 +1427,12 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 or cls._in_core_io_network(item)
                 or cls._in_core_modules(item)
             )
+        if scope == "train-schedule":
+            return (
+                item.source == "toolkit/config_modules.py"
+                and item.symbol == "TrainConfig.__init__"
+                and item.key in cls.TRAIN_SCHEDULE_KEYS
+            )
         raise AssertionError(f"unknown catalog test scope {scope!r}")
 
     def assert_catalog_selector_green(self, *arguments):
@@ -1453,6 +1492,31 @@ class CatalogProductionSliceTests(unittest.TestCase):
 
     def test_catalog_core_process_scope_is_exactly_owned(self):
         self.assert_catalog_selector_green("--scope", "core-process")
+
+    def test_catalog_train_schedule_scope_is_exactly_owned_and_teaches_lr_ladder(self):
+        try:
+            self.assert_catalog_selector_green("--scope", "train-schedule")
+        except DiscoveryError as error:
+            self.fail(str(error))
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        examples = {
+            "train.lr": "1e-4",
+            "train.unet_lr": "5e-5",
+            "train.text_encoder_lr": "2e-5",
+            "train.embedding_lr": "1e-5",
+            "train.adapter_lr": "5e-6",
+        }
+        for setting_id, literal in examples.items():
+            with self.subTest(setting=setting_id):
+                setting = settings[setting_id]
+                self.assertIn(literal, setting.render.example)
+                self.assertIn("use", setting.render.benefits.casefold())
+                self.assertIn("risk", setting.render.drawbacks.casefold())
 
     def test_catalog_process_get_conf_null_semantics_are_exhaustive(self):
         catalog = load_settings_catalog(

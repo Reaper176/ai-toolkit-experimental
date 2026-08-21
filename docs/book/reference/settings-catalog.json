@@ -13450,6 +13450,1948 @@
         "drawbacks": "The current core trainer parses but does not consume this guidance object.",
         "example": "target_class: person"
       }
+    },
+    {
+      "id": "train.noise_scheduler",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.noise_scheduler"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "ddpm",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "noise_scheduler",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-noise-scheduler",
+        "description": "Selects the diffusion noise schedule used to add training noise.",
+        "benefits": "Using the schedule expected by the base model keeps timestep and target calculations aligned.",
+        "drawbacks": "A mismatched schedule risks training against a noise process the base model was not designed to reverse.",
+        "example": "noise_scheduler: ddpm"
+      }
+    },
+    {
+      "id": "train.content_or_style",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.content_or_style"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "balanced",
+          "style",
+          "content"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "balanced",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.timestep_type",
+          "kind": "affects",
+          "description": "Content/style bias is used after specialized timestep modes, so those modes can take precedence.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "content_or_style",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-content-or-style",
+        "description": "Biases timestep sampling toward content, style, or a balanced distribution.",
+        "benefits": "Use content or style weighting when the concept benefits from emphasis on structure or appearance.",
+        "drawbacks": "Strong weighting risks weakening learning in the other part of the denoising trajectory.",
+        "example": "content_or_style: balanced"
+      }
+    },
+    {
+      "id": "train.steps",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.steps"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1000,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.start_step",
+          "kind": "affects",
+          "description": "The loop runs from the effective starting counter toward train.steps, so resumed counters reduce remaining iterations.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "steps",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-steps",
+        "description": "Sets the target number of optimizer steps for the run.",
+        "benefits": "Use a larger step budget when the dataset and validation samples still improve without overfitting.",
+        "drawbacks": "Long schedules risk overfitting and resume behavior depends on the saved step counter.",
+        "example": "steps: 3000"
+      }
+    },
+    {
+      "id": "train.lr",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.lr"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0.000001,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "lr",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-lr",
+        "description": "Sets the global learning rate inherited by components without an override.",
+        "benefits": "Use 1e-4 as an assertive starting example when rapid adapter learning is more important than conservatism.",
+        "drawbacks": "A high global rate risks unstable updates or fast overfitting, so validate samples early.",
+        "example": "lr: 1e-4"
+      }
+    },
+    {
+      "id": "train.unet_lr",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.unet_lr"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "train.lr"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission inherits train.lr; explicit null is preserved and is not a numeric learning rate.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "unet_lr",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-unet-lr",
+        "description": "Overrides the learning rate for the denoising network.",
+        "benefits": "Use 5e-5 for a moderate denoiser update that is gentler than an aggressive global rate.",
+        "drawbacks": "A denoiser-specific override risks diverging from the text or adapter components if rates are poorly balanced.",
+        "example": "unet_lr: 5e-5"
+      }
+    },
+    {
+      "id": "train.text_encoder_lr",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.text_encoder_lr"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "train.lr"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission inherits train.lr; explicit null is preserved and is not a numeric learning rate.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "text_encoder_lr",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-text-encoder-lr",
+        "description": "Overrides the learning rate for trainable text encoders.",
+        "benefits": "Use 2e-5 when prompt-language adaptation is needed but should move more cautiously than the denoiser.",
+        "drawbacks": "Text encoders are sensitive; a larger rate risks damaging general prompt understanding.",
+        "example": "text_encoder_lr: 2e-5"
+      }
+    },
+    {
+      "id": "train.refiner_lr",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.refiner_lr"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "train.lr"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission inherits train.lr; explicit null is preserved and is not a numeric learning rate.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "refiner_lr",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-refiner-lr",
+        "description": "Overrides the learning rate for a trainable refiner component.",
+        "benefits": "Use 1e-5 for slow refinement updates when preserving the pretrained refiner is important.",
+        "drawbacks": "A very small rate risks negligible change, while a larger one can over-specialize the refiner.",
+        "example": "refiner_lr: 1e-5"
+      }
+    },
+    {
+      "id": "train.embedding_lr",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.embedding_lr"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "train.lr"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission inherits train.lr; explicit null is preserved and is not a numeric learning rate.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "embedding_lr",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-embedding-lr",
+        "description": "Overrides the learning rate for trained embedding parameters.",
+        "benefits": "Use 1e-5 when an embedding should learn steadily without outrunning the surrounding network.",
+        "drawbacks": "An embedding rate that is too high risks collapsing token meaning into a narrow dataset pattern.",
+        "example": "embedding_lr: 1e-5"
+      }
+    },
+    {
+      "id": "train.adapter_lr",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.adapter_lr"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "train.lr"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission inherits train.lr; explicit null is preserved and is not a numeric learning rate.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "adapter_lr",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-adapter-lr",
+        "description": "Overrides the learning rate for the optional adapter component.",
+        "benefits": "Use 5e-6 for conservative adapter tuning when its pretrained behavior should mostly be retained.",
+        "drawbacks": "A low rate risks under-training the adapter, while an excessive rate can erase useful conditioning behavior.",
+        "example": "adapter_lr: 5e-6"
+      }
+    },
+    {
+      "id": "train.lr_scheduler",
+      "ui_label": null,
+      "scope": "scheduler",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.lr_scheduler"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "constant",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "lr_scheduler",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-lr-scheduler",
+        "description": "Selects the learning-rate scheduler dispatched by the toolkit.",
+        "benefits": "Use a constant schedule when a fixed rate is easier to reason about across short fine-tuning runs.",
+        "drawbacks": "An unsuitable scheduler risks decaying too soon or applying warmup parameters that do not fit the run length.",
+        "example": "lr_scheduler: constant"
+      }
+    },
+    {
+      "id": "train.lr_scheduler_params",
+      "ui_label": null,
+      "scope": "scheduler",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.lr_scheduler_params"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {},
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.lr_scheduler",
+          "kind": "requires",
+          "description": "These keyword arguments are interpreted only by the selected learning-rate scheduler.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "lr_scheduler_params",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-lr-scheduler-params",
+        "description": "Passes scheduler-specific keyword arguments to learning-rate scheduler dispatch.",
+        "benefits": "Use total_iters to align compatible cosine schedules with the intended training duration.",
+        "drawbacks": "Unsupported keys risk constructor errors, and constant_with_warmup removes total_iters before dispatch.",
+        "example": "lr_scheduler_params: {total_iters: 1000}"
+      }
+    },
+    {
+      "id": "train.min_denoising_steps",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.min_denoising_steps"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "nonnegative-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.max_denoising_steps",
+          "kind": "constrains",
+          "description": "The lower timestep bound must not exceed the effective upper bound.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "min_denoising_steps",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-min-denoising-steps",
+        "description": "Sets the lowest denoising-step index eligible for sampled training timesteps.",
+        "benefits": "Use a higher floor to focus learning away from the cleanest end of the trajectory.",
+        "drawbacks": "A restrictive floor risks leaving low-noise behavior under-trained.",
+        "example": "min_denoising_steps: 0"
+      }
+    },
+    {
+      "id": "train.max_denoising_steps",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.max_denoising_steps"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "nonnegative-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 999,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.min_denoising_steps",
+          "kind": "constrains",
+          "description": "The upper timestep bound is paired with the configured lower bound.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "max_denoising_steps",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-max-denoising-steps",
+        "description": "Sets the highest denoising-step index eligible for sampled training timesteps.",
+        "benefits": "Use a lower ceiling to avoid the noisiest part of a scheduler when a recipe calls for that focus.",
+        "drawbacks": "A low ceiling risks weakening generation from heavily noised latents.",
+        "example": "max_denoising_steps: 999"
+      }
+    },
+    {
+      "id": "train.batch_size",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.batch_size"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.gradient_accumulation",
+          "kind": "affects",
+          "description": "Effective batch size grows with both the micro-batch size and accumulated micro-batches.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "batch_size",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-batch-size",
+        "description": "Sets the number of dataset items processed together in each micro-batch.",
+        "benefits": "Use a larger batch when memory permits and a smoother per-step gradient estimate is useful.",
+        "drawbacks": "Larger batches risk out-of-memory failures and change the effective batch with accumulation.",
+        "example": "batch_size: 1"
+      }
+    },
+    {
+      "id": "train.min_snr_gamma",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.min_snr_gamma"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "positive-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": false,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "min_snr_gamma",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-min-snr-gamma",
+        "description": "Enables minimum-SNR loss weighting when set to a positive number.",
+        "benefits": "Use a positive gamma to reduce domination by timesteps with extreme signal-to-noise ratios.",
+        "drawbacks": "Poorly chosen weighting risks suppressing useful gradients from parts of the trajectory.",
+        "example": "min_snr_gamma: 5.0"
+      }
+    },
+    {
+      "id": "train.snr_gamma",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.snr_gamma"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "positive-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": false,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "snr_gamma",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-snr-gamma",
+        "description": "Enables SNR-based loss weighting with the configured gamma.",
+        "benefits": "Use SNR weighting when balancing timestep contributions is more useful than uniform loss.",
+        "drawbacks": "An aggressive gamma risks shifting learning away from timesteps important to the target model.",
+        "example": "snr_gamma: 5.0"
+      }
+    },
+    {
+      "id": "train.learnable_snr_gos",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.learnable_snr_gos"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "learnable_snr_gos",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-learnable-snr-gos",
+        "description": "Enables learned gamma, offset, and scale terms for timestep loss balancing.",
+        "benefits": "Use the learned adjustment only for experiments that need adaptive weighting across timesteps.",
+        "drawbacks": "The experimental adjustment risks harder-to-diagnose loss dynamics than fixed weighting.",
+        "example": "learnable_snr_gos: false"
+      }
+    },
+    {
+      "id": "train.weight_jitter",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.weight_jitter"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "weight_jitter",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-weight-jitter",
+        "description": "Controls random jitter applied to supported training weights.",
+        "benefits": "Use a small nonzero jitter only when the active trainer consumes it as deliberate regularization.",
+        "drawbacks": "Jitter risks adding variance and some trainer paths do not consume this parsed value.",
+        "example": "weight_jitter: 0.0"
+      }
+    },
+    {
+      "id": "train.start_step",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.start_step"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "nonnegative-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.steps",
+          "kind": "constrains",
+          "description": "start_step changes the initial counter used by the loop and must remain meaningful relative to the target step count.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "start_step",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-start-step",
+        "description": "Overrides the initial step counter before the training loop starts.",
+        "benefits": "Use start_step when deliberately resuming step-sensitive scheduling from a known counter.",
+        "drawbacks": "A mismatched counter risks skipped work, shifted sampling, and scheduler state that disagrees with checkpoints.",
+        "example": "start_step: 1200"
+      }
+    },
+    {
+      "id": "train.num_train_timesteps",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.num_train_timesteps"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1000,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "num_train_timesteps",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-num-train-timesteps",
+        "description": "Sets the training timestep domain used by supported flow and weighting paths.",
+        "benefits": "Use the base model's expected timestep count so sampled indices and scheduler scaling agree.",
+        "drawbacks": "A mismatched count risks incorrect timestep normalization and out-of-range assumptions.",
+        "example": "num_train_timesteps: 1000"
+      }
+    },
+    {
+      "id": "train.gradient_accumulation_steps",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.gradient_accumulation_steps"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.gradient_accumulation",
+          "kind": "conflicts",
+          "description": "The legacy interval must remain 1 when the current accumulation setting exceeds 1.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "gradient_accumulation_steps",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-gradient-accumulation-steps",
+        "description": "Sets the legacy optimizer-step interval, with -1 accumulating for an entire epoch.",
+        "benefits": "Use 1 for ordinary stepping or -1 only for a deliberately small epoch-sized accumulation.",
+        "drawbacks": "Large or epoch-wide accumulation risks high memory use and conflicts with gradient_accumulation above 1.",
+        "example": "gradient_accumulation_steps: 1"
+      }
+    },
+    {
+      "id": "train.gradient_accumulation",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.gradient_accumulation"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.gradient_accumulation_steps",
+          "kind": "conflicts",
+          "description": "TrainConfig raises when gradient_accumulation exceeds 1 while gradient_accumulation_steps is not 1.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "gradient_accumulation",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-gradient-accumulation",
+        "description": "Sets the number of micro-batches accumulated for each visible training step.",
+        "benefits": "Use accumulation to increase effective batch size when a full batch does not fit in memory.",
+        "drawbacks": "More accumulation risks slower feedback and cannot be combined with a nondefault legacy accumulation interval.",
+        "example": "gradient_accumulation: 4"
+      }
+    },
+    {
+      "id": "train.single_item_batching",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.single_item_batching"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "single_item_batching",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-single-item-batching",
+        "description": "Forces supported batching tricks to process one item at a time while accumulating gradients.",
+        "benefits": "Use single-item batching when a training method expands a logical batch but needs isolated forwards.",
+        "drawbacks": "Serializing items risks lower throughput and still accumulates their gradients before the update.",
+        "example": "single_item_batching: false"
+      }
+    },
+    {
+      "id": "train.reg_weight",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.reg_weight"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "nonnegative-number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "reg_weight",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-reg-weight",
+        "description": "Scales loss from regularization images relative to ordinary training images.",
+        "benefits": "Use a lower or higher multiplier to tune how strongly prior-preservation examples affect updates.",
+        "drawbacks": "Excessive regularization weight risks under-learning the target concept; too little risks forgetting.",
+        "example": "reg_weight: 1.0"
+      }
+    },
+    {
+      "id": "train.timestep_type",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.timestep_type"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "sigmoid",
+          "linear",
+          "lognorm_blend",
+          "next_sample",
+          "weighted",
+          "one_step",
+          "two_step",
+          "four_step",
+          "eight_step",
+          "shift",
+          "flux_shift",
+          "lumina2_shift"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "sigmoid",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "timestep_type",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-timestep-type",
+        "description": "Selects the supported timestep sampling strategy.",
+        "benefits": "Use sigmoid for the engine fallback or a model-compatible specialized strategy for deliberate trajectory emphasis.",
+        "drawbacks": "An unsupported or model-incompatible strategy risks a runtime ValueError or poorly distributed training noise.",
+        "example": "timestep_type: sigmoid"
+      }
+    },
+    {
+      "id": "train.next_sample_timesteps",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.next_sample_timesteps"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 8,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.timestep_type",
+          "kind": "requires",
+          "description": "This count is consumed when timestep_type selects next_sample.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "next_sample_timesteps",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-next-sample-timesteps",
+        "description": "Sets the shortened timestep count used by next-sample training.",
+        "benefits": "Use a small count when timestep_type is next_sample and the recipe needs a short denoising path.",
+        "drawbacks": "Too few timesteps risk coarse targets; the value has no effect outside next-sample handling.",
+        "example": "next_sample_timesteps: 8"
+      }
+    },
+    {
+      "id": "train.linear_timesteps",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.linear_timesteps"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.timestep_type",
+          "kind": "affects",
+          "description": "The legacy flag also makes guidance paths treat timestep weighting as linear.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "linear_timesteps",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-linear-timesteps",
+        "description": "Enables the first legacy linear-timestep weighting table.",
+        "benefits": "Use it only with scheduler paths that expose the matching precomputed weights.",
+        "drawbacks": "Enabling legacy weighting risks unexpected emphasis and overlaps with timestep_type linear.",
+        "example": "linear_timesteps: false"
+      }
+    },
+    {
+      "id": "train.linear_timesteps2",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.linear_timesteps2"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "train.timestep_type",
+          "kind": "affects",
+          "description": "The alternate legacy flag also makes guidance paths treat timestep weighting as linear.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "linear_timesteps2",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-linear-timesteps2",
+        "description": "Enables the second legacy linear-timestep weighting table.",
+        "benefits": "Use it only when the selected scheduler provides the alternate weighting table.",
+        "drawbacks": "The alternate legacy curve risks unintended timestep bias and is not universal across schedulers.",
+        "example": "linear_timesteps2: false"
+      }
+    },
+    {
+      "id": "train.switch_boundary_every",
+      "ui_label": null,
+      "scope": "train",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].train.switch_boundary_every"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "TrainConfig.__init__",
+          "key": "switch_boundary_every",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "train-switch-boundary-every",
+        "description": "Sets how often multi-stage training switches the active model boundary.",
+        "benefits": "Use 1 to alternate at every supported boundary opportunity or a larger interval for longer stage runs.",
+        "drawbacks": "A long interval risks imbalanced stage updates; the setting is inert for single-stage models.",
+        "example": "switch_boundary_every: 1"
+      }
     }
   ]
 }
