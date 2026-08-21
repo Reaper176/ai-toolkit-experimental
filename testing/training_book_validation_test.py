@@ -843,6 +843,56 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "toolkit/lycoris_special.py::LycorisSpecialNetwork.__init__",
         )
 
+    def test_catalog_inactive_kohya_factory_is_exactly_excluded(self):
+        target_source = "toolkit/kohya_lora.py"
+        target_symbol = "create_network"
+        self.assert_catalog_selector_green(
+            "--target-symbol", f"{target_source}::{target_symbol}"
+        )
+
+        discovered = discover_python_settings(
+            REPOSITORY_ROOT, PYTHON_DISCOVERY_GLOBS
+        )
+        selected = tuple(
+            fact
+            for fact in discovered
+            if (fact.source, fact.symbol) == (target_source, target_symbol)
+        )
+        self.assertEqual(len(selected), 8)
+        self.assertEqual({fact.read_kind for fact in selected}, {"kwargs.get"})
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        self.assertFalse(
+            any(
+                (claim.source, claim.symbol) == (target_source, target_symbol)
+                for claim in catalog_source_claims(catalog)
+            )
+        )
+        exclusions = load_exclusions(
+            REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
+        )
+        selected_exclusions = tuple(
+            item
+            for item in exclusions
+            if (item.source, item.symbol) == (target_source, target_symbol)
+        )
+        self.assertEqual(
+            {
+                (item.key, item.read_kind, item.reason)
+                for item in selected_exclusions
+            },
+            {
+                (fact.key, "kwargs.get", "model-developer API")
+                for fact in selected
+            },
+        )
+
+    def test_catalog_core_io_network_scope_is_exactly_owned(self):
+        self.assert_catalog_selector_green("--scope", "core-io-network")
+
 
 class DiscoveryContractTests(unittest.TestCase):
     def setUp(self):

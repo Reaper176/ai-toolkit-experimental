@@ -48,6 +48,19 @@ CORE_PROCESS_SOURCES = frozenset(
     }
 )
 
+CORE_IO_CONFIG_SYMBOLS = frozenset(
+    {
+        "SaveConfig.__init__",
+        "LoggingConfig.__init__",
+        "SampleConfig.__init__",
+        "SampleItem.__init__",
+        "LoRMConfig.__init__",
+        "LormModuleSettingsConfig.__init__",
+        "NetworkConfig.__init__",
+    }
+)
+CORE_IO_FACTORY_SOURCES = frozenset({"toolkit/kohya_lora.py"})
+
 
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -200,8 +213,8 @@ def main() -> None:
                     "discovery mode cannot combine a target with --scope"
                 )
             target_mode = True
-        elif arguments.scope == ["core-process"]:
-            production_scope = "core-process"
+        elif arguments.scope in (["core-process"], ["core-io-network"]):
+            production_scope = arguments.scope[0]
         elif arguments.scope != ["discovery-fixtures"]:
             raise DiscoveryError(
                 "--check-discovery requires exactly --scope discovery-fixtures"
@@ -262,6 +275,22 @@ def main() -> None:
                     item for item in exclusions
                     if item.source in CORE_PROCESS_SOURCES
                 ),
+            )
+        if production_scope == "core-io-network":
+            def in_core_io_network(item) -> bool:
+                return (
+                    (
+                        item.source == "toolkit/config_modules.py"
+                        and item.symbol in CORE_IO_CONFIG_SYMBOLS
+                    )
+                    or item.read_kind.startswith("network_kwargs.")
+                    or item.source in CORE_IO_FACTORY_SOURCES
+                )
+
+            validate_setting_ownership(
+                tuple(fact for fact in discovered if in_core_io_network(fact)),
+                tuple(claim for claim in claims if in_core_io_network(claim)),
+                tuple(item for item in exclusions if in_core_io_network(item)),
             )
 
 

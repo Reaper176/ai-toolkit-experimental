@@ -959,6 +959,62 @@
       "key": "network_module",
       "read_kind": "network_kwargs.accepted",
       "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/kohya_lora.py",
+      "symbol": "create_network",
+      "key": "block_alphas",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/kohya_lora.py",
+      "symbol": "create_network",
+      "key": "block_dims",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/kohya_lora.py",
+      "symbol": "create_network",
+      "key": "conv_alpha",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/kohya_lora.py",
+      "symbol": "create_network",
+      "key": "conv_block_alphas",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/kohya_lora.py",
+      "symbol": "create_network",
+      "key": "conv_block_dims",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/kohya_lora.py",
+      "symbol": "create_network",
+      "key": "conv_dim",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/kohya_lora.py",
+      "symbol": "create_network",
+      "key": "module_dropout",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/kohya_lora.py",
+      "symbol": "create_network",
+      "key": "rank_dropout",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
     }
   ]
 }
