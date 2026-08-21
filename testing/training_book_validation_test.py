@@ -559,6 +559,47 @@ class CatalogContractTests(unittest.TestCase):
                         self.discovered_steps(),
                     )
 
+    def test_catalog_contract_allows_only_canonical_wildcard_brackets_in_config_paths(self):
+        valid = self.valid_catalog_entry()
+        valid["locations"] = [
+            {
+                "kind": "yaml",
+                "path": "config.process[*].datasets[*].resolution",
+            }
+        ]
+        valid["aliases"] = [
+            {
+                "location": "config.process[*].datasets[*].size",
+                "replacement": "train.steps",
+                "precedence": "replacement-wins",
+                "migration": "Use resolution instead of size.",
+                "status": "legacy",
+            }
+        ]
+        validate_settings_catalog(
+            {"schema_version": 1, "settings": [valid]},
+            self.discovered_steps(),
+        )
+
+        for token in ("[banana]", "[-1]", "[0]", "[]"):
+            for field in ("locations", "aliases"):
+                with self.subTest(token=token, field=field):
+                    entry = deepcopy(valid)
+                    bad_path = f"config.process[*].datasets{token}.resolution"
+                    if field == "locations":
+                        entry["locations"][0]["path"] = bad_path
+                    else:
+                        entry["aliases"][0]["location"] = bad_path
+
+                    with self.assertRaisesRegex(
+                        CatalogError,
+                        r"canonical.*\[\*\]",
+                    ):
+                        validate_settings_catalog(
+                            {"schema_version": 1, "settings": [entry]},
+                            self.discovered_steps(),
+                        )
+
     def test_catalog_contract_rejects_overlapping_location_applicability_claims(self):
         overlapping = deepcopy(self.valid_catalog_entry())
         overlapping["id"] = "train.steps-shadow"

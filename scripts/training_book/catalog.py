@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import math
-import re
 from pathlib import Path
 from typing import Annotated, Any, Literal, Sequence
 
@@ -59,6 +58,13 @@ _SemanticType = Literal[
 ]
 
 
+def _require_canonical_array_tokens(value: str) -> str:
+    without_wildcards = value.replace("[*]", "")
+    if "[" in without_wildcards or "]" in without_wildcards:
+        raise ValueError("canonical repeated paths must use [*]")
+    return value
+
+
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -70,9 +76,7 @@ class CatalogLocation(_StrictModel):
     @field_validator("path")
     @classmethod
     def _canonical_arrays(cls, value: str) -> str:
-        if re.search(r"\[(?:\d+|)\]", value):
-            raise ValueError("canonical repeated paths must use [*]")
-        return value
+        return _require_canonical_array_tokens(value)
 
 
 class Applicability(_StrictModel):
@@ -212,9 +216,7 @@ class Alias(_StrictModel):
     @field_validator("location")
     @classmethod
     def _canonical_arrays(cls, value: str) -> str:
-        if re.search(r"\[(?:\d+|)\]", value):
-            raise ValueError("canonical repeated paths must use [*]")
-        return value
+        return _require_canonical_array_tokens(value)
 
 
 class CatalogSourceClaim(_StrictModel):
