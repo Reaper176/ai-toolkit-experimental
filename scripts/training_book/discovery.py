@@ -3361,7 +3361,7 @@ def _dispatch_spread_aliases(
     function: ast.FunctionDef | ast.AsyncFunctionDef,
     spread_name: str,
     source: str,
-) -> frozenset[str]:
+) -> dict[str, int]:
     parents = {
         child: parent
         for parent in ast.walk(function)
@@ -3400,12 +3400,37 @@ def _dispatch_spread_aliases(
                 f"dispatch spread alias {alias!r} is reassigned or conditionally bound in {source}"
             )
 
+    bound_at = {spread_name: 0}
+    pending = set(aliases) - {spread_name}
+    while pending:
+        progressed = False
+        for alias in tuple(pending):
+            binding, value = assignments[alias][0]
+            if isinstance(value, ast.Name) and value.id in bound_at:
+                bound_at[alias] = binding.lineno
+                pending.remove(alias)
+                progressed = True
+        if not progressed:
+            raise DiscoveryError(
+                f"dispatch spread aliases have ambiguous dataflow in {source}"
+            )
+
     for node in ast.walk(function):
         if not isinstance(node, ast.Name) or not isinstance(node.ctx, ast.Load):
             continue
         if node.id not in aliases:
             continue
         parent = parents.get(node)
+        if node.lineno <= bound_at[node.id]:
+            raise DiscoveryError(
+                f"dispatch spread alias {node.id!r} is used before it is bound in {source}"
+            )
+        if isinstance(parent, ast.Attribute) and parent.value is node:
+            if parent.attr not in {"pop", "get"}:
+                raise DiscoveryError(
+                    f"dispatch spread mapping method {parent.attr!r} has unsupported "
+                    f"effects in {source}:{node.lineno}"
+                )
         allowed = (
             isinstance(parent, ast.keyword) and parent.arg is None
             or isinstance(parent, ast.Subscript) and parent.value is node
@@ -3417,7 +3442,7 @@ def _dispatch_spread_aliases(
             raise DiscoveryError(
                 f"dispatch spread mapping {node.id!r} escapes static analysis in {source}"
             )
-    return frozenset(aliases)
+    return bound_at
 
 
 def _combine_dispatch_selectors(
@@ -3491,21 +3516,26 @@ def _discover_dispatch_settings(
         tuple[_DispatchSelector, str, int, str, str]
     ] = []
 
-    def spread_call(
-        node: ast.AST,
-        spread_aliases: frozenset[str],
+    def validate_spreads(
+        node: ast.Call,
+        spread_aliases: dict[str, int],
         source: str,
-    ) -> ast.Call | None:
-        if not isinstance(node, ast.Call):
-            return None
+    ) -> bool:
+        has_spread = False
         for keyword in node.keywords:
             if keyword.arg is not None:
                 continue
+            has_spread = True
             if (
                 isinstance(keyword.value, ast.Name)
                 and keyword.value.id in spread_aliases
             ):
-                return node
+                if keyword.value.lineno <= spread_aliases[keyword.value.id]:
+                    raise DiscoveryError(
+                        f"dispatch spread alias {keyword.value.id!r} is used before "
+                        f"it is bound in {source}:{node.lineno}"
+                    )
+                continue
             if _dispatch_references(keyword.value, set(spread_aliases)):
                 raise DiscoveryError(
                     f"dispatch call uses a dynamic spread expression in {source}:{node.lineno}"
@@ -3513,7 +3543,26 @@ def _discover_dispatch_settings(
             raise DiscoveryError(
                 f"dispatch call uses an unproven spread mapping in {source}:{node.lineno}"
             )
-        return None
+        return has_spread
+
+    def constructor_calls(statement: ast.stmt) -> Iterator[ast.Call]:
+        for node in ast.walk(statement):
+            if isinstance(node, ast.Return) and isinstance(node.value, ast.Call):
+                yield node.value
+            elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+                if any(
+                    isinstance(target, ast.Name)
+                    and target.id in {"optimizer", "lr_scheduler"}
+                    for target in node.targets
+                ):
+                    yield node.value
+            elif (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id in {"optimizer", "lr_scheduler"}
+                and isinstance(node.value, ast.Call)
+            ):
+                yield node.value
 
     for source, tree in parsed:
         aliases = _dispatch_imports(tree)
@@ -3529,20 +3578,78 @@ def _discover_dispatch_settings(
             scope = "optimizer" if is_optimizer else "scheduler"
             registry_prefix = "optimizer" if is_optimizer else "scheduler"
             spread_aliases = _dispatch_spread_aliases(function, spread_name, source)
-            claimed_spread_calls: set[int] = set()
+            claimed_constructor_calls: set[int] = set()
+            claimed_mapping_calls: set[int] = set()
+            assigned_names = {
+                target.id
+                for node in ast.walk(function)
+                for target in (
+                    node.targets
+                    if isinstance(node, ast.Assign)
+                    else (node.target,)
+                    if isinstance(node, ast.AnnAssign)
+                    else ()
+                )
+                if isinstance(target, ast.Name)
+            }
+
+            def resolve_constructor(call: ast.Call) -> str:
+                target = _dispatch_call_path(call.func, aliases)
+                if target is None:
+                    raise DiscoveryError(
+                        f"dispatch constructor target is dynamic in {source}:{call.lineno}"
+                    )
+                raw_path = _attribute_path(call.func)
+                if raw_path is None:
+                    raise DiscoveryError(
+                        f"dispatch constructor target is unresolved in {source}:{call.lineno}"
+                    )
+                root = raw_path.partition(".")[0]
+                if root in assigned_names:
+                    raise DiscoveryError(
+                        f"dispatch constructor target {root!r} is reassigned in "
+                        f"{source}:{call.lineno}"
+                    )
+                if "." not in raw_path and root not in aliases:
+                    raise DiscoveryError(
+                        f"dispatch constructor target {root!r} is not statically imported "
+                        f"in {source}:{call.lineno}"
+                    )
+                return target
+
+            def mapping_method(call: ast.Call) -> tuple[str, str] | None:
+                if not (
+                    isinstance(call.func, ast.Attribute)
+                    and call.func.attr in {"pop", "get"}
+                    and isinstance(call.func.value, ast.Name)
+                    and call.func.value.id in spread_aliases
+                ):
+                    return None
+                if call.func.value.lineno <= spread_aliases[call.func.value.id]:
+                    raise DiscoveryError(
+                        f"dispatch spread alias {call.func.value.id!r} is used before "
+                        f"it is bound in {source}:{call.lineno}"
+                    )
+                if (
+                    not 1 <= len(call.args) <= 2
+                    or call.keywords
+                    or not isinstance(call.args[0], ast.Constant)
+                    or not isinstance(call.args[0].value, str)
+                ):
+                    raise DiscoveryError(
+                        f"dispatch mapping {call.func.attr} call is not statically finite "
+                        f"in {source}:{call.lineno}"
+                    )
+                return call.func.attr, call.args[0].value
 
             def add_branch_facts(
                 statement: ast.stmt,
                 selector: _DispatchSelector,
             ) -> None:
-                for node in ast.walk(statement):
-                    call = spread_call(node, spread_aliases, source)
-                    if call is None:
-                        continue
-                    claimed_spread_calls.add(id(call))
-                    target = _dispatch_call_path(call.func, aliases)
-                    if target is None:
-                        continue
+                for call in constructor_calls(statement):
+                    validate_spreads(call, spread_aliases, source)
+                    target = resolve_constructor(call)
+                    claimed_constructor_calls.add(id(call))
                     read_kind = (
                         f"{registry_prefix}.registry"
                         if selector.kind == "exact"
@@ -3562,7 +3669,8 @@ def _discover_dispatch_settings(
                         if not target.startswith("toolkit.optimizers."):
                             facts.append(
                                 DiscoveredSetting(
-                                    source, function.name, call.lineno, key,
+                                    source, function.name, call.lineno,
+                                    f"{key}__target={target}",
                                     "optimizer.external_boundary", scope, target,
                                 )
                             )
@@ -3579,6 +3687,47 @@ def _discover_dispatch_settings(
                                     _source_expression(keyword.value),
                                 )
                             )
+
+                for node in ast.walk(statement):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    method = mapping_method(node)
+                    if method is None:
+                        continue
+                    parent = next(
+                        (
+                            candidate
+                            for candidate in ast.walk(statement)
+                            if isinstance(candidate, (ast.Assign, ast.AnnAssign))
+                            and candidate.value is node
+                        ),
+                        None,
+                    )
+                    if parent is not None:
+                        parent_targets = (
+                            parent.targets
+                            if isinstance(parent, ast.Assign)
+                            else (parent.target,)
+                        )
+                        if any(
+                            _dispatch_subscript_key(target, spread_name) is not None
+                            for target in parent_targets
+                        ):
+                            continue
+                    _, parameter = method
+                    claimed_mapping_calls.add(id(node))
+                    default = (
+                        _source_expression(node.args[1])
+                        if len(node.args) == 2
+                        else "required"
+                    )
+                    facts.append(
+                        DiscoveredSetting(
+                            source, function.name, node.lineno,
+                            _dispatch_key(selector, parameter),
+                            f"{registry_prefix}.consumed", scope, default,
+                        )
+                    )
 
                 if isinstance(statement, (ast.Assign, ast.AnnAssign)):
                     targets = (
@@ -3599,13 +3748,14 @@ def _discover_dispatch_settings(
                             and isinstance(value.func, ast.Attribute)
                             and value.func.attr == "pop"
                             and isinstance(value.func.value, ast.Name)
-                            and value.func.value.id == spread_name
+                            and value.func.value.id in spread_aliases
                             and value.args
                             and isinstance(value.args[0], ast.Constant)
                             and isinstance(value.args[0].value, str)
                         ):
                             normalized_from = value.args[0].value
                         if normalized_from is not None:
+                            claimed_mapping_calls.add(id(value))
                             facts.append(
                                 DiscoveredSetting(
                                     source, function.name, statement.lineno,
@@ -3648,10 +3798,13 @@ def _discover_dispatch_settings(
                                 raise DiscoveryError(
                                     f"unsupported dispatch selector in {source}:{statement.lineno}"
                                 )
-                            if inherited is not None and any(
-                                spread_call(node, spread_aliases, source) is not None
+                            has_constructor = any(constructor_calls(statement))
+                            has_spread = any(
+                                isinstance(node, ast.Call)
+                                and validate_spreads(node, spread_aliases, source)
                                 for node in ast.walk(statement)
-                            ):
+                            )
+                            if inherited is not None and (has_constructor or has_spread):
                                 raise DiscoveryError(
                                     f"unsupported dispatch branch around constructor call "
                                     f"in {source}:{statement.lineno}"
@@ -3669,18 +3822,49 @@ def _discover_dispatch_settings(
 
             visit_statements(function.body)
             for node in ast.walk(function):
-                call = spread_call(node, spread_aliases, source)
-                if call is None or id(call) in claimed_spread_calls:
+                if not isinstance(node, ast.Call):
                     continue
-                target = _dispatch_call_path(call.func, aliases)
-                is_diffusers_fallback = (
-                    not is_optimizer and target == "schedule_func"
-                )
-                if not is_diffusers_fallback:
+                method = mapping_method(node)
+                if method is not None and id(node) not in claimed_mapping_calls:
                     raise DiscoveryError(
-                        f"dispatch constructor call is not guarded by a finite selector "
-                        f"in {source}:{call.lineno}"
+                        f"dispatch mapping access is not guarded by a finite selector "
+                        f"in {source}:{node.lineno}"
                     )
+            for node in ast.walk(function):
+                if not isinstance(node, ast.Call):
+                    continue
+                has_spread = validate_spreads(node, spread_aliases, source)
+                is_constructor = any(node is call for call in constructor_calls(function))
+                if not has_spread and not is_constructor:
+                    continue
+                if id(node) in claimed_constructor_calls:
+                    continue
+                raw_target = _attribute_path(node.func)
+                is_diffusers_fallback = (
+                    not is_optimizer
+                    and raw_target == "schedule_func"
+                    and any(
+                        isinstance(binding, ast.Assign)
+                        and any(
+                            isinstance(target, ast.Name)
+                            and target.id == "schedule_func"
+                            for target in binding.targets
+                        )
+                        and isinstance(binding.value, ast.Subscript)
+                        and _attribute_path(binding.value.value)
+                        == "TYPE_TO_SCHEDULER_FUNCTION"
+                        and isinstance(binding.value.slice, ast.Name)
+                        and binding.value.slice.id == "name"
+                        for binding in ast.walk(function)
+                    )
+                )
+                if is_diffusers_fallback:
+                    continue
+                target = resolve_constructor(node)
+                raise DiscoveryError(
+                    f"dispatch constructor call is not guarded by a finite selector "
+                    f"in {source}:{node.lineno}"
+                )
 
     local_classes: dict[str, tuple[str, ast.ClassDef]] = {}
     for source, tree in parsed:

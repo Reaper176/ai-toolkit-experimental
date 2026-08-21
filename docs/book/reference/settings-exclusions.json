@@ -1019,84 +1019,84 @@
     {
       "source": "toolkit/optimizer.py",
       "symbol": "get_optimizer",
-      "key": "adagrad",
+      "key": "adagrad__target=torch.optim.Adagrad",
       "read_kind": "optimizer.external_boundary",
       "reason": "arbitrary third-party constructor surface"
     },
     {
       "source": "toolkit/optimizer.py",
       "symbol": "get_optimizer",
-      "key": "adam",
+      "key": "adam__target=torch.optim.Adam",
       "read_kind": "optimizer.external_boundary",
       "reason": "arbitrary third-party constructor surface"
     },
     {
       "source": "toolkit/optimizer.py",
       "symbol": "get_optimizer",
-      "key": "adam8bit",
+      "key": "adam8bit__target=bitsandbytes.optim.Adam8bit",
       "read_kind": "optimizer.external_boundary",
       "reason": "arbitrary third-party constructor surface"
     },
     {
       "source": "toolkit/optimizer.py",
       "symbol": "get_optimizer",
-      "key": "adamw",
+      "key": "adamw__target=torch.optim.AdamW",
       "read_kind": "optimizer.external_boundary",
       "reason": "arbitrary third-party constructor surface"
     },
     {
       "source": "toolkit/optimizer.py",
       "symbol": "get_optimizer",
-      "key": "adamw8bit",
+      "key": "adamw8bit__target=bitsandbytes.optim.AdamW8bit",
       "read_kind": "optimizer.external_boundary",
       "reason": "arbitrary third-party constructor surface"
     },
     {
       "source": "toolkit/optimizer.py",
       "symbol": "get_optimizer",
-      "key": "ademamix8bit",
+      "key": "ademamix8bit__target=bitsandbytes.optim.AdEMAMix8bit",
       "read_kind": "optimizer.external_boundary",
       "reason": "arbitrary third-party constructor surface"
     },
     {
       "source": "toolkit/optimizer.py",
       "symbol": "get_optimizer",
-      "key": "dadaptation",
+      "key": "dadaptation__target=dadaptation.DAdaptAdam",
       "read_kind": "optimizer.external_boundary",
       "reason": "arbitrary third-party constructor surface"
     },
     {
       "source": "toolkit/optimizer.py",
       "symbol": "get_optimizer",
-      "key": "prefix=dadaptation;suffix=adam",
+      "key": "prefix=dadaptation;suffix=adam__target=dadaptation.DAdaptLion",
       "read_kind": "optimizer.external_boundary",
       "reason": "arbitrary third-party constructor surface"
     },
     {
       "source": "toolkit/optimizer.py",
       "symbol": "get_optimizer",
-      "key": "prefix=dadaptation;suffix=lion",
+      "key": "prefix=dadaptation;suffix=lion__target=dadaptation.DAdaptLion",
       "read_kind": "optimizer.external_boundary",
       "reason": "arbitrary third-party constructor surface"
     },
     {
       "source": "toolkit/optimizer.py",
       "symbol": "get_optimizer",
-      "key": "lion",
+      "key": "lion__target=lion_pytorch.Lion",
       "read_kind": "optimizer.external_boundary",
       "reason": "arbitrary third-party constructor surface"
     },
     {
       "source": "toolkit/optimizer.py",
       "symbol": "get_optimizer",
-      "key": "lion8bit",
+      "key": "lion8bit__target=bitsandbytes.optim.Lion8bit",
       "read_kind": "optimizer.external_boundary",
       "reason": "arbitrary third-party constructor surface"
     },
     {
       "source": "toolkit/optimizer.py",
       "symbol": "get_optimizer",
-      "key": "prodigy",
+      "key": "prodigy__target=prodigyopt.Prodigy",
       "read_kind": "optimizer.external_boundary",
       "reason": "arbitrary third-party constructor surface"
     },

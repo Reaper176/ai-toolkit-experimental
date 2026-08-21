@@ -3699,11 +3699,182 @@ class DiscoveryContractTests(unittest.TestCase):
                 for fact in discovered
             },
             {
-                ("adamw", "optimizer.external_boundary", "torch.optim.AdamW"),
+                ("adamw__target=torch.optim.AdamW", "optimizer.external_boundary",
+                 "torch.optim.AdamW"),
                 ("adamw", "optimizer.registry", "torch.optim.AdamW"),
                 ("adamw__lr", "optimizer.injected", "learning_rate"),
                 ("constant", "scheduler.registry", "torch.optim.lr_scheduler.ConstantLR"),
                 ("constant__factor", "scheduler.injected", "1.0"),
+            },
+        )
+
+    def test_training_dispatch_contract_discovers_static_calls_without_spreads(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            """def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+    raise ValueError(optimizer_type)
+""",
+        )
+
+        discovered = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+
+        self.assertIn(
+            ("sgd", "optimizer.registry", "torch.optim.SGD"),
+            {
+                (fact.key, fact.read_kind, fact.default_expression)
+                for fact in discovered
+            },
+        )
+
+    def test_training_dispatch_contract_new_static_call_is_unowned(self):
+        path = self.write_source(
+            "toolkit/optimizer.py",
+            """def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+    raise ValueError(optimizer_type)
+""",
+        )
+        baseline = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        claims = tuple(
+            SourceClaim(fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in baseline
+        )
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "    raise ValueError(optimizer_type)",
+                "    elif optimizer_type == 'rmsprop':\n"
+                "        return torch.optim.RMSprop(params)\n"
+                "    raise ValueError(optimizer_type)",
+            ),
+            encoding="utf-8",
+        )
+
+        changed = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+
+        with self.assertRaisesRegex(DiscoveryError, "rmsprop"):
+            validate_setting_ownership(changed, claims, ())
+
+    def test_training_dispatch_contract_rejects_dynamic_constructor_targets(self):
+        cases = {
+            "subscript target": """def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "adam":
+        return factories[optimizer_type](params, **optimizer_params)
+""",
+            "reassigned imported target": """from torch.optim import Adam as Backend
+def get_optimizer(params, optimizer_type, optimizer_params):
+    Backend = choose_backend()
+    if optimizer_type == "adam":
+        return Backend(params, **optimizer_params)
+""",
+            "unguarded no-spread target": """def get_optimizer(params, optimizer_type, optimizer_params):
+    return torch.optim.Adam(params)
+""",
+        }
+        for label, source in cases.items():
+            with self.subTest(label=label):
+                self.write_source("toolkit/optimizer.py", source)
+                with self.assertRaisesRegex(DiscoveryError, "dispatch"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+    def test_training_dispatch_contract_static_external_target_drift_is_unowned(self):
+        path = self.write_source(
+            "toolkit/optimizer.py",
+            """def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "adam":
+        return torch.optim.Adam(params, **optimizer_params)
+""",
+        )
+        baseline = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        claims = tuple(
+            SourceClaim(fact.source, fact.symbol, fact.key, fact.read_kind)
+            for fact in baseline
+        )
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "torch.optim.Adam", "torch.optim.AdamW"
+            ),
+            encoding="utf-8",
+        )
+
+        changed = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+
+        with self.assertRaisesRegex(DiscoveryError, "target"):
+            validate_setting_ownership(changed, claims, ())
+
+    def test_training_dispatch_contract_aliases_are_bound_before_use(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            """def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "adam":
+        return torch.optim.Adam(params, **forwarded)
+    forwarded = optimizer_params
+""",
+        )
+
+        with self.assertRaisesRegex(DiscoveryError, "dispatch"):
+            discover_python_settings(
+                self.repository_root, ("toolkit/optimizer.py",)
+            )
+
+    def test_training_dispatch_contract_rejects_unsupported_mapping_effects(self):
+        for method in ("update", "setdefault", "clear"):
+            with self.subTest(method=method):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f"""def get_optimizer(params, optimizer_type, optimizer_params):
+    forwarded = optimizer_params
+    forwarded.{method}({{}})
+    if optimizer_type == "adam":
+        return torch.optim.Adam(params, **forwarded)
+""",
+                )
+                with self.assertRaisesRegex(DiscoveryError, "dispatch"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+    def test_training_dispatch_contract_inventories_mapping_pop_and_get(self):
+        self.write_source(
+            "toolkit/optimizer.py",
+            """def get_optimizer(params, optimizer_type, optimizer_params):
+    forwarded = optimizer_params
+    if optimizer_type == "adam":
+        decay = forwarded.pop("weight_decay", 0.0)
+        capturable = forwarded.get("capturable", False)
+        return torch.optim.Adam(
+            params, weight_decay=decay, capturable=capturable, **forwarded
+        )
+""",
+        )
+
+        discovered = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+
+        self.assertEqual(
+            {
+                (fact.key, fact.read_kind, fact.default_expression)
+                for fact in discovered
+                if fact.read_kind == "optimizer.consumed"
+            },
+            {
+                ("adam__capturable", "optimizer.consumed", "False"),
+                ("adam__weight_decay", "optimizer.consumed", "0.0"),
             },
         )
 
@@ -3953,7 +4124,8 @@ class DiscoveryContractTests(unittest.TestCase):
             boundary,
             DiscoveredSetting(
                 "toolkit/optimizer.py", "get_optimizer", boundary.line,
-                "optional", "optimizer.external_boundary", "optimizer",
+                "optional__target=optional_library.OptionalOptimizer",
+                "optimizer.external_boundary", "optimizer",
                 "optional_library.OptionalOptimizer",
             ),
         )
