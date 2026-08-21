@@ -5313,6 +5313,125 @@ def get_optimizer(params, optimizer_type, optimizer_params):
         )
         self.assertTrue(any(fact.read_kind == "optimizer.registry" for fact in discovered))
 
+    def test_training_dispatch_contract_preserves_conditional_expression_provenance(self):
+        definitions = {
+            "local_callback_direct": '''callback = mutate if flag else str
+configured = sorted([1], key=callback)''',
+            "local_callback_list": '''callbacks = [mutate] if flag else [str]
+configured = sorted([1], key=callbacks[0])''',
+            "local_callback_boolop": '''callback = flag and mutate
+configured = sorted([1], key=callback)''',
+            "local_callback_boolop_list": '''callbacks = flag and [mutate] or [str]
+configured = sorted([1], key=callbacks[0])''',
+            "conditional_semantic_accessor": '''namespace = (
+    globals if flag else locals
+)
+namespace()["torch"].optim.SGD = fake''',
+            "conditional_semantic_accessor_container": '''accessors = (
+    [globals] if flag else [locals]
+)
+accessors[0]()["torch"].optim.SGD = fake''',
+            "conditional_owner_store": '''left = [str]
+right = [int]
+(left if flag else right)[0] = mutate''',
+            "conditional_owner_different_shapes": '''left = [str]
+right = [int, int]
+(left if flag else right)[0] = mutate''',
+            "conditional_owner_alias_different_shapes": '''left = [str]
+right = [int, int]
+owner = left if flag else right
+owner[0] = mutate''',
+            "conditional_owner_alias_finite_or_scalar": '''left = [str]
+owner = left if flag else None
+owner[0] = mutate''',
+            "conditional_owner_alias_local_contents": '''left = [mutate]
+right = [str]
+owner = left if flag else right
+owner[0] = str''',
+            "conditional_owner_alias_incompatible_local_contents": '''left = [mutate]
+right = [str, str]
+owner = left if flag else right
+owner[0] = str''',
+            "conditional_owner_boolop_delete": '''left = [str]
+right = [int]
+del (left or right)[0]''',
+            "conditional_owner_nested_augassign": '''left = [str]
+middle = [int]
+right = [float]
+(left if flag else (middle if other else right))[0] += 1''',
+            "conditional_for_sensitive": '''for backend in ((torch.optim,) if flag else (torch.optim,)):
+    backend.SGD = fake''',
+            "conditional_for_sensitive_boolop": '''for backend in (flag and (torch.optim,)):
+    backend.SGD = fake''',
+            "conditional_match_sensitive": '''match torch.optim if flag else torch.optim:
+    case backend:
+        backend.SGD = fake''',
+            "conditional_comprehension_sensitive": '''[
+    setattr(backend, "SGD", fake)
+    for backend in ((torch.optim,) if flag else (torch.optim,))
+]''',
+            "conditional_nested_comprehension_sensitive": '''[
+    setattr(backend, "SGD", fake)
+    for backend in (
+        (torch.optim,)
+        if flag
+        else ((torch.optim,) if other else (torch.optim,))
+    )
+]''',
+            "conditional_starred_sensitive": '''for backend in (*(
+    (torch.optim,) if flag else (torch.optim,)
+),):
+    backend.SGD = fake''',
+        }
+        for shape, definition in definitions.items():
+            with self.subTest(shape=shape):
+                self.write_source(
+                    "toolkit/optimizer.py",
+                    f'''import torch
+flag = True
+other = False
+def mutate(value):
+    torch.optim.SGD = value
+{definition}
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+                )
+                with self.assertRaisesRegex(DiscoveryError, "module"):
+                    discover_python_settings(
+                        self.repository_root, ("toolkit/optimizer.py",)
+                    )
+
+        self.write_source(
+            "toolkit/optimizer.py",
+            '''import torch
+flag = True
+other = False
+callback = str if flag else int
+callbacks = [str] if flag else [int]
+boolop_callback = str or int
+configured = sorted([1], key=callback)
+configured_list = sorted([1], key=callbacks[0])
+configured_boolop = sorted([1], key=boolop_callback)
+scalar = 1 if flag else 2
+short_circuit_scalar = flag and 1 or 2
+for value in ((1,) if flag else (2,)):
+    marker = value
+match 1 if flag else 2:
+    case matched:
+        marker = matched
+safe = [value for value in ((1,) if other else (2,))]
+def get_optimizer(params, optimizer_type, optimizer_params):
+    if optimizer_type == "sgd":
+        return torch.optim.SGD(params)
+''',
+        )
+        discovered = discover_python_settings(
+            self.repository_root, ("toolkit/optimizer.py",)
+        )
+        self.assertTrue(any(fact.read_kind == "optimizer.registry" for fact in discovered))
+
     def test_training_dispatch_contract_rejects_nested_or_conditional_mapping_effects(self):
         operations = {
             "nested_write": 'forwarded["nested"]["value"] = 1',
