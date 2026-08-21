@@ -893,6 +893,12 @@ class CatalogProductionSliceTests(unittest.TestCase):
     def test_catalog_core_io_network_scope_is_exactly_owned(self):
         self.assert_catalog_selector_green("--scope", "core-io-network")
 
+    def test_catalog_adapter_config_symbol_is_exactly_owned(self):
+        self.assert_catalog_selector_green(
+            "--target-symbol",
+            "toolkit/config_modules.py::AdapterConfig.__init__",
+        )
+
 
 class DiscoveryContractTests(unittest.TestCase):
     def setUp(self):

@@ -7593,6 +7593,3059 @@
         "drawbacks": "It changes module shape and checkpoint compatibility and applies only to eligible convolutions.",
         "example": "use_cp: true"
       }
+    },
+    {
+      "id": "adapter.adapter_type",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.adapter_type"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "adapter-architecture-name",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "full_adapter",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "adapter_type",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-adapter-type",
+        "description": "Selects the concrete adapter architecture variant used by adapter implementations.",
+        "benefits": "Provides explicit control of adapter type for compatible adapter workflows.",
+        "drawbacks": "An unsupported variant fails construction or is incompatible with the selected model.",
+        "example": "adapter_type: full_adapter"
+      }
+    },
+    {
+      "id": "adapter.channels",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.channels"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer-list",
+        "supported_type": "positive-integer-list",
+        "ui_type": null,
+        "example_type": "integer-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": [
+            320,
+            640,
+            1280,
+            1280
+          ],
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "channels",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-channels",
+        "description": "Sets the channel width at each T2I-adapter stage.",
+        "benefits": "Provides explicit control of channels for compatible adapter workflows.",
+        "drawbacks": "Widths that do not match the model produce shape errors and larger widths consume more memory.",
+        "example": "channels: [320, 640, 1280, 1280]"
+      }
+    },
+    {
+      "id": "adapter.class_names",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.class_names"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string-list",
+        "supported_type": "string-list",
+        "ui_type": null,
+        "example_type": "string-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": [],
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "class_names",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-class-names",
+        "description": "Lists class names used by class-aware adapter workflows.",
+        "benefits": "Provides explicit control of class names for compatible adapter workflows.",
+        "drawbacks": "Incorrect ordering or names mislabel class-conditioned data.",
+        "example": "class_names: [\"cat\", \"dog\"]"
+      }
+    },
+    {
+      "id": "adapter.clip_layer",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.clip_layer"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "clip-layer-or-null",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "penultimate_hidden_states",
+          "image_embeds",
+          "last_hidden_state"
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "When omitted, ip+ selects penultimate_hidden_states and other adapter types select last_hidden_state.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "clip_layer",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-clip-layer",
+        "description": "Selects which CLIP vision representation supplies adapter features.",
+        "benefits": "Provides explicit control of clip layer for compatible adapter workflows.",
+        "drawbacks": "The wrong representation can degrade conditioning or mismatch adapter weights.",
+        "example": "clip_layer: image_embeds"
+      }
+    },
+    {
+      "id": "adapter.control_image_dropout",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.control_image_dropout"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "control_image_dropout",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-control-image-dropout",
+        "description": "Sets the chance that control input is replaced with noise during training.",
+        "benefits": "Provides explicit control of control image dropout for compatible adapter workflows.",
+        "drawbacks": "High dropout weakens control adherence; zero provides no dropout regularization.",
+        "example": "control_image_dropout: 0.1"
+      }
+    },
+    {
+      "id": "adapter.conv_pooling",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.conv_pooling"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "conv_pooling",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-conv-pooling",
+        "description": "Enables convolutional pooling of adapter embeddings.",
+        "benefits": "Provides explicit control of conv pooling for compatible adapter workflows.",
+        "drawbacks": "Pooling changes embedding shape and must match the adapter implementation.",
+        "example": "conv_pooling: true"
+      }
+    },
+    {
+      "id": "adapter.conv_pooling_stacks",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.conv_pooling_stacks"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "conv_pooling_stacks",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-conv-pooling-stacks",
+        "description": "Sets the number of convolutional pooling stacks.",
+        "benefits": "Provides explicit control of conv pooling stacks for compatible adapter workflows.",
+        "drawbacks": "More stacks add capacity, memory use, and training cost.",
+        "example": "conv_pooling_stacks: 2"
+      }
+    },
+    {
+      "id": "adapter.downscale_factor",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.downscale_factor"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 8,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "downscale_factor",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-downscale-factor",
+        "description": "Sets the spatial downscale factor used by the adapter.",
+        "benefits": "Provides explicit control of downscale factor for compatible adapter workflows.",
+        "drawbacks": "A factor inconsistent with model latent resolution causes shape or quality problems.",
+        "example": "downscale_factor: 8"
+      }
+    },
+    {
+      "id": "adapter.flux_only_double",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.flux_only_double"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "flux_only_double",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-flux-only-double",
+        "description": "Restricts Flux adapter application to double-stream blocks.",
+        "benefits": "Provides explicit control of flux only double for compatible adapter workflows.",
+        "drawbacks": "It omits single-stream blocks and can reduce adapter reach.",
+        "example": "flux_only_double: true"
+      }
+    },
+    {
+      "id": "adapter.has_inpainting_input",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.has_inpainting_input"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "has_inpainting_input",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-has-inpainting-input",
+        "description": "Adds the inpainting input channel behavior expected by control adapters.",
+        "benefits": "Provides explicit control of has inpainting input for compatible adapter workflows.",
+        "drawbacks": "Enabling it without matching data/model channels produces incompatible inputs.",
+        "example": "has_inpainting_input: true"
+      }
+    },
+    {
+      "id": "adapter.head_dim",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.head_dim"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1024,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "head_dim",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-head-dim",
+        "description": "Sets the feature dimension per iLoRA attention head.",
+        "benefits": "Provides explicit control of head dim for compatible adapter workflows.",
+        "drawbacks": "Incompatible dimensions cause shape errors; large dimensions cost memory.",
+        "example": "head_dim: 1024"
+      }
+    },
+    {
+      "id": "adapter.i2v_do_start_frame",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.i2v_do_start_frame"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "i2v_do_start_frame",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-i2v-do-start-frame",
+        "description": "Appends the masked start frame for image-to-video adapter pretraining.",
+        "benefits": "Provides explicit control of i2v do start frame for compatible adapter workflows.",
+        "drawbacks": "It changes the expected input layout and is only meaningful for compatible I2V adapters.",
+        "example": "i2v_do_start_frame: true"
+      }
+    },
+    {
+      "id": "adapter.ilora_down",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.ilora_down"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "ilora_down",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-ilora-down",
+        "description": "Enables iLoRA modules in down blocks.",
+        "benefits": "Provides explicit control of ilora down for compatible adapter workflows.",
+        "drawbacks": "Disabling the stage reduces capacity and changes checkpoint structure.",
+        "example": "ilora_down: true"
+      }
+    },
+    {
+      "id": "adapter.ilora_mid",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.ilora_mid"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "ilora_mid",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-ilora-mid",
+        "description": "Enables iLoRA modules in the middle block.",
+        "benefits": "Provides explicit control of ilora mid for compatible adapter workflows.",
+        "drawbacks": "Disabling the stage reduces capacity and changes checkpoint structure.",
+        "example": "ilora_mid: true"
+      }
+    },
+    {
+      "id": "adapter.ilora_up",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.ilora_up"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "ilora_up",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-ilora-up",
+        "description": "Enables iLoRA modules in up blocks.",
+        "benefits": "Provides explicit control of ilora up for compatible adapter workflows.",
+        "drawbacks": "Disabling the stage reduces capacity and changes checkpoint structure.",
+        "example": "ilora_up: true"
+      }
+    },
+    {
+      "id": "adapter.image_dir",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.image_dir"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "directory-path-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "image_dir",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-image-dir",
+        "description": "Points to adapter image inputs used by applicable workflows.",
+        "benefits": "Provides explicit control of image dir for compatible adapter workflows.",
+        "drawbacks": "A missing or mismatched directory leaves the adapter without expected images.",
+        "example": "image_dir: /workspace/adapter-images"
+      }
+    },
+    {
+      "id": "adapter.image_encoder_arch",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.image_encoder_arch"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "image-encoder-architecture",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "clip",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "image_encoder_arch",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-image-encoder-arch",
+        "description": "Selects the image-encoder architecture used by the adapter.",
+        "benefits": "Provides explicit control of image encoder arch for compatible adapter workflows.",
+        "drawbacks": "Architecture and checkpoint must agree or loading fails.",
+        "example": "image_encoder_arch: clip"
+      }
+    },
+    {
+      "id": "adapter.image_encoder_path",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.image_encoder_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "model-path-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "image_encoder_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-image-encoder-path",
+        "description": "Overrides the image-encoder checkpoint path.",
+        "benefits": "Provides explicit control of image encoder path for compatible adapter workflows.",
+        "drawbacks": "A missing or incompatible checkpoint prevents encoder loading.",
+        "example": "image_encoder_path: /workspace/image-encoder"
+      }
+    },
+    {
+      "id": "adapter.in_channels",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.in_channels"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 3,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "in_channels",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-in-channels",
+        "description": "Sets adapter input channel count.",
+        "benefits": "Provides explicit control of in channels for compatible adapter workflows.",
+        "drawbacks": "It must match prepared control inputs or tensor shapes fail.",
+        "example": "in_channels: 3"
+      }
+    },
+    {
+      "id": "adapter.invert_inpaint_mask_chance",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.invert_inpaint_mask_chance"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "invert_inpaint_mask_chance",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-invert-inpaint-mask-chance",
+        "description": "Sets the chance of inverting an inpainting mask during training.",
+        "benefits": "Provides explicit control of invert inpaint mask chance for compatible adapter workflows.",
+        "drawbacks": "High values change mask semantics frequently and can confuse preservation behavior.",
+        "example": "invert_inpaint_mask_chance: 0.1"
+      }
+    },
+    {
+      "id": "adapter.lora_config",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.lora_config"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "network-config-or-null",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "A present object is parsed through NetworkConfig before use.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "lora_config",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-lora-config",
+        "description": "Provides nested network settings for control-LoRA adapters.",
+        "benefits": "Provides explicit control of lora config for compatible adapter workflows.",
+        "drawbacks": "Invalid network settings fail nested NetworkConfig parsing or produce incompatible weights.",
+        "example": "lora_config: {linear: 8}"
+      }
+    },
+    {
+      "id": "adapter.merge_scaler",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.merge_scaler"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "adapter.train_scaler",
+          "kind": "requires",
+          "description": "This setting is relevant when scaler training is enabled.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "merge_scaler",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-merge-scaler",
+        "description": "Merges a trained channel scaler into adapter weights on save.",
+        "benefits": "Provides explicit control of merge scaler for compatible adapter workflows.",
+        "drawbacks": "Merged output is harder to resume as a separately trainable scaler.",
+        "example": "merge_scaler: true"
+      }
+    },
+    {
+      "id": "adapter.name_or_path",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.name_or_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "model-path-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "name_or_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-name-or-path",
+        "description": "Selects an existing adapter name or local path to load.",
+        "benefits": "Provides explicit control of name or path for compatible adapter workflows.",
+        "drawbacks": "Incompatible weights or a missing path prevent initialization.",
+        "example": "name_or_path: /workspace/adapter"
+      }
+    },
+    {
+      "id": "adapter.num_cloned_blocks",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.num_cloned_blocks"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "nonnegative-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "num_cloned_blocks",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-num-cloned-blocks",
+        "description": "Sets how many model blocks are cloned for LLM adapter training.",
+        "benefits": "Provides explicit control of num cloned blocks for compatible adapter workflows.",
+        "drawbacks": "More cloned blocks sharply increase memory and parameter count.",
+        "example": "num_cloned_blocks: 2"
+      }
+    },
+    {
+      "id": "adapter.num_control_images",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.num_control_images"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "num_control_images",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-num-control-images",
+        "description": "Sets the number of control images expected per example.",
+        "benefits": "Provides explicit control of num control images for compatible adapter workflows.",
+        "drawbacks": "Dataset and model inputs must supply the same count.",
+        "example": "num_control_images: 2"
+      }
+    },
+    {
+      "id": "adapter.num_heads",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.num_heads"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "num_heads",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-num-heads",
+        "description": "Sets the number of iLoRA attention heads.",
+        "benefits": "Provides explicit control of num heads for compatible adapter workflows.",
+        "drawbacks": "More heads change shapes and increase computation.",
+        "example": "num_heads: 4"
+      }
+    },
+    {
+      "id": "adapter.num_res_blocks",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.num_res_blocks"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 2,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "num_res_blocks",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-num-res-blocks",
+        "description": "Sets residual blocks per T2I-adapter stage.",
+        "benefits": "Provides explicit control of num res blocks for compatible adapter workflows.",
+        "drawbacks": "More blocks add compute and capacity; checkpoint shapes must match.",
+        "example": "num_res_blocks: 2"
+      }
+    },
+    {
+      "id": "adapter.num_tokens",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.num_tokens"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer-or-null",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "When omitted, type ip+ selects 16 tokens and type ip selects 4 tokens.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "num_tokens",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-num-tokens",
+        "description": "Sets the number of adapter conditioning tokens.",
+        "benefits": "Provides explicit control of num tokens for compatible adapter workflows.",
+        "drawbacks": "Token count changes memory and checkpoint shapes and must match the adapter type.",
+        "example": "num_tokens: 16"
+      }
+    },
+    {
+      "id": "adapter.pixtral_max_image_size",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.pixtral_max_image_size"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 512,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "pixtral_max_image_size",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-pixtral-max-image-size",
+        "description": "Caps image size for Pixtral adapter preprocessing.",
+        "benefits": "Provides explicit control of pixtral max image size for compatible adapter workflows.",
+        "drawbacks": "Large caps increase encoder memory; small caps discard detail.",
+        "example": "pixtral_max_image_size: 512"
+      }
+    },
+    {
+      "id": "adapter.pixtral_random_image_size",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.pixtral_random_image_size"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "pixtral_random_image_size",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-pixtral-random-image-size",
+        "description": "Randomizes Pixtral image size during training.",
+        "benefits": "Provides explicit control of pixtral random image size for compatible adapter workflows.",
+        "drawbacks": "It adds scale variation but reduces exact batch-shape predictability.",
+        "example": "pixtral_random_image_size: true"
+      }
+    },
+    {
+      "id": "adapter.quad_image",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.quad_image"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "quad_image",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-quad-image",
+        "description": "Enables four-image composition for applicable vision adapters.",
+        "benefits": "Provides explicit control of quad image for compatible adapter workflows.",
+        "drawbacks": "It changes expected inputs and increases image-encoding work.",
+        "example": "quad_image: true"
+      }
+    },
+    {
+      "id": "adapter.quantize_llm",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.quantize_llm"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "quantize_llm",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-quantize-llm",
+        "description": "Quantizes the LLM used by applicable adapter workflows.",
+        "benefits": "Provides explicit control of quantize llm for compatible adapter workflows.",
+        "drawbacks": "Quantization saves memory but can reduce fidelity or add backend constraints.",
+        "example": "quantize_llm: true"
+      }
+    },
+    {
+      "id": "adapter.safe_channels",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.safe_channels"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 2048,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "safe_channels",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-safe-channels",
+        "description": "Sets SAFE adapter hidden channel width.",
+        "benefits": "Provides explicit control of safe channels for compatible adapter workflows.",
+        "drawbacks": "Larger widths cost memory and must match saved weights.",
+        "example": "safe_channels: 2048"
+      }
+    },
+    {
+      "id": "adapter.safe_reducer_channels",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.safe_reducer_channels"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 512,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "safe_reducer_channels",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-safe-reducer-channels",
+        "description": "Sets SAFE reducer channel width.",
+        "benefits": "Provides explicit control of safe reducer channels for compatible adapter workflows.",
+        "drawbacks": "An incompatible width causes shape mismatch and larger widths cost memory.",
+        "example": "safe_reducer_channels: 512"
+      }
+    },
+    {
+      "id": "adapter.safe_tokens",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.safe_tokens"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 8,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "safe_tokens",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-safe-tokens",
+        "description": "Sets the number of SAFE adapter tokens.",
+        "benefits": "Provides explicit control of safe tokens for compatible adapter workflows.",
+        "drawbacks": "Token count changes conditioning shape and checkpoint compatibility.",
+        "example": "safe_tokens: 8"
+      }
+    },
+    {
+      "id": "adapter.scaler_lr",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.scaler_lr"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "positive-number-or-null",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": false,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "adapter.train_scaler",
+          "kind": "requires",
+          "description": "This setting is relevant when scaler training is enabled.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "scaler_lr",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-scaler-lr",
+        "description": "Overrides learning rate for the trainable adapter scaler.",
+        "benefits": "Provides explicit control of scaler lr for compatible adapter workflows.",
+        "drawbacks": "An excessive scaler rate can destabilize its channel weights.",
+        "example": "scaler_lr: 0.0001"
+      }
+    },
+    {
+      "id": "adapter.sparse_autoencoder_dim",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.sparse_autoencoder_dim"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer-or-null",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "sparse_autoencoder_dim",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-sparse-autoencoder-dim",
+        "description": "Sets sparse-autoencoder feature dimension for applicable adapters.",
+        "benefits": "Provides explicit control of sparse autoencoder dim for compatible adapter workflows.",
+        "drawbacks": "Large dimensions increase memory; incompatible dimensions fail shape construction.",
+        "example": "sparse_autoencoder_dim: 4096"
+      }
+    },
+    {
+      "id": "adapter.subpixel_downscale_factor",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.subpixel_downscale_factor"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 8,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "subpixel_downscale_factor",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-subpixel-downscale-factor",
+        "description": "Sets the subpixel adapter downscale factor.",
+        "benefits": "Provides explicit control of subpixel downscale factor for compatible adapter workflows.",
+        "drawbacks": "It must match the intended spatial packing or shapes and quality suffer.",
+        "example": "subpixel_downscale_factor: 8"
+      }
+    },
+    {
+      "id": "adapter.test_img_path",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.test_img_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string-or-string-list",
+        "supported_type": "path-or-path-list-or-null",
+        "ui_type": null,
+        "example_type": "string-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "A comma-separated string is split, trimmed, and emptied pieces are discarded.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "test_img_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-test-img-path",
+        "description": "Provides one or more fixed test image paths for adapter evaluation.",
+        "benefits": "Provides explicit control of test img path for compatible adapter workflows.",
+        "drawbacks": "Missing files prevent fixed-image evaluation.",
+        "example": "test_img_path: [\"/workspace/test.png\"]"
+      }
+    },
+    {
+      "id": "adapter.text_encoder_arch",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.text_encoder_arch"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "text-encoder-architecture",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "clip",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "text_encoder_arch",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-text-encoder-arch",
+        "description": "Selects the adapter text-encoder architecture.",
+        "benefits": "Provides explicit control of text encoder arch for compatible adapter workflows.",
+        "drawbacks": "It must match the configured checkpoint and adapter implementation.",
+        "example": "text_encoder_arch: clip"
+      }
+    },
+    {
+      "id": "adapter.text_encoder_path",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.text_encoder_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "model-path-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "text_encoder_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-text-encoder-path",
+        "description": "Overrides the adapter text-encoder checkpoint path.",
+        "benefits": "Provides explicit control of text encoder path for compatible adapter workflows.",
+        "drawbacks": "A missing or incompatible checkpoint prevents loading.",
+        "example": "text_encoder_path: /workspace/text-encoder"
+      }
+    },
+    {
+      "id": "adapter.train",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.train"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "train",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-train",
+        "description": "Enables training of the configured adapter.",
+        "benefits": "Provides explicit control of train for compatible adapter workflows.",
+        "drawbacks": "Leaving it false keeps the adapter out of the trainable adapter path.",
+        "example": "train: true"
+      }
+    },
+    {
+      "id": "adapter.train_image_encoder",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.train_image_encoder"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "train_image_encoder",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-train-image-encoder",
+        "description": "Enables image-encoder parameter training.",
+        "benefits": "Provides explicit control of train image encoder for compatible adapter workflows.",
+        "drawbacks": "It raises memory use and can overfit a small image set.",
+        "example": "train_image_encoder: true"
+      }
+    },
+    {
+      "id": "adapter.train_only_image_encoder",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.train_only_image_encoder"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "True also forces train_image_encoder true.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "adapter.train_image_encoder",
+          "kind": "affects",
+          "description": "This narrows or forces image-encoder training.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "train_only_image_encoder",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-train-only-image-encoder",
+        "description": "Restricts adapter training to the image encoder.",
+        "benefits": "Provides explicit control of train only image encoder for compatible adapter workflows.",
+        "drawbacks": "It prevents other adapter parameters from learning.",
+        "example": "train_only_image_encoder: true"
+      }
+    },
+    {
+      "id": "adapter.train_only_image_encoder_positional_embedding",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.train_only_image_encoder_positional_embedding"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "adapter.train_image_encoder",
+          "kind": "affects",
+          "description": "This narrows or forces image-encoder training.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "train_only_image_encoder_positional_embedding",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-train-only-image-encoder-positional-embedding",
+        "description": "Restricts image-encoder training to positional embeddings.",
+        "benefits": "Provides explicit control of train only image encoder positional embedding for compatible adapter workflows.",
+        "drawbacks": "It offers very limited capacity and is only useful for targeted adaptation.",
+        "example": "train_only_image_encoder_positional_embedding: true"
+      }
+    },
+    {
+      "id": "adapter.train_scaler",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.train_scaler"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "train_scaler",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-train-scaler",
+        "description": "Enables training of the adapter channel scaler.",
+        "benefits": "Provides explicit control of train scaler for compatible adapter workflows.",
+        "drawbacks": "It adds a separate trainable component that needs an appropriate learning rate.",
+        "example": "train_scaler: true"
+      }
+    },
+    {
+      "id": "adapter.trigger",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.trigger"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "nonblank-trigger",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "tri993r",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "trigger",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-trigger",
+        "description": "Sets the token that activates applicable adapter conditioning.",
+        "benefits": "Provides explicit control of trigger for compatible adapter workflows.",
+        "drawbacks": "A common or inconsistent trigger can entangle adapter behavior.",
+        "example": "trigger: tri993r"
+      }
+    },
+    {
+      "id": "adapter.trigger_class_name",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.trigger_class_name"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string-or-null",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "trigger_class_name",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-trigger-class-name",
+        "description": "Sets the class name associated with the adapter trigger for masked-prior workflows.",
+        "benefits": "Provides explicit control of trigger class name for compatible adapter workflows.",
+        "drawbacks": "An incorrect class name gives the preservation target the wrong semantics.",
+        "example": "trigger_class_name: person"
+      }
+    },
+    {
+      "id": "adapter.type",
+      "ui_label": null,
+      "scope": "network",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].adapter.type"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "adapter-type",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "t2i",
+          "ip",
+          "ip+",
+          "clip",
+          "ilora",
+          "photo_maker",
+          "control_net",
+          "control_lora",
+          "i2v"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "t2i",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "advanced-only-settings",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "AdapterConfig.__init__",
+          "key": "type",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "adapter-type",
+        "description": "Selects the top-level adapter family.",
+        "benefits": "Provides explicit control of type for compatible adapter workflows.",
+        "drawbacks": "Each family requires different inputs, weights, and compatible model support.",
+        "example": "type: control_lora"
+      }
     }
   ]
 }
