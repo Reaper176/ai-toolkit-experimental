@@ -182,6 +182,8 @@ export interface NumberInputProps extends InputProps {
   max?: number;
   disabled?: boolean;
   onValuePresenceChange?: (hasValue: boolean) => void;
+  // When true, clearing the input calls onChange(null).
+  allowEmpty?: boolean;
 }
 
 export const NumberInput = (props: NumberInputProps) => {
@@ -199,6 +201,7 @@ export const NumberInput = (props: NumberInputProps) => {
     ariaDescribedBy,
     disabled,
     onValuePresenceChange,
+    allowEmpty,
   } = props;
   let { doc } = props;
   if (!doc && docKey) {
@@ -240,7 +243,7 @@ export const NumberInput = (props: NumberInputProps) => {
           // Handle empty or partial inputs
           if (rawValue === '' || rawValue === '-') {
             onValuePresenceChange?.(false);
-            // For empty or partial negative input, don't call onChange yet
+            if (rawValue === '' && allowEmpty) onChange(null);
             return;
           }
 

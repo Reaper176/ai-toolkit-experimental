@@ -1,7 +1,7 @@
 import { GroupedSelectOption, SelectOption } from '@/types';
 import { DEFAULT_DINOV3_INCLUDED_CATEGORIES } from './dinov3TaggerOptions';
 
-type CaptionGroup = 'image' | 'music' | 'video';
+type CaptionGroup = 'image' | 'music' | 'video' | 'image/video/sound';
 type AdditionalSections =
   | 'caption.model_name_or_path2'
   | 'caption.caption_prompt'
@@ -14,7 +14,8 @@ type AdditionalSections =
   | 'caption.threshold_or_top_k'
   | 'caption.included_categories'
   | 'caption.tag_formatting'
-  | 'caption.batch_size';
+  | 'caption.batch_size'
+  | 'caption.layer_offloading';
 
 export interface CaptionOption {
   name: string;
@@ -144,10 +145,10 @@ export const captionerTypes: CaptionOption[] = [
   {
     name: 'Qwen3OmniCaptioner',
     label: 'Qwen3-Omni',
-    group: 'video',
+    group: 'image/video/sound',
     defaults: {
-      'config.process[0].caption.model_name_or_path': ['ostris/Qwen3-Omni-30B-A3B-Instruct', defaultNameOrPath],
-      'config.process[0].caption.extensions': [extensionsVideo, defaultExtensions],
+      'config.process[0].caption.model_name_or_path': ['ai-toolkit/Qwen3-Omni-30B-A3B-Thinking', defaultNameOrPath],
+      'config.process[0].caption.extensions': [[...extensionsVideo, ...extensionsImage], defaultExtensions],
       'config.process[0].caption.caption_prompt': [defaultVideoCaptionPrompt, undefined],
       'config.process[0].caption.max_res': [512, undefined],
       'config.process[0].caption.max_new_tokens': [512, undefined],
@@ -155,13 +156,16 @@ export const captionerTypes: CaptionOption[] = [
       'config.process[0].caption.compile': [true, false],
     },
     name_or_path_options: [
-      { value: 'ostris/Qwen3-Omni-30B-A3B-Instruct', label: 'ostris/Qwen3-Omni-30B-A3B-Instruct' },
+      { value: 'ai-toolkit/Qwen3-Omni-30B-A3B-Instruct', label: 'ai-toolkit/Qwen3-Omni-30B-A3B-Instruct' },
+      { value: 'ai-toolkit/Qwen3-Omni-30B-A3B-Thinking', label: 'ai-toolkit/Qwen3-Omni-30B-A3B-Thinking' },
+      { value: 'ai-toolkit/Huihui-Qwen3-Omni-30B-A3B-Thinking-abliterated', label: 'ai-toolkit/Huihui-Qwen3-Omni-30B-A3B-Thinking-abliterated' },
     ],
     captionPrompts: {
       General: defaultVideoCaptionPrompt,
       'MiniMax H4 T2V': minimaxT2VCaptionPrompt,
+      'MiniMax H4 Image': minimaxImageCaptionPrompt,
     },
-    additionalSections: ['caption.caption_prompt', 'caption.max_res', 'caption.max_new_tokens', 'caption.batch_size'],
+    additionalSections: ['caption.caption_prompt', 'caption.max_res', 'caption.max_new_tokens', 'caption.batch_size', 'caption.layer_offloading', 'caption.thinking'],
   },
   {
     name: 'Ideogram4Captioner',
@@ -205,8 +209,8 @@ export const groupedCaptionerTypes: GroupedSelectOption[] = captionerTypes.reduc
 
 export const quantizationOptions: SelectOption[] = [
   { value: '', label: '- NONE -' },
-  { value: 'float8', label: 'float8 (default)' },
-  { value: 'convrot8', label: '8bit convrot' },
+  { value: 'float8', label: 'float8' },
+  { value: 'convrot8', label: '8bit convrot (default)' },
   { value: 'convrot4', label: '4bit convrot (nvfp4)' },
   { value: 'convrotint7', label: '7bit convrot' },
   { value: 'convrotint6', label: '6bit convrot' },

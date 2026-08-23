@@ -89,6 +89,7 @@ export interface SaveConfig {
 }
 
 export interface DatasetConfig {
+  batch_size?: number;
   folder_path: string;
   dataset_path?: string | null;
   mask_path: string | null;
@@ -342,6 +343,8 @@ export interface CaptionProcessConfig {
     use_underscores?: boolean;
     escape_parentheses?: boolean;
     batch_size?: number;
+    layer_offloading?: boolean;
+    layer_offloading_percent?: number;
   };
 }
 
