@@ -1926,6 +1926,32 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("stale UI owners", result.stderr)
 
+    def test_validation_cli_check_discovery_with_ui_facts_reaches_aggregate_ownership(self):
+        facts = self.valid_facts()
+        facts["config_claims"][0]["source_path"] = (
+            "ui/src/app/jobs/new/SimpleJob.tsx"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "facts.json"
+            path.write_text(json.dumps(facts), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/validate_training_book.py",
+                    "--check-discovery",
+                    "--ui-facts",
+                    str(path),
+                ],
+                cwd=REPOSITORY_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("stale UI owners", result.stderr)
+        self.assertNotIn("requires exactly --scope", result.stderr)
+
     def test_validation_cli_rejects_empty_typescript_source_group_coverage(self):
         facts = self.valid_facts()
         for claim in facts["config_claims"]:
@@ -12869,6 +12895,40 @@ class BookArtifactTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("scripts/training_book/__init__.py", result.stderr)
+
+    def test_runner_contract_requires_every_training_book_test_and_live_ownership(self):
+        runner = (
+            REPOSITORY_ROOT / "ui/testing/runTrainingBookTests.mjs"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("readdirSync(testingDirectory)", runner)
+        self.assertIn("trainingBook*.test.tsx?", runner)
+        self.assertIn("No ${testContract} artifacts were found", runner)
+        self.assertIn("trainingBookUiFacts.test.ts", runner)
+        self.assertIn("Required compiled test artifact is missing", runner)
+        self.assertIn("mkdtempSync(join(tmpdir(), TEMP_PREFIX))", runner)
+        self.assertIn("const reactStub", runner)
+        self.assertIn("const lucideStub", runner)
+        self.assertIn("writeTrainingBookUiFacts", runner)
+        self.assertIn("'--check-discovery', '--ui-facts', factsPath", runner)
+        self.assertIn("assertSafe(outputDirectory)", runner)
+
+    def test_runner_rejects_unknown_duplicate_and_full_mode_flags(self):
+        runner = REPOSITORY_ROOT / "ui/testing/runTrainingBookTests.mjs"
+        for arguments in (
+            ("--facts-only", "--facts-only"),
+            ("--full",),
+            ("--facts-only", "--full"),
+        ):
+            with self.subTest(arguments=arguments):
+                result = subprocess.run(
+                    ["node", runner, *arguments],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Unknown or incompatible", result.stderr)
 
 
 if __name__ == "__main__":

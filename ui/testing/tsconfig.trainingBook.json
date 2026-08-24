@@ -13,6 +13,6 @@
     "rootDir": "..",
     "target": "es2022"
   },
-  "include": ["trainingBookFacts.ts", "trainingBookUiFacts.test.ts"],
+  "include": ["trainingBookFacts.ts", "trainingBook*.test.ts", "trainingBook*.test.tsx"],
   "exclude": ["../.next", "../node_modules"]
 }

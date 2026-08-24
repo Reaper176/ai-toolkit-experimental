@@ -504,6 +504,7 @@ def main() -> None:
     target_mode = False
     production_scope = None
     ui_scope = None
+    aggregate_mode = False
     if arguments.check_discovery:
         if arguments.inventory_json is not None:
             raise DiscoveryError(
@@ -529,6 +530,8 @@ def main() -> None:
             ["save-sample-validation"], ["data"],
         ):
             production_scope = arguments.scope[0]
+        elif not arguments.scope and ui_facts is not None:
+            aggregate_mode = True
         elif arguments.scope != ["discovery-fixtures"]:
             raise DiscoveryError(
                 "--check-discovery requires exactly --scope discovery-fixtures"
@@ -552,7 +555,7 @@ def main() -> None:
                 "--scope values are inactive without their matching check mode"
             )
 
-    if ui_scope is not None:
+    if ui_scope is not None or aggregate_mode:
         assert ui_facts is not None
         source_catalog = load_source_catalog(
             repository_root / "docs/book/reference/settings-sources.json"
@@ -564,13 +567,17 @@ def main() -> None:
             repository_root / "docs/book/reference/settings-exclusions.json"
         )
         validate_ui_fact_ownership(
-            ui_facts, settings_catalog, ui_exclusions, scope=ui_scope
+            ui_facts,
+            settings_catalog,
+            ui_exclusions,
+            scope="all" if aggregate_mode else ui_scope,
         )
 
     needs_production_discovery = bool(
         arguments.inventory_json
         or target_mode
         or production_scope
+        or aggregate_mode
     )
     if needs_production_discovery:
         source_catalog = load_source_catalog(
@@ -585,6 +592,8 @@ def main() -> None:
         globs = _python_globs(source_catalog)
         discovered = discover_python_settings(repository_root, globs)
         claims = source_catalog.claims + catalog_source_claims(settings_catalog)
+        if aggregate_mode:
+            validate_setting_ownership(discovered, claims, exclusions)
         if arguments.inventory_json:
             _write_inventory(
                 arguments.inventory_json, discovered, claims, exclusions
