@@ -2275,6 +2275,636 @@
       "key": "vision_fn",
       "read_kind": "attribute.get",
       "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/MergeJob.py",
+      "symbol": "MergeJob.__init__",
+      "key": "dtype",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/MergeJob.py",
+      "symbol": "MergeJob.__init__",
+      "key": "is_v2",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/TrainJob.py",
+      "symbol": "TrainJob.__init__",
+      "key": "is_v2",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/TrainJob.py",
+      "symbol": "TrainJob.__init__",
+      "key": "log_dir",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/TrainJob.py",
+      "symbol": "TrainJob.__init__",
+      "key": "training_folder",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/BaseMergeProcess.py",
+      "symbol": "BaseMergeProcess.__init__",
+      "key": "dtype",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/BaseMergeProcess.py",
+      "symbol": "BaseMergeProcess.__init__",
+      "key": "output_path",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "current_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "input_path",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "is_v2",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "is_xl",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "output_path",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "replace_meta",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "save_dtype",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "scale_target",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "target_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "augmentations",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "batch_size",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "content_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "critic",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "critic_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "datasets",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "device",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "dtype",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "epochs",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "learning_rate",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "log_every",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "max_steps",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "mse_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "optimizer",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "optimizer_params",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "pattern_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "pretrained_path",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "resolution",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "sample_every",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "sample_sources",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "save_every",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "style_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "tv_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "upscale_sample",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "use_critic",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "zoom",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainSDRescaleProcess.py",
+      "symbol": "RescaleConfig.__init__",
+      "key": "from_resolution",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainSDRescaleProcess.py",
+      "symbol": "RescaleConfig.__init__",
+      "key": "latent_tensor_dir",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainSDRescaleProcess.py",
+      "symbol": "RescaleConfig.__init__",
+      "key": "num_latent_tensors",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainSDRescaleProcess.py",
+      "symbol": "RescaleConfig.__init__",
+      "key": "prompt_dropout",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainSDRescaleProcess.py",
+      "symbol": "RescaleConfig.__init__",
+      "key": "scale",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainSDRescaleProcess.py",
+      "symbol": "RescaleConfig.__init__",
+      "key": "to_resolution",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainSDRescaleProcess.py",
+      "symbol": "TrainSDRescaleProcess.__init__",
+      "key": "device",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainSDRescaleProcess.py",
+      "symbol": "TrainSDRescaleProcess.__init__",
+      "key": "rescale",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "batch_size",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "blocks_to_train",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "clip_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "content_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "critic",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "critic_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "datasets",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "device",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "dropout",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "dtype",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "epochs",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "eq_vae",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "kld_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "learning_rate",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "log_every",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "lpips_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "lpm_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "ltv_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "mae_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "max_steps",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "mse_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "mv_loss_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "only_if_contains",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "optimizer",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "optimizer_params",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "pattern_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "random_scaling",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "resolution",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "sample_every",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "sample_resolution",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "sample_sources",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "save_every",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "style_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "target_latent_vae_path",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "train_encoder",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "tv_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "use_critic",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "vae_config",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "vae_path",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "vae_type",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
     }
   ],
   "ui_exclusions": [

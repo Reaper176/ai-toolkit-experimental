@@ -434,7 +434,10 @@ def _write_inventory(path: Path, discovered, claims, exclusions) -> None:
         "schema_version": 1,
         "settings": settings,
         "summary": {
-            "by_ownership": dict(sorted(status_counts.items())),
+            "by_ownership": {
+                status: status_counts.get(status, 0)
+                for status in ("cataloged", "excluded", "unowned")
+            },
             "major_groups": major_groups,
             "total": len(settings),
         },

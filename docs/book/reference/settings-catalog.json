@@ -609,13 +609,31 @@
           "symbol": "ExtensionJob.__init__",
           "key": "device",
           "read_kind": "get_conf"
+        },
+        {
+          "source": "jobs/MergeJob.py",
+          "symbol": "MergeJob.__init__",
+          "key": "device",
+          "read_kind": "get_conf"
+        },
+        {
+          "source": "jobs/ModJob.py",
+          "symbol": "ModJob.__init__",
+          "key": "device",
+          "read_kind": "get_conf"
+        },
+        {
+          "source": "jobs/TrainJob.py",
+          "symbol": "TrainJob.__init__",
+          "key": "device",
+          "read_kind": "get_conf"
         }
       ],
       "render": {
         "page": "reference/job-and-model.md",
         "anchor": "job-device",
-        "description": "Selects the device string inherited by extension-job processes.",
-        "benefits": "Allows an extension job to target a specific available compute device.",
+        "description": "Selects the device string inherited by job-level processes.",
+        "benefits": "Allows a job to target a specific available compute device.",
         "drawbacks": "An unavailable or malformed device string prevents the process from running.",
         "example": "device: cpu"
       }
@@ -2122,6 +2140,12 @@
           "symbol": "DiffusionTrainer.__init__",
           "key": "AITK_JOB_ID",
           "read_kind": "os.environ.get"
+        },
+        {
+          "source": "extensions_built_in/sd_trainer/UITrainer.py",
+          "symbol": "UITrainer.__init__",
+          "key": "AITK_JOB_ID",
+          "read_kind": "os.environ.get"
         }
       ],
       "render": {
@@ -2186,6 +2210,12 @@
         {
           "source": "extensions_built_in/sd_trainer/DiffusionTrainer.py",
           "symbol": "DiffusionTrainer.__init__",
+          "key": "sqlite_db_path",
+          "read_kind": "attribute.get"
+        },
+        {
+          "source": "extensions_built_in/sd_trainer/UITrainer.py",
+          "symbol": "UITrainer.__init__",
           "key": "sqlite_db_path",
           "read_kind": "attribute.get"
         }

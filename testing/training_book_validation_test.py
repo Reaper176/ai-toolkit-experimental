@@ -3268,6 +3268,133 @@ class CatalogProductionSliceTests(unittest.TestCase):
             ),
         )
 
+    def test_catalog_owns_both_aitk_job_id_runtime_consumers(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        setting = next(
+            item for item in catalog.settings
+            if item.id == "environment.aitk_job_id"
+        )
+
+        self.assertEqual(
+            {
+                (claim.source, claim.symbol, claim.key, claim.read_kind)
+                for claim in setting.source_claims
+            },
+            {
+                (
+                    "extensions_built_in/sd_trainer/DiffusionTrainer.py",
+                    "DiffusionTrainer.__init__",
+                    "AITK_JOB_ID",
+                    "os.environ.get",
+                ),
+                (
+                    "extensions_built_in/sd_trainer/UITrainer.py",
+                    "UITrainer.__init__",
+                    "AITK_JOB_ID",
+                    "os.environ.get",
+                ),
+            },
+        )
+        sqlite_path = next(
+            item for item in catalog.settings
+            if item.id == "process.sqlite_db_path"
+        )
+        self.assertIn(
+            (
+                "extensions_built_in/sd_trainer/UITrainer.py",
+                "UITrainer.__init__",
+                "sqlite_db_path",
+                "attribute.get",
+            ),
+            {
+                (claim.source, claim.symbol, claim.key, claim.read_kind)
+                for claim in sqlite_path.source_claims
+            },
+        )
+
+    def test_aggregate_exactly_owns_or_excludes_legacy_non_lora_surfaces(self):
+        expected_symbols = {
+            ("jobs/MergeJob.py", "MergeJob.__init__"),
+            ("jobs/ModJob.py", "ModJob.__init__"),
+            ("jobs/TrainJob.py", "TrainJob.__init__"),
+            (
+                "jobs/process/BaseMergeProcess.py",
+                "BaseMergeProcess.__init__",
+            ),
+            (
+                "jobs/process/ModRescaleLoraProcess.py",
+                "ModRescaleLoraProcess.__init__",
+            ),
+            (
+                "jobs/process/TrainESRGANProcess.py",
+                "TrainESRGANProcess.__init__",
+            ),
+            (
+                "jobs/process/TrainSDRescaleProcess.py",
+                "RescaleConfig.__init__",
+            ),
+            (
+                "jobs/process/TrainSDRescaleProcess.py",
+                "TrainSDRescaleProcess.__init__",
+            ),
+            (
+                "jobs/process/TrainVAEProcess.py",
+                "TrainVAEProcess.__init__",
+            ),
+        }
+        discovered = tuple(
+            item for item in self.discovered
+            if (item.source, item.symbol) in expected_symbols
+        )
+        claims = tuple(
+            item for item in self.claims
+            if (item.source, item.symbol) in expected_symbols
+        )
+        selected = tuple(
+            item for item in self.exclusions
+            if (item.source, item.symbol) in expected_symbols
+        )
+
+        self.assertEqual(len(discovered), 93)
+        self.assertEqual(
+            {(item.source, item.symbol) for item in discovered},
+            expected_symbols,
+        )
+        self.assertEqual(len(claims), 3)
+        self.assertEqual(
+            {(item.source, item.symbol, item.key, item.read_kind) for item in claims},
+            {
+                ("jobs/MergeJob.py", "MergeJob.__init__", "device", "get_conf"),
+                ("jobs/ModJob.py", "ModJob.__init__", "device", "get_conf"),
+                ("jobs/TrainJob.py", "TrainJob.__init__", "device", "get_conf"),
+            },
+        )
+        self.assertEqual(len(selected), 90)
+        self.assertEqual(
+            {(item.source, item.symbol) for item in selected},
+            expected_symbols - {("jobs/ModJob.py", "ModJob.__init__")},
+        )
+        self.assertEqual(
+            {item.reason for item in selected}, {"model-developer API"}
+        )
+        validate_setting_ownership(discovered, claims, selected)
+
+        added = DiscoveredSetting(
+            "jobs/TrainJob.py",
+            "TrainJob.__init__",
+            999,
+            "new_runtime_control",
+            "get_conf",
+            "core",
+            "None",
+        )
+        with self.assertRaisesRegex(DiscoveryError, "unowned"):
+            validate_setting_ownership(discovered + (added,), claims, selected)
+
     def test_catalog_base_job_source_is_exactly_owned(self):
         self.assert_catalog_selector_green(
             "--target-source", "jobs/BaseJob.py"
@@ -12731,7 +12858,7 @@ def build(network_kwargs):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("target", result.stderr)
 
-    def test_discovery_cli_target_modes_reach_target_ownership_validation(self):
+    def test_discovery_cli_target_modes_are_green_after_complete_ownership(self):
         selectors = (
             ("--target-source", "toolkit/config.py"),
             (
@@ -12754,9 +12881,9 @@ def build(network_kwargs):
                     check=False,
                 )
 
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("unowned", result.stderr)
-                self.assertNotIn("requires exactly --scope", result.stderr)
+                self.assertEqual(
+                    result.returncode, 0, result.stdout + result.stderr
+                )
 
     def test_discovery_cli_rejects_inactive_or_multiple_modes(self):
         cases = (
