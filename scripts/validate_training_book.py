@@ -242,6 +242,25 @@ def _in_model_family_qwen_sd(item) -> bool:
     }
 
 
+def _in_model_family_remaining(item) -> bool:
+    is_first_party_model = item.source.startswith(
+        (
+            "extensions_built_in/diffusion_models/",
+            "extensions_built_in/flex2/",
+            "extensions_built_in/audio_models/",
+            "toolkit/models/",
+        )
+    )
+    return is_first_party_model and not any(
+        predicate(item)
+        for predicate in (
+            _in_model_family_core,
+            _in_model_family_wan,
+            _in_model_family_qwen_sd,
+        )
+    )
+
+
 def _in_train_config_keys(item, keys) -> bool:
     return (
         item.source == "toolkit/config_modules.py"
@@ -475,6 +494,7 @@ def main() -> None:
             ["model-family-core"],
             ["model-family-wan"],
             ["model-family-qwen-sd"],
+            ["model-family-remaining"],
             ["dataset-core"], ["dataset-modalities"], ["data-loader-cache"],
             ["save-sample-validation"], ["data"],
         ):
@@ -575,6 +595,7 @@ def main() -> None:
             "model-family-core": _in_model_family_core,
             "model-family-wan": _in_model_family_wan,
             "model-family-qwen-sd": _in_model_family_qwen_sd,
+            "model-family-remaining": _in_model_family_remaining,
             "dataset-core": lambda item: _in_dataset_keys(item, DATASET_CORE_KEYS),
             "dataset-modalities": lambda item: _in_dataset_keys(item, DATASET_MODALITY_KEYS),
             "data-loader-cache": _in_data_loader_cache,

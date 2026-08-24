@@ -1757,6 +1757,524 @@
       "key": "mid_block_additional_residual",
       "read_kind": "kwargs[]",
       "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/ace_step_15_model.py",
+      "symbol": "AceStep15Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/ace_step_15_model.py",
+      "symbol": "AceStep15Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "bpm",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "cfg",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "checkpoint",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "device",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "dtype",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "duration",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "key",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "language",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "lyrics",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "model",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "output",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "prompt",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "seed",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "shift",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "steps",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "time_sig",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/boogu_image/boogu_image.py",
+      "symbol": "BooguImageModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/boogu_image/boogu_image.py",
+      "symbol": "BooguImageModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ernie_image/ernie_image.py",
+      "symbol": "ErnieImageModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ernie_image/ernie_image.py",
+      "symbol": "ErnieImageModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/example_model/example_model.py",
+      "symbol": "ExampleModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/example_model/example_model.py",
+      "symbol": "ExampleModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/f_light/f_light.py",
+      "symbol": "FLiteModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/f_light/f_light.py",
+      "symbol": "FLiteModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/flux2/flux2_model.py",
+      "symbol": "Flux2Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/flux2/flux2_model.py",
+      "symbol": "Flux2Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_model.py",
+      "symbol": "HidreamModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_model.py",
+      "symbol": "HidreamModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+      "symbol": "FakeTextEncoder.to",
+      "key": "device",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+      "symbol": "FakeTextEncoder.to",
+      "key": "device",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+      "symbol": "FakeTextEncoder.to",
+      "key": "dtype",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+      "symbol": "FakeTextEncoder.to",
+      "key": "dtype",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+      "symbol": "HidreamO1FlowmatchScheduler.__init__",
+      "key": "noise_scale",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+      "symbol": "HidreamO1Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+      "symbol": "HidreamO1Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/src/hidream_o1/qwen3_vl_transformers.py",
+      "symbol": "Qwen3VLModel._forward_generation",
+      "key": "DEBUG_MEM",
+      "read_kind": "os.environ.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/src/hidream_o1/qwen3_vl_transformers.py",
+      "symbol": "Qwen3VLModel._forward_generation",
+      "key": "RANK",
+      "read_kind": "os.environ.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/src/hidream_o1/qwen3_vl_transformers.py",
+      "symbol": "Qwen3VLTextModel.forward",
+      "key": "DEBUG_MEM",
+      "read_kind": "os.environ.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/src/hidream_o1/qwen3_vl_transformers.py",
+      "symbol": "Qwen3VLTextModel.forward",
+      "key": "RANK",
+      "read_kind": "os.environ.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/src/pipelines/hidream_image/pipeline_hidream_image_editing.py",
+      "symbol": "HiDreamImageEditingPipeline.__call__",
+      "key": "negative_prompt_embeds",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/src/pipelines/hidream_image/pipeline_hidream_image_editing.py",
+      "symbol": "HiDreamImageEditingPipeline.__call__",
+      "key": "prompt_embeds",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ideogram4/ideogram4.py",
+      "symbol": "Ideogram4Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ideogram4/ideogram4.py",
+      "symbol": "Ideogram4Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/krea2/krea2.py",
+      "symbol": "Krea2Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/krea2/krea2.py",
+      "symbol": "Krea2Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ltx2/convert_ltx2_to_diffusers.py",
+      "symbol": "convert_ltx2_audio_vae",
+      "key": "diffusers_config",
+      "read_kind": "attribute[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ltx2/convert_ltx2_to_diffusers.py",
+      "symbol": "convert_ltx2_connectors",
+      "key": "diffusers_config",
+      "read_kind": "attribute[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ltx2/convert_ltx2_to_diffusers.py",
+      "symbol": "convert_ltx2_transformer",
+      "key": "diffusers_config",
+      "read_kind": "attribute[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ltx2/convert_ltx2_to_diffusers.py",
+      "symbol": "convert_ltx2_video_vae",
+      "key": "diffusers_config",
+      "read_kind": "attribute[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ltx2/convert_ltx2_to_diffusers.py",
+      "symbol": "convert_ltx2_vocoder",
+      "key": "diffusers_config",
+      "read_kind": "attribute[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ltx2/ltx2.py",
+      "symbol": "LTX2Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ltx2/ltx2.py",
+      "symbol": "LTX2Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/mageflow/mageflow.py",
+      "symbol": "MageFlowModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/mageflow/mageflow.py",
+      "symbol": "MageFlowModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py",
+      "symbol": "MinimaxH3Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py",
+      "symbol": "MinimaxH3Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/nucleus_image/nucleus_image_model.py",
+      "symbol": "NucleusImageModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/nucleus_image/nucleus_image_model.py",
+      "symbol": "NucleusImageModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/omnigen2/__init__.py",
+      "symbol": "OmniGen2Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/omnigen2/__init__.py",
+      "symbol": "OmniGen2Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/prx_pixel_t2i/prx_pixel_t2i.py",
+      "symbol": "PRXPixelT2IModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/z_image/z_image.py",
+      "symbol": "ZImageModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/z_image/z_image.py",
+      "symbol": "ZImageModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/z_image/z_image_l2p_model.py",
+      "symbol": "ZImageL2PModel.load_model",
+      "key": "in_channels",
+      "read_kind": "attribute[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/cogview4.py",
+      "symbol": "CogView4.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/cogview4.py",
+      "symbol": "CogView4.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/tipsv2.py",
+      "symbol": "TIPSv2DPTModel._extract_intermediate",
+      "key": "block_indices",
+      "read_kind": "attribute[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/tipsv2.py",
+      "symbol": "TIPSv2VisionModel.__init__",
+      "key": "ffn_layer",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/tipsv2.py",
+      "symbol": "TIPSv2VisionModel.__init__",
+      "key": "img_size",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/tipsv2.py",
+      "symbol": "TIPSv2VisionModel.__init__",
+      "key": "init_values",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/tipsv2.py",
+      "symbol": "TIPSv2VisionModel.__init__",
+      "key": "patch_size",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/tipsv2.py",
+      "symbol": "TIPSv2VisionModel.__init__",
+      "key": "vision_fn",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
     }
   ]
 }

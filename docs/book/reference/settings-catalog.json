@@ -40492,6 +40492,4295 @@
         "drawbacks": "Large target resolutions increase control-image encoding memory and time and can reduce consistency across buckets.",
         "example": "match_target_res: false"
       }
+    },
+    {
+      "id": "model.boogu_image.model_kwargs.max_text_length",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.max_text_length"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "boogu_image"
+        },
+        {
+          "ui_architecture": "boogu_image_edit"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1024,
+          "applicability": [
+            {
+              "ui_architecture": "boogu_image"
+            },
+            {
+              "ui_architecture": "boogu_image_edit"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/boogu_image/boogu_image.py",
+          "symbol": "BooguImageModel.__init__",
+          "key": "max_text_length",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-boogu-image-model-kwargs-max-text-length",
+        "description": "Sets the maximum text token length used by this model family.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Larger values increase memory or compute, while unsupported values can fail downstream shape checks.",
+        "example": "max_text_length: 1024"
+      }
+    },
+    {
+      "id": "model.boogu_image.model_kwargs.attention_backend",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.attention_backend"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "boogu_image"
+        },
+        {
+          "ui_architecture": "boogu_image_edit"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "native",
+          "applicability": [
+            {
+              "ui_architecture": "boogu_image"
+            },
+            {
+              "ui_architecture": "boogu_image_edit"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/boogu_image/boogu_image.py",
+          "symbol": "BooguImageModel.load_model",
+          "key": "attention_backend",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-boogu-image-model-kwargs-attention-backend",
+        "description": "Selects the attention implementation used while loading and running the model.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "attention_backend: native"
+      }
+    },
+    {
+      "id": "model.boogu_image.model_kwargs.text_encoder_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.text_encoder_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "boogu_image"
+        },
+        {
+          "ui_architecture": "boogu_image_edit"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "base"
+          },
+          "applicability": [
+            {
+              "ui_architecture": "boogu_image"
+            },
+            {
+              "ui_architecture": "boogu_image_edit"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/boogu_image/boogu_image.py",
+          "symbol": "BooguImageModel.load_model",
+          "key": "text_encoder_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-boogu-image-model-kwargs-text-encoder-path",
+        "description": "Overrides the text-encoder repository or local component path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "text_encoder_path: /workspace/components/text_encoder"
+      }
+    },
+    {
+      "id": "model.boogu_image.model_kwargs.text_encoder_subfolder",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.text_encoder_subfolder"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "boogu_image"
+        },
+        {
+          "ui_architecture": "boogu_image_edit"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "mllm",
+          "applicability": [
+            {
+              "ui_architecture": "boogu_image"
+            },
+            {
+              "ui_architecture": "boogu_image_edit"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/boogu_image/boogu_image.py",
+          "symbol": "BooguImageModel.load_model",
+          "key": "text_encoder_subfolder",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-boogu-image-model-kwargs-text-encoder-subfolder",
+        "description": "Selects the text-encoder subfolder inside the configured source.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "text_encoder_subfolder: mllm"
+      }
+    },
+    {
+      "id": "model.boogu_image.model_kwargs.match_target_res",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.match_target_res"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "boogu_image_edit"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": [
+            {
+              "ui_architecture": "boogu_image_edit"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "ui_architecture": "boogu_image_edit"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/boogu_image/boogu_image_edit.py",
+          "symbol": "BooguImageEditModel._encode_ref_latents",
+          "key": "match_target_res",
+          "read_kind": "model_kwargs.get"
+        },
+        {
+          "source": "extensions_built_in/diffusion_models/boogu_image/boogu_image_edit.py",
+          "symbol": "BooguImageEditModel._ref_target_pixels",
+          "key": "match_target_res",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-boogu-image-model-kwargs-match-target-res",
+        "description": "Sizes reference or control conditioning from the current target resolution.",
+        "benefits": "Makes the optional model-family behavior reproducible in configuration.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "match_target_res: false"
+      }
+    },
+    {
+      "id": "model.boogu_image.model_kwargs.control_image_max_pixels",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.control_image_max_pixels"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "boogu_image_edit"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "1024 * 1024"
+          },
+          "applicability": [
+            {
+              "ui_architecture": "boogu_image_edit"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/boogu_image/boogu_image_edit.py",
+          "symbol": "BooguImageEditModel._ref_target_pixels",
+          "key": "control_image_max_pixels",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-boogu-image-model-kwargs-control-image-max-pixels",
+        "description": "Caps the pixel budget used when encoding control images.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Larger values increase memory or compute, while unsupported values can fail downstream shape checks.",
+        "example": "control_image_max_pixels: 512"
+      }
+    },
+    {
+      "id": "model.boogu_image.model_kwargs.vlm_max_pixels",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.vlm_max_pixels"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "boogu_image_edit"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "384 * 384"
+          },
+          "applicability": [
+            {
+              "ui_architecture": "boogu_image_edit"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/boogu_image/boogu_image_edit.py",
+          "symbol": "BooguImageEditModel.get_prompt_embeds",
+          "key": "vlm_max_pixels",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-boogu-image-model-kwargs-vlm-max-pixels",
+        "description": "Caps the pixel budget supplied to the vision-language encoder.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Larger values increase memory or compute, while unsupported values can fail downstream shape checks.",
+        "example": "vlm_max_pixels: 512"
+      }
+    },
+    {
+      "id": "model.boogu_image.model_kwargs.vlm_max_side_length",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.vlm_max_side_length"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "boogu_image_edit"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 768,
+          "applicability": [
+            {
+              "ui_architecture": "boogu_image_edit"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/boogu_image/boogu_image_edit.py",
+          "symbol": "BooguImageEditModel.get_prompt_embeds",
+          "key": "vlm_max_side_length",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-boogu-image-model-kwargs-vlm-max-side-length",
+        "description": "Caps the longest side supplied to the vision-language encoder.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Larger values increase memory or compute, while unsupported values can fail downstream shape checks.",
+        "example": "vlm_max_side_length: 768"
+      }
+    },
+    {
+      "id": "model.flux2.model_kwargs.match_target_res",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.match_target_res"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "flux2"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": [
+            {
+              "ui_architecture": "flux2"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "ui_architecture": "flux2"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/flux2/flux2_model.py",
+          "symbol": "Flux2Model.get_noise_prediction",
+          "key": "match_target_res",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-flux2-model-kwargs-match-target-res",
+        "description": "Sizes reference or control conditioning from the current target resolution.",
+        "benefits": "Makes the optional model-family behavior reproducible in configuration.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "match_target_res: false"
+      }
+    },
+    {
+      "id": "model.hidream.model_kwargs.llama_model_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.llama_model_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "hidream"
+        },
+        {
+          "ui_architecture": "hidream_e1"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "LLAMA_MODEL_PATH"
+          },
+          "applicability": [
+            {
+              "ui_architecture": "hidream"
+            },
+            {
+              "ui_architecture": "hidream_e1"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/hidream/hidream_model.py",
+          "symbol": "HidreamModel.load_model",
+          "key": "llama_model_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-hidream-model-kwargs-llama-model-path",
+        "description": "Overrides the Llama text-model source used by HiDream.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "llama_model_path: /workspace/components/llama_model"
+      }
+    },
+    {
+      "id": "model.hidream_o1.model_kwargs.is_comfy_weight",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.is_comfy_weight"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "hidream_o1"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": [
+            {
+              "ui_architecture": "hidream_o1"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "ui_architecture": "hidream_o1"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+          "symbol": "HidreamO1Model.__init__",
+          "key": "is_comfy_weight",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-hidream-o1-model-kwargs-is-comfy-weight",
+        "description": "Interprets HiDream O1 transformer weights using the Comfy-format layout.",
+        "benefits": "Makes the optional model-family behavior reproducible in configuration.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "is_comfy_weight: false"
+      }
+    },
+    {
+      "id": "model.hidream_o1.model_kwargs.noise_scale",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.noise_scale"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "hidream_o1"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "DEFAULT_NOISE_SCALE"
+          },
+          "applicability": [
+            {
+              "ui_architecture": "hidream_o1"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+          "symbol": "HidreamO1Model.__init__",
+          "key": "noise_scale",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-hidream-o1-model-kwargs-noise-scale",
+        "description": "Sets the HiDream O1 training noise scale.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "noise_scale: 1"
+      }
+    },
+    {
+      "id": "model.hidream_o1.model_kwargs.noise_scale_inference",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.noise_scale_inference"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "hidream_o1"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "self.noise_scale"
+          },
+          "applicability": [
+            {
+              "ui_architecture": "hidream_o1"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+          "symbol": "HidreamO1Model.__init__",
+          "key": "noise_scale_inference",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-hidream-o1-model-kwargs-noise-scale-inference",
+        "description": "Overrides the HiDream O1 noise scale used for inference samples.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "noise_scale_inference: 1"
+      }
+    },
+    {
+      "id": "model.ideogram4.model_kwargs.max_text_length",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.max_text_length"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "ideogram4"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 3072,
+          "applicability": [
+            {
+              "ui_architecture": "ideogram4"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/ideogram4/ideogram4.py",
+          "symbol": "Ideogram4Model.__init__",
+          "key": "max_text_length",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-ideogram4-model-kwargs-max-text-length",
+        "description": "Sets the maximum text token length used by this model family.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Larger values increase memory or compute, while unsupported values can fail downstream shape checks.",
+        "example": "max_text_length: 3072"
+      }
+    },
+    {
+      "id": "model.ideogram4.model_kwargs.text_encoder_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.text_encoder_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "ideogram4"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "QWEN3_VL_PATH"
+          },
+          "applicability": [
+            {
+              "ui_architecture": "ideogram4"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/ideogram4/ideogram4.py",
+          "symbol": "Ideogram4Model._load_text_encoder",
+          "key": "text_encoder_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-ideogram4-model-kwargs-text-encoder-path",
+        "description": "Overrides the text-encoder repository or local component path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "text_encoder_path: /workspace/components/text_encoder"
+      }
+    },
+    {
+      "id": "model.ideogram4.model_kwargs.ideogram_schedule_mu",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.ideogram_schedule_mu"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "ideogram4"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": [
+            {
+              "ui_architecture": "ideogram4"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/ideogram4/src/pipeline.py",
+          "symbol": "Ideogram4Pipeline.__call__",
+          "key": "ideogram_schedule_mu",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-ideogram4-model-kwargs-ideogram-schedule-mu",
+        "description": "Sets the mean of the Ideogram schedule transformation.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "ideogram_schedule_mu: 0"
+      }
+    },
+    {
+      "id": "model.ideogram4.model_kwargs.ideogram_schedule_std",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.ideogram_schedule_std"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "ideogram4"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1.75,
+          "applicability": [
+            {
+              "ui_architecture": "ideogram4"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/ideogram4/src/pipeline.py",
+          "symbol": "Ideogram4Pipeline.__call__",
+          "key": "ideogram_schedule_std",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-ideogram4-model-kwargs-ideogram-schedule-std",
+        "description": "Sets the standard deviation of the Ideogram schedule transformation.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "ideogram_schedule_std: 1.75"
+      }
+    },
+    {
+      "id": "model.krea2.model_kwargs.edit",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.edit"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "krea2"
+        },
+        {
+          "ui_architecture": "krea2:turbo"
+        },
+        {
+          "ui_architecture": "krea2:o_edit"
+        },
+        {
+          "ui_architecture": "krea2:o_edit_turbo"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/krea2.py",
+          "symbol": "Krea2Model.__init__",
+          "key": "edit",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-krea2-model-kwargs-edit",
+        "description": "Selects Krea 2 edit-model behavior.",
+        "benefits": "Makes the optional model-family behavior reproducible in configuration.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "edit: false"
+      }
+    },
+    {
+      "id": "model.krea2.model_kwargs.kv_cache",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.kv_cache"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "krea2"
+        },
+        {
+          "ui_architecture": "krea2:turbo"
+        },
+        {
+          "ui_architecture": "krea2:o_edit"
+        },
+        {
+          "ui_architecture": "krea2:o_edit_turbo"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/krea2.py",
+          "symbol": "Krea2Model.__init__",
+          "key": "kv_cache",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-krea2-model-kwargs-kv-cache",
+        "description": "Enables the Krea 2 text-encoder key/value cache.",
+        "benefits": "Makes the optional model-family behavior reproducible in configuration.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "kv_cache: false"
+      }
+    },
+    {
+      "id": "model.krea2.model_kwargs.max_text_length",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.max_text_length"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "krea2"
+        },
+        {
+          "ui_architecture": "krea2:turbo"
+        },
+        {
+          "ui_architecture": "krea2:o_edit"
+        },
+        {
+          "ui_architecture": "krea2:o_edit_turbo"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 512,
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/krea2.py",
+          "symbol": "Krea2Model.__init__",
+          "key": "max_text_length",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-krea2-model-kwargs-max-text-length",
+        "description": "Sets the maximum text token length used by this model family.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Larger values increase memory or compute, while unsupported values can fail downstream shape checks.",
+        "example": "max_text_length: 512"
+      }
+    },
+    {
+      "id": "model.krea2.model_kwargs.match_target_res",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.match_target_res"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "krea2"
+        },
+        {
+          "ui_architecture": "krea2:turbo"
+        },
+        {
+          "ui_architecture": "krea2:o_edit"
+        },
+        {
+          "ui_architecture": "krea2:o_edit_turbo"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/krea2.py",
+          "symbol": "Krea2Model._encode_ref_latents",
+          "key": "match_target_res",
+          "read_kind": "model_kwargs.get"
+        },
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/krea2.py",
+          "symbol": "Krea2Model._ref_target_pixels",
+          "key": "match_target_res",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-krea2-model-kwargs-match-target-res",
+        "description": "Sizes reference or control conditioning from the current target resolution.",
+        "benefits": "Makes the optional model-family behavior reproducible in configuration.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "match_target_res: false"
+      }
+    },
+    {
+      "id": "model.krea2.model_kwargs.text_encoder_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.text_encoder_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "krea2"
+        },
+        {
+          "ui_architecture": "krea2:turbo"
+        },
+        {
+          "ui_architecture": "krea2:o_edit"
+        },
+        {
+          "ui_architecture": "krea2:o_edit_turbo"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "QWEN3_VL_PATH"
+          },
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/krea2.py",
+          "symbol": "Krea2Model._load_text_encoder",
+          "key": "text_encoder_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-krea2-model-kwargs-text-encoder-path",
+        "description": "Overrides the text-encoder repository or local component path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "text_encoder_path: /workspace/components/text_encoder"
+      }
+    },
+    {
+      "id": "model.krea2.model_kwargs.checkpoint_filename",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.checkpoint_filename"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "krea2"
+        },
+        {
+          "ui_architecture": "krea2:turbo"
+        },
+        {
+          "ui_architecture": "krea2:o_edit"
+        },
+        {
+          "ui_architecture": "krea2:o_edit_turbo"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/krea2.py",
+          "symbol": "Krea2Model._load_transformer",
+          "key": "checkpoint_filename",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-krea2-model-kwargs-checkpoint-filename",
+        "description": "Selects a specific transformer checkpoint file inside the model source.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "checkpoint_filename: /workspace/components/checkpoint_filename"
+      }
+    },
+    {
+      "id": "model.krea2.model_kwargs.mmdit_config",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.mmdit_config"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "krea2"
+        },
+        {
+          "ui_architecture": "krea2:turbo"
+        },
+        {
+          "ui_architecture": "krea2:o_edit"
+        },
+        {
+          "ui_architecture": "krea2:o_edit_turbo"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {},
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/krea2.py",
+          "symbol": "Krea2Model._load_transformer",
+          "key": "mmdit_config",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-krea2-model-kwargs-mmdit-config",
+        "description": "Overrides Krea 2 MMDiT construction fields.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "mmdit_config: {}"
+      }
+    },
+    {
+      "id": "model.krea2.model_kwargs.vae_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.vae_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "krea2"
+        },
+        {
+          "ui_architecture": "krea2:turbo"
+        },
+        {
+          "ui_architecture": "krea2:o_edit"
+        },
+        {
+          "ui_architecture": "krea2:o_edit_turbo"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "QWEN_IMAGE_VAE_PATH"
+          },
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/krea2.py",
+          "symbol": "Krea2Model._load_vae",
+          "key": "vae_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-krea2-model-kwargs-vae-path",
+        "description": "Overrides the VAE repository or local component path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "vae_path: /workspace/components/vae"
+      }
+    },
+    {
+      "id": "model.krea2.model_kwargs.vlm_max_pixels",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.vlm_max_pixels"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "krea2"
+        },
+        {
+          "ui_architecture": "krea2:turbo"
+        },
+        {
+          "ui_architecture": "krea2:o_edit"
+        },
+        {
+          "ui_architecture": "krea2:o_edit_turbo"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "384 * 384"
+          },
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/krea2.py",
+          "symbol": "Krea2Model._prep_vlm_images",
+          "key": "vlm_max_pixels",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-krea2-model-kwargs-vlm-max-pixels",
+        "description": "Caps the pixel budget supplied to the vision-language encoder.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Larger values increase memory or compute, while unsupported values can fail downstream shape checks.",
+        "example": "vlm_max_pixels: 512"
+      }
+    },
+    {
+      "id": "model.krea2.model_kwargs.control_image_max_pixels",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.control_image_max_pixels"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "krea2"
+        },
+        {
+          "ui_architecture": "krea2:turbo"
+        },
+        {
+          "ui_architecture": "krea2:o_edit"
+        },
+        {
+          "ui_architecture": "krea2:o_edit_turbo"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "1024 * 1024"
+          },
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/krea2.py",
+          "symbol": "Krea2Model._ref_target_pixels",
+          "key": "control_image_max_pixels",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-krea2-model-kwargs-control-image-max-pixels",
+        "description": "Caps the pixel budget used when encoding control images.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Larger values increase memory or compute, while unsupported values can fail downstream shape checks.",
+        "example": "control_image_max_pixels: 512"
+      }
+    },
+    {
+      "id": "model.krea2.model_kwargs.schedule_max_res",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.schedule_max_res"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "krea2"
+        },
+        {
+          "ui_architecture": "krea2:turbo"
+        },
+        {
+          "ui_architecture": "krea2:o_edit"
+        },
+        {
+          "ui_architecture": "krea2:o_edit_turbo"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1280,
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/src/pipeline.py",
+          "symbol": "Krea2Pipeline.__call__",
+          "key": "schedule_max_res",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-krea2-model-kwargs-schedule-max-res",
+        "description": "Sets the high-resolution endpoint used by the Krea 2 schedule.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Larger values increase memory or compute, while unsupported values can fail downstream shape checks.",
+        "example": "schedule_max_res: 1280"
+      }
+    },
+    {
+      "id": "model.krea2.model_kwargs.schedule_min_res",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.schedule_min_res"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "krea2"
+        },
+        {
+          "ui_architecture": "krea2:turbo"
+        },
+        {
+          "ui_architecture": "krea2:o_edit"
+        },
+        {
+          "ui_architecture": "krea2:o_edit_turbo"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 256,
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/src/pipeline.py",
+          "symbol": "Krea2Pipeline.__call__",
+          "key": "schedule_min_res",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-krea2-model-kwargs-schedule-min-res",
+        "description": "Sets the low-resolution endpoint used by the Krea 2 schedule.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Larger values increase memory or compute, while unsupported values can fail downstream shape checks.",
+        "example": "schedule_min_res: 256"
+      }
+    },
+    {
+      "id": "model.krea2.model_kwargs.schedule_mu",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.schedule_mu"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "krea2"
+        },
+        {
+          "ui_architecture": "krea2:turbo"
+        },
+        {
+          "ui_architecture": "krea2:o_edit"
+        },
+        {
+          "ui_architecture": "krea2:o_edit_turbo"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/src/pipeline.py",
+          "symbol": "Krea2Pipeline.__call__",
+          "key": "schedule_mu",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-krea2-model-kwargs-schedule-mu",
+        "description": "Overrides the Krea 2 schedule shift directly.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "schedule_mu: 1"
+      }
+    },
+    {
+      "id": "model.krea2.model_kwargs.schedule_y1",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.schedule_y1"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "krea2"
+        },
+        {
+          "ui_architecture": "krea2:turbo"
+        },
+        {
+          "ui_architecture": "krea2:o_edit"
+        },
+        {
+          "ui_architecture": "krea2:o_edit_turbo"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0.5,
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/src/pipeline.py",
+          "symbol": "Krea2Pipeline.__call__",
+          "key": "schedule_y1",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-krea2-model-kwargs-schedule-y1",
+        "description": "Sets the first interpolation endpoint for the Krea 2 schedule.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "schedule_y1: 0.5"
+      }
+    },
+    {
+      "id": "model.krea2.model_kwargs.schedule_y2",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.schedule_y2"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "krea2"
+        },
+        {
+          "ui_architecture": "krea2:turbo"
+        },
+        {
+          "ui_architecture": "krea2:o_edit"
+        },
+        {
+          "ui_architecture": "krea2:o_edit_turbo"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1.15,
+          "applicability": [
+            {
+              "ui_architecture": "krea2"
+            },
+            {
+              "ui_architecture": "krea2:turbo"
+            },
+            {
+              "ui_architecture": "krea2:o_edit"
+            },
+            {
+              "ui_architecture": "krea2:o_edit_turbo"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/src/pipeline.py",
+          "symbol": "Krea2Pipeline.__call__",
+          "key": "schedule_y2",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-krea2-model-kwargs-schedule-y2",
+        "description": "Sets the second interpolation endpoint for the Krea 2 schedule.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "schedule_y2: 1.15"
+      }
+    },
+    {
+      "id": "model.ltx2.model_kwargs.audio_vae_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.audio_vae_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "ltx2"
+        },
+        {
+          "ui_architecture": "ltx2.3"
+        },
+        {
+          "ui_architecture": "ltx2.5"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "ui_architecture": "ltx2"
+            },
+            {
+              "ui_architecture": "ltx2.3"
+            },
+            {
+              "ui_architecture": "ltx2.5"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/ltx2/ltx2.py",
+          "symbol": "LTX25Model._resolve_comfy_file",
+          "key": "audio_vae_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-ltx2-model-kwargs-audio-vae-path",
+        "description": "Overrides the audio VAE component path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "audio_vae_path: /workspace/components/audio_vae"
+      }
+    },
+    {
+      "id": "model.ltx2.model_kwargs.dit_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.dit_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "ltx2"
+        },
+        {
+          "ui_architecture": "ltx2.3"
+        },
+        {
+          "ui_architecture": "ltx2.5"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "ui_architecture": "ltx2"
+            },
+            {
+              "ui_architecture": "ltx2.3"
+            },
+            {
+              "ui_architecture": "ltx2.5"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/ltx2/ltx2.py",
+          "symbol": "LTX25Model._resolve_comfy_file",
+          "key": "dit_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-ltx2-model-kwargs-dit-path",
+        "description": "Overrides the diffusion-transformer component path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "dit_path: /workspace/components/dit"
+      }
+    },
+    {
+      "id": "model.ltx2.model_kwargs.text_encoder_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.text_encoder_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "ltx2"
+        },
+        {
+          "ui_architecture": "ltx2.3"
+        },
+        {
+          "ui_architecture": "ltx2.5"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "ui_architecture": "ltx2"
+            },
+            {
+              "ui_architecture": "ltx2.3"
+            },
+            {
+              "ui_architecture": "ltx2.5"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/ltx2/ltx2.py",
+          "symbol": "LTX25Model._resolve_comfy_file",
+          "key": "text_encoder_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-ltx2-model-kwargs-text-encoder-path",
+        "description": "Overrides the text-encoder repository or local component path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "text_encoder_path: /workspace/components/text_encoder"
+      }
+    },
+    {
+      "id": "model.ltx2.model_kwargs.video_vae_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.video_vae_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "ltx2"
+        },
+        {
+          "ui_architecture": "ltx2.3"
+        },
+        {
+          "ui_architecture": "ltx2.5"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "ui_architecture": "ltx2"
+            },
+            {
+              "ui_architecture": "ltx2.3"
+            },
+            {
+              "ui_architecture": "ltx2.5"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/ltx2/ltx2.py",
+          "symbol": "LTX25Model._resolve_comfy_file",
+          "key": "video_vae_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-ltx2-model-kwargs-video-vae-path",
+        "description": "Overrides the video VAE component path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "video_vae_path: /workspace/components/video_vae"
+      }
+    },
+    {
+      "id": "model.mageflow.model_kwargs.max_text_length",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.max_text_length"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "mageflow"
+        },
+        {
+          "ui_architecture": "mageflow_edit"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 2048,
+          "applicability": [
+            {
+              "ui_architecture": "mageflow"
+            },
+            {
+              "ui_architecture": "mageflow_edit"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/mageflow/mageflow.py",
+          "symbol": "MageFlowModel.__init__",
+          "key": "max_text_length",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-mageflow-model-kwargs-max-text-length",
+        "description": "Sets the maximum text token length used by this model family.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Larger values increase memory or compute, while unsupported values can fail downstream shape checks.",
+        "example": "max_text_length: 2048"
+      }
+    },
+    {
+      "id": "model.mageflow.model_kwargs.text_encoder_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.text_encoder_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "mageflow"
+        },
+        {
+          "ui_architecture": "mageflow_edit"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "ui_architecture": "mageflow"
+            },
+            {
+              "ui_architecture": "mageflow_edit"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/mageflow/mageflow.py",
+          "symbol": "MageFlowModel._load_text_encoder",
+          "key": "text_encoder_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-mageflow-model-kwargs-text-encoder-path",
+        "description": "Overrides the text-encoder repository or local component path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "text_encoder_path: /workspace/components/text_encoder"
+      }
+    },
+    {
+      "id": "model.mageflow.model_kwargs.transformer_config",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.transformer_config"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "mageflow"
+        },
+        {
+          "ui_architecture": "mageflow_edit"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {},
+          "applicability": [
+            {
+              "ui_architecture": "mageflow"
+            },
+            {
+              "ui_architecture": "mageflow_edit"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/mageflow/mageflow.py",
+          "symbol": "MageFlowModel._load_transformer",
+          "key": "transformer_config",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-mageflow-model-kwargs-transformer-config",
+        "description": "Overrides transformer construction fields.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "transformer_config: {}"
+      }
+    },
+    {
+      "id": "model.mageflow.model_kwargs.vae_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.vae_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "mageflow"
+        },
+        {
+          "ui_architecture": "mageflow_edit"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "ui_architecture": "mageflow"
+            },
+            {
+              "ui_architecture": "mageflow_edit"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/mageflow/mageflow.py",
+          "symbol": "MageFlowModel._load_vae",
+          "key": "vae_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-mageflow-model-kwargs-vae-path",
+        "description": "Overrides the VAE repository or local component path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "vae_path: /workspace/components/vae"
+      }
+    },
+    {
+      "id": "model.mageflow.model_kwargs.vae_sample_posterior",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.vae_sample_posterior"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "mageflow"
+        },
+        {
+          "ui_architecture": "mageflow_edit"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": [
+            {
+              "ui_architecture": "mageflow"
+            },
+            {
+              "ui_architecture": "mageflow_edit"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "ui_architecture": "mageflow"
+            },
+            {
+              "ui_architecture": "mageflow_edit"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/mageflow/mageflow.py",
+          "symbol": "MageFlowModel._load_vae",
+          "key": "vae_sample_posterior",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-mageflow-model-kwargs-vae-sample-posterior",
+        "description": "Samples the VAE posterior instead of using its deterministic mode.",
+        "benefits": "Makes the optional model-family behavior reproducible in configuration.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "vae_sample_posterior: true"
+      }
+    },
+    {
+      "id": "model.mageflow.model_kwargs.vl_cond_long_edge",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.vl_cond_long_edge"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "mageflow"
+        },
+        {
+          "ui_architecture": "mageflow_edit"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 384,
+          "applicability": [
+            {
+              "ui_architecture": "mageflow"
+            },
+            {
+              "ui_architecture": "mageflow_edit"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/mageflow/mageflow.py",
+          "symbol": "MageFlowModel.get_prompt_embeds",
+          "key": "vl_cond_long_edge",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-mageflow-model-kwargs-vl-cond-long-edge",
+        "description": "Sets the long-edge resolution for vision-language conditioning.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Larger values increase memory or compute, while unsupported values can fail downstream shape checks.",
+        "example": "vl_cond_long_edge: 384"
+      }
+    },
+    {
+      "id": "model.mageflow.model_kwargs.cfg_renormalization",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.cfg_renormalization"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "mageflow"
+        },
+        {
+          "ui_architecture": "mageflow_edit"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": [
+            {
+              "ui_architecture": "mageflow"
+            },
+            {
+              "ui_architecture": "mageflow_edit"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "ui_architecture": "mageflow"
+            },
+            {
+              "ui_architecture": "mageflow_edit"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/mageflow/src/pipeline.py",
+          "symbol": "MageFlowPipeline.__call__",
+          "key": "cfg_renormalization",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-mageflow-model-kwargs-cfg-renormalization",
+        "description": "Enables MageFlow classifier-free-guidance renormalization.",
+        "benefits": "Makes the optional model-family behavior reproducible in configuration.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "cfg_renormalization: false"
+      }
+    },
+    {
+      "id": "model.mageflow.model_kwargs.static_shift",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.static_shift"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "mageflow"
+        },
+        {
+          "ui_architecture": "mageflow_edit"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 6,
+          "applicability": [
+            {
+              "ui_architecture": "mageflow"
+            },
+            {
+              "ui_architecture": "mageflow_edit"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/mageflow/src/pipeline.py",
+          "symbol": "MageFlowPipeline.__call__",
+          "key": "static_shift",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-mageflow-model-kwargs-static-shift",
+        "description": "Sets the fixed MageFlow sampling schedule shift.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "static_shift: 6"
+      }
+    },
+    {
+      "id": "model.minimax_h3.model_kwargs.max_text_length",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.max_text_length"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "minimax_h3"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 512,
+          "applicability": [
+            {
+              "ui_architecture": "minimax_h3"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py",
+          "symbol": "MinimaxH3Model.__init__",
+          "key": "max_text_length",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-minimax-h3-model-kwargs-max-text-length",
+        "description": "Sets the maximum text token length used by this model family.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Larger values increase memory or compute, while unsupported values can fail downstream shape checks.",
+        "example": "max_text_length: 512"
+      }
+    },
+    {
+      "id": "model.minimax_h3.model_kwargs.partition",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.partition"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "minimax_h3"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "fl2va_pruned",
+          "applicability": [
+            {
+              "ui_architecture": "minimax_h3"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py",
+          "symbol": "MinimaxH3Model._dit_component",
+          "key": "partition",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-minimax-h3-model-kwargs-partition",
+        "description": "Selects the Minimax H3 diffusion-transformer partition.",
+        "benefits": "Exposes the model-family tuning value without changing common training settings.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "partition: fl2va_pruned"
+      }
+    },
+    {
+      "id": "model.minimax_h3.model_kwargs.audio_vae_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.audio_vae_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "minimax_h3"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "ui_architecture": "minimax_h3"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py",
+          "symbol": "MinimaxH3Model._resolve_comfy_file",
+          "key": "audio_vae_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-minimax-h3-model-kwargs-audio-vae-path",
+        "description": "Overrides the audio VAE component path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "audio_vae_path: /workspace/components/audio_vae"
+      }
+    },
+    {
+      "id": "model.minimax_h3.model_kwargs.dit_fl2va_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.dit_fl2va_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "minimax_h3"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "ui_architecture": "minimax_h3"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py",
+          "symbol": "MinimaxH3Model._resolve_comfy_file",
+          "key": "dit_fl2va_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-minimax-h3-model-kwargs-dit-fl2va-path",
+        "description": "Overrides the Minimax flow-to-video/audio transformer path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "dit_fl2va_path: /workspace/components/dit_fl2va"
+      }
+    },
+    {
+      "id": "model.minimax_h3.model_kwargs.dit_fl2va_pruned_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.dit_fl2va_pruned_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "minimax_h3"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "ui_architecture": "minimax_h3"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py",
+          "symbol": "MinimaxH3Model._resolve_comfy_file",
+          "key": "dit_fl2va_pruned_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-minimax-h3-model-kwargs-dit-fl2va-pruned-path",
+        "description": "Overrides the pruned Minimax flow-to-video/audio transformer path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "dit_fl2va_pruned_path: /workspace/components/dit_fl2va_pruned"
+      }
+    },
+    {
+      "id": "model.minimax_h3.model_kwargs.dit_ref2va_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.dit_ref2va_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "minimax_h3"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "ui_architecture": "minimax_h3"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py",
+          "symbol": "MinimaxH3Model._resolve_comfy_file",
+          "key": "dit_ref2va_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-minimax-h3-model-kwargs-dit-ref2va-path",
+        "description": "Overrides the Minimax reference-to-video/audio transformer path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "dit_ref2va_path: /workspace/components/dit_ref2va"
+      }
+    },
+    {
+      "id": "model.minimax_h3.model_kwargs.dit_ref2va_pruned_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.dit_ref2va_pruned_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "minimax_h3"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "ui_architecture": "minimax_h3"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py",
+          "symbol": "MinimaxH3Model._resolve_comfy_file",
+          "key": "dit_ref2va_pruned_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-minimax-h3-model-kwargs-dit-ref2va-pruned-path",
+        "description": "Overrides the pruned Minimax reference-to-video/audio transformer path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "dit_ref2va_pruned_path: /workspace/components/dit_ref2va_pruned"
+      }
+    },
+    {
+      "id": "model.minimax_h3.model_kwargs.text_encoder_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.text_encoder_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "minimax_h3"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "ui_architecture": "minimax_h3"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py",
+          "symbol": "MinimaxH3Model._resolve_comfy_file",
+          "key": "text_encoder_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-minimax-h3-model-kwargs-text-encoder-path",
+        "description": "Overrides the text-encoder repository or local component path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "text_encoder_path: /workspace/components/text_encoder"
+      }
+    },
+    {
+      "id": "model.minimax_h3.model_kwargs.video_vae_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.video_vae_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "minimax_h3"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "component-path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": [
+            {
+              "ui_architecture": "minimax_h3"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py",
+          "symbol": "MinimaxH3Model._resolve_comfy_file",
+          "key": "video_vae_path",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-minimax-h3-model-kwargs-video-vae-path",
+        "description": "Overrides the video VAE component path.",
+        "benefits": "Allows explicit component placement, reuse, or replacement.",
+        "drawbacks": "Missing or incompatible components prevent loading or create mismatched model assemblies.",
+        "example": "video_vae_path: /workspace/components/video_vae"
+      }
+    },
+    {
+      "id": "model.minimax_h3.model_kwargs.sample_audio",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.sample_audio"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "minimax_h3"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": [
+            {
+              "ui_architecture": "minimax_h3"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "ui_architecture": "minimax_h3"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py",
+          "symbol": "MinimaxH3Model.generate_single_image",
+          "key": "sample_audio",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-minimax-h3-model-kwargs-sample-audio",
+        "description": "Enables audio generation in Minimax H3 training samples.",
+        "benefits": "Makes the optional model-family behavior reproducible in configuration.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "sample_audio: true"
+      }
+    },
+    {
+      "id": "model.omnigen2.model_kwargs.use_image_refiner",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.use_image_refiner"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "omnigen2"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": [
+            {
+              "ui_architecture": "omnigen2"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "ui_architecture": "omnigen2"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/omnigen2/__init__.py",
+          "symbol": "OmniGen2Model.get_transformer_block_names",
+          "key": "use_image_refiner",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-omnigen2-model-kwargs-use-image-refiner",
+        "description": "Uses OmniGen 2 image-refiner transformer blocks for layer targeting.",
+        "benefits": "Makes the optional model-family behavior reproducible in configuration.",
+        "drawbacks": "Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.",
+        "example": "use_image_refiner: false"
+      }
+    },
+    {
+      "id": "environment.hf_token",
+      "ui_label": null,
+      "scope": "environment",
+      "locations": [
+        {
+          "kind": "environment",
+          "path": "HF_TOKEN"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "hugging-face-access-token-or-absent",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "environment",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/boogu_image/boogu_image.py",
+          "symbol": "<module>",
+          "key": "HF_TOKEN",
+          "read_kind": "os.getenv"
+        },
+        {
+          "source": "extensions_built_in/diffusion_models/flux2/flux2_model.py",
+          "symbol": "<module>",
+          "key": "HF_TOKEN",
+          "read_kind": "os.getenv"
+        },
+        {
+          "source": "extensions_built_in/diffusion_models/ideogram4/ideogram4.py",
+          "symbol": "<module>",
+          "key": "HF_TOKEN",
+          "read_kind": "os.getenv"
+        },
+        {
+          "source": "extensions_built_in/diffusion_models/krea2/krea2.py",
+          "symbol": "<module>",
+          "key": "HF_TOKEN",
+          "read_kind": "os.getenv"
+        },
+        {
+          "source": "extensions_built_in/diffusion_models/ltx2/ltx2.py",
+          "symbol": "<module>",
+          "key": "HF_TOKEN",
+          "read_kind": "os.getenv"
+        },
+        {
+          "source": "extensions_built_in/diffusion_models/mageflow/mageflow.py",
+          "symbol": "<module>",
+          "key": "HF_TOKEN",
+          "read_kind": "os.getenv"
+        },
+        {
+          "source": "extensions_built_in/diffusion_models/z_image/z_image_l2p_model.py",
+          "symbol": "<module>",
+          "key": "HF_TOKEN",
+          "read_kind": "os.getenv"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "environment-hf-token",
+        "description": "Supplies Hugging Face authentication to first-party model download clients.",
+        "benefits": "Allows access to gated model repositories the account is authorized to use.",
+        "drawbacks": "Tokens are secrets and must not be committed to configurations, logs, or datasets.",
+        "example": "HF_TOKEN=hf_example_redacted"
+      }
+    },
+    {
+      "id": "environment.use_bf16_rope",
+      "ui_label": null,
+      "scope": "environment",
+      "locations": [
+        {
+          "kind": "environment",
+          "path": "USE_BF16_ROPE"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "ui_architecture": "hidream_o1"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "zero-or-one-string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "0",
+          "1"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "0",
+          "applicability": [
+            {
+              "ui_architecture": "hidream_o1"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Only the exact string 1 selects bfloat16 rotary-position computations; omission uses 0.",
+          "applicability": [
+            {
+              "ui_architecture": "hidream_o1"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "environment",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/hidream/src/hidream_o1/qwen3_vl_transformers.py",
+          "symbol": "<module>",
+          "key": "USE_BF16_ROPE",
+          "read_kind": "os.environ.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "environment-use-bf16-rope",
+        "description": "Uses bfloat16 for HiDream O1 rotary-position embedding calculations.",
+        "benefits": "Can reduce memory and align RoPE computation with bfloat16 execution.",
+        "drawbacks": "Reduced precision can change numerical behavior and is an advanced compatibility option.",
+        "example": "USE_BF16_ROPE=1"
+      }
     }
   ]
 }

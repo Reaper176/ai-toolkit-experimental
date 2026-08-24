@@ -1960,6 +1960,21 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 "toolkit/models/base_model.py",
                 "toolkit/models/FakeVAE.py",
             }
+        if scope == "model-family-remaining":
+            is_first_party_model = item.source.startswith(
+                (
+                    "extensions_built_in/diffusion_models/",
+                    "extensions_built_in/flex2/",
+                    "extensions_built_in/audio_models/",
+                    "toolkit/models/",
+                )
+            )
+            return is_first_party_model and not any(
+                cls._in_scope(item, family_scope)
+                for family_scope in (
+                    "model-family-core", "model-family-wan", "model-family-qwen-sd"
+                )
+            )
         if scope == "dataset-core":
             return (
                 item.source == "toolkit/config_modules.py"
@@ -2336,6 +2351,60 @@ class CatalogProductionSliceTests(unittest.TestCase):
             {item.ui_architecture for item in setting.applicability},
             {"qwen_image_edit_plus", "qwen_image_edit_plus:2511"},
         )
+
+    def test_catalog_remaining_model_families_are_exactly_owned(self):
+        try:
+            self.assert_catalog_selector_green("--scope", "model-family-remaining")
+        except DiscoveryError as error:
+            self.fail(str(error))
+        facts = tuple(
+            fact for fact in self.discovered
+            if self._in_scope(fact, "model-family-remaining")
+        )
+        self.assertEqual(len(facts), 139)
+        user_facts = tuple(
+            fact for fact in facts
+            if fact.read_kind == "model_kwargs.get"
+            or fact.key in {"HF_TOKEN", "USE_BF16_ROPE"}
+        )
+        self.assertEqual(len(user_facts), 65)
+        claimed = {
+            (claim.source, claim.symbol, claim.key, claim.read_kind)
+            for claim in self.claims
+            if self._in_scope(claim, "model-family-remaining")
+        }
+        self.assertEqual(
+            claimed,
+            {
+                (fact.source, fact.symbol, fact.key, fact.read_kind)
+                for fact in user_facts
+            },
+        )
+        remaining_exclusions = tuple(
+            item for item in self.exclusions
+            if self._in_scope(item, "model-family-remaining")
+        )
+        self.assertEqual(len(remaining_exclusions), 74)
+        self.assertEqual(
+            {item.reason for item in remaining_exclusions},
+            {"model-developer API", "generation-only"},
+        )
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        self.assertEqual(len(settings["environment.hf_token"].source_claims), 7)
+        self.assertIn("environment.use_bf16_rope", settings)
+        for family in (
+            "boogu_image", "flux2", "hidream", "hidream_o1", "ideogram4",
+            "krea2", "ltx2", "mageflow", "minimax_h3", "omnigen2",
+        ):
+            self.assertTrue(
+                any(setting_id.startswith(f"model.{family}.model_kwargs.") for setting_id in settings),
+                family,
+            )
 
     def test_catalog_train_config_unconsumed_fields_are_source_derived(self):
         expected = {"unet_lr", "text_encoder_lr", "weight_jitter"}
