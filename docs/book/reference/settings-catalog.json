@@ -34773,6 +34773,3993 @@
         "drawbacks": "Verbose diagnostics slow and clutter normal training runs.",
         "example": "debug: false"
       }
+    },
+    {
+      "id": "model.accuracy_recovery_adapter",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.accuracy_recovery_adapter"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "accuracy_recovery_adapter",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-accuracy-recovery-adapter",
+        "description": "Selects the accuracy-recovery adapter paired with quantized model weights.",
+        "benefits": "Allows the model assembly to use an explicit component or adapter source.",
+        "drawbacks": "A missing or incompatible path or repository can prevent model assembly or produce mismatched components.",
+        "example": "accuracy_recovery_adapter: /workspace/adapters/recovery.safetensors"
+      }
+    },
+    {
+      "id": "model.arch",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.arch"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string-or-null",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "A colon-suffixed UI tag is removed before dispatch.",
+          "applicability": []
+        },
+        {
+          "description": "flex1 normalizes to the legacy engine architecture name flux.",
+          "applicability": []
+        },
+        {
+          "description": "When arch is absent, legacy is_* flags select an architecture in source order; if none is true, the fallback is sd1.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "arch",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-arch",
+        "description": "Selects the engine architecture and migrates legacy architecture flags.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "arch: flux"
+      }
+    },
+    {
+      "id": "model.assistant_lora_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.assistant_lora_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "assistant_lora_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-assistant-lora-path",
+        "description": "Loads a decompression or assistant LoRA alongside the base model.",
+        "benefits": "Allows the model assembly to use an explicit component or adapter source.",
+        "drawbacks": "A missing or incompatible path or repository can prevent model assembly or produce mismatched components.",
+        "example": "assistant_lora_path: /workspace/adapters/assistant.safetensors"
+      }
+    },
+    {
+      "id": "model.attn_masking",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.attn_masking"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        },
+        {
+          "description": "A truthy value with a non-FLUX legacy architecture flag raises ValueError.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "model.is_flux",
+          "kind": "requires",
+          "description": "The constructor rejects this feature unless the legacy FLUX flag is true.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "attn_masking",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-attn-masking",
+        "description": "Enables the FLUX-specific attention masking path.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "attn_masking: false"
+      }
+    },
+    {
+      "id": "model.auto_memory",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.auto_memory"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "deprecated",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        },
+        {
+          "description": "auto_memory is deprecated; use layer_offloading instead.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "auto_memory",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-auto-memory",
+        "description": "Legacy switch that delegates model memory movement to layer offloading.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "auto_memory: false"
+      }
+    },
+    {
+      "id": "model.block_compile",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.block_compile"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "block_compile",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-block-compile",
+        "description": "Compiles eligible model blocks individually instead of compiling one whole graph.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "block_compile: false"
+      }
+    },
+    {
+      "id": "model.cache_size_limit",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.cache_size_limit"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer-or-null",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": false,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "cache_size_limit",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-cache-size-limit",
+        "description": "Overrides the Torch Dynamo compilation cache-size limit.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "cache_size_limit: null"
+      }
+    },
+    {
+      "id": "model.compile",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.compile"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        },
+        {
+          "description": "Quantized compilation is allowed but explicitly experimental.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "model.quantize",
+          "kind": "affects",
+          "description": "Combining compilation and quantization is allowed as an experimental path.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "compile",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-compile",
+        "description": "Enables experimental torch.compile model execution.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "compile: false"
+      }
+    },
+    {
+      "id": "model.compile_dynamic",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.compile_dynamic"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "compile_dynamic",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-compile-dynamic",
+        "description": "Controls dynamic-shape tracing for torch.compile.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "compile_dynamic: true"
+      }
+    },
+    {
+      "id": "model.compile_fullgraph",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.compile_fullgraph"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "compile_fullgraph",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-compile-fullgraph",
+        "description": "Requires torch.compile to capture a full graph.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "compile_fullgraph: false"
+      }
+    },
+    {
+      "id": "model.compile_mode",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.compile_mode"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string-or-null",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "default",
+          "reduce-overhead",
+          "max-autotune",
+          "max-autotune-no-cudagraphs"
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "default",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "compile_mode",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-compile-mode",
+        "description": "Selects the torch.compile optimization mode.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "compile_mode: default"
+      }
+    },
+    {
+      "id": "model.dtype",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.dtype"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string-or-null",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "float",
+          "fp32",
+          "single",
+          "float32",
+          "fp16",
+          "half",
+          "float16",
+          "bf16",
+          "bfloat16",
+          "8bit",
+          "e4m3fn",
+          "float8"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "float16",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "dtype",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-dtype",
+        "description": "Selects the base model tensor dtype before component-specific overrides.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "dtype: bf16"
+      }
+    },
+    {
+      "id": "model.experimental_xl",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.experimental_xl"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "experimental_xl",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-experimental-xl",
+        "description": "Enables the legacy experimental SDXL loading path.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "experimental_xl: false"
+      }
+    },
+    {
+      "id": "model.extras_name_or_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.extras_name_or_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "model.name_or_path"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission inherits model.name_or_path; explicit null remains null.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "extras_name_or_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-extras-name-or-path",
+        "description": "Selects a shared source for extra components such as text encoders or a VAE.",
+        "benefits": "Allows the model assembly to use an explicit component or adapter source.",
+        "drawbacks": "A missing or incompatible path or repository can prevent model assembly or produce mismatched components.",
+        "example": "extras_name_or_path: /workspace/model-extras"
+      }
+    },
+    {
+      "id": "model.ignore_if_contains",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.ignore_if_contains"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string-list",
+        "supported_type": "string-list-or-null",
+        "ui_type": null,
+        "example_type": "string-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "ignore_if_contains",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-ignore-if-contains",
+        "description": "Excludes model parameter names containing any listed fragment.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "ignore_if_contains: [time_text_embed]"
+      }
+    },
+    {
+      "id": "model.in_context",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.in_context"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "in_context",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-in-context",
+        "description": "Enables architecture-specific in-context model behavior.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "in_context: false"
+      }
+    },
+    {
+      "id": "model.inference_lora_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.inference_lora_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "inference_lora_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-inference-lora-path",
+        "description": "Loads a LoRA intended to stay active for inference and sampling.",
+        "benefits": "Allows the model assembly to use an explicit component or adapter source.",
+        "drawbacks": "A missing or incompatible path or repository can prevent model assembly or produce mismatched components.",
+        "example": "inference_lora_path: /workspace/adapters/inference.safetensors"
+      }
+    },
+    {
+      "id": "model.is_auraflow",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.is_auraflow"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "is_auraflow",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-is-auraflow",
+        "description": "Legacy flag that selects the AuraFlow architecture when arch is absent.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "is_auraflow: false"
+      }
+    },
+    {
+      "id": "model.is_flux",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.is_flux"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "is_flux",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-is-flux",
+        "description": "Legacy flag that selects the FLUX architecture when arch is absent.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "is_flux: false"
+      }
+    },
+    {
+      "id": "model.is_lumina2",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.is_lumina2"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "is_lumina2",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-is-lumina2",
+        "description": "Legacy flag that selects the Lumina 2 architecture when arch is absent.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "is_lumina2: false"
+      }
+    },
+    {
+      "id": "model.is_pixart",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.is_pixart"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "is_pixart",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-is-pixart",
+        "description": "Legacy flag that selects the PixArt architecture when arch is absent.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "is_pixart: false"
+      }
+    },
+    {
+      "id": "model.is_pixart_sigma",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.is_pixart_sigma"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        },
+        {
+          "description": "A truthy is_pixart_sigma value also forces is_pixart true.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "is_pixart_sigma",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-is-pixart-sigma",
+        "description": "Legacy flag that selects PixArt Sigma and also enables PixArt behavior.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "is_pixart_sigma: false"
+      }
+    },
+    {
+      "id": "model.is_ssd",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.is_ssd"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        },
+        {
+          "description": "A truthy is_ssd value also forces is_xl true.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "is_ssd",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-is-ssd",
+        "description": "Legacy flag that selects SSD and also enables SDXL-compatible behavior.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "is_ssd: false"
+      }
+    },
+    {
+      "id": "model.is_v2",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.is_v2"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "is_v2",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-is-v2",
+        "description": "Legacy flag that selects Stable Diffusion 2 when arch is absent.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "is_v2: false"
+      }
+    },
+    {
+      "id": "model.is_v3",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.is_v3"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "is_v3",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-is-v3",
+        "description": "Legacy flag that selects Stable Diffusion 3 when arch is absent.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "is_v3: false"
+      }
+    },
+    {
+      "id": "model.is_v_pred",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.is_v_pred"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "is_v_pred",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-is-v-pred",
+        "description": "Marks the model as using v-prediction semantics.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "is_v_pred: false"
+      }
+    },
+    {
+      "id": "model.is_vega",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.is_vega"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        },
+        {
+          "description": "A truthy is_vega value also forces is_xl true.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "is_vega",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-is-vega",
+        "description": "Legacy flag that selects Vega and also enables SDXL-compatible behavior.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "is_vega: false"
+      }
+    },
+    {
+      "id": "model.is_xl",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.is_xl"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "legacy",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "is_xl",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-is-xl",
+        "description": "Legacy flag that selects SDXL when arch is absent.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "is_xl: false"
+      }
+    },
+    {
+      "id": "model.latent_space_version",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.latent_space_version"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string-or-null",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "latent_space_version",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-latent-space-version",
+        "description": "Selects an architecture-specific latent-space compatibility version.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "latent_space_version: v1"
+      }
+    },
+    {
+      "id": "model.layer_offloading",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.layer_offloading"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "model.auto_memory"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission inherits deprecated model.auto_memory; explicit null remains falsey.",
+          "applicability": []
+        },
+        {
+          "description": "When layer offloading is truthy, qfloat8 model and text-encoder qtypes normalize to float8.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "model.qtype",
+          "kind": "affects",
+          "description": "Layer offloading rewrites qfloat8 model quantization to float8.",
+          "applicability": []
+        },
+        {
+          "setting": "model.qtype_te",
+          "kind": "affects",
+          "description": "Layer offloading rewrites qfloat8 text-encoder quantization to float8.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "layer_offloading",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-layer-offloading",
+        "description": "Moves model layers between devices to reduce peak accelerator memory.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "layer_offloading: null"
+      }
+    },
+    {
+      "id": "model.layer_offloading_text_encoder_percent",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.layer_offloading_text_encoder_percent"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "layer_offloading_text_encoder_percent",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-layer-offloading-text-encoder-percent",
+        "description": "Sets the fraction of text-encoder layers eligible for offloading.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "layer_offloading_text_encoder_percent: 1"
+      }
+    },
+    {
+      "id": "model.layer_offloading_transformer_percent",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.layer_offloading_transformer_percent"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "layer_offloading_transformer_percent",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-layer-offloading-transformer-percent",
+        "description": "Sets the fraction of transformer layers eligible for offloading.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "layer_offloading_transformer_percent: 1"
+      }
+    },
+    {
+      "id": "model.lora_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.lora_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "lora_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-lora-path",
+        "description": "Loads a model-level LoRA before training starts.",
+        "benefits": "Allows the model assembly to use an explicit component or adapter source.",
+        "drawbacks": "A missing or incompatible path or repository can prevent model assembly or produce mismatched components.",
+        "example": "lora_path: /workspace/adapters/base.safetensors"
+      }
+    },
+    {
+      "id": "model.low_vram",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.low_vram"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "low_vram",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-low-vram",
+        "description": "Enables architecture-specific low-VRAM loading and execution choices.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "low_vram: false"
+      }
+    },
+    {
+      "id": "model.model_kwargs",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {},
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "model_kwargs",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-model-kwargs",
+        "description": "Passes architecture-specific options to the selected first-party model implementation.",
+        "benefits": "Exposes architecture-specific configuration without changing the common model envelope.",
+        "drawbacks": "Unknown or incompatible nested keys can fail only when the selected model consumes them.",
+        "example": "model_kwargs: {}"
+      }
+    },
+    {
+      "id": "model.model_paths",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_paths"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {},
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "model_paths",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-model-paths",
+        "description": "Provides named component paths for architectures with split model assets.",
+        "benefits": "Exposes architecture-specific configuration without changing the common model envelope.",
+        "drawbacks": "Unknown or incompatible nested keys can fail only when the selected model consumes them.",
+        "example": "model_paths: {}"
+      }
+    },
+    {
+      "id": "model.name_or_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.name_or_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "required-model-path-or-repository-id",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission and explicit null reach the required-value check and raise ValueError before model loading.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "name_or_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-name-or-path",
+        "description": "Selects the required local path or repository identifier for the base model.",
+        "benefits": "Allows the model assembly to use an explicit component or adapter source.",
+        "drawbacks": "A missing or incompatible path or repository can prevent model assembly or produce mismatched components.",
+        "example": "name_or_path: /workspace/base-model"
+      }
+    },
+    {
+      "id": "model.only_if_contains",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.only_if_contains"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string-list",
+        "supported_type": "string-list-or-null",
+        "ui_type": null,
+        "example_type": "string-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "only_if_contains",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-only-if-contains",
+        "description": "Limits selected model parameters to names containing one of the listed fragments.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "only_if_contains: [transformer]"
+      }
+    },
+    {
+      "id": "model.qtype",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.qtype"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string-or-null",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "qfloat8",
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "A qtype containing | is split once into the quantization type and accuracy recovery adapter path.",
+          "applicability": []
+        },
+        {
+          "description": "Layer offloading normalizes qfloat8 to float8.",
+          "applicability": []
+        },
+        {
+          "description": "On MPS, qfloat8 normalizes to convrot8 because MPS has no fp8 dtype.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "model.accuracy_recovery_adapter",
+          "kind": "affects",
+          "description": "The pipe syntax can replace the separately configured accuracy-recovery adapter.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "qtype",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-qtype",
+        "description": "Selects the base-model quantization type and can encode an accuracy-recovery adapter.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "qtype: qfloat8"
+      }
+    },
+    {
+      "id": "model.qtype_te",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.qtype_te"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string-or-null",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "qfloat8",
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Layer offloading normalizes qfloat8 to float8.",
+          "applicability": []
+        },
+        {
+          "description": "On MPS, qfloat8 normalizes to convrot8 because MPS has no fp8 dtype.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "qtype_te",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-qtype-te",
+        "description": "Selects the text-encoder quantization type.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "qtype_te: qfloat8"
+      }
+    },
+    {
+      "id": "model.quantize",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.quantize"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "quantize",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-quantize",
+        "description": "Enables base-model quantization.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "quantize: false"
+      }
+    },
+    {
+      "id": "model.quantize_kwargs",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.quantize_kwargs"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "object",
+        "supported_type": "object",
+        "ui_type": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {},
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "quantize_kwargs",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-quantize-kwargs",
+        "description": "Passes quantizer-specific options to base-model quantization.",
+        "benefits": "Exposes architecture-specific configuration without changing the common model envelope.",
+        "drawbacks": "Unknown or incompatible nested keys can fail only when the selected model consumes them.",
+        "example": "quantize_kwargs: {}"
+      }
+    },
+    {
+      "id": "model.quantize_te",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.quantize_te"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "model.quantize"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission inherits model.quantize; explicit null remains null and is falsey.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "model.quantize",
+          "kind": "fallback",
+          "description": "Omission inherits the base-model quantization switch.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "quantize_te",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-quantize-te",
+        "description": "Enables text-encoder quantization, inheriting the base quantization switch when omitted.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "quantize_te: null"
+      }
+    },
+    {
+      "id": "model.refiner_name_or_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.refiner_name_or_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "refiner_name_or_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-refiner-name-or-path",
+        "description": "Selects an optional refiner model path or repository identifier.",
+        "benefits": "Allows the model assembly to use an explicit component or adapter source.",
+        "drawbacks": "A missing or incompatible path or repository can prevent model assembly or produce mismatched components.",
+        "example": "refiner_name_or_path: /workspace/refiner"
+      }
+    },
+    {
+      "id": "model.refiner_start_at",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.refiner_start_at"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0.5,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "model.refiner_name_or_path",
+          "kind": "requires",
+          "description": "A takeover fraction has an effect only when a refiner model is configured.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "refiner_start_at",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-refiner-start-at",
+        "description": "Sets the denoising fraction at which the refiner takes over.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "refiner_start_at: 0.5"
+      }
+    },
+    {
+      "id": "model.split_model_other_module_param_count_scale",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.split_model_other_module_param_count_scale"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "number",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0.3,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "split_model_other_module_param_count_scale",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-split-model-other-module-param-count-scale",
+        "description": "Weights non-transformer parameters when distributing a split model across GPUs.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "split_model_other_module_param_count_scale: 0.3"
+      }
+    },
+    {
+      "id": "model.split_model_over_gpus",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.split_model_over_gpus"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        },
+        {
+          "description": "A truthy value with a non-FLUX legacy architecture flag raises ValueError.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "model.is_flux",
+          "kind": "requires",
+          "description": "The constructor rejects this feature unless the legacy FLUX flag is true.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "split_model_over_gpus",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-split-model-over-gpus",
+        "description": "Enables the experimental FLUX-only multi-GPU model split.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "split_model_over_gpus: false"
+      }
+    },
+    {
+      "id": "model.te_device",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.te_device"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string-or-null",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "te_device",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-te-device",
+        "description": "Overrides the device used by the text encoder.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "te_device: cuda:0"
+      }
+    },
+    {
+      "id": "model.te_dtype",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.te_dtype"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string-or-null",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "model.dtype"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission inherits model.dtype; explicit null remains null.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "te_dtype",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-te-dtype",
+        "description": "Overrides the text-encoder dtype and inherits model dtype when omitted.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "te_dtype: bf16"
+      }
+    },
+    {
+      "id": "model.te_name_or_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.te_name_or_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "te_name_or_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-te-name-or-path",
+        "description": "Selects an optional separate text-encoder source.",
+        "benefits": "Allows the model assembly to use an explicit component or adapter source.",
+        "drawbacks": "A missing or incompatible path or repository can prevent model assembly or produce mismatched components.",
+        "example": "te_name_or_path: /workspace/text-encoder"
+      }
+    },
+    {
+      "id": "model.text_encoder_bits",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.text_encoder_bits"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer-or-null",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": [
+          4,
+          8,
+          16
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 16,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "text_encoder_bits",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-text-encoder-bits",
+        "description": "Selects legacy text-encoder precision in bits.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "text_encoder_bits: 16"
+      }
+    },
+    {
+      "id": "model.unconditional_lora_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.unconditional_lora_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "unconditional_lora_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-unconditional-lora-path",
+        "description": "Loads a LoRA only for the unconditional or negative CFG pass.",
+        "benefits": "Allows the model assembly to use an explicit component or adapter source.",
+        "drawbacks": "A missing or incompatible path or repository can prevent model assembly or produce mismatched components.",
+        "example": "unconditional_lora_path: /workspace/adapters/unconditional.safetensors"
+      }
+    },
+    {
+      "id": "model.unet_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.unet_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "unet_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-unet-path",
+        "description": "Selects an optional separate UNet source.",
+        "benefits": "Allows the model assembly to use an explicit component or adapter source.",
+        "drawbacks": "A missing or incompatible path or repository can prevent model assembly or produce mismatched components.",
+        "example": "unet_path: /workspace/unet"
+      }
+    },
+    {
+      "id": "model.unet_sample_size",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.unet_sample_size"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "integer-or-null",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": null,
+          "minimum_inclusive": false,
+          "maximum_inclusive": true
+        },
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "unet_sample_size",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-unet-sample-size",
+        "description": "Overrides the UNet sample-size metadata when supported.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "unet_sample_size: null"
+      }
+    },
+    {
+      "id": "model.use_flux_cfg",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.use_flux_cfg"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "use_flux_cfg",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-use-flux-cfg",
+        "description": "Enables FLUX classifier-free-guidance behavior.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "use_flux_cfg: false"
+      }
+    },
+    {
+      "id": "model.use_text_encoder_1",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.use_text_encoder_1"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "use_text_encoder_1",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-use-text-encoder-1",
+        "description": "Enables the first text encoder for models with multiple encoders.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "use_text_encoder_1: true"
+      }
+    },
+    {
+      "id": "model.use_text_encoder_2",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.use_text_encoder_2"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "use_text_encoder_2",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-use-text-encoder-2",
+        "description": "Enables the second text encoder for models with multiple encoders.",
+        "benefits": "Makes the behavior selectable for architectures and hardware that support it.",
+        "drawbacks": "Enabling it on an unsupported architecture or device can fail or increase resource use; explicit null is preserved and acts falsey.",
+        "example": "use_text_encoder_2: true"
+      }
+    },
+    {
+      "id": "model.vae_device",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.vae_device"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string-or-null",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "vae_device",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-vae-device",
+        "description": "Overrides the device used by the VAE.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "vae_device: cuda:0"
+      }
+    },
+    {
+      "id": "model.vae_dtype",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.vae_dtype"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string-or-null",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "model.dtype"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission inherits model.dtype; explicit null remains null.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "vae_dtype",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-vae-dtype",
+        "description": "Overrides the VAE dtype and inherits model dtype when omitted.",
+        "benefits": "Makes the model-loading or execution choice explicit and reproducible in YAML.",
+        "drawbacks": "Unsupported values can fail later in model loading or produce incompatible precision, memory, or execution behavior.",
+        "example": "vae_dtype: bf16"
+      }
+    },
+    {
+      "id": "model.vae_path",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.vae_path"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "process_type": "diffusion_trainer"
+        }
+      ],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "path-or-repository-id-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/config_modules.py",
+          "symbol": "ModelConfig.__init__",
+          "key": "vae_path",
+          "read_kind": "kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "model-vae-path",
+        "description": "Selects an optional separate VAE source.",
+        "benefits": "Allows the model assembly to use an explicit component or adapter source.",
+        "drawbacks": "A missing or incompatible path or repository can prevent model assembly or produce mismatched components.",
+        "example": "vae_path: /workspace/vae"
+      }
     }
   ]
 }

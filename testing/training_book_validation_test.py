@@ -1926,6 +1926,11 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 or item.source == "toolkit/scheduler.py"
                 or item.source.startswith("toolkit/samplers/")
             )
+        if scope == "model-config":
+            return (
+                item.source == "toolkit/config_modules.py"
+                and item.symbol == "ModelConfig.__init__"
+            )
         if scope == "dataset-core":
             return (
                 item.source == "toolkit/config_modules.py"
@@ -2061,6 +2066,67 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 if setting_id not in {"train.unet_lr", "train.text_encoder_lr"}:
                     self.assertIn("use", setting.render.benefits.casefold())
                     self.assertIn("risk", setting.render.drawbacks.casefold())
+
+    def test_catalog_model_config_scope_is_exactly_owned_and_teaches_normalization(self):
+        try:
+            self.assert_catalog_selector_green("--scope", "model-config")
+            self.assert_catalog_selector_green(
+                "--target-symbol",
+                "toolkit/config_modules.py::ModelConfig.__init__",
+            )
+        except DiscoveryError as error:
+            self.fail(str(error))
+        facts = tuple(
+            fact for fact in self.discovered
+            if self._in_scope(fact, "model-config")
+        )
+        self.assertEqual(len(facts), 60)
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {
+            setting.id: setting for setting in catalog.settings
+            if any(
+                claim.source == "toolkit/config_modules.py"
+                and claim.symbol == "ModelConfig.__init__"
+                for claim in setting.source_claims
+            )
+        }
+        self.assertEqual(set(settings), {f"model.{fact.key}" for fact in facts})
+        self.assertEqual(
+            {setting.locations[0].path for setting in settings.values()},
+            {f"config.process[*].model.{fact.key}" for fact in facts},
+        )
+        for key in (
+            "name_or_path", "vae_path", "refiner_name_or_path", "lora_path",
+            "assistant_lora_path", "inference_lora_path",
+            "unconditional_lora_path", "unet_path", "te_name_or_path",
+            "extras_name_or_path", "accuracy_recovery_adapter",
+        ):
+            self.assertEqual(settings[f"model.{key}"].contract.example_type, "path")
+        teaching = {
+            setting_id: " ".join(
+                vars(settings[setting_id].render).values()
+            ).casefold() + " " + " ".join(
+                item.description.casefold()
+                for item in settings[setting_id].normalizations
+            )
+            for setting_id in settings
+        }
+        for phrase in ("colon", "flex1", "legacy", "sd1"):
+            self.assertIn(phrase, teaching["model.arch"])
+        for phrase in ("accuracy recovery", "|", "split"):
+            self.assertIn(phrase, teaching["model.qtype"])
+        for setting_id in ("model.qtype", "model.qtype_te"):
+            self.assertIn("qfloat8", teaching[setting_id])
+            self.assertIn("float8", teaching[setting_id])
+            self.assertIn("convrot8", teaching[setting_id])
+        self.assertIn("deprecated", teaching["model.auto_memory"])
+        self.assertIn("experimental", teaching["model.compile"])
+        for setting_id in ("model.attn_masking", "model.split_model_over_gpus"):
+            self.assertIn("flux", teaching[setting_id])
 
     def test_catalog_train_config_unconsumed_fields_are_source_derived(self):
         expected = {"unet_lr", "text_encoder_lr", "weight_jitter"}

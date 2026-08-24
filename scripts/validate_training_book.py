@@ -198,6 +198,13 @@ def _in_training(item) -> bool:
     )
 
 
+def _in_model_config(item) -> bool:
+    return (
+        item.source == "toolkit/config_modules.py"
+        and item.symbol == "ModelConfig.__init__"
+    )
+
+
 def _in_train_config_keys(item, keys) -> bool:
     return (
         item.source == "toolkit/config_modules.py"
@@ -426,6 +433,7 @@ def main() -> None:
             ["core-process"], ["core-io-network"], ["core-modules"], ["core"],
             ["training"], ["train-schedule"], ["train-numerics"],
             ["train-components"], ["optimizers"], ["schedulers"],
+            ["model-config"],
             ["dataset-core"], ["dataset-modalities"], ["data-loader-cache"],
             ["save-sample-validation"], ["data"],
         ):
@@ -521,6 +529,7 @@ def main() -> None:
             "train-components": lambda item: _in_train_config_keys(item, TRAIN_COMPONENT_KEYS),
             "optimizers": _in_optimizers,
             "schedulers": _in_schedulers,
+            "model-config": _in_model_config,
             "dataset-core": lambda item: _in_dataset_keys(item, DATASET_CORE_KEYS),
             "dataset-modalities": lambda item: _in_dataset_keys(item, DATASET_MODALITY_KEYS),
             "data-loader-cache": _in_data_loader_cache,
