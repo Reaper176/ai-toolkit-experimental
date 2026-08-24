@@ -357,9 +357,29 @@ function canonicalAccessPath(node: ts.Expression, aliases: Map<string, string>):
   if (parts === undefined) return undefined;
   const alias = aliases.get(parts[0]);
   if (alias !== undefined) return normalizeTrainingBookPath([alias, ...parts.slice(1)].join('.'));
+  let base: ts.Expression = node;
+  while (ts.isPropertyAccessExpression(base) || ts.isElementAccessExpression(base)) base = unwrap(base.expression);
+  if (ts.isIdentifier(base)) {
+    const row = directMapRowPath(base, aliases);
+    if (row !== undefined) return normalizeTrainingBookPath([row, ...parts.slice(1)].join('.'));
+  }
   const configIndex = parts.indexOf('config');
   if (configIndex < 0) return undefined;
   return normalizeTrainingBookPath(parts.slice(configIndex).join('.'));
+}
+
+function directMapRowPath(identifier: ts.Identifier, aliases: Map<string, string>): string | undefined {
+  let current: ts.Node | undefined = identifier;
+  while (current !== undefined) {
+    if ((ts.isArrowFunction(current) || ts.isFunctionExpression(current)) && current.parameters.length > 0 && ts.isIdentifier(current.parameters[0].name) && current.parameters[0].name.text === identifier.text) {
+      if (!ts.isCallExpression(current.parent) || !ts.isPropertyAccessExpression(current.parent.expression) || current.parent.expression.name.text !== 'map') return undefined;
+      const receiver = canonicalAccessPath(current.parent.expression.expression, aliases);
+      if (receiver === undefined || !['config.process[*].datasets', 'config.process[*].train.validation_config.validation_items', 'config.process[*].sample.samples'].includes(receiver)) return undefined;
+      return `${receiver}[*]`;
+    }
+    current = current.parent;
+  }
+  return undefined;
 }
 
 function sourceAliases(source: ts.SourceFile): Map<string, string> {
@@ -478,9 +498,7 @@ function modalAdapterIndex(identifier: ts.Identifier, aliases: Map<string, strin
   return false;
 }
 
-export function collectCanonicalSetterPathsFromSource(sourceText: string, sourceName = 'fixture.tsx'): string[] {
-  const source = ts.createSourceFile(sourceName, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const aliases = sourceAliases(source);
+function canonicalSetterPathsFromAst(source: ts.SourceFile, root: ts.Node, aliases: Map<string, string>): string[] {
   const paths = new Set<string>();
   const expandPath = (expression: ts.Expression): string[] => {
     expression = unwrap(expression);
@@ -509,8 +527,361 @@ export function collectCanonicalSetterPathsFromSource(sourceText: string, source
     }
     ts.forEachChild(node, visit);
   };
-  visit(source);
+  visit(root);
   return [...paths].sort(compareCodePoint);
+}
+
+export function collectCanonicalSetterPathsFromSource(sourceText: string, sourceName = 'fixture.tsx'): string[] {
+  const source = ts.createSourceFile(sourceName, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  return canonicalSetterPathsFromAst(source, source, sourceAliases(source));
+}
+
+type VisibleControlKind = {
+  ui_type: NonNullable<UiSourceClaim['value_contract']['ui_type']>;
+  widget_kind: NonNullable<UiSourceClaim['value_contract']['widget_kind']>;
+  nullable: boolean;
+};
+
+const visibleControlKinds: Readonly<Record<string, VisibleControlKind>> = {
+  Checkbox: { ui_type: 'boolean', widget_kind: 'checkbox', nullable: false },
+  CreatableSelectInput: { ui_type: 'string', widget_kind: 'select', nullable: false },
+  NumberInput: { ui_type: 'number', widget_kind: 'number', nullable: true },
+  SelectInput: { ui_type: 'string', widget_kind: 'select', nullable: false },
+  SliderInput: { ui_type: 'number', widget_kind: 'number', nullable: false },
+  TextAreaInput: { ui_type: 'string', widget_kind: 'multiline', nullable: false },
+  TextInput: { ui_type: 'string', widget_kind: 'text', nullable: false },
+};
+
+function jsxAttributeNode(element: ts.JsxOpeningLikeElement, name: string): ts.JsxAttribute | undefined {
+  const attribute = element.attributes.properties.find(item => ts.isJsxAttribute(item) && ts.isIdentifier(item.name) && item.name.text === name);
+  return attribute !== undefined && ts.isJsxAttribute(attribute) ? attribute : undefined;
+}
+
+function jsxAttributeExpression(attribute: ts.JsxAttribute | undefined): ts.Expression | undefined {
+  if (attribute?.initializer === undefined) return undefined;
+  if (ts.isStringLiteral(attribute.initializer)) return attribute.initializer;
+  if (ts.isJsxExpression(attribute.initializer)) return attribute.initializer.expression;
+  return undefined;
+}
+
+function staticControlLabel(attribute: ts.JsxAttribute | undefined): string | undefined {
+  const initializer = attribute?.initializer;
+  if (initializer === undefined) return undefined;
+  if (ts.isStringLiteral(initializer)) return initializer.text;
+  if (!ts.isJsxExpression(initializer) || initializer.expression === undefined) return undefined;
+  const expression = unwrap(initializer.expression);
+  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
+  if (!ts.isJsxElement(expression) && !ts.isJsxFragment(expression)) return undefined;
+  const parts: string[] = [];
+  let dynamic = false;
+  const walk = (node: ts.Node): void => {
+    if (ts.isJsxText(node)) {
+      const text = node.text.replace(/\s+/g, ' ').trim();
+      if (text !== '') parts.push(text);
+      return;
+    }
+    if (ts.isJsxExpression(node)) {
+      if (node.expression === undefined) return;
+      const child = unwrap(node.expression);
+      if (ts.isStringLiteral(child) || ts.isNoSubstitutionTemplateLiteral(child)) {
+        const text = child.text.replace(/\s+/g, ' ').trim();
+        if (text !== '') parts.push(text);
+        return;
+      }
+      dynamic = true;
+      return;
+    }
+    if (ts.isJsxSelfClosingElement(node)) return;
+    ts.forEachChild(node, walk);
+  };
+  walk(expression);
+  return dynamic || parts.length === 0 ? undefined : parts.join(' ');
+}
+
+function finiteMapLiteral(node: ts.Expression): TrainingBookValueFact | undefined {
+  node = unwrap(node);
+  if (ts.isNumericLiteral(node)) {
+    const value = Number(node.text);
+    if (!Number.isFinite(value)) fail(node, 'finite mapped numeric values must be finite');
+    return { kind: 'number', value };
+  }
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return { kind: 'string', value: node.text };
+  if (ts.isArrayLiteralExpression(node)) {
+    const items = node.elements.map(item => finiteMapLiteral(item as ts.Expression));
+    return items.some(item => item === undefined) ? undefined : { kind: 'array', items: items as TrainingBookValueFact[] };
+  }
+  return undefined;
+}
+
+function finiteMapParameterValues(identifier: ts.Identifier): TrainingBookValueFact[] | undefined {
+  let current: ts.Node | undefined = identifier;
+  while (current !== undefined) {
+    if ((ts.isArrowFunction(current) || ts.isFunctionExpression(current)) && current.parameters.length > 0 && ts.isIdentifier(current.parameters[0].name) && current.parameters[0].name.text === identifier.text) {
+      if (!ts.isCallExpression(current.parent) || !ts.isPropertyAccessExpression(current.parent.expression) || current.parent.expression.name.text !== 'map') return undefined;
+      const receiver = unwrap(current.parent.expression.expression);
+      let receiverValues: TrainingBookValueFact[] | undefined;
+      if (ts.isArrayLiteralExpression(receiver)) {
+        const values = receiver.elements.map(item => finiteMapLiteral(item as ts.Expression));
+        if (!values.some(value => value === undefined)) receiverValues = values as TrainingBookValueFact[];
+      } else if (ts.isIdentifier(receiver)) {
+        receiverValues = finiteMapParameterValues(receiver);
+      }
+      if (receiverValues === undefined) return undefined;
+      return receiverValues.flatMap(value => value.kind === 'array' ? value.items : [value]);
+    }
+    current = current.parent;
+  }
+  return undefined;
+}
+
+function finiteMappedLabels(attribute: ts.JsxAttribute | undefined): string[] | undefined {
+  const expression = jsxAttributeExpression(attribute);
+  if (expression === undefined) return undefined;
+  const value = unwrap(expression);
+  if (!ts.isCallExpression(value) || value.arguments.length !== 0 || !ts.isPropertyAccessExpression(value.expression) || value.expression.name.text !== 'toString') return undefined;
+  const receiver = unwrap(value.expression.expression);
+  if (!ts.isIdentifier(receiver)) return undefined;
+  const values = finiteMapParameterValues(receiver);
+  if (values === undefined || values.some(item => item.kind !== 'number' && item.kind !== 'string')) return undefined;
+  return values.map(item => String((item as { kind: 'number' | 'string'; value: number | string }).value));
+}
+
+function maximalConfigReadPaths(expression: ts.Expression | undefined, aliases: Map<string, string>): string[] {
+  if (expression === undefined) return [];
+  const direct = canonicalAccessPath(expression, aliases);
+  if (direct !== undefined) return [direct];
+  const paths: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isExpression(node)) {
+      const parent = node.parent;
+      const isNestedAccess = (ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent)) && parent.expression === node;
+      const isAccessName = ts.isIdentifier(node) && ts.isPropertyAccessExpression(parent) && parent.name === node;
+      if (!isNestedAccess && !isAccessName) {
+        const path = canonicalAccessPath(node, aliases);
+        if (path !== undefined) paths.push(path);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(expression);
+  return [...new Set(paths)];
+}
+
+function semanticPrimaryReadPaths(expression: ts.Expression | undefined, aliases: Map<string, string>): string[] {
+  if (expression === undefined) return [];
+  expression = unwrap(expression);
+  const direct = canonicalAccessPath(expression, aliases);
+  if (direct !== undefined) return [direct];
+  if (ts.isConditionalExpression(expression)) {
+    return [...new Set([
+      ...semanticPrimaryReadPaths(expression.whenTrue, aliases),
+      ...semanticPrimaryReadPaths(expression.whenFalse, aliases),
+    ])];
+  }
+  if (ts.isBinaryExpression(expression) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(expression.operatorToken.kind)) {
+    const left = semanticPrimaryReadPaths(expression.left, aliases);
+    return left.length > 0 ? left : semanticPrimaryReadPaths(expression.right, aliases);
+  }
+  if (ts.isCallExpression(expression)) {
+    if (ts.isPropertyAccessExpression(expression.expression)) {
+      const receiver = semanticPrimaryReadPaths(expression.expression.expression, aliases);
+      if (receiver.length > 0) return receiver;
+    }
+    const argumentPaths = expression.arguments.flatMap(argument => semanticPrimaryReadPaths(argument, aliases));
+    if (argumentPaths.length > 0) return [...new Set(argumentPaths)];
+  }
+  if (ts.isTemplateExpression(expression)) {
+    return [...new Set(expression.templateSpans.flatMap(span => semanticPrimaryReadPaths(span.expression, aliases)))];
+  }
+  return maximalConfigReadPaths(expression, aliases);
+}
+
+function controlOptional(attribute: ts.JsxAttribute | undefined): boolean {
+  if (attribute === undefined) return true;
+  if (attribute.initializer === undefined) return false;
+  const expression = jsxAttributeExpression(attribute);
+  if (expression?.kind === ts.SyntaxKind.TrueKeyword) return false;
+  if (expression?.kind === ts.SyntaxKind.FalseKeyword) return true;
+  fail(attribute, 'dynamic JSX required is unsupported');
+}
+
+function literalNumberAttribute(attribute: ts.JsxAttribute | undefined, name: string): number | undefined {
+  const expression = jsxAttributeExpression(attribute);
+  if (expression === undefined) return undefined;
+  const value = unwrap(expression);
+  let result: number | undefined;
+  if (ts.isNumericLiteral(value)) result = Number(value.text);
+  else if (ts.isPrefixUnaryExpression(value) && (value.operator === ts.SyntaxKind.MinusToken || value.operator === ts.SyntaxKind.PlusToken) && ts.isNumericLiteral(value.operand)) {
+    result = Number(value.operand.text) * (value.operator === ts.SyntaxKind.MinusToken ? -1 : 1);
+  } else fail(attribute, `dynamic JSX ${name} is unsupported`);
+  if (!Number.isFinite(result)) fail(attribute, `${name} must be finite`);
+  return result;
+}
+
+function literalSelectValues(expression: ts.Expression | undefined): TrainingBookValueFact[] | undefined {
+  if (expression === undefined) return undefined;
+  expression = unwrap(expression);
+  if (!ts.isArrayLiteralExpression(expression) || expression.elements.some(item => ts.isSpreadElement(item))) return undefined;
+  const result: TrainingBookValueFact[] = [];
+  for (const item of expression.elements) {
+    const option = unwrap(item as ts.Expression);
+    if (!ts.isObjectLiteralExpression(option)) fail(option, 'select option must remain an exact object literal');
+    const value = objectProperties(option).get('value');
+    if (value === undefined) fail(option, 'select option is missing its accepted value');
+    const raw = unwrap(value);
+    if (ts.isStringLiteral(raw) || ts.isNoSubstitutionTemplateLiteral(raw)) result.push({ kind: 'string', value: raw.text });
+    else if (ts.isNumericLiteral(raw)) result.push({ kind: 'number', value: Number(raw.text) });
+    else if (raw.kind === ts.SyntaxKind.TrueKeyword || raw.kind === ts.SyntaxKind.FalseKeyword) result.push({ kind: 'boolean', value: raw.kind === ts.SyntaxKind.TrueKeyword });
+    else fail(raw, 'select option value must remain a scalar literal accepted value');
+  }
+  return result;
+}
+
+function uniqueValues(values: TrainingBookValueFact[]): TrainingBookValueFact[] {
+  const seen = new Set<string>();
+  return values.filter(value => {
+    const serialized = JSON.stringify(value);
+    if (seen.has(serialized)) return false;
+    seen.add(serialized);
+    return true;
+  });
+}
+
+function semanticControlContract(
+  node: ts.JsxOpeningLikeElement,
+  component: string,
+  path: string,
+  base: UiSourceClaim['value_contract'],
+): UiSourceClaim['value_contract'] {
+  const onChange = jsxAttributeExpression(jsxAttributeNode(node, 'onChange'));
+  const source = node.getSourceFile();
+  const onChangeText = onChange?.getText(source).replace(/\s+/g, ' ') ?? '';
+  const contract = { ...base };
+  if (/value\s*=\s*null\b/.test(onChangeText) || /\?\s*null\s*:\s*value\b/.test(onChangeText)) contract.nullable = true;
+  if (path === 'config.process[*].network.lokr_factor') {
+    if (!/setJobConfig\(parseInt\(value\),\s*['"]config\.process\[0\]\.network\.lokr_factor['"]\)/.test(onChangeText)) fail(onChange ?? node, 'LoKr factor semantic integer adapter is unsupported');
+    contract.ui_type = 'integer';
+    if (contract.accepted_values !== undefined) contract.accepted_values = contract.accepted_values.map(value => {
+      if (value.kind !== 'string' || !/^-?\d+$/.test(value.value)) fail(node, 'LoKr factor accepted value must be an integer string');
+      return { kind: 'number', value: Number.parseInt(value.value, 10) };
+    });
+  } else if (path === 'config.process[*].train.validation_config.validation_sigmas') {
+    if (!onChangeText.includes("value.split(',').map") || !onChangeText.includes('parseFloat(v)')) fail(onChange ?? node, 'validation sigmas semantic number-list adapter is unsupported');
+    contract.ui_type = 'number-list';
+    if (contract.accepted_values !== undefined) contract.accepted_values = contract.accepted_values.map(value => {
+      if (value.kind !== 'string') fail(node, 'validation sigma accepted value must be a string choice');
+      const items = value.value.split(',').map(item => Number.parseFloat(item.trim()));
+      if (items.some(item => !Number.isFinite(item))) fail(node, 'validation sigma accepted values must be finite');
+      return { kind: 'array', items: items.map(item => ({ kind: 'number', value: item })) };
+    });
+  } else if (/^config\.process\[\*\]\.datasets\[\*\]\.control_path(?:_[123])?$/.test(path)) {
+    if (!/value\s*==\s*['"]['"]\s*\?\s*null\s*:\s*value/.test(onChangeText)) fail(onChange ?? node, 'control dataset nullable adapter is unsupported');
+    contract.ui_type = 'string';
+    contract.nullable = true;
+  } else if (/^config\.process\[\*\]\.sample\.samples\[\*\]\.(?:width|height|seed)$/.test(path)) {
+    if (component !== 'TextInput' || !onChangeText.includes('parseInt(value)')) fail(onChange ?? node, 'sample integer text adapter is unsupported');
+    contract.ui_type = 'integer';
+    contract.nullable = false;
+  } else if (path === 'config.process[*].datasets[*].resolution') {
+    if (component !== 'Checkbox' || !onChangeText.includes('const resolutions = dataset.resolution.includes(res)')) fail(onChange ?? node, 'dataset resolution integer-list adapter is unsupported');
+    contract.ui_type = 'integer-list';
+    contract.nullable = false;
+  }
+  return contract;
+}
+
+function lexicalComponentSymbol(node: ts.Node, fallback: string): string {
+  let current: ts.Node | undefined = node;
+  let result = fallback;
+  while (current !== undefined) {
+    if (ts.isFunctionDeclaration(current) && current.name !== undefined) result = current.name.text;
+    current = current.parent;
+  }
+  return result;
+}
+
+function normalizedDynamicLabel(attribute: ts.JsxAttribute): string {
+  const expression = jsxAttributeExpression(attribute);
+  if (expression === undefined) return '<dynamic-label>';
+  return `<dynamic-label:${expression.getText(attribute.getSourceFile()).replace(/\s+/g, ' ').trim()}>`;
+}
+
+export function collectVisibleControlClaimsFromSource(
+  sourceText: string,
+  sourceName = 'fixture.tsx',
+  fallbackSymbol = 'Fixture',
+  allowUnresolvedLabels = false,
+  allowArchitectureProjectedLabels = false,
+): UiSourceClaim[] {
+  const source = ts.createSourceFile(sourceName, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const aliases = sourceAliases(source);
+  const claims = new Map<string, UiSourceClaim>();
+  const visit = (node: ts.Node): void => {
+    if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && ts.isIdentifier(node.tagName)) {
+      const component = node.tagName.text;
+      const kind = visibleControlKinds[component];
+      if (kind !== undefined) {
+        const onChange = jsxAttributeExpression(jsxAttributeNode(node, 'onChange'));
+        const setterPaths = onChange === undefined ? [] : canonicalSetterPathsFromAst(source, onChange, aliases);
+        const boundExpression = jsxAttributeExpression(jsxAttributeNode(node, component === 'Checkbox' ? 'checked' : 'value'));
+        const readPaths = semanticPrimaryReadPaths(boundExpression, aliases);
+        const matchingReads = readPaths.filter(path => setterPaths.includes(path));
+        if (matchingReads.length > 1 || (matchingReads.length === 0 && readPaths.length > 1)) fail(boundExpression, 'visible control primary bound path is ambiguous');
+        let path = matchingReads[0] ?? (readPaths.length === 1 ? readPaths[0] : undefined);
+        if (path === undefined && setterPaths.length > 0) {
+          const longest = [...setterPaths].sort((left, right) => right.split('.').length - left.split('.').length || compareCodePoint(left, right));
+          if (longest.length === 1 || longest[0].split('.').length > longest[1].split('.').length) path = longest[0];
+        }
+        // Controls with neither a bound config value nor a direct config setter are
+        // server/transient/adaptor surfaces and are classified by their own slices.
+        if (path !== undefined) {
+          const labelAttribute = jsxAttributeNode(node, 'label');
+          const staticLabel = staticControlLabel(labelAttribute);
+          const dynamicText = labelAttribute === undefined ? '<missing-label>' : normalizedDynamicLabel(labelAttribute);
+          if (staticLabel === undefined && allowArchitectureProjectedLabels && dynamicText === '<dynamic-label:tag.title>') {
+            // Expanded below from each architecture's exact sample_tags projection.
+          } else {
+            const mappedLabels = staticLabel === undefined ? finiteMappedLabels(labelAttribute) : undefined;
+            if (staticLabel === undefined && mappedLabels === undefined && !allowUnresolvedLabels) fail(labelAttribute ?? node, 'dynamic JSX label is unsupported');
+            const labels = staticLabel === undefined ? (mappedLabels ?? [dynamicText]) : [staticLabel];
+            for (const label of labels) {
+              const resolved = staticLabel !== undefined || mappedLabels !== undefined;
+              const lexicalSymbol = lexicalComponentSymbol(node, fallbackSymbol);
+              const baseContract: UiSourceClaim['value_contract'] = {
+                ui_type: kind.ui_type,
+                widget_kind: kind.widget_kind,
+                optional: controlOptional(jsxAttributeNode(node, 'required')),
+                nullable: kind.nullable,
+              };
+              const acceptedValues = component === 'SelectInput' || component === 'CreatableSelectInput'
+                ? literalSelectValues(jsxAttributeExpression(jsxAttributeNode(node, 'options')))
+                : undefined;
+              if (acceptedValues !== undefined) baseContract.accepted_values = acceptedValues;
+              const claim: UiSourceClaim = {
+                source_path: sourceName,
+                symbol: `${lexicalSymbol}::${component}::${path}::${label}`,
+                path,
+                kind: 'setting',
+                ui_label: resolved ? presence({ kind: 'string', value: label }) : { present: false },
+                value_contract: semanticControlContract(node, component, path, baseContract),
+              };
+              const minimum = literalNumberAttribute(jsxAttributeNode(node, 'min'), 'min');
+              const maximum = literalNumberAttribute(jsxAttributeNode(node, 'max'), 'max');
+              if (minimum !== undefined) claim.value_contract.minimum = minimum;
+              if (maximum !== undefined) claim.value_contract.maximum = maximum;
+              const identity = `${claim.source_path}\0${claim.symbol}\0${claim.path}\0${claim.kind}`;
+              const existing = claims.get(identity);
+              if (existing !== undefined && JSON.stringify(existing) !== JSON.stringify(claim)) fail(node, `conflicting duplicate visible control ${claim.symbol}`);
+              claims.set(identity, claim);
+            }
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return [...claims.values()].sort((left, right) => compareCodePoint(`${left.path}\0${left.symbol}`, `${right.path}\0${right.symbol}`));
 }
 
 function jsxAttribute(element: ts.JsxOpeningLikeElement, name: string): string | undefined {
@@ -950,6 +1321,361 @@ function setterClaims(root: string): UiSourceClaim[] {
   }));
 }
 
+function invertedMaskPriorSettingClaims(sourceText: string, sourcePath: string): UiSourceClaim[] {
+  if (!/export\s+function\s+InvertedMaskPriorControl\b/.test(sourceText)) return [];
+  const source = ts.createSourceFile(sourcePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const aliases = sourceAliases(source);
+  let occurrence: ts.JsxOpeningLikeElement | undefined;
+  const visit = (node: ts.Node): void => {
+    if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && ts.isIdentifier(node.tagName) && node.tagName.text === 'InvertedMaskPriorControl') {
+      if (occurrence !== undefined) fail(node, 'duplicate InvertedMaskPriorControl binding');
+      occurrence = node;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  if (occurrence === undefined) fail(source, 'missing InvertedMaskPriorControl binding');
+  const train = jsxAttributeExpression(jsxAttributeNode(occurrence, 'train'));
+  const trainPath = train === undefined ? undefined : canonicalAccessPath(train, aliases);
+  if (trainPath !== 'config.process[*].train') fail(train ?? occurrence, 'InvertedMaskPriorControl train prop must bind exact training config');
+  const setTrain = jsxAttributeExpression(jsxAttributeNode(occurrence, 'setTrain'));
+  const writes = setTrain === undefined ? [] : canonicalSetterPathsFromAst(source, setTrain, aliases);
+  const expected = [
+    'config.process[*].train.inverted_mask_prior',
+    'config.process[*].train.inverted_mask_prior_multiplier',
+  ];
+  if (JSON.stringify(writes) !== JSON.stringify(expected)) fail(setTrain ?? occurrence, 'InvertedMaskPriorControl setTrain prop writes must remain exact');
+  const controls: Array<{ component: string; label: string; field: string; contract: UiSourceClaim['value_contract'] }> = [
+    {
+      component: 'Checkbox',
+      label: 'Inverted Mask Prior',
+      field: 'inverted_mask_prior',
+      contract: { ui_type: 'boolean', widget_kind: 'checkbox', optional: true, nullable: false },
+    },
+    {
+      component: 'NumberInput',
+      label: 'Inverted Mask Prior Multiplier',
+      field: 'inverted_mask_prior_multiplier',
+      contract: { ui_type: 'number', widget_kind: 'number', optional: true, nullable: true, minimum: 0 },
+    },
+  ];
+  const declaration = source.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === 'InvertedMaskPriorControl');
+  if (declaration === undefined || !ts.isFunctionDeclaration(declaration)) fail(source, 'missing InvertedMaskPriorControl declaration');
+  for (const expectedControl of controls) {
+    let matched: ts.JsxOpeningLikeElement | undefined;
+    const findControl = (node: ts.Node): void => {
+      if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && ts.isIdentifier(node.tagName) && node.tagName.text === expectedControl.component && staticControlLabel(jsxAttributeNode(node, 'label')) === expectedControl.label) {
+        if (matched !== undefined) fail(node, `duplicate ${expectedControl.label} control`);
+        matched = node;
+      }
+      ts.forEachChild(node, findControl);
+    };
+    findControl(declaration);
+    if (matched === undefined) fail(declaration, `missing ${expectedControl.label} control`);
+    const bound = jsxAttributeExpression(jsxAttributeNode(matched, expectedControl.component === 'Checkbox' ? 'checked' : 'value'));
+    const onChange = jsxAttributeExpression(jsxAttributeNode(matched, 'onChange'));
+    const boundText = bound?.getText(source) ?? '';
+    const changeText = onChange?.getText(source).replace(/\s+/g, ' ') ?? '';
+    if (!boundText.includes(`train.${expectedControl.field}`) || !changeText.includes(`${expectedControl.field}: value`)) fail(matched, `${expectedControl.label} control no longer matches its scoped train binding`);
+  }
+  return controls.map(control => {
+    const path = `${trainPath}.${control.field}`;
+    return {
+      source_path: sourcePath,
+      symbol: `InvertedMaskPriorControl::${control.component}::${path}::${control.label}`,
+      path,
+      kind: 'setting' as const,
+      ui_label: presence({ kind: 'string', value: control.label }),
+      value_contract: control.contract,
+    };
+  });
+}
+
+function predicatePaths(predicate: ModelOptionPredicateFact): string[] {
+  if (predicate.kind === 'truthy' || predicate.kind === 'nonblank-string') return [predicate.path];
+  if (predicate.kind === 'not') return predicatePaths(predicate.operand);
+  if (predicate.kind === 'and' || predicate.kind === 'or') return predicate.operands.flatMap(predicatePaths);
+  return [];
+}
+
+export function validateArchitectureProjectedControlTemplates(
+  sourceText: string,
+  sourcePath = 'fixture.tsx',
+  requireSampleTags = false,
+  requireCustomModelOptions = false,
+): void {
+  const source = ts.createSourceFile(sourcePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const aliases = sourceAliases(source);
+  const tagComponents = new Set<string>();
+  let customOptions = 0;
+  const visit = (node: ts.Node): void => {
+    if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && ts.isIdentifier(node.tagName)) {
+      const label = jsxAttributeNode(node, 'label');
+      const dynamicLabel = label === undefined ? undefined : normalizedDynamicLabel(label);
+      if (dynamicLabel === '<dynamic-label:tag.title>') {
+        if (!['TextInput', 'TextAreaInput', 'NumberInput'].includes(node.tagName.text)) fail(node, 'sample tag control component is unsupported');
+        const onChange = jsxAttributeExpression(jsxAttributeNode(node, 'onChange'));
+        const writes = onChange === undefined ? [] : canonicalSetterPathsFromAst(source, onChange, aliases);
+        if (JSON.stringify(writes) !== JSON.stringify(['config.process[*].sample.samples[*].prompt'])) fail(node, 'sample tag control must write only its exact projected prompt path');
+        let projectedWrite = false;
+        const findProjectedWrite = (child: ts.Node): void => {
+          if (ts.isCallExpression(child) && ts.isIdentifier(child.expression) && child.expression.text === 'setJobConfig') {
+            const value = child.arguments[0] === undefined ? undefined : unwrap(child.arguments[0]);
+            projectedWrite = value !== undefined && ts.isCallExpression(value) && ts.isIdentifier(value.expression) && value.expression.text === 'objToTags' && value.arguments.length === 1 && ts.isIdentifier(unwrap(value.arguments[0])) && (unwrap(value.arguments[0]) as ts.Identifier).text === 'taggedSample';
+          }
+          ts.forEachChild(child, findProjectedWrite);
+        };
+        if (onChange !== undefined) findProjectedWrite(onChange);
+        if (!projectedWrite) fail(node, 'sample tag control value must use its exact architecture tag projection');
+        tagComponents.add(node.tagName.text);
+      }
+      if (dynamicLabel === '<dynamic-label:customOption.label>') {
+        if (node.tagName.text !== 'SelectInput') fail(node, 'custom model option must remain a SelectInput');
+        const value = jsxAttributeExpression(jsxAttributeNode(node, 'value'));
+        const onChange = jsxAttributeExpression(jsxAttributeNode(node, 'onChange'));
+        const options = jsxAttributeExpression(jsxAttributeNode(node, 'options'));
+        const valueText = value?.getText(source).replace(/\s+/g, ' ');
+        const optionsText = options?.getText(source);
+        let exactChange = false;
+        if (onChange !== undefined && ts.isArrowFunction(onChange) && onChange.parameters.length === 1 && ts.isIdentifier(onChange.parameters[0].name)) {
+          const parameterName = onChange.parameters[0].name.text;
+          const body = unwrap(onChange.body as ts.Expression);
+          if (ts.isCallExpression(body) && ts.isPropertyAccessExpression(body.expression) && ts.isIdentifier(body.expression.expression) && body.expression.expression.text === 'customOption' && body.expression.name.text === 'onChange') {
+            exactChange = body.arguments.length === 3 && body.arguments.every((argument, index) => ts.isIdentifier(unwrap(argument)) && (unwrap(argument) as ts.Identifier).text === [parameterName, 'jobConfig', 'setJobConfig'][index]);
+          }
+        }
+        if (valueText !== "customOption.getValue(jobConfig) ?? ''" || !exactChange || optionsText !== 'customOption.options') fail(node, 'custom model option control no longer matches its architecture projection');
+        customOptions += 1;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  if (requireSampleTags && JSON.stringify([...tagComponents].sort(compareCodePoint)) !== JSON.stringify(['NumberInput', 'TextAreaInput', 'TextInput'])) fail(source, 'sample tag architecture projection must have all three exact control templates');
+  if (requireCustomModelOptions && customOptions !== 1) fail(source, 'custom model option architecture projection must have one exact control template');
+}
+
+function validateKnownLiveOptionBindings(sourceText: string, sourcePath: string, required: boolean): void {
+  const source = ts.createSourceFile(sourcePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const expected = new Map<string, string>([
+    ['Model Architecture', 'groupedModelOptions'],
+    ['Transformer', 'transformerQuantizationOptions'],
+    ['Text Encoder', 'quantizationOptions'],
+  ]);
+  const seen = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && ts.isIdentifier(node.tagName) && node.tagName.text === 'SelectInput') {
+      const label = staticControlLabel(jsxAttributeNode(node, 'label'));
+      const binding = label === undefined ? undefined : expected.get(label);
+      if (label !== undefined && binding !== undefined) {
+        const options = jsxAttributeExpression(jsxAttributeNode(node, 'options'));
+        if (options === undefined || !ts.isIdentifier(unwrap(options)) || (unwrap(options) as ts.Identifier).text !== binding) fail(node, `${label} options must remain bound to ${binding}`);
+        if (seen.has(label)) fail(node, `duplicate ${label} options control`);
+        seen.add(label);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  for (const [label, binding] of expected) {
+    if ((required || new RegExp(`\\b${binding}\\b`).test(sourceText)) && !seen.has(label)) fail(source, `missing ${label} options control`);
+  }
+}
+
+function arrayOptionValues(repo: AstRepository, symbol: string): TrainingBookValueFact[] {
+  const options = repo.value(repo.expression(symbol));
+  if (options.kind !== 'array') fail(undefined, `${symbol} must remain an exact finite options array`);
+  return options.items.map((item, index) => {
+    if (item.kind !== 'object') fail(undefined, `${symbol}[${index}] must remain an option object`);
+    const value = objectEntry(item, 'value');
+    if (value === undefined || !['string', 'number', 'boolean'].includes(value.kind)) fail(undefined, `${symbol}[${index}].value must remain a scalar`);
+    return value;
+  });
+}
+
+function architectureModelOptionValues(architectures: ModelArchitectureFact[]): TrainingBookValueFact[] {
+  const groups = new Map<string, ModelArchitectureFact[]>();
+  for (const architecture of architectures) {
+    const group = groups.get(architecture.group);
+    if (group === undefined) groups.set(architecture.group, [architecture]);
+    else group.push(architecture);
+  }
+  return [...groups.values()].flatMap(group => group.map(architecture => ({ kind: 'string' as const, value: architecture.name })));
+}
+
+function architectureProjectedSettingClaims(
+  architectures: ModelArchitectureFact[],
+  sourcePath: string,
+  quantizationValues: TrainingBookValueFact[],
+  includeTransformerQuantization: boolean,
+  includeSampleTags: boolean,
+  includeCustomModelOptions: boolean,
+): UiSourceClaim[] {
+  const claims: UiSourceClaim[] = [];
+  for (const architecture of architectures) {
+    if (includeSampleTags && architecture.sample_tags.present && architecture.sample_tags.value?.kind === 'object') {
+      for (const tag of architecture.sample_tags.value.entries) {
+        if (tag.value.kind !== 'object') fail(undefined, `${architecture.name} sample tag ${tag.key} must be an object`);
+        const title = objectEntry(tag.value, 'title');
+        const type = objectEntry(tag.value, 'type');
+        if (title?.kind !== 'string' || type?.kind !== 'string' || !['text', 'multiline', 'number'].includes(type.value)) fail(undefined, `${architecture.name} sample tag ${tag.key} has an unsupported control projection`);
+        const component = type.value === 'multiline' ? 'TextAreaInput' : type.value === 'number' ? 'NumberInput' : 'TextInput';
+        const control = visibleControlKinds[component];
+        claims.push({
+          source_path: sourcePath,
+          symbol: `SimpleJob::${component}::config.process[*].sample.samples[*].prompt::${title.value}::architecture=${architecture.name}::tag=${tag.key}`,
+          path: 'config.process[*].sample.samples[*].prompt',
+          kind: 'setting',
+          ui_label: presence(title),
+          value_contract: {
+            ui_type: control.ui_type,
+            widget_kind: control.widget_kind,
+            optional: true,
+            nullable: control.nullable,
+          },
+        });
+      }
+    }
+    if (includeCustomModelOptions && architecture.custom_model_select_options.present) {
+      for (const option of architecture.custom_model_select_options.value ?? []) {
+        const paths = new Set<string>([
+          ...option.get_value_cases.flatMap(item => predicatePaths(item.condition)),
+          ...option.writes.map(item => item.path),
+        ]);
+        for (const path of [...paths].sort(compareCodePoint)) {
+          const writtenValues = uniqueValues(option.writes.filter(item => item.path === path).map(item => item.value));
+          if (writtenValues.length === 0) fail(undefined, `${architecture.name}.${option.label}.${path} has no exact projected writes`);
+          const concreteKinds = new Set(writtenValues.filter(value => value.kind !== 'undefined' && value.kind !== 'null').map(value => value.kind));
+          if (concreteKinds.size !== 1) fail(undefined, `${architecture.name}.${option.label}.${path} has ambiguous projected semantic types`);
+          const concreteKind = [...concreteKinds][0];
+          if (!['boolean', 'number', 'string'].includes(concreteKind)) fail(undefined, `${architecture.name}.${option.label}.${path} has an unsupported projected semantic type`);
+          claims.push({
+            source_path: sourcePath,
+            symbol: `SimpleJob::SelectInput::${path}::${option.label}::architecture=${architecture.name}`,
+            path,
+            kind: 'setting',
+            ui_label: presence({ kind: 'string', value: option.label }),
+            value_contract: {
+              ui_type: concreteKind as 'boolean' | 'number' | 'string',
+              widget_kind: 'select',
+              optional: writtenValues.some(value => value.kind === 'undefined'),
+              nullable: writtenValues.some(value => value.kind === 'null'),
+              accepted_values: writtenValues,
+            },
+          });
+        }
+      }
+    }
+    if (includeTransformerQuantization && !architecture.disable_sections.includes('model.quantize')) {
+      let acceptedValues = quantizationValues;
+      if (architecture.accuracy_recovery_adapters.present && architecture.accuracy_recovery_adapters.value?.kind === 'object') {
+        const adapters = architecture.accuracy_recovery_adapters.value.entries.map(entry => entry.value);
+        if (adapters.some(value => value.kind !== 'string')) fail(undefined, `${architecture.name} accuracy recovery adapter values must be strings`);
+        acceptedValues = [
+          ...quantizationValues.slice(0, 2),
+          ...adapters,
+          ...quantizationValues.slice(2),
+        ];
+      }
+      claims.push({
+        source_path: sourcePath,
+        symbol: `SimpleJob::SelectInput::config.process[*].model.qtype::Transformer::architecture=${architecture.name}`,
+        path: 'config.process[*].model.qtype',
+        kind: 'setting',
+        ui_label: presence({ kind: 'string', value: 'Transformer' }),
+        value_contract: {
+          ui_type: 'string',
+          widget_kind: 'select',
+          optional: true,
+          nullable: false,
+          accepted_values: uniqueValues(acceptedValues.map(value =>
+            value.kind === 'string' && value.value === '' ? { kind: 'string', value: 'qfloat8' } : value)),
+        },
+      });
+    }
+  }
+  return claims;
+}
+
+function visibleSettingClaims(root: string, architectures: ModelArchitectureFact[], repo: AstRepository): UiSourceClaim[] {
+  const sourcePath = 'ui/src/app/jobs/new/SimpleJob.tsx';
+  const compilePrefix = "const defaultCompileOptions = { block_compile: true };\n";
+  const sourceText = readFileSync(join(root, sourcePath), 'utf8');
+  const liveInventory = architectures.length === 51;
+  const includeTransformerQuantization = liveInventory;
+  const includeSampleTags = liveInventory && architectures.some(architecture => architecture.sample_tags.present);
+  const includeCustomModelOptions = liveInventory && architectures.some(architecture => architecture.custom_model_select_options.present);
+  validateArchitectureProjectedControlTemplates(sourceText, sourcePath, includeSampleTags, includeCustomModelOptions);
+  validateKnownLiveOptionBindings(sourceText, sourcePath, liveInventory);
+  const quantizationValues = includeTransformerQuantization ? arrayOptionValues(repo, 'quantizationOptions') : [];
+  const directClaims = collectVisibleControlClaimsFromSource(
+    compilePrefix + sourceText,
+    sourcePath,
+    'SimpleJob',
+    false,
+    true,
+  ).filter(claim => claim.path !== 'config.process[*].model.qtype');
+  for (const claim of directClaims) {
+    if (claim.path === 'config.process[*].model.arch') claim.value_contract.accepted_values = architectureModelOptionValues(architectures);
+    if (claim.path === 'config.process[*].model.qtype_te') claim.value_contract.accepted_values = uniqueValues(quantizationValues.map(value =>
+      value.kind === 'string' && value.value === '' ? { kind: 'string', value: 'qfloat8' } : value));
+  }
+  return [
+    ...directClaims,
+    ...invertedMaskPriorSettingClaims(sourceText, sourcePath),
+    ...architectureProjectedSettingClaims(
+      architectures,
+      sourcePath,
+      quantizationValues,
+      includeTransformerQuantization,
+      includeSampleTags,
+      includeCustomModelOptions,
+    ),
+  ];
+}
+
+function globalSettingClaims(root: string, required: boolean): UiSourceClaim[] {
+  const sourcePath = 'ui/src/app/jobs/new/SimpleJob.tsx';
+  const sourceText = readFileSync(join(root, sourcePath), 'utf8');
+  if (!/\bgpuIDs\b/.test(sourceText)) {
+    if (required) fail(undefined, 'missing required live GPU ID state binding');
+    return [];
+  }
+  const source = ts.createSourceFile(sourcePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let gpuControl: ts.JsxOpeningLikeElement | undefined;
+  const visit = (node: ts.Node): void => {
+    if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && ts.isIdentifier(node.tagName) && node.tagName.text === 'SelectInput' && staticControlLabel(jsxAttributeNode(node, 'label')) === 'GPU ID') {
+      if (gpuControl !== undefined) fail(node, 'duplicate GPU ID control');
+      gpuControl = node;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  if (gpuControl === undefined) fail(source, 'missing GPU ID control');
+  const value = jsxAttributeExpression(jsxAttributeNode(gpuControl, 'value'));
+  const onChange = jsxAttributeExpression(jsxAttributeNode(gpuControl, 'onChange'));
+  const exactValue = value !== undefined && ts.isTemplateExpression(value) && value.head.text === '' && value.templateSpans.length === 1 && ts.isIdentifier(unwrap(value.templateSpans[0].expression)) && (unwrap(value.templateSpans[0].expression) as ts.Identifier).text === 'gpuIDs' && value.templateSpans[0].literal.text === '';
+  let exactChange = false;
+  if (onChange !== undefined && ts.isArrowFunction(onChange) && onChange.parameters.length === 1 && ts.isIdentifier(onChange.parameters[0].name)) {
+    const body = unwrap(onChange.body as ts.Expression);
+    exactChange = ts.isCallExpression(body) && ts.isIdentifier(body.expression) && body.expression.text === 'setGpuIDs' && body.arguments.length === 1 && ts.isIdentifier(unwrap(body.arguments[0])) && (unwrap(body.arguments[0]) as ts.Identifier).text === onChange.parameters[0].name.text;
+  }
+  if (!exactValue || !exactChange) fail(gpuControl, 'GPU ID control binding is unsupported');
+  return [{
+    source_path: sourcePath,
+    symbol: 'SimpleJob::SelectInput::gpuids::GPU ID',
+    path: 'gpuids',
+    kind: 'setting',
+    ui_label: presence({ kind: 'string', value: 'GPU ID' }),
+    value_contract: {
+      ui_type: 'string',
+      widget_kind: 'select',
+      optional: true,
+      nullable: false,
+    },
+  }];
+}
+
 export function collectTrainingBookUiFacts(repositoryRoot: string): TrainingBookUiFacts {
   const root = resolve(repositoryRoot);
   const repo = new AstRepository(root);
@@ -963,14 +1689,15 @@ export function collectTrainingBookUiFacts(repositoryRoot: string): TrainingBook
     ...flattenDefaults(repo, 'defaultIdeogramSamplesConfig', 'ui/src/helpers/defaultSamples.ts', 'config.process[*].sample'),
   ];
   defaults.sort((left, right) => compareCodePoint(`${left.path}\0${left.source_path}\0${left.symbol}`, `${right.path}\0${right.source_path}\0${right.symbol}`));
-  const config_claims = [...defaultClaims(defaults), ...docClaims(root, repo), ...setterClaims(root)];
+  const model_architectures = architectureFacts(repo);
+  const config_claims = [...defaultClaims(defaults), ...docClaims(root, repo), ...setterClaims(root), ...visibleSettingClaims(root, model_architectures, repo)];
   config_claims.sort((left, right) => compareCodePoint(`${left.source_path}\0${left.symbol}\0${left.path}\0${left.kind}`, `${right.source_path}\0${right.symbol}\0${right.path}\0${right.kind}`));
   const facts: TrainingBookUiFacts = {
     schema_version: 1,
-    model_architectures: architectureFacts(repo),
+    model_architectures,
     defaults,
     config_claims,
-    global_settings: [],
+    global_settings: globalSettingClaims(root, model_architectures.length === 51),
     architecture_transitions: [],
   };
   facts.architecture_transitions = facts.model_architectures
