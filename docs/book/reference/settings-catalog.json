@@ -34,7 +34,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "For file-backed configurations, every ${ENVIRONMENT_VARIABLE} placeholder is resolved from the environment before JSON or YAML parsing; a missing variable raises ValueError. In-memory configuration dictionaries do not pass through this textual expansion.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "job-and-model",
@@ -44,6 +49,24 @@
           "symbol": "BaseJob.__init__",
           "key": "config",
           "read_kind": "attribute[]"
+        },
+        {
+          "source": "toolkit/config.py",
+          "symbol": "preprocess_config",
+          "key": "config",
+          "read_kind": "attribute.contains"
+        },
+        {
+          "source": "toolkit/config.py",
+          "symbol": "preprocess_config",
+          "key": "config",
+          "read_kind": "attribute[]"
+        },
+        {
+          "source": "toolkit/config.py",
+          "symbol": "replace_env_vars_in_string.replacer",
+          "key": "<dynamic-environment-name>",
+          "read_kind": "os.environ.get.dynamic"
         }
       ],
       "render": {
@@ -88,7 +111,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "preprocess_config requires the top-level job key before constructing a job.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "job-and-model",
@@ -98,6 +126,12 @@
           "symbol": "BaseJob.__init__",
           "key": "job",
           "read_kind": "attribute[]"
+        },
+        {
+          "source": "toolkit/config.py",
+          "symbol": "preprocess_config",
+          "key": "job",
+          "read_kind": "attribute.contains"
         }
       ],
       "render": {
@@ -203,7 +237,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "The CLI --name value overrides config.name for preprocessing; otherwise config.name is required. The selected name replaces every [name] token in the serialized configuration before the job is constructed.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "job-and-model",
@@ -213,6 +252,18 @@
           "symbol": "BaseJob.__init__",
           "key": "name",
           "read_kind": "get_conf"
+        },
+        {
+          "source": "toolkit/config.py",
+          "symbol": "preprocess_config",
+          "key": "name",
+          "read_kind": "attribute.contains"
+        },
+        {
+          "source": "toolkit/config.py",
+          "symbol": "preprocess_config",
+          "key": "name",
+          "read_kind": "attribute[]"
         }
       ],
       "render": {
@@ -38759,6 +38810,630 @@
         "benefits": "Allows the model assembly to use an explicit component or adapter source.",
         "drawbacks": "A missing or incompatible path or repository can prevent model assembly or produce mismatched components.",
         "example": "vae_path: /workspace/vae"
+      }
+    },
+    {
+      "id": "cli.config_file_list",
+      "ui_label": null,
+      "scope": "cli",
+      "locations": [
+        {
+          "kind": "cli",
+          "path": "config_file_list"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "path-list",
+        "supported_type": "one-or-more-config-paths-or-names",
+        "ui_type": null,
+        "example_type": "string-list",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "absent",
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "argparse requires one or more positional values through nargs=+.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "cli",
+      "source_claims": [
+        {
+          "source": "run.py",
+          "symbol": "main",
+          "key": "config_file_list",
+          "read_kind": "argparse.add_argument"
+        }
+      ],
+      "render": {
+        "page": "advanced/yaml-and-cli.md",
+        "anchor": "cli-config-file-list",
+        "description": "Selects one or more JSON, JSONC, YAML, or YML job configurations to run sequentially.",
+        "benefits": "Runs a batch of configurations in a deterministic command-line order.",
+        "drawbacks": "A missing or malformed configuration stops the run unless recovery behavior applies.",
+        "example": "config_file_list: [config/character.yaml, config/style.yaml]"
+      }
+    },
+    {
+      "id": "cli.recover",
+      "ui_label": null,
+      "scope": "cli",
+      "locations": [
+        {
+          "kind": "cli",
+          "path": "recover"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "The store_true action supplies false when omitted and true when present.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "cli",
+      "source_claims": [
+        {
+          "source": "run.py",
+          "symbol": "main",
+          "key": "recover",
+          "read_kind": "argparse.add_argument"
+        }
+      ],
+      "render": {
+        "page": "advanced/yaml-and-cli.md",
+        "anchor": "cli-recover",
+        "description": "Continues to later configuration files after a job failure.",
+        "benefits": "Allows independent jobs later in a command-line batch to run after one job fails.",
+        "drawbacks": "The command can finish after partial failures, so logs and exit behavior must still be reviewed.",
+        "example": "recover: true"
+      }
+    },
+    {
+      "id": "cli.name",
+      "ui_label": null,
+      "scope": "cli",
+      "locations": [
+        {
+          "kind": "cli",
+          "path": "name"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "string-or-null",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission leaves config.name authoritative; an explicit CLI value wins before [name] replacement.",
+          "applicability": []
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "job.name",
+          "kind": "overrides",
+          "description": "The CLI name replaces the configured job name during preprocessing.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "cli",
+      "source_claims": [
+        {
+          "source": "run.py",
+          "symbol": "main",
+          "key": "name",
+          "read_kind": "argparse.add_argument"
+        }
+      ],
+      "render": {
+        "page": "advanced/yaml-and-cli.md",
+        "anchor": "cli-name",
+        "description": "Overrides config.name and supplies the value substituted for [name] tokens.",
+        "benefits": "Reuses one configuration template with a distinct job and output identity.",
+        "drawbacks": "Global textual replacement can change every matching [name] token in serialized keys or values.",
+        "example": "name: character-v2"
+      }
+    },
+    {
+      "id": "cli.log",
+      "ui_label": null,
+      "scope": "cli",
+      "locations": [
+        {
+          "kind": "cli",
+          "path": "log"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "writable-log-path-or-null",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": null,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Omission leaves file logging disabled.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "cli",
+      "source_claims": [
+        {
+          "source": "run.py",
+          "symbol": "main",
+          "key": "log",
+          "read_kind": "argparse.add_argument"
+        }
+      ],
+      "render": {
+        "page": "advanced/yaml-and-cli.md",
+        "anchor": "cli-log",
+        "description": "Redirects command-line output to a log file.",
+        "benefits": "Preserves a durable record for long or unattended training runs.",
+        "drawbacks": "An invalid or unwritable path prevents reliable logging and can fail setup.",
+        "example": "log: /workspace/logs/train.log"
+      }
+    },
+    {
+      "id": "environment.debug_toolkit",
+      "ui_label": null,
+      "scope": "environment",
+      "locations": [
+        {
+          "kind": "environment",
+          "path": "DEBUG_TOOLKIT"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "zero-or-one-string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "0",
+          "1"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "0",
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Only the exact string 1 enables anomaly detection; omission uses 0.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "environment",
+      "source_claims": [
+        {
+          "source": "run.py",
+          "symbol": "<module>",
+          "key": "DEBUG_TOOLKIT",
+          "read_kind": "os.environ.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "environment-debug-toolkit",
+        "description": "Enables Torch autograd anomaly detection for toolkit debugging.",
+        "benefits": "Provides stack information for invalid gradients during diagnosis.",
+        "drawbacks": "Anomaly detection substantially slows training and should not remain enabled for normal runs.",
+        "example": "DEBUG_TOOLKIT=1 python run.py config/diagnostic.yaml"
+      }
+    },
+    {
+      "id": "environment.hf_hub_disable_xet",
+      "ui_label": null,
+      "scope": "environment",
+      "locations": [
+        {
+          "kind": "environment",
+          "path": "HF_HUB_DISABLE_XET"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "zero-or-one-string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "0",
+          "1"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "0",
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "run.py preserves a supplied string and otherwise writes the default string 0 back to the process environment.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "environment",
+      "source_claims": [
+        {
+          "source": "run.py",
+          "symbol": "<module>",
+          "key": "HF_HUB_DISABLE_XET",
+          "read_kind": "os.getenv"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "environment-hf-hub-disable-xet",
+        "description": "Controls whether Hugging Face Hub Xet transport is disabled.",
+        "benefits": "Allows operators to disable Xet when it is incompatible with their network or storage environment.",
+        "drawbacks": "Disabling Xet can reduce transfer performance for repositories that support it.",
+        "example": "HF_HUB_DISABLE_XET=1 python run.py config/character.yaml"
+      }
+    },
+    {
+      "id": "environment.hf_xet_high_performance",
+      "ui_label": null,
+      "scope": "environment",
+      "locations": [
+        {
+          "kind": "environment",
+          "path": "HF_XET_HIGH_PERFORMANCE"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "zero-or-one-string",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": [
+          "0",
+          "1"
+        ],
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "1",
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "run.py preserves a supplied string and otherwise writes the default string 1 back to the process environment.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "environment",
+      "source_claims": [
+        {
+          "source": "run.py",
+          "symbol": "<module>",
+          "key": "HF_XET_HIGH_PERFORMANCE",
+          "read_kind": "os.getenv"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "environment-hf-xet-high-performance",
+        "description": "Controls Hugging Face Xet high-performance transfer mode.",
+        "benefits": "Can improve model download throughput when Xet transport is available.",
+        "drawbacks": "High-performance transfer can consume more network, CPU, or storage resources.",
+        "example": "HF_XET_HIGH_PERFORMANCE=0 python run.py config/character.yaml"
+      }
+    },
+    {
+      "id": "environment.seed",
+      "ui_label": null,
+      "scope": "environment",
+      "locations": [
+        {
+          "kind": "environment",
+          "path": "SEED"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "integer-string",
+        "supported_type": "integer-string-or-absent",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "absent",
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "The environment string is parsed with int; invalid strings print an error and leave startup seeding disabled.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "environment",
+      "source_claims": [
+        {
+          "source": "run.py",
+          "symbol": "<module>",
+          "key": "SEED",
+          "read_kind": "os.environ[]"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "environment-seed",
+        "description": "Seeds Python, NumPy, Torch, and all CUDA generators before jobs run.",
+        "benefits": "Improves reproducibility of command-line runs that use the same software and hardware path.",
+        "drawbacks": "A seed does not guarantee bit-identical results across devices or nondeterministic kernels; an invalid value is reported and ignored.",
+        "example": "SEED=42 python run.py config/character.yaml"
+      }
+    },
+    {
+      "id": "environment.models_path",
+      "ui_label": null,
+      "scope": "environment",
+      "locations": [
+        {
+          "kind": "environment",
+          "path": "MODELS_PATH"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "path",
+        "supported_type": "directory-path-or-absent",
+        "ui_type": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": {
+            "expression": "toolkit_root/models"
+          },
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Only a present nonblank value overrides the default <toolkit-root>/models directory; blank strings use the default.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "environment",
+      "source_claims": [
+        {
+          "source": "toolkit/paths.py",
+          "symbol": "<module>",
+          "key": "MODELS_PATH",
+          "read_kind": "os.environ[]"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "environment-models-path",
+        "description": "Overrides the toolkit-wide local models directory.",
+        "benefits": "Places shared model assets on a larger or centrally managed volume.",
+        "drawbacks": "A wrong directory can make local model assets appear missing.",
+        "example": "MODELS_PATH=/workspace/models python run.py config/character.yaml"
+      }
+    },
+    {
+      "id": "environment.ai_toolkit_offload_depth",
+      "ui_label": null,
+      "scope": "environment",
+      "locations": [
+        {
+          "kind": "environment",
+          "path": "AI_TOOLKIT_OFFLOAD_DEPTH"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "experimental",
+      "applicability": [],
+      "contract": {
+        "parser_type": "integer-string",
+        "supported_type": "positive-integer-string",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": "4",
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "The environment string is parsed immediately with int; omission uses the string 4.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "environment",
+      "source_claims": [
+        {
+          "source": "toolkit/memory_management/manager_modules.py",
+          "symbol": "<module>",
+          "key": "AI_TOOLKIT_OFFLOAD_DEPTH",
+          "read_kind": "os.environ.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "environment-ai-toolkit-offload-depth",
+        "description": "Sets the per-layer memory-management pipeline depth.",
+        "benefits": "Allows advanced tuning of the balance between transfer overlap and memory pressure.",
+        "drawbacks": "Invalid strings fail module import, while unsuitable depths can stall transfers or increase memory use.",
+        "example": "AI_TOOLKIT_OFFLOAD_DEPTH=4 python run.py config/character.yaml"
       }
     }
   ]

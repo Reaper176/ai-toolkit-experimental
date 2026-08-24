@@ -65,10 +65,10 @@ _YAML_PATH = re.compile(
 )
 _ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _DOTTED_IDENTITY = re.compile(
-    r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$"
+    r"^(?:<module>|[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)$"
 )
 _SOURCE_KEY = re.compile(
-    r"^(?:[A-Za-z_][A-Za-z0-9_-]*|"
+    r"^(?:<dynamic-environment-name>|[A-Za-z_][A-Za-z0-9_-]*|"
     r"prefix=[A-Za-z0-9_-]+;suffix=[A-Za-z0-9_-]+(?:__[A-Za-z0-9_-]+)?)"
     r"(?:__target=[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)?$"
 )

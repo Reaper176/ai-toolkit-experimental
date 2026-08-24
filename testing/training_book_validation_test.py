@@ -1931,6 +1931,13 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 item.source == "toolkit/config_modules.py"
                 and item.symbol == "ModelConfig.__init__"
             )
+        if scope == "cli-environment":
+            return item.source in {
+                "run.py",
+                "toolkit/config.py",
+                "toolkit/paths.py",
+                "toolkit/memory_management/manager_modules.py",
+            }
         if scope == "dataset-core":
             return (
                 item.source == "toolkit/config_modules.py"
@@ -2127,6 +2134,62 @@ class CatalogProductionSliceTests(unittest.TestCase):
         self.assertIn("experimental", teaching["model.compile"])
         for setting_id in ("model.attn_masking", "model.split_model_over_gpus"):
             self.assertIn("flux", teaching[setting_id])
+
+    def test_catalog_cli_environment_scope_is_exactly_owned_and_teaches_expansion(self):
+        try:
+            self.assert_catalog_selector_green("--scope", "cli-environment")
+        except DiscoveryError as error:
+            self.fail(str(error))
+        facts = tuple(
+            fact for fact in self.discovered
+            if self._in_scope(fact, "cli-environment")
+        )
+        self.assertEqual(len(facts), 16)
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        for setting_id in (
+            "cli.config_file_list", "cli.recover", "cli.name", "cli.log",
+            "environment.debug_toolkit", "environment.hf_hub_disable_xet",
+            "environment.hf_xet_high_performance", "environment.seed",
+            "environment.models_path", "environment.ai_toolkit_offload_depth",
+        ):
+            self.assertIn(setting_id, settings)
+        root_claims = {
+            (claim.source, claim.symbol, claim.key, claim.read_kind)
+            for setting_id in ("root.job", "root.config", "job.name")
+            for claim in settings[setting_id].source_claims
+        }
+        self.assertEqual(
+            {
+                (fact.source, fact.symbol, fact.key, fact.read_kind)
+                for fact in facts if fact.source == "toolkit/config.py"
+            },
+            {
+                claim for claim in root_claims if claim[0] == "toolkit/config.py"
+            },
+        )
+        config_teaching = " ".join(
+            item.description for item in settings["root.config"].normalizations
+        ).casefold()
+        self.assertIn("${", config_teaching)
+        self.assertIn("before", config_teaching)
+        name_teaching = " ".join(
+            item.description for item in settings["job.name"].normalizations
+        ).casefold()
+        self.assertIn("[name]", name_teaching)
+        self.assertIn("cli", name_teaching)
+        self.assertEqual(
+            settings["environment.ai_toolkit_offload_depth"].defaults[0].value,
+            "4",
+        )
+        self.assertEqual(
+            settings["environment.models_path"].locations[0].path,
+            "MODELS_PATH",
+        )
 
     def test_catalog_train_config_unconsumed_fields_are_source_derived(self):
         expected = {"unet_lr", "text_encoder_lr", "weight_jitter"}

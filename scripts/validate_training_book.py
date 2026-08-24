@@ -205,6 +205,15 @@ def _in_model_config(item) -> bool:
     )
 
 
+def _in_cli_environment(item) -> bool:
+    return item.source in {
+        "run.py",
+        "toolkit/config.py",
+        "toolkit/paths.py",
+        "toolkit/memory_management/manager_modules.py",
+    }
+
+
 def _in_train_config_keys(item, keys) -> bool:
     return (
         item.source == "toolkit/config_modules.py"
@@ -434,6 +443,7 @@ def main() -> None:
             ["training"], ["train-schedule"], ["train-numerics"],
             ["train-components"], ["optimizers"], ["schedulers"],
             ["model-config"],
+            ["cli-environment"],
             ["dataset-core"], ["dataset-modalities"], ["data-loader-cache"],
             ["save-sample-validation"], ["data"],
         ):
@@ -530,6 +540,7 @@ def main() -> None:
             "optimizers": _in_optimizers,
             "schedulers": _in_schedulers,
             "model-config": _in_model_config,
+            "cli-environment": _in_cli_environment,
             "dataset-core": lambda item: _in_dataset_keys(item, DATASET_CORE_KEYS),
             "dataset-modalities": lambda item: _in_dataset_keys(item, DATASET_MODALITY_KEYS),
             "data-loader-cache": _in_data_loader_cache,
