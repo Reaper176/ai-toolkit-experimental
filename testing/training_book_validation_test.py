@@ -1948,6 +1948,11 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 "extensions_built_in/flex2/flex2.py",
                 "toolkit/models/flux.py",
             }
+        if scope == "model-family-wan":
+            return item.source in {
+                "extensions_built_in/diffusion_models/wan22/wan22_14b_model.py",
+                "toolkit/models/wan21/wan21.py",
+            }
         if scope == "dataset-core":
             return (
                 item.source == "toolkit/config_modules.py"
@@ -2240,6 +2245,50 @@ class CatalogProductionSliceTests(unittest.TestCase):
             },
             {"model-developer API"},
         )
+
+    def test_catalog_wan_model_kwargs_are_exactly_owned(self):
+        try:
+            self.assert_catalog_selector_green("--scope", "model-family-wan")
+        except DiscoveryError as error:
+            self.fail(str(error))
+        facts = tuple(
+            fact for fact in self.discovered
+            if self._in_scope(fact, "model-family-wan")
+        )
+        self.assertEqual(len(facts), 5)
+        claimed = {
+            (claim.source, claim.symbol, claim.key, claim.read_kind)
+            for claim in self.claims if self._in_scope(claim, "model-family-wan")
+        }
+        self.assertEqual(
+            claimed,
+            {
+                (fact.source, fact.symbol, fact.key, fact.read_kind)
+                for fact in facts if fact.read_kind == "model_kwargs.get"
+            },
+        )
+        self.assertEqual(
+            len(tuple(item for item in self.exclusions if self._in_scope(item, "model-family-wan"))),
+            2,
+        )
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        for setting_id in (
+            "model.wan.model_kwargs.vae_tiling",
+            "model.wan22_14b.model_kwargs.train_high_noise",
+            "model.wan22_14b.model_kwargs.train_low_noise",
+        ):
+            self.assertIn(setting_id, settings)
+        for setting_id in (
+            "model.wan22_14b.model_kwargs.train_high_noise",
+            "model.wan22_14b.model_kwargs.train_low_noise",
+        ):
+            teaching = " ".join(vars(settings[setting_id].render).values()).casefold()
+            self.assertIn("at least one", teaching)
 
     def test_catalog_train_config_unconsumed_fields_are_source_derived(self):
         expected = {"unet_lr", "text_encoder_lr", "weight_jitter"}

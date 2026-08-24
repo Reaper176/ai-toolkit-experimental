@@ -40079,6 +40079,334 @@
         "drawbacks": "Expansion can include pixels that were meant to stay preserved.",
         "example": "random_dialate_mask: false"
       }
+    },
+    {
+      "id": "model.wan22_14b.model_kwargs.train_high_noise",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.train_high_noise"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "wan22_14b:t2v"
+        },
+        {
+          "ui_architecture": "wan22_14b_i2v"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": [
+            {
+              "ui_architecture": "wan22_14b:t2v"
+            },
+            {
+              "ui_architecture": "wan22_14b_i2v"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "ui_architecture": "wan22_14b:t2v"
+            },
+            {
+              "ui_architecture": "wan22_14b_i2v"
+            }
+          ]
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "model.wan22_14b.model_kwargs.train_low_noise",
+          "kind": "affects",
+          "description": "At least one of the two Wan 2.2 noise stages must be truthy.",
+          "applicability": [
+            {
+              "ui_architecture": "wan22_14b:t2v"
+            },
+            {
+              "ui_architecture": "wan22_14b_i2v"
+            }
+          ]
+        }
+      ],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/wan22/wan22_14b_model.py",
+          "symbol": "Wan2214bModel.__init__",
+          "key": "train_high_noise",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "models/wan.md",
+        "anchor": "model-wan22-14b-model-kwargs-train-high-noise",
+        "description": "Enables training the Wan 2.2 14B high-noise transformer stage; at least one noise stage must remain enabled.",
+        "benefits": "Adapts the stage responsible for coarse high-noise denoising behavior.",
+        "drawbacks": "Training both stages costs more memory and compute, while disabling both raises ValueError.",
+        "example": "train_high_noise: true"
+      }
+    },
+    {
+      "id": "model.wan22_14b.model_kwargs.train_low_noise",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.train_low_noise"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "wan22_14b:t2v"
+        },
+        {
+          "ui_architecture": "wan22_14b_i2v"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": true,
+          "applicability": [
+            {
+              "ui_architecture": "wan22_14b:t2v"
+            },
+            {
+              "ui_architecture": "wan22_14b_i2v"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "ui_architecture": "wan22_14b:t2v"
+            },
+            {
+              "ui_architecture": "wan22_14b_i2v"
+            }
+          ]
+        }
+      ],
+      "interactions": [
+        {
+          "setting": "model.wan22_14b.model_kwargs.train_high_noise",
+          "kind": "affects",
+          "description": "At least one of the two Wan 2.2 noise stages must be truthy.",
+          "applicability": [
+            {
+              "ui_architecture": "wan22_14b:t2v"
+            },
+            {
+              "ui_architecture": "wan22_14b_i2v"
+            }
+          ]
+        }
+      ],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/wan22/wan22_14b_model.py",
+          "symbol": "Wan2214bModel.__init__",
+          "key": "train_low_noise",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "models/wan.md",
+        "anchor": "model-wan22-14b-model-kwargs-train-low-noise",
+        "description": "Enables training the Wan 2.2 14B low-noise transformer stage; at least one noise stage must remain enabled.",
+        "benefits": "Adapts the stage responsible for fine low-noise denoising behavior.",
+        "drawbacks": "Training both stages costs more memory and compute, while disabling both raises ValueError.",
+        "example": "train_low_noise: true"
+      }
+    },
+    {
+      "id": "model.wan.model_kwargs.vae_tiling",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.vae_tiling"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "wan21:1b"
+        },
+        {
+          "ui_architecture": "wan21_i2v:14b480p"
+        },
+        {
+          "ui_architecture": "wan21_i2v:14b"
+        },
+        {
+          "ui_architecture": "wan21:14b"
+        },
+        {
+          "ui_architecture": "wan22_14b:t2v"
+        },
+        {
+          "ui_architecture": "wan22_14b_i2v"
+        },
+        {
+          "ui_architecture": "wan22_5b"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": [
+            {
+              "ui_architecture": "wan21:1b"
+            },
+            {
+              "ui_architecture": "wan21_i2v:14b480p"
+            },
+            {
+              "ui_architecture": "wan21_i2v:14b"
+            },
+            {
+              "ui_architecture": "wan21:14b"
+            },
+            {
+              "ui_architecture": "wan22_14b:t2v"
+            },
+            {
+              "ui_architecture": "wan22_14b_i2v"
+            },
+            {
+              "ui_architecture": "wan22_5b"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "ui_architecture": "wan21:1b"
+            },
+            {
+              "ui_architecture": "wan21_i2v:14b480p"
+            },
+            {
+              "ui_architecture": "wan21_i2v:14b"
+            },
+            {
+              "ui_architecture": "wan21:14b"
+            },
+            {
+              "ui_architecture": "wan22_14b:t2v"
+            },
+            {
+              "ui_architecture": "wan22_14b_i2v"
+            },
+            {
+              "ui_architecture": "wan22_5b"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "toolkit/models/wan21/wan21.py",
+          "symbol": "Wan21.use_vae_tiling",
+          "key": "vae_tiling",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "models/wan.md",
+        "anchor": "model-wan-model-kwargs-vae-tiling",
+        "description": "Forces tiled VAE encoding and decoding for Wan-family models.",
+        "benefits": "Reduces peak VAE memory for large video frames.",
+        "drawbacks": "Tiling adds processing overhead and can introduce tile-boundary artifacts.",
+        "example": "vae_tiling: true"
+      }
     }
   ]
 }

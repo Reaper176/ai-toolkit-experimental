@@ -1659,6 +1659,20 @@
       "key": "device",
       "read_kind": "kwargs[]",
       "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/wan21/wan21.py",
+      "symbol": "Wan21.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/wan21/wan21.py",
+      "symbol": "Wan21.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
     }
   ]
 }

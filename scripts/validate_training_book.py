@@ -226,6 +226,13 @@ def _in_model_family_core(item) -> bool:
     }
 
 
+def _in_model_family_wan(item) -> bool:
+    return item.source in {
+        "extensions_built_in/diffusion_models/wan22/wan22_14b_model.py",
+        "toolkit/models/wan21/wan21.py",
+    }
+
+
 def _in_train_config_keys(item, keys) -> bool:
     return (
         item.source == "toolkit/config_modules.py"
@@ -457,6 +464,7 @@ def main() -> None:
             ["model-config"],
             ["cli-environment"],
             ["model-family-core"],
+            ["model-family-wan"],
             ["dataset-core"], ["dataset-modalities"], ["data-loader-cache"],
             ["save-sample-validation"], ["data"],
         ):
@@ -555,6 +563,7 @@ def main() -> None:
             "model-config": _in_model_config,
             "cli-environment": _in_cli_environment,
             "model-family-core": _in_model_family_core,
+            "model-family-wan": _in_model_family_wan,
             "dataset-core": lambda item: _in_dataset_keys(item, DATASET_CORE_KEYS),
             "dataset-modalities": lambda item: _in_dataset_keys(item, DATASET_MODALITY_KEYS),
             "data-loader-cache": _in_data_loader_cache,
