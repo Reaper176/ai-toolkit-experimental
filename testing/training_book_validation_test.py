@@ -28,8 +28,10 @@ from scripts.training_book.catalog import (  # noqa: E402
     CatalogError,
     catalog_source_claims,
     load_settings_catalog,
+    load_training_book_ui_facts,
     settings_catalog_schema,
     validate_settings_catalog,
+    validate_training_book_ui_facts,
 )
 from scripts.training_book import catalog as catalog_module  # noqa: E402
 from scripts.training_book.discovery import (  # noqa: E402
@@ -1432,6 +1434,97 @@ class CatalogContractTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("schema drift", result.stderr)
+
+
+class TrainingBookUiFactsContractTests(unittest.TestCase):
+    def valid_value(self):
+        return {"kind": "undefined"}
+
+    def valid_presence(self, *, present=True):
+        if not present:
+            return {"present": False}
+        return {"present": True, "value": self.valid_value()}
+
+    def valid_facts(self):
+        absent = self.valid_presence(present=False)
+        return {
+            "schema_version": 1,
+            "model_architectures": [{
+                "name": "fixture", "label": "Fixture", "group": "image",
+                "model_path": self.valid_presence(), "gate_url": absent,
+                "is_video_model": absent, "has_multiline_prompts": absent,
+                "accuracy_recovery_adapters": absent, "sample_tags": absent,
+                "custom_model_select_options": {"present": False},
+                "model_notes": {"present": False}, "controls": [],
+                "defaults": [], "default_containers": [],
+                "disable_sections": [], "additional_sections": [],
+            }],
+            "defaults": [],
+            "config_claims": [{
+                "source_path": "ui/src/example.tsx", "symbol": "Example",
+                "path": "config.process[*].train.steps", "kind": "setter",
+                "ui_label": {"present": True, "value": {"kind": "string", "value": "Steps"}},
+                "value_contract": {
+                    "ui_type": "number", "widget_kind": "number",
+                    "optional": False, "nullable": False,
+                    "minimum": 1,
+                },
+            }],
+            "global_settings": [], "architecture_transitions": [],
+        }
+
+    def test_ui_facts_contract_accepts_exact_tagged_shape(self):
+        facts = validate_training_book_ui_facts(self.valid_facts())
+        self.assertEqual(facts.model_architectures[0].name, "fixture")
+        self.assertEqual(facts.config_claims[0].value_contract.ui_type, "number")
+
+    def test_ui_facts_contract_rejects_shape_presence_value_and_path_drift(self):
+        mutations = []
+        extra = self.valid_facts()
+        extra["extra"] = True
+        mutations.append((extra, "extra"))
+        missing_value = self.valid_facts()
+        missing_value["model_architectures"][0]["model_path"] = {"present": True}
+        mutations.append((missing_value, "value"))
+        wrong_tag = self.valid_facts()
+        wrong_tag["config_claims"][0]["ui_label"]["value"] = {"kind": "number", "value": True}
+        mutations.append((wrong_tag, "number"))
+        bad_path = self.valid_facts()
+        bad_path["config_claims"][0]["path"] = "config.process[0].train.steps"
+        mutations.append((bad_path, "canonical"))
+        duplicate = self.valid_facts()
+        duplicate["config_claims"].append(deepcopy(duplicate["config_claims"][0]))
+        mutations.append((duplicate, "duplicate"))
+        for payload, message in mutations:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(CatalogError, message):
+                    validate_training_book_ui_facts(payload)
+
+    def test_ui_facts_file_loader_rejects_non_json_and_round_trips(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "facts.json"
+            path.write_text(json.dumps(self.valid_facts()), encoding="utf-8")
+            self.assertEqual(load_training_book_ui_facts(path).schema_version, 1)
+            path.write_text("not json", encoding="utf-8")
+            with self.assertRaisesRegex(CatalogError, "valid JSON"):
+                load_training_book_ui_facts(path)
+
+    def test_validation_cli_loads_the_explicit_ui_facts_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "facts.json"
+            path.write_text(json.dumps(self.valid_facts()), encoding="utf-8")
+            valid = subprocess.run(
+                [sys.executable, "scripts/validate_training_book.py", "--ui-facts", str(path)],
+                cwd=REPOSITORY_ROOT, capture_output=True, text=True, check=False,
+            )
+            path.write_text("{}", encoding="utf-8")
+            invalid = subprocess.run(
+                [sys.executable, "scripts/validate_training_book.py", "--ui-facts", str(path)],
+                cwd=REPOSITORY_ROOT, capture_output=True, text=True, check=False,
+            )
+        self.assertEqual(valid.returncode, 0, valid.stdout + valid.stderr)
+        self.assertNotEqual(invalid.returncode, 0)
+        self.assertIn("UI facts", invalid.stderr)
 
 
 class CatalogProductionSliceTests(unittest.TestCase):

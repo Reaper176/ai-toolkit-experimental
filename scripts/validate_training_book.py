@@ -19,7 +19,11 @@ from training_book.discovery import (
     validate_inventory_baseline,
     validate_setting_ownership,
 )
-from training_book.catalog import catalog_source_claims, load_settings_catalog
+from training_book.catalog import (
+    catalog_source_claims,
+    load_settings_catalog,
+    load_training_book_ui_facts,
+)
 from training_book.manifest import load_book_manifest, validate_book_manifest
 
 
@@ -267,6 +271,7 @@ def _in_data(item) -> bool:
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inventory-json", type=Path)
+    parser.add_argument("--ui-facts", type=Path)
     parser.add_argument("--check-discovery", action="store_true")
     parser.add_argument("--scope", action="append", default=[])
     target = parser.add_mutually_exclusive_group()
@@ -399,6 +404,8 @@ def main() -> None:
         repository_root / "docs/book/reference/settings-catalog.schema.json",
         None,
     )
+    if arguments.ui_facts is not None:
+        load_training_book_ui_facts(arguments.ui_facts)
     has_target = (
         arguments.target_source is not None or arguments.target_symbol is not None
     )

@@ -492,12 +492,348 @@ class SettingsCatalog(_StrictModel):
         return value
 
 
+class UiUndefinedValue(_StrictModel):
+    kind: Literal["undefined"]
+
+
+class UiNullValue(_StrictModel):
+    kind: Literal["null"]
+
+
+class UiBooleanValue(_StrictModel):
+    kind: Literal["boolean"]
+    value: StrictBool
+
+
+class UiNumberValue(_StrictModel):
+    kind: Literal["number"]
+    value: _Numeric
+
+    @field_validator("value")
+    @classmethod
+    def _finite(cls, value: int | float) -> int | float:
+        _require_finite_number(value)
+        return value
+
+
+class UiStringValue(_StrictModel):
+    kind: Literal["string"]
+    value: StrictStr
+
+
+class UiArrayValue(_StrictModel):
+    kind: Literal["array"]
+    items: tuple["UiValue", ...]
+
+
+class UiObjectEntry(_StrictModel):
+    key: StrictStr
+    value: "UiValue"
+
+
+class UiObjectValue(_StrictModel):
+    kind: Literal["object"]
+    entries: tuple[UiObjectEntry, ...]
+
+    @model_validator(mode="after")
+    def _canonical_entries(self) -> "UiObjectValue":
+        keys = tuple(item.key for item in self.entries)
+        if keys != tuple(sorted(keys)) or len(keys) != len(set(keys)):
+            raise ValueError("object entries must have unique code-point-sorted keys")
+        return self
+
+
+UiValue = Annotated[
+    UiUndefinedValue | UiNullValue | UiBooleanValue | UiNumberValue
+    | UiStringValue | UiArrayValue | UiObjectValue,
+    Field(discriminator="kind"),
+]
+
+
+class UiPresence(_StrictModel):
+    present: StrictBool
+    value: UiValue | None = None
+
+    @model_validator(mode="after")
+    def _presence_matches_value(self) -> "UiPresence":
+        supplied = "value" in self.model_fields_set
+        if self.present and not supplied:
+            raise ValueError("present fact requires an own value")
+        if not self.present and supplied:
+            raise ValueError("absent fact forbids a value")
+        if supplied and self.value is None:
+            raise ValueError("value must use the tagged null representation")
+        return self
+
+
+class UiStaticJsx(_StrictModel):
+    present: StrictBool
+    text_literals: tuple[StrictStr, ...] | None = None
+    code_literals: tuple[StrictStr, ...] | None = None
+    link_hrefs: tuple[StrictStr, ...] | None = None
+
+    @model_validator(mode="after")
+    def _projection_presence(self) -> "UiStaticJsx":
+        supplied = {
+            key for key in ("text_literals", "code_literals", "link_hrefs")
+            if key in self.model_fields_set
+        }
+        if self.present and supplied != {
+            "text_literals", "code_literals", "link_hrefs"
+        }:
+            raise ValueError("present JSX fact requires all projection arrays")
+        if not self.present and supplied:
+            raise ValueError("absent JSX fact forbids projection arrays")
+        return self
+
+
+class UiPredicate(_StrictModel):
+    kind: Literal["always", "truthy", "nonblank-string", "not", "and", "or"]
+    path: StrictStr | None = None
+    operand: UiPredicate | None = None
+    operands: tuple[UiPredicate, UiPredicate] | None = None
+
+    @model_validator(mode="after")
+    def _closed_shape(self) -> "UiPredicate":
+        supplied = self.model_fields_set - {"kind"}
+        expected = {
+            "always": set(),
+            "truthy": {"path"},
+            "nonblank-string": {"path"},
+            "not": {"operand"},
+            "and": {"operands"},
+            "or": {"operands"},
+        }[self.kind]
+        if supplied != expected:
+            raise ValueError(f"predicate {self.kind} requires exactly {sorted(expected)!r}")
+        if self.path is not None:
+            _require_canonical_location(self.path)
+        return self
+
+
+class UiOptionChoice(_StrictModel):
+    value: StrictStr
+    label: StrictStr
+
+
+class UiGetValueCase(_StrictModel):
+    condition: UiPredicate
+    return_value: UiValue
+
+
+class UiOptionWrite(_StrictModel):
+    selected_value: StrictStr
+    path: StrictStr
+    value: UiValue
+    guard: UiPredicate
+
+    @field_validator("path")
+    @classmethod
+    def _canonical_path(cls, value: str) -> str:
+        return _require_canonical_location(value)
+
+
+class UiCustomOption(_StrictModel):
+    label: StrictStr
+    options: tuple[UiOptionChoice, ...]
+    doc: UiStaticJsx
+    get_value_cases: tuple[UiGetValueCase, ...]
+    writes: tuple[UiOptionWrite, ...]
+
+
+class UiCustomOptions(_StrictModel):
+    present: StrictBool
+    value: tuple[UiCustomOption, ...] | None = None
+
+    @model_validator(mode="after")
+    def _presence(self) -> "UiCustomOptions":
+        supplied = "value" in self.model_fields_set
+        if supplied != self.present or (supplied and self.value is None):
+            raise ValueError("custom options presence/value mismatch")
+        return self
+
+
+class UiArchitectureDefault(_StrictModel):
+    declaration_path: StrictStr
+    path: StrictStr
+    selected: UiPresence
+    unselected: UiPresence
+
+    @field_validator("declaration_path", "path")
+    @classmethod
+    def _canonical_path(cls, value: str) -> str:
+        return _require_canonical_location(value)
+
+
+class UiArchitectureContainer(_StrictModel):
+    path: StrictStr
+    selected_present: StrictBool
+    unselected_present: StrictBool
+
+    @field_validator("path")
+    @classmethod
+    def _canonical_path(cls, value: str) -> str:
+        return _require_canonical_location(value)
+
+
+class UiModelArchitecture(_StrictModel):
+    name: StrictStr
+    label: StrictStr
+    group: StrictStr
+    model_path: UiPresence
+    gate_url: UiPresence
+    is_video_model: UiPresence
+    has_multiline_prompts: UiPresence
+    accuracy_recovery_adapters: UiPresence
+    sample_tags: UiPresence
+    custom_model_select_options: UiCustomOptions
+    model_notes: UiStaticJsx
+    controls: tuple[StrictStr, ...]
+    defaults: tuple[UiArchitectureDefault, ...]
+    default_containers: tuple[UiArchitectureContainer, ...]
+    disable_sections: tuple[StrictStr, ...]
+    additional_sections: tuple[StrictStr, ...]
+
+
+class UiDefault(_StrictModel):
+    path: StrictStr
+    value: UiPresence
+    source_path: StrictStr
+    symbol: StrictStr
+
+    @field_validator("path")
+    @classmethod
+    def _canonical_path(cls, value: str) -> str:
+        return _require_canonical_location(value)
+
+    @field_validator("source_path")
+    @classmethod
+    def _portable_source(cls, value: str) -> str:
+        return _require_portable_source(value)
+
+
+class UiValueContract(_StrictModel):
+    ui_type: _SemanticType | None
+    widget_kind: Literal[
+        "checkbox", "number", "text", "multiline", "path", "select",
+        "json", "read-only",
+    ] | None
+    optional: StrictBool
+    nullable: StrictBool
+    accepted_values: tuple[UiValue, ...] | None = None
+    minimum: _Numeric | None = None
+    maximum: _Numeric | None = None
+
+    @field_validator("minimum", "maximum")
+    @classmethod
+    def _finite(cls, value: int | float | None) -> int | float | None:
+        if value is not None:
+            _require_finite_number(value)
+        return value
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "UiValueContract":
+        if (
+            self.minimum is not None and self.maximum is not None
+            and self.minimum > self.maximum
+        ):
+            raise ValueError("minimum must not exceed maximum")
+        return self
+
+
+class UiSourceFact(_StrictModel):
+    source_path: StrictStr
+    symbol: StrictStr
+    path: StrictStr
+    kind: Literal["setter", "default", "doc", "setting", "server-state"]
+    ui_label: UiPresence
+    value_contract: UiValueContract
+
+    @field_validator("source_path")
+    @classmethod
+    def _portable_source(cls, value: str) -> str:
+        return _require_portable_source(value)
+
+    @field_validator("path")
+    @classmethod
+    def _canonical_path(cls, value: str) -> str:
+        return _require_canonical_location(value)
+
+
+class UiArchitectureTransition(_StrictModel):
+    architecture: StrictStr
+    path: StrictStr
+    selected: UiPresence
+    unselected: UiPresence
+
+    @field_validator("path")
+    @classmethod
+    def _canonical_path(cls, value: str) -> str:
+        return _require_canonical_location(value)
+
+
+class TrainingBookUiFacts(_StrictModel):
+    schema_version: Literal[1]
+    model_architectures: tuple[UiModelArchitecture, ...]
+    defaults: tuple[UiDefault, ...]
+    config_claims: tuple[UiSourceFact, ...]
+    global_settings: tuple[UiSourceFact, ...]
+    architecture_transitions: tuple[UiArchitectureTransition, ...]
+
+    @model_validator(mode="after")
+    def _unique_identities(self) -> "TrainingBookUiFacts":
+        architecture_names = tuple(item.name for item in self.model_architectures)
+        if len(architecture_names) != len(set(architecture_names)):
+            raise ValueError("model_architectures contains duplicate names")
+        claims = self.config_claims + self.global_settings
+        claim_ids = tuple(
+            (item.source_path, item.symbol, item.path, item.kind) for item in claims
+        )
+        if len(claim_ids) != len(set(claim_ids)):
+            raise ValueError("UI facts contain duplicate source claims")
+        transition_ids = tuple(
+            (item.architecture, item.path) for item in self.architecture_transitions
+        )
+        if len(transition_ids) != len(set(transition_ids)):
+            raise ValueError("UI facts contain duplicate architecture transitions")
+        unknown = sorted(
+            set(item.architecture for item in self.architecture_transitions)
+            - set(architecture_names)
+        )
+        if unknown:
+            raise ValueError(f"architecture transitions name unknown models: {unknown!r}")
+        return self
+
+
 def _format_validation_error(error: ValidationError) -> str:
     details = []
     for item in error.errors(include_url=False):
         location = ".".join(str(part) for part in item["loc"])
         details.append(f"{location}: {item['msg']}")
     return "; ".join(details)
+
+
+def validate_training_book_ui_facts(data: Any) -> TrainingBookUiFacts:
+    """Validate the strict, tagged UI fact interchange contract."""
+
+    try:
+        # JSON arrays intentionally deserialize as lists; tuple annotations make
+        # the validated result immutable while strict scalar types prevent coercion.
+        return TrainingBookUiFacts.model_validate(data)
+    except ValidationError as error:
+        raise CatalogError(
+            f"training book UI facts are invalid: {_format_validation_error(error)}"
+        ) from error
+
+
+def load_training_book_ui_facts(path: Path) -> TrainingBookUiFacts:
+    """Load one emitted UI fact file without accepting JSON extensions."""
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise CatalogError(f"training book UI facts must be valid JSON: {error}") from error
+    return validate_training_book_ui_facts(data)
 
 
 def _dispatch_pattern_matches(
