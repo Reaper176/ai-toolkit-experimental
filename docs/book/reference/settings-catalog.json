@@ -66180,7 +66180,7 @@
     },
     {
       "id": "ui.gpu-ids",
-      "ui_label": null,
+      "ui_label": "GPU ID",
       "scope": "ui-state",
       "locations": [
         {
@@ -66189,18 +66189,18 @@
         }
       ],
       "surfaces": [
-        "advanced-yaml"
+        "simple-ui"
       ],
-      "persistence": "runtime",
+      "persistence": "database",
       "authority": "user",
       "lifecycle": "supported",
       "applicability": [],
       "contract": {
         "parser_type": "ui-state",
         "supported_type": "undocumented",
-        "ui_type": null,
-        "ui_optional": null,
-        "ui_nullable": null,
+        "ui_type": "string",
+        "ui_optional": true,
+        "ui_nullable": false,
         "ui_accepted_values": null,
         "ui_range": null,
         "example_type": "string",
@@ -66959,6 +66959,627 @@
         "benefits": "Records the exact current simple-UI behavior.",
         "drawbacks": "The UI projection can change when the form evolves.",
         "example": "config.process[*].slider.target_class: value"
+      }
+    },
+    {
+      "id": "cli.file-server-port",
+      "ui_label": null,
+      "scope": "cli",
+      "locations": [
+        {
+          "kind": "cli",
+          "path": "--port"
+        },
+        {
+          "kind": "ui-state",
+          "path": "ui.file_server.port"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "exact-global-state",
+        "ui_type": null,
+        "ui_optional": null,
+        "ui_nullable": null,
+        "ui_accepted_values": null,
+        "ui_range": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "cli-file-server-port",
+        "description": "Public port accepted by the UI file-server launcher.",
+        "benefits": "Records the exact current global or server setting boundary.",
+        "drawbacks": "Changing this value can affect every UI session or queued job.",
+        "example": "--port 8675"
+      }
+    },
+    {
+      "id": "environment.ai_toolkit_auth",
+      "ui_label": null,
+      "scope": "environment",
+      "locations": [
+        {
+          "kind": "environment",
+          "path": "AI_TOOLKIT_AUTH"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "exact-global-state",
+        "ui_type": null,
+        "ui_optional": null,
+        "ui_nullable": null,
+        "ui_accepted_values": null,
+        "ui_range": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "environment-ai-toolkit-auth",
+        "description": "Server-side authentication secret.",
+        "benefits": "Records the exact current global or server setting boundary.",
+        "drawbacks": "Changing this value can affect every UI session or queued job.",
+        "example": "AI_TOOLKIT_AUTH=value"
+      }
+    },
+    {
+      "id": "environment.ai_toolkit_db_journal_mode",
+      "ui_label": null,
+      "scope": "environment",
+      "locations": [
+        {
+          "kind": "environment",
+          "path": "AI_TOOLKIT_DB_JOURNAL_MODE"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "exact-global-state",
+        "ui_type": null,
+        "ui_optional": null,
+        "ui_nullable": null,
+        "ui_accepted_values": [
+          "DELETE",
+          "TRUNCATE",
+          "PERSIST",
+          "MEMORY",
+          "WAL",
+          "OFF"
+        ],
+        "ui_range": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "environment-ai-toolkit-db-journal-mode",
+        "description": "SQLite journal-mode override.",
+        "benefits": "Records the exact current global or server setting boundary.",
+        "drawbacks": "Changing this value can affect every UI session or queued job.",
+        "example": "AI_TOOLKIT_DB_JOURNAL_MODE=value"
+      }
+    },
+    {
+      "id": "environment.ai_toolkit_file_server_workers",
+      "ui_label": null,
+      "scope": "environment",
+      "locations": [
+        {
+          "kind": "environment",
+          "path": "AI_TOOLKIT_FILE_SERVER_WORKERS"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "exact-global-state",
+        "ui_type": null,
+        "ui_optional": null,
+        "ui_nullable": null,
+        "ui_accepted_values": null,
+        "ui_range": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "environment-ai-toolkit-file-server-workers",
+        "description": "Positive file-server worker count.",
+        "benefits": "Records the exact current global or server setting boundary.",
+        "drawbacks": "Changing this value can affect every UI session or queued job.",
+        "example": "AI_TOOLKIT_FILE_SERVER_WORKERS=value"
+      }
+    },
+    {
+      "id": "environment.ostris_cloud_api_key",
+      "ui_label": null,
+      "scope": "environment",
+      "locations": [
+        {
+          "kind": "environment",
+          "path": "OSTRIS_CLOUD_API_KEY"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "exact-global-state",
+        "ui_type": null,
+        "ui_optional": null,
+        "ui_nullable": null,
+        "ui_accepted_values": null,
+        "ui_range": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "environment-ostris-cloud-api-key",
+        "description": "Optional Ostris Cloud API key.",
+        "benefits": "Records the exact current global or server setting boundary.",
+        "drawbacks": "Changing this value can affect every UI session or queued job.",
+        "example": "OSTRIS_CLOUD_API_KEY=value"
+      }
+    },
+    {
+      "id": "environment.ostris_cloud_app_url",
+      "ui_label": null,
+      "scope": "environment",
+      "locations": [
+        {
+          "kind": "environment",
+          "path": "OSTRIS_CLOUD_APP_URL"
+        }
+      ],
+      "surfaces": [
+        "cli"
+      ],
+      "persistence": "runtime",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "exact-global-state",
+        "ui_type": null,
+        "ui_optional": null,
+        "ui_nullable": null,
+        "ui_accepted_values": null,
+        "ui_range": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "environment-ostris-cloud-app-url",
+        "description": "Optional Ostris Cloud application URL.",
+        "benefits": "Records the exact current global or server setting boundary.",
+        "drawbacks": "Changing this value can affect every UI session or queued job.",
+        "example": "OSTRIS_CLOUD_APP_URL=value"
+      }
+    },
+    {
+      "id": "settings.data-root",
+      "ui_label": null,
+      "scope": "ui-state",
+      "locations": [
+        {
+          "kind": "ui-state",
+          "path": "settings.DATA_ROOT"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "database",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "exact-global-state",
+        "ui_type": null,
+        "ui_optional": null,
+        "ui_nullable": null,
+        "ui_accepted_values": null,
+        "ui_range": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "settings-data-root",
+        "description": "Database-backed root for UI metadata and snapshots.",
+        "benefits": "Records the exact current global or server setting boundary.",
+        "drawbacks": "Changing this value can affect every UI session or queued job.",
+        "example": "settings.DATA_ROOT: value"
+      }
+    },
+    {
+      "id": "settings.datasets-folder",
+      "ui_label": "Dataset Folder Path",
+      "scope": "ui-state",
+      "locations": [
+        {
+          "kind": "ui-state",
+          "path": "settings.DATASETS_FOLDER"
+        }
+      ],
+      "surfaces": [
+        "simple-ui"
+      ],
+      "persistence": "database",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "exact-global-state",
+        "ui_type": "path",
+        "ui_optional": true,
+        "ui_nullable": false,
+        "ui_accepted_values": null,
+        "ui_range": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "settings-datasets-folder",
+        "description": "Database-backed root for live datasets.",
+        "benefits": "Records the exact current global or server setting boundary.",
+        "drawbacks": "Changing this value can affect every UI session or queued job.",
+        "example": "settings.DATASETS_FOLDER: value"
+      }
+    },
+    {
+      "id": "settings.hf-token",
+      "ui_label": "Hugging Face Token",
+      "scope": "ui-state",
+      "locations": [
+        {
+          "kind": "ui-state",
+          "path": "settings.HF_TOKEN"
+        }
+      ],
+      "surfaces": [
+        "simple-ui"
+      ],
+      "persistence": "database",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "exact-global-state",
+        "ui_type": "string",
+        "ui_optional": true,
+        "ui_nullable": false,
+        "ui_accepted_values": null,
+        "ui_range": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "settings-hf-token",
+        "description": "Database-backed token forwarded to training jobs.",
+        "benefits": "Records the exact current global or server setting boundary.",
+        "drawbacks": "Changing this value can affect every UI session or queued job.",
+        "example": "settings.HF_TOKEN: value"
+      }
+    },
+    {
+      "id": "settings.models-path",
+      "ui_label": "Models Folder Path",
+      "scope": "ui-state",
+      "locations": [
+        {
+          "kind": "ui-state",
+          "path": "settings.MODELS_PATH"
+        }
+      ],
+      "surfaces": [
+        "simple-ui"
+      ],
+      "persistence": "database",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "exact-global-state",
+        "ui_type": "path",
+        "ui_optional": true,
+        "ui_nullable": false,
+        "ui_accepted_values": null,
+        "ui_range": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "settings-models-path",
+        "description": "Database fallback for the shared models root.",
+        "benefits": "Records the exact current global or server setting boundary.",
+        "drawbacks": "Changing this value can affect every UI session or queued job.",
+        "example": "settings.MODELS_PATH: value"
+      }
+    },
+    {
+      "id": "settings.training-folder",
+      "ui_label": "Training Folder Path",
+      "scope": "ui-state",
+      "locations": [
+        {
+          "kind": "ui-state",
+          "path": "settings.TRAINING_FOLDER"
+        }
+      ],
+      "surfaces": [
+        "simple-ui"
+      ],
+      "persistence": "database",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "exact-global-state",
+        "ui_type": "path",
+        "ui_optional": true,
+        "ui_nullable": false,
+        "ui_accepted_values": null,
+        "ui_range": null,
+        "example_type": "path",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "settings-training-folder",
+        "description": "Database-backed root for training outputs.",
+        "benefits": "Records the exact current global or server setting boundary.",
+        "drawbacks": "Changing this value can affect every UI session or queued job.",
+        "example": "settings.TRAINING_FOLDER: value"
+      }
+    },
+    {
+      "id": "ui.auth-token",
+      "ui_label": "Password",
+      "scope": "ui-state",
+      "locations": [
+        {
+          "kind": "ui-state",
+          "path": "browser.localStorage.AI_TOOLKIT_AUTH"
+        },
+        {
+          "kind": "ui-state",
+          "path": "http.Authorization"
+        },
+        {
+          "kind": "ui-state",
+          "path": "auth.is_authorized"
+        }
+      ],
+      "surfaces": [
+        "simple-ui"
+      ],
+      "persistence": "browser-storage",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "exact-global-state",
+        "ui_type": "string",
+        "ui_optional": false,
+        "ui_nullable": false,
+        "ui_accepted_values": null,
+        "ui_range": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [],
+      "normalizations": [],
+      "interactions": [
+        {
+          "setting": "environment.ai_toolkit_auth",
+          "kind": "affects",
+          "description": "Authenticates against the separately configured server secret.",
+          "applicability": []
+        }
+      ],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "ui-auth-token",
+        "description": "Browser-stored authentication token transported as a Bearer header.",
+        "benefits": "Records the exact current global or server setting boundary.",
+        "drawbacks": "Changing this value can affect every UI session or queued job.",
+        "example": "browser.localStorage.AI_TOOLKIT_AUTH: secret"
+      }
+    },
+    {
+      "id": "ui.theme-preference",
+      "ui_label": "Theme",
+      "scope": "ui-state",
+      "locations": [
+        {
+          "kind": "ui-state",
+          "path": "browser.localStorage.theme"
+        }
+      ],
+      "surfaces": [
+        "simple-ui"
+      ],
+      "persistence": "browser-storage",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "exact-global-state",
+        "ui_type": "string",
+        "ui_optional": true,
+        "ui_nullable": false,
+        "ui_accepted_values": [
+          "dark",
+          "light"
+        ],
+        "ui_range": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "ui-created",
+          "presence": "present",
+          "value": "dark",
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "ui-theme-preference",
+        "description": "User-selected light or dark browser theme.",
+        "benefits": "Records the exact current global or server setting boundary.",
+        "drawbacks": "Changing this value can affect every UI session or queued job.",
+        "example": "browser.localStorage.theme: dark"
       }
     }
   ],
@@ -117282,6 +117903,1121 @@
         "source_path": "ui/src/helpers/defaultSamples.ts",
         "symbol": "defaultSampleConfig",
         "fact_type": "ui-default"
+      }
+    },
+    {
+      "setting_id": "environment.ai_toolkit_auth",
+      "fact": {
+        "source_path": "ui/src/app/layout.tsx",
+        "symbol": "RootLayout::process.env.AI_TOOLKIT_AUTH",
+        "path": "AI_TOOLKIT_AUTH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "environment.ai_toolkit_auth",
+      "fact": {
+        "source_path": "ui/src/middleware.ts",
+        "symbol": "middleware::process.env.AI_TOOLKIT_AUTH",
+        "path": "AI_TOOLKIT_AUTH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "environment.ai_toolkit_db_journal_mode",
+      "fact": {
+        "source_path": "ui/cron/worker.ts",
+        "symbol": "ensureJournalMode::process.env.AI_TOOLKIT_DB_JOURNAL_MODE",
+        "path": "AI_TOOLKIT_DB_JOURNAL_MODE",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "DELETE"
+            },
+            {
+              "kind": "string",
+              "value": "TRUNCATE"
+            },
+            {
+              "kind": "string",
+              "value": "PERSIST"
+            },
+            {
+              "kind": "string",
+              "value": "MEMORY"
+            },
+            {
+              "kind": "string",
+              "value": "WAL"
+            },
+            {
+              "kind": "string",
+              "value": "OFF"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "environment.ai_toolkit_file_server_workers",
+      "fact": {
+        "source_path": "ui/cron/fileServer.ts",
+        "symbol": "<module>::process.env.AI_TOOLKIT_FILE_SERVER_WORKERS",
+        "path": "AI_TOOLKIT_FILE_SERVER_WORKERS",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "environment.models_path",
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::process.env.MODELS_PATH",
+        "path": "MODELS_PATH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "environment.models_path",
+      "fact": {
+        "source_path": "ui/src/app/api/settings/route.ts",
+        "symbol": "Settings.GET::process.env.MODELS_PATH",
+        "path": "MODELS_PATH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "environment.ostris_cloud_api_key",
+      "fact": {
+        "source_path": "ui/src/app/api/ostris_cloud/route.ts",
+        "symbol": "GET::process.env.OSTRIS_CLOUD_API_KEY",
+        "path": "OSTRIS_CLOUD_API_KEY",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "environment.ostris_cloud_app_url",
+      "fact": {
+        "source_path": "ui/src/app/api/ostris_cloud/route.ts",
+        "symbol": "GET::process.env.OSTRIS_CLOUD_APP_URL",
+        "path": "OSTRIS_CLOUD_APP_URL",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.auth-token",
+      "fact": {
+        "source_path": "ui/src/utils/api.ts",
+        "symbol": "apiClient.response::status=401",
+        "path": "auth.is_authorized",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.auth-token",
+      "fact": {
+        "source_path": "ui/src/components/AuthWrapper.tsx",
+        "symbol": "AuthWrapper::checkAuth::localStorage.getItem(AI_TOOLKIT_AUTH)",
+        "path": "browser.localStorage.AI_TOOLKIT_AUTH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.auth-token",
+      "fact": {
+        "source_path": "ui/src/components/AuthWrapper.tsx",
+        "symbol": "AuthWrapper::handleSubmit::localStorage.setItem(AI_TOOLKIT_AUTH)",
+        "path": "browser.localStorage.AI_TOOLKIT_AUTH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.auth-token",
+      "fact": {
+        "source_path": "ui/src/components/AuthWrapper.tsx",
+        "symbol": "AuthWrapper::mount::localStorage.getItem(AI_TOOLKIT_AUTH)",
+        "path": "browser.localStorage.AI_TOOLKIT_AUTH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.auth-token",
+      "fact": {
+        "source_path": "ui/src/utils/api.ts",
+        "symbol": "apiClient.request::localStorage.getItem(AI_TOOLKIT_AUTH)",
+        "path": "browser.localStorage.AI_TOOLKIT_AUTH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.auth-token",
+      "fact": {
+        "source_path": "ui/src/utils/api.ts",
+        "symbol": "apiClient.response::localStorage.removeItem(AI_TOOLKIT_AUTH)",
+        "path": "browser.localStorage.AI_TOOLKIT_AUTH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.auth-token",
+      "fact": {
+        "source_path": "ui/src/utils/callScript.ts",
+        "symbol": "callScriptStream::localStorage.getItem(AI_TOOLKIT_AUTH)",
+        "path": "browser.localStorage.AI_TOOLKIT_AUTH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.theme-preference",
+      "fact": {
+        "source_path": "ui/src/app/layout.tsx",
+        "symbol": "RootLayout::localStorage.getItem(theme)",
+        "path": "browser.localStorage.theme",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "dark"
+            },
+            {
+              "kind": "string",
+              "value": "light"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.theme-preference",
+      "fact": {
+        "source_path": "ui/src/components/ThemeProvider.tsx",
+        "symbol": "ThemeProvider::localStorage.getItem(theme)",
+        "path": "browser.localStorage.theme",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.theme-preference",
+      "fact": {
+        "source_path": "ui/src/components/ThemeProvider.tsx",
+        "symbol": "ThemeProvider::localStorage.setItem(theme)",
+        "path": "browser.localStorage.theme",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "dark"
+            },
+            {
+              "kind": "string",
+              "value": "light"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "process.performance_log_every",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::import::config.process[*].performance_log_every",
+        "path": "config.process[*].performance_log_every",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "process.sqlite_db_path",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::import::config.process[*].sqlite_db_path",
+        "path": "config.process[*].sqlite_db_path",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "process.training_folder",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::import::config.process[*].training_folder",
+        "path": "config.process[*].training_folder",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "process.training_folder",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::settings::config.process[*].training_folder",
+        "path": "config.process[*].training_folder",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.gpu-ids",
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/route.ts",
+        "symbol": "POST::gpuids",
+        "path": "gpuids",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.gpu-ids",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::default::gpuids",
+        "path": "gpuids",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.gpu-ids",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::hydrate::gpuids",
+        "path": "gpuids",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.auth-token",
+      "fact": {
+        "source_path": "ui/src/middleware.ts",
+        "symbol": "middleware::Authorization.bearer",
+        "path": "http.Authorization",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.auth-token",
+      "fact": {
+        "source_path": "ui/src/utils/api.ts",
+        "symbol": "apiClient.request::Authorization.bearer",
+        "path": "http.Authorization",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.auth-token",
+      "fact": {
+        "source_path": "ui/src/utils/callScript.ts",
+        "symbol": "callScriptStream::Authorization.bearer",
+        "path": "http.Authorization",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/cron/fileServer.ts",
+        "symbol": "getRoots::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/settings/route.ts",
+        "symbol": "Settings.POST::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/hooks/useSettings.tsx",
+        "symbol": "useSettings::hydrate::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/server/settings.ts",
+        "symbol": "getDatasetsRoot::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.data-root",
+      "fact": {
+        "source_path": "ui/cron/fileServer.ts",
+        "symbol": "getRoots::settings.DATA_ROOT",
+        "path": "settings.DATA_ROOT",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.data-root",
+      "fact": {
+        "source_path": "ui/cron/paths.ts",
+        "symbol": "getDataRoot::settings.DATA_ROOT",
+        "path": "settings.DATA_ROOT",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.data-root",
+      "fact": {
+        "source_path": "ui/src/server/settings.ts",
+        "symbol": "getDataRoot::settings.DATA_ROOT",
+        "path": "settings.DATA_ROOT",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.hf-token",
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::settings.HF_TOKEN",
+        "path": "settings.HF_TOKEN",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.hf-token",
+      "fact": {
+        "source_path": "ui/cron/paths.ts",
+        "symbol": "getHFToken::settings.HF_TOKEN",
+        "path": "settings.HF_TOKEN",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.hf-token",
+      "fact": {
+        "source_path": "ui/src/app/api/settings/route.ts",
+        "symbol": "Settings.POST::settings.HF_TOKEN",
+        "path": "settings.HF_TOKEN",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.hf-token",
+      "fact": {
+        "source_path": "ui/src/hooks/useSettings.tsx",
+        "symbol": "useSettings::hydrate::settings.HF_TOKEN",
+        "path": "settings.HF_TOKEN",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.hf-token",
+      "fact": {
+        "source_path": "ui/src/server/settings.ts",
+        "symbol": "getHFToken::settings.HF_TOKEN",
+        "path": "settings.HF_TOKEN",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.models-path",
+      "fact": {
+        "source_path": "ui/cron/paths.ts",
+        "symbol": "getModelsPath::settings.MODELS_PATH",
+        "path": "settings.MODELS_PATH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.models-path",
+      "fact": {
+        "source_path": "ui/src/app/api/settings/route.ts",
+        "symbol": "Settings.POST::settings.MODELS_PATH",
+        "path": "settings.MODELS_PATH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.models-path",
+      "fact": {
+        "source_path": "ui/src/hooks/useSettings.tsx",
+        "symbol": "useSettings::hydrate::settings.MODELS_PATH",
+        "path": "settings.MODELS_PATH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/cron/fileServer.ts",
+        "symbol": "getRoots::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/cron/paths.ts",
+        "symbol": "getTrainingFolder::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/settings/route.ts",
+        "symbol": "Settings.POST::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/hooks/useSettings.tsx",
+        "symbol": "useSettings::hydrate::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/server/settings.ts",
+        "symbol": "getTrainingFolder::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "cli.file-server-port",
+      "fact": {
+        "source_path": "ui/cron/fileServer.ts",
+        "symbol": "<module>::cli.port",
+        "path": "ui.file_server.port",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.auth-token",
+      "fact": {
+        "source_path": "ui/src/components/AuthWrapper.tsx",
+        "symbol": "AuthWrapper::input::browser.localStorage.AI_TOOLKIT_AUTH::Password",
+        "path": "browser.localStorage.AI_TOOLKIT_AUTH",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Password"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": false,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.gpu-ids",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::SelectInput::gpuids::GPU ID",
+        "path": "gpuids",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "GPU ID"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "select",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/settings/page.tsx",
+        "symbol": "Settings::input::settings.DATASETS_FOLDER::Dataset Folder Path",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Dataset Folder Path"
+          }
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.hf-token",
+      "fact": {
+        "source_path": "ui/src/app/settings/page.tsx",
+        "symbol": "Settings::input::settings.HF_TOKEN::Hugging Face Token",
+        "path": "settings.HF_TOKEN",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Hugging Face Token"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.models-path",
+      "fact": {
+        "source_path": "ui/src/app/settings/page.tsx",
+        "symbol": "Settings::input::settings.MODELS_PATH::Models Folder Path",
+        "path": "settings.MODELS_PATH",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Models Folder Path"
+          }
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/settings/page.tsx",
+        "symbol": "Settings::input::settings.TRAINING_FOLDER::Training Folder Path",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Training Folder Path"
+          }
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
       }
     }
   ]

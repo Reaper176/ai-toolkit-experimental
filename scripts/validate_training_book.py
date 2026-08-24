@@ -2,6 +2,7 @@
 """Validate the canonical training-book manifest and source inventory."""
 
 import argparse
+import fnmatch
 import json
 import tempfile
 from dataclasses import asdict
@@ -354,6 +355,29 @@ def _python_globs(catalog) -> tuple[str, ...]:
     )
 
 
+def _validate_typescript_source_group_coverage(source_catalog, ui_facts) -> None:
+    emitted_sources = {
+        item.source_path
+        for item in (
+            *ui_facts.defaults,
+            *ui_facts.config_claims,
+            *ui_facts.global_settings,
+        )
+    }
+    for group in source_catalog.source_groups:
+        if group.owner != "typescript-test":
+            continue
+        if not any(
+            fnmatch.fnmatchcase(source, pattern)
+            or fnmatch.fnmatchcase(source, pattern.replace("/**/*", "/**"))
+            for source in emitted_sources
+            for pattern in group.globs
+        ):
+            raise DiscoveryError(
+                "typescript-test source group emitted no facts"
+            )
+
+
 def _declared_python_sources(
     repository_root: Path, globs: tuple[str, ...]
 ) -> tuple[str, ...]:
@@ -518,7 +542,9 @@ def main() -> None:
     elif arguments.scope:
         if (
             ui_facts is not None
-            and arguments.scope == ["ui-defaults-transitions"]
+            and arguments.scope in (
+                ["ui-defaults-transitions"], ["ui-server-global"]
+            )
         ):
             ui_scope = arguments.scope[0]
         else:
@@ -528,6 +554,12 @@ def main() -> None:
 
     if ui_scope is not None:
         assert ui_facts is not None
+        source_catalog = load_source_catalog(
+            repository_root / "docs/book/reference/settings-sources.json"
+        )
+        _validate_typescript_source_group_coverage(
+            source_catalog, ui_facts
+        )
         ui_exclusions = load_ui_exclusions(
             repository_root / "docs/book/reference/settings-exclusions.json"
         )

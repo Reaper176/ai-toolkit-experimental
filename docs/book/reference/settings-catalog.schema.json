@@ -513,7 +513,8 @@
             "job-json",
             "database",
             "runtime",
-            "transient"
+            "transient",
+            "browser-storage"
           ],
           "title": "Persistence",
           "type": "string"

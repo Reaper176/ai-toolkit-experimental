@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   collectTrainingBookUiFacts,
   collectCanonicalSetterPathsFromSource,
+  collectDeclaredServerGlobalClaimsFromSource,
   collectVisibleControlClaimsFromSource,
   validateTrainingBookUiFacts,
   validateArchitectureProjectedControlTemplates,
@@ -484,6 +485,60 @@ if (liveRoot !== undefined) {
     ['1024', '1280', '1328', '1536', '2048', '256', '512', '768'],
     'finite nested resolution maps must expand to exact labels',
   );
+  assert.equal(liveFacts.global_settings.length, 91);
+  assert.deepEqual(
+    liveFacts.global_settings
+      .filter(item => item.source_path === 'ui/src/app/settings/page.tsx')
+      .map(item => [item.path, item.value_contract.ui_type, item.value_contract.widget_kind]),
+    [
+      ['settings.DATASETS_FOLDER', 'path', 'text'],
+      ['settings.HF_TOKEN', 'string', 'text'],
+      ['settings.MODELS_PATH', 'path', 'text'],
+      ['settings.TRAINING_FOLDER', 'path', 'text'],
+    ],
+    'path-valued settings remain native text widgets',
+  );
+  for (const [path, before, after, message] of [
+    [
+      'ui/src/app/layout.tsx',
+      'process.env.AI_TOOLKIT_AUTH ? true : false',
+      'false',
+      /RootLayout::process.env.AI_TOOLKIT_AUTH/,
+    ],
+    [
+      'ui/src/utils/api.ts',
+      "localStorage.removeItem('AI_TOOLKIT_AUTH')",
+      "localStorage.setItem('AI_TOOLKIT_AUTH', '')",
+      /apiClient.response::localStorage.removeItem/,
+    ],
+    [
+      'ui/src/utils/callScript.ts',
+      "headers['Authorization'] = `Bearer ${token}`",
+      "headers['X-Token'] = token",
+      /callScriptStream::Authorization.bearer/,
+    ],
+    [
+      'ui/src/app/settings/page.tsx',
+      'name="HF_TOKEN"',
+      'name="OTHER_TOKEN"',
+      /HF_TOKEN control/,
+    ],
+    [
+      'ui/cron/actions/processQueue.ts',
+      'data: { is_running: false }',
+      'data: { is_running: true }',
+      /processQueue::queue.is_running/,
+    ],
+  ] as const) {
+    const sourceText = readFileSync(join(liveRoot, path), 'utf8');
+    assert.throws(
+      () => collectDeclaredServerGlobalClaimsFromSource(
+        path,
+        sourceText.replace(before, after),
+      ),
+      message,
+    );
+  }
   assert.deepEqual(
     settingClaims
       .filter(item => item.symbol.startsWith('InvertedMaskPriorControl::'))
@@ -494,19 +549,55 @@ if (liveRoot !== undefined) {
     ],
     'extracted controls must retain exact use-site config bindings',
   );
-  assert.deepEqual(liveFacts.global_settings, [{
-    source_path: 'ui/src/app/jobs/new/SimpleJob.tsx',
-    symbol: 'SimpleJob::SelectInput::gpuids::GPU ID',
-    path: 'gpuids',
-    kind: 'setting',
-    ui_label: { present: true, value: { kind: 'string', value: 'GPU ID' } },
-    value_contract: {
-      ui_type: 'string',
-      widget_kind: 'select',
-      optional: true,
-      nullable: false,
-    },
-  }], 'GPU selection must remain emitted for the global/server ownership slice');
+  assert.deepEqual(
+    [...new Set(liveFacts.global_settings.map(item => item.source_path))].sort(),
+    [
+      'ui/cron/actions/processQueue.ts',
+      'ui/cron/actions/startJob.ts',
+      'ui/cron/fileServer.ts',
+      'ui/cron/paths.ts',
+      'ui/cron/worker.ts',
+      'ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts',
+      'ui/src/app/api/jobs/[jobID]/sample_now/route.ts',
+      'ui/src/app/api/jobs/[jobID]/save_now/route.ts',
+      'ui/src/app/api/jobs/[jobID]/start/route.ts',
+      'ui/src/app/api/jobs/[jobID]/stop/route.ts',
+      'ui/src/app/api/jobs/route.ts',
+      'ui/src/app/api/ostris_cloud/route.ts',
+      'ui/src/app/api/queue/[queueID]/start/route.ts',
+      'ui/src/app/api/queue/[queueID]/stop/route.ts',
+      'ui/src/app/api/settings/route.ts',
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'ui/src/app/jobs/new/page.tsx',
+      'ui/src/app/layout.tsx',
+      'ui/src/app/settings/page.tsx',
+      'ui/src/components/AuthWrapper.tsx',
+      'ui/src/components/Sidebar.tsx',
+      'ui/src/components/ThemeProvider.tsx',
+      'ui/src/hooks/useSettings.tsx',
+      'ui/src/middleware.ts',
+      'ui/src/server/prisma.ts',
+      'ui/src/server/settings.ts',
+      'ui/src/utils/api.ts',
+      'ui/src/utils/callScript.ts',
+    ],
+    'every concrete server/global settings boundary must emit',
+  );
+  for (const identity of [
+    'RootLayout::process.env.AI_TOOLKIT_AUTH',
+    'Sidebar::process.env.NEXT_PUBLIC_APP_VERSION',
+    'middleware::Authorization.bearer',
+    'apiClient.response::localStorage.removeItem(AI_TOOLKIT_AUTH)',
+    'callScriptStream::Authorization.bearer',
+    'Settings::input::settings.HF_TOKEN::Hugging Face Token',
+    'processQueue::queue.is_running',
+    'startJob::job.status',
+  ]) {
+    assert.ok(
+      liveFacts.global_settings.some(item => item.symbol === identity),
+      `missing exact server/global fact ${identity}`,
+    );
+  }
   const modelArchitectureClaim = settingClaims.find(item => item.path === 'config.process[*].model.arch');
   assert.equal(modelArchitectureClaim?.value_contract.accepted_values?.length, 51);
   const textEncoderQuantization = settingClaims.find(item => item.path === 'config.process[*].model.qtype_te');

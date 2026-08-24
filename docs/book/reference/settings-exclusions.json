@@ -2695,6 +2695,724 @@
         "fact_type": "source-claim"
       },
       "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/fileServer.ts",
+        "symbol": "cluster.worker::process.env.AI_TOOLKIT_QUIET_PATHS",
+        "path": "AI_TOOLKIT_QUIET_PATHS",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/paths.ts",
+        "symbol": "<module>::process.env.AI_TOOLKIT_QUIET_PATHS",
+        "path": "AI_TOOLKIT_QUIET_PATHS",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/fileServer.ts",
+        "symbol": "<module>::process.env.LD_LIBRARY_PATH",
+        "path": "LD_LIBRARY_PATH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/components/Sidebar.tsx",
+        "symbol": "Sidebar::process.env.NEXT_PUBLIC_APP_VERSION",
+        "path": "NEXT_PUBLIC_APP_VERSION",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::process.env.NODE_ENV",
+        "path": "NODE_ENV",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::process.env.NODE_ENV",
+        "path": "NODE_ENV",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/server/prisma.ts",
+        "symbol": "<module>::process.env.NODE_ENV",
+        "path": "NODE_ENV",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/fileServer.ts",
+        "symbol": "cluster.worker::process.env.PUBLIC_PORT",
+        "path": "PUBLIC_PORT",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/fileServer.ts",
+        "symbol": "cluster.worker::process.env.UPSTREAM_PORT",
+        "path": "UPSTREAM_PORT",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::import::config.process[*].device",
+        "path": "config.process[*].device",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "cuda"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/processQueue.ts",
+        "symbol": "processQueue::job.info",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::job.info",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts",
+        "symbol": "GET::job.info",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/start/route.ts",
+        "symbol": "GET::job.info",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/stop/route.ts",
+        "symbol": "GET::job.info",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::job.pid",
+        "path": "job.pid",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts",
+        "symbol": "GET::job.pid",
+        "path": "job.pid",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/start/route.ts",
+        "symbol": "GET::job.queue_position",
+        "path": "job.queue_position",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/processQueue.ts",
+        "symbol": "processQueue::job.return_to_queue",
+        "path": "job.return_to_queue",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::job.return_to_queue",
+        "path": "job.return_to_queue",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/start/route.ts",
+        "symbol": "GET::job.return_to_queue",
+        "path": "job.return_to_queue",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/sample_now/route.ts",
+        "symbol": "GET::job.sample_now",
+        "path": "job.sample_now",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/save_now/route.ts",
+        "symbol": "GET::job.save_now",
+        "path": "job.save_now",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::job.status",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "error"
+            },
+            {
+              "kind": "string",
+              "value": "running"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts",
+        "symbol": "GET::job.status",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "stopped"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/start/route.ts",
+        "symbol": "GET::job.status",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "queued"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/stop/route.ts",
+        "symbol": "GET::job.status",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "stopped"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts",
+        "symbol": "GET::job.stop",
+        "path": "job.stop",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/start/route.ts",
+        "symbol": "GET::job.stop",
+        "path": "job.stop",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/stop/route.ts",
+        "symbol": "GET::job.stop",
+        "path": "job.stop",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/queue/[queueID]/start/route.ts",
+        "symbol": "GET::queue.gpu_ids",
+        "path": "queue.gpu_ids",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/processQueue.ts",
+        "symbol": "processQueue::queue.is_running",
+        "path": "queue.is_running",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/start/route.ts",
+        "symbol": "GET::queue.is_running",
+        "path": "queue.is_running",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/queue/[queueID]/start/route.ts",
+        "symbol": "GET::queue.is_running",
+        "path": "queue.is_running",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/queue/[queueID]/stop/route.ts",
+        "symbol": "GET::queue.is_running",
+        "path": "queue.is_running",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/layout.tsx",
+        "symbol": "RootLayout::os.platform",
+        "path": "server.platform",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
     }
   ]
 }

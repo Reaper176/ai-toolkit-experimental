@@ -530,6 +530,64 @@ class CatalogContractTests(unittest.TestCase):
             ),
         )
 
+    def test_catalog_contract_accepts_browser_storage_persistence(self):
+        entry = self.valid_catalog_entry()
+        entry["persistence"] = "browser-storage"
+
+        catalog = validate_settings_catalog(
+            {"schema_version": 1, "settings": [entry]},
+            self.discovered_steps(),
+        )
+
+        self.assertEqual(catalog.settings[0].persistence, "browser-storage")
+
+    def test_catalog_allows_source_less_environment_setting_with_atomic_ts_owner(self):
+        entry = self.valid_catalog_entry()
+        entry.update({
+            "id": "environment.ai_toolkit_auth",
+            "ui_label": None,
+            "scope": "environment",
+            "locations": [{"kind": "environment", "path": "AI_TOOLKIT_AUTH"}],
+            "surfaces": ["cli"],
+            "persistence": "runtime",
+            "source_claims": [],
+        })
+        entry["contract"].update({
+            "ui_type": None,
+            "ui_optional": None,
+            "ui_nullable": None,
+            "ui_accepted_values": None,
+            "ui_range": None,
+        })
+        fact = self.ui_source_fact()
+        fact.update({
+            "source_path": "ui/src/app/layout.tsx",
+            "symbol": "RootLayout::process.env.AI_TOOLKIT_AUTH",
+            "path": "AI_TOOLKIT_AUTH",
+            "kind": "server-state",
+            "ui_label": {"present": False},
+            "value_contract": {
+                "ui_type": "string",
+                "widget_kind": "read-only",
+                "optional": True,
+                "nullable": True,
+            },
+        })
+
+        catalog = validate_settings_catalog(
+            {
+                "schema_version": 1,
+                "settings": [entry],
+                "ui_claims": [{
+                    "setting_id": entry["id"],
+                    "fact": fact,
+                }],
+            },
+            (),
+        )
+
+        self.assertEqual(catalog.settings[0].scope, "environment")
+
     def ui_source_fact(self):
         return {
             "fact_type": "source-claim",
@@ -663,7 +721,7 @@ class CatalogContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(CatalogError, message):
                     validate_settings_catalog(payload, self.discovered_steps())
 
-    def test_catalog_allows_source_less_ui_state_only_with_atomic_ui_ownership(self):
+    def test_catalog_allows_source_less_setting_with_atomic_ui_ownership(self):
         entry = self.valid_catalog_entry()
         entry.update({
             "id": "ui.architecture.fixture",
@@ -687,11 +745,6 @@ class CatalogContractTests(unittest.TestCase):
         missing_owner["ui_claims"] = []
         with self.assertRaisesRegex(CatalogError, "source-less.*UI ownership"):
             validate_settings_catalog(missing_owner, ())
-
-        wrong_scope = deepcopy(data)
-        wrong_scope["settings"][0]["scope"] = "train"
-        with self.assertRaisesRegex(CatalogError, "source-less.*ui-state"):
-            validate_settings_catalog(wrong_scope, ())
 
     def test_ui_exclusions_share_the_exact_fact_union_and_closed_reasons(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1074,7 +1127,7 @@ class CatalogContractTests(unittest.TestCase):
         entry = self.valid_catalog_entry()
         entry["source_claims"] = []
 
-        with self.assertRaisesRegex(CatalogError, "source_claims"):
+        with self.assertRaisesRegex(CatalogError, "source-less.*UI ownership"):
             validate_settings_catalog(
                 {"schema_version": 1, "settings": [entry]}, ()
             )
@@ -1582,9 +1635,15 @@ class CatalogContractTests(unittest.TestCase):
                     setting.render.example,
                 )
                 self.assertFalse(any(placeholder.search(text) for text in render_fields))
-                separator = (
-                    "="
-                    if all(location.kind == "environment" for location in setting.locations)
+                separator = "=" if all(
+                    location.kind == "environment"
+                    for location in setting.locations
+                ) else (
+                    " "
+                    if any(
+                        location.kind == "cli"
+                        for location in setting.locations
+                    ) and setting.render.example.startswith("--")
                     else ":"
                 )
                 key, found, value = setting.render.example.partition(separator)
@@ -1735,6 +1794,29 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         self.assertEqual(facts.model_architectures[0].name, "fixture")
         self.assertEqual(facts.config_claims[0].value_contract.ui_type, "number")
 
+    def test_ui_facts_contract_accepts_exact_next_dynamic_route_sources(self):
+        data = self.valid_facts()
+        data["global_settings"] = [deepcopy(data["config_claims"][0])]
+        data["global_settings"][0]["source_path"] = (
+            "ui/src/app/api/jobs/[jobID]/start/route.ts"
+        )
+
+        facts = validate_training_book_ui_facts(data)
+
+        self.assertEqual(
+            facts.global_settings[0].source_path,
+            "ui/src/app/api/jobs/[jobID]/start/route.ts",
+        )
+
+        for invalid_segment in ("[*]", "[..jobID]", "[job-ID]", "job[ID]"):
+            with self.subTest(invalid_segment=invalid_segment):
+                invalid = deepcopy(data)
+                invalid["global_settings"][0]["source_path"] = (
+                    f"ui/src/app/api/jobs/{invalid_segment}/route.ts"
+                )
+                with self.assertRaisesRegex(ValueError, "portable confined"):
+                    validate_training_book_ui_facts(invalid)
+
     def test_ui_facts_contract_rejects_shape_presence_value_and_path_drift(self):
         mutations = []
         extra = self.valid_facts()
@@ -1784,9 +1866,13 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         self.assertIn("UI facts", invalid.stderr)
 
     def test_validation_cli_ui_scope_reaches_exact_ownership(self):
+        facts = self.valid_facts()
+        facts["config_claims"][0]["source_path"] = (
+            "ui/src/app/jobs/new/SimpleJob.tsx"
+        )
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "facts.json"
-            path.write_text(json.dumps(self.valid_facts()), encoding="utf-8")
+            path.write_text(json.dumps(facts), encoding="utf-8")
             result = subprocess.run(
                 [
                     sys.executable,
@@ -1804,6 +1890,68 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("stale UI owners", result.stderr)
+
+    def test_validation_cli_server_global_scope_reaches_exact_ownership(self):
+        facts = self.valid_facts()
+        facts["global_settings"] = [deepcopy(facts["config_claims"][0])]
+        facts["global_settings"][0].update({
+            "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+            "symbol": "SimpleJob::SelectInput::gpuids::GPU ID",
+            "path": "gpuids",
+            "value_contract": {
+                "ui_type": "string",
+                "widget_kind": "select",
+                "optional": True,
+                "nullable": False,
+            },
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "facts.json"
+            path.write_text(json.dumps(facts), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/validate_training_book.py",
+                    "--ui-facts",
+                    str(path),
+                    "--scope",
+                    "ui-server-global",
+                ],
+                cwd=REPOSITORY_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("stale UI owners", result.stderr)
+
+    def test_validation_cli_rejects_empty_typescript_source_group_coverage(self):
+        facts = self.valid_facts()
+        for claim in facts["config_claims"]:
+            claim["source_path"] = "outside/not-declared.ts"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "facts.json"
+            path.write_text(json.dumps(facts), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/validate_training_book.py",
+                    "--ui-facts",
+                    str(path),
+                    "--scope",
+                    "ui-defaults-transitions",
+                ],
+                cwd=REPOSITORY_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "typescript-test source group emitted no facts", result.stderr
+        )
 
     def test_ui_facts_project_to_exact_scoped_atomic_ownership_facts(self):
         facts = validate_training_book_ui_facts(self.valid_facts())
@@ -2473,12 +2621,101 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         exclusions = load_ui_exclusions(
             REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
         )
-        self.assertEqual(len(catalog.ui_claims), 2157)
-        self.assertEqual(len(exclusions), 17)
+        self.assertEqual(len(catalog.ui_claims), 2212)
+        self.assertEqual(len(exclusions), 53)
         self.assertEqual(
             {exclusion.reason for exclusion in exclusions},
-            {"architecture-projected-control"},
+            {
+                "architecture-projected-control",
+                "runtime-derived-ui-state",
+                "server-owned-value",
+                "transient-ui-state",
+            },
         )
+
+    def test_production_global_gpu_selector_is_user_database_state(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        setting = next(
+            item for item in catalog.settings if item.id == "ui.gpu-ids"
+        )
+        self.assertEqual(setting.ui_label, "GPU ID")
+        self.assertEqual(setting.scope, "ui-state")
+        self.assertEqual(
+            [(location.kind, location.path) for location in setting.locations],
+            [("ui-state", "gpuids")],
+        )
+        self.assertEqual(setting.surfaces, ("simple-ui",))
+        self.assertEqual(setting.persistence, "database")
+        self.assertEqual(setting.authority, "user")
+        self.assertEqual(setting.contract.ui_type, "string")
+        self.assertTrue(setting.contract.ui_optional)
+        self.assertFalse(setting.contract.ui_nullable)
+        claims = [
+            claim for claim in catalog.ui_claims
+            if claim.setting_id == setting.id
+            and claim.fact.fact_type == "source-claim"
+            and claim.fact.source_path == "ui/src/app/jobs/new/SimpleJob.tsx"
+        ]
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0].fact.path, "gpuids")
+
+    def test_production_browser_preferences_are_distinct_from_server_environment(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        theme = settings["ui.theme-preference"]
+        client_auth = settings["ui.auth-token"]
+        server_auth = settings["environment.ai_toolkit_auth"]
+
+        self.assertEqual(theme.persistence, "browser-storage")
+        self.assertEqual(theme.authority, "user")
+        self.assertEqual(
+            theme.contract.ui_accepted_values, ("dark", "light")
+        )
+        self.assertTrue(any(
+            default.kind == "ui-created"
+            and default.presence == "present"
+            and default.value == "dark"
+            for default in theme.defaults
+        ))
+        self.assertEqual(client_auth.persistence, "browser-storage")
+        self.assertEqual(client_auth.authority, "user")
+        self.assertEqual(server_auth.scope, "environment")
+        self.assertEqual(server_auth.persistence, "runtime")
+        self.assertEqual(server_auth.authority, "user")
+        self.assertTrue({
+            location.path for location in client_auth.locations
+        }.isdisjoint({location.path for location in server_auth.locations}))
+
+        owner_by_identity = {
+            claim.fact.model_dump_json(): claim.setting_id
+            for claim in catalog.ui_claims
+        }
+        client_paths = {
+            "browser.localStorage.AI_TOOLKIT_AUTH",
+            "http.Authorization",
+            "auth.is_authorized",
+        }
+        for claim in catalog.ui_claims:
+            if claim.fact.fact_type != "source-claim":
+                continue
+            if claim.fact.path in client_paths:
+                self.assertEqual(
+                    owner_by_identity[claim.fact.model_dump_json()],
+                    client_auth.id,
+                )
+            if claim.fact.path == "AI_TOOLKIT_AUTH":
+                self.assertEqual(
+                    owner_by_identity[claim.fact.model_dump_json()],
+                    server_auth.id,
+                )
 
 
 class CatalogProductionSliceTests(unittest.TestCase):

@@ -1634,6 +1634,239 @@ function visibleSettingClaims(root: string, architectures: ModelArchitectureFact
   ];
 }
 
+interface DeclaredServerFact {
+  source_path: string;
+  symbol: string;
+  path: string;
+  ui_type: UiSourceClaim['value_contract']['ui_type'];
+  required: string[];
+  accepted_values?: TrainingBookValueFact[];
+}
+
+const serverFact = (
+  source_path: string,
+  symbol: string,
+  path: string,
+  ui_type: DeclaredServerFact['ui_type'],
+  required: string[],
+  accepted_values?: TrainingBookValueFact[],
+): DeclaredServerFact => ({ source_path, symbol, path, ui_type, required, accepted_values });
+
+const stringValues = (...values: string[]): TrainingBookValueFact[] =>
+  values.map(value => ({ kind: 'string', value }));
+
+const SERVER_GLOBAL_FACTS: DeclaredServerFact[] = [
+  serverFact('ui/src/app/jobs/new/SimpleJob.tsx', 'SimpleJob::process.env.NODE_ENV', 'NODE_ENV', 'string', ["process.env.NODE_ENV === 'development'"]),
+  serverFact('ui/src/app/jobs/new/page.tsx', 'TrainingForm::process.env.NODE_ENV', 'NODE_ENV', 'string', ["process.env.NODE_ENV === 'development'"]),
+  serverFact('ui/src/app/jobs/new/page.tsx', 'TrainingForm::hydrate::gpuids', 'gpuids', 'string', ['setGpuIDs(data.gpu_ids)']),
+  serverFact('ui/src/app/jobs/new/page.tsx', 'TrainingForm::default::gpuids', 'gpuids', 'string', ['setGpuIDs(`${gpuList[0].index}`)']),
+  serverFact('ui/src/app/jobs/new/page.tsx', 'TrainingForm::import::config.process[*].sqlite_db_path', 'config.process[*].sqlite_db_path', 'path', ["parsed.config.process[0].sqlite_db_path = './aitk_db.db'"]),
+  serverFact('ui/src/app/jobs/new/page.tsx', 'TrainingForm::import::config.process[*].training_folder', 'config.process[*].training_folder', 'path', ['parsed.config.process[0].training_folder = settings.TRAINING_FOLDER']),
+  serverFact('ui/src/app/jobs/new/page.tsx', 'TrainingForm::import::config.process[*].device', 'config.process[*].device', 'string', ["parsed.config.process[0].device = 'cuda'"], stringValues('cuda')),
+  serverFact('ui/src/app/jobs/new/page.tsx', 'TrainingForm::import::config.process[*].performance_log_every', 'config.process[*].performance_log_every', 'number', ['parsed.config.process[0].performance_log_every = 10']),
+  serverFact('ui/src/app/jobs/new/page.tsx', 'TrainingForm::settings::config.process[*].training_folder', 'config.process[*].training_folder', 'path', ["setJobConfig(settings.TRAINING_FOLDER, 'config.process[0].training_folder')"]),
+
+  ...(['HF_TOKEN', 'TRAINING_FOLDER', 'DATASETS_FOLDER', 'MODELS_PATH'] as const).map(key =>
+    serverFact(
+      'ui/src/hooks/useSettings.tsx',
+      `useSettings::hydrate::settings.${key}`,
+      `settings.${key}`,
+      key.endsWith('FOLDER') || key === 'MODELS_PATH' ? 'path' : 'string',
+      [`${key}: data.${key} || ''`],
+    )),
+  ...(['HF_TOKEN', 'TRAINING_FOLDER', 'DATASETS_FOLDER', 'MODELS_PATH'] as const).map(key =>
+    serverFact(
+      'ui/src/app/api/settings/route.ts',
+      `Settings.POST::settings.${key}`,
+      `settings.${key}`,
+      key.endsWith('FOLDER') || key === 'MODELS_PATH' ? 'path' : 'string',
+      [`where: { key: '${key}' }`, `create: { key: '${key}', value: ${key} }`],
+    )),
+  serverFact('ui/src/app/api/settings/route.ts', 'Settings.GET::process.env.MODELS_PATH', 'MODELS_PATH', 'path', ['process.env.MODELS_PATH', 'settingsObject.MODELS_PATH = process.env.MODELS_PATH']),
+
+  serverFact('ui/src/server/settings.ts', 'getDatasetsRoot::settings.DATASETS_FOLDER', 'settings.DATASETS_FOLDER', 'path', ["const key = 'DATASETS_FOLDER'", 'datasetsPath = path.resolve(datasetsPath)']),
+  serverFact('ui/src/server/settings.ts', 'getTrainingFolder::settings.TRAINING_FOLDER', 'settings.TRAINING_FOLDER', 'path', ["const key = 'TRAINING_FOLDER'", 'trainingRoot = path.resolve(trainingRoot)']),
+  serverFact('ui/src/server/settings.ts', 'getHFToken::settings.HF_TOKEN', 'settings.HF_TOKEN', 'string', ["const key = 'HF_TOKEN'", "token = ''"]),
+  serverFact('ui/src/server/settings.ts', 'getDataRoot::settings.DATA_ROOT', 'settings.DATA_ROOT', 'path', ["const key = 'DATA_ROOT'", 'dataRoot = path.resolve(dataRoot)']),
+  serverFact('ui/cron/paths.ts', 'getTrainingFolder::settings.TRAINING_FOLDER', 'settings.TRAINING_FOLDER', 'path', ["const key = 'TRAINING_FOLDER'", 'trainingRoot = defaultTrainFolder']),
+  serverFact('ui/cron/paths.ts', 'getHFToken::settings.HF_TOKEN', 'settings.HF_TOKEN', 'string', ["const key = 'HF_TOKEN'", "let token = ''"]),
+  serverFact('ui/cron/paths.ts', 'getModelsPath::settings.MODELS_PATH', 'settings.MODELS_PATH', 'path', ["const key = 'MODELS_PATH'", "let modelsPath = ''"]),
+  serverFact('ui/cron/paths.ts', 'getDataRoot::settings.DATA_ROOT', 'settings.DATA_ROOT', 'path', ["key: 'DATA_ROOT'", 'defaultDataRoot']),
+  serverFact('ui/cron/paths.ts', '<module>::process.env.AI_TOOLKIT_QUIET_PATHS', 'AI_TOOLKIT_QUIET_PATHS', 'string', ['process.env.AI_TOOLKIT_QUIET_PATHS']),
+
+  serverFact('ui/src/app/layout.tsx', 'RootLayout::process.env.AI_TOOLKIT_AUTH', 'AI_TOOLKIT_AUTH', 'string', ['process.env.AI_TOOLKIT_AUTH ? true : false']),
+  serverFact('ui/src/app/layout.tsx', 'RootLayout::os.platform', 'server.platform', 'string', ['const platform = os.platform()', 'window.server_platform']),
+  serverFact('ui/src/app/layout.tsx', 'RootLayout::localStorage.getItem(theme)', 'browser.localStorage.theme', 'string', ["localStorage.getItem('theme') || 'dark'"], stringValues('dark', 'light')),
+  serverFact('ui/src/components/Sidebar.tsx', 'Sidebar::process.env.NEXT_PUBLIC_APP_VERSION', 'NEXT_PUBLIC_APP_VERSION', 'string', ['process.env.NEXT_PUBLIC_APP_VERSION']),
+  serverFact('ui/src/components/ThemeProvider.tsx', 'ThemeProvider::localStorage.getItem(theme)', 'browser.localStorage.theme', 'string', ["localStorage.getItem('theme') as Theme | null"]),
+  serverFact('ui/src/components/ThemeProvider.tsx', 'ThemeProvider::localStorage.setItem(theme)', 'browser.localStorage.theme', 'string', ["localStorage.setItem('theme', next)"], stringValues('dark', 'light')),
+  serverFact('ui/src/server/prisma.ts', '<module>::process.env.NODE_ENV', 'NODE_ENV', 'string', ["process.env.NODE_ENV !== 'production'"]),
+
+  serverFact('ui/src/middleware.ts', 'middleware::process.env.AI_TOOLKIT_AUTH', 'AI_TOOLKIT_AUTH', 'string', ['process.env.AI_TOOLKIT_AUTH || null']),
+  serverFact('ui/src/middleware.ts', 'middleware::Authorization.bearer', 'http.Authorization', 'string', ["request.headers.get('Authorization')?.split(' ')[1]", 'token !== tokenToUse']),
+  serverFact('ui/src/components/AuthWrapper.tsx', 'AuthWrapper::mount::localStorage.getItem(AI_TOOLKIT_AUTH)', 'browser.localStorage.AI_TOOLKIT_AUTH', 'string', ["localStorage.getItem('AI_TOOLKIT_AUTH') || ''", 'setToken(storedToken)']),
+  serverFact('ui/src/components/AuthWrapper.tsx', 'AuthWrapper::checkAuth::localStorage.getItem(AI_TOOLKIT_AUTH)', 'browser.localStorage.AI_TOOLKIT_AUTH', 'string', ["const currentToken = localStorage.getItem('AI_TOOLKIT_AUTH') || ''", "apiClient.get('/api/auth')"]),
+  serverFact('ui/src/components/AuthWrapper.tsx', 'AuthWrapper::handleSubmit::localStorage.setItem(AI_TOOLKIT_AUTH)', 'browser.localStorage.AI_TOOLKIT_AUTH', 'string', ["localStorage.setItem('AI_TOOLKIT_AUTH', token)"]),
+  serverFact('ui/src/utils/api.ts', 'apiClient.request::localStorage.getItem(AI_TOOLKIT_AUTH)', 'browser.localStorage.AI_TOOLKIT_AUTH', 'string', ["localStorage.getItem('AI_TOOLKIT_AUTH')"]),
+  serverFact('ui/src/utils/api.ts', 'apiClient.request::Authorization.bearer', 'http.Authorization', 'string', ["config.headers['Authorization'] = `Bearer ${token}`"]),
+  serverFact('ui/src/utils/api.ts', 'apiClient.response::status=401', 'auth.is_authorized', 'boolean', ['error.response.status === 401', 'isAuthorizedState.set(false)']),
+  serverFact('ui/src/utils/api.ts', 'apiClient.response::localStorage.removeItem(AI_TOOLKIT_AUTH)', 'browser.localStorage.AI_TOOLKIT_AUTH', 'string', ["localStorage.removeItem('AI_TOOLKIT_AUTH')"]),
+  serverFact('ui/src/utils/callScript.ts', 'callScriptStream::localStorage.getItem(AI_TOOLKIT_AUTH)', 'browser.localStorage.AI_TOOLKIT_AUTH', 'string', ["localStorage.getItem('AI_TOOLKIT_AUTH') : null"]),
+  serverFact('ui/src/utils/callScript.ts', 'callScriptStream::Authorization.bearer', 'http.Authorization', 'string', ["headers['Authorization'] = `Bearer ${token}`"]),
+
+  serverFact('ui/cron/worker.ts', 'ensureJournalMode::process.env.AI_TOOLKIT_DB_JOURNAL_MODE', 'AI_TOOLKIT_DB_JOURNAL_MODE', 'string', ['process.env.AI_TOOLKIT_DB_JOURNAL_MODE', 'VALID_JOURNAL_MODES.includes(targetMode)'], stringValues('DELETE', 'TRUNCATE', 'PERSIST', 'MEMORY', 'WAL', 'OFF')),
+  serverFact('ui/cron/fileServer.ts', '<module>::process.env.AI_TOOLKIT_FILE_SERVER_WORKERS', 'AI_TOOLKIT_FILE_SERVER_WORKERS', 'integer', ['process.env.AI_TOOLKIT_FILE_SERVER_WORKERS', 'env > 0']),
+  serverFact('ui/cron/fileServer.ts', '<module>::cli.port', 'ui.file_server.port', 'integer', ["argValue('--port', isDev ? 3000 : 8675)"]),
+  serverFact('ui/cron/fileServer.ts', '<module>::process.env.LD_LIBRARY_PATH', 'LD_LIBRARY_PATH', 'string', ['process.env.LD_LIBRARY_PATH']),
+  serverFact('ui/cron/fileServer.ts', 'cluster.worker::process.env.AI_TOOLKIT_QUIET_PATHS', 'AI_TOOLKIT_QUIET_PATHS', 'string', ["AI_TOOLKIT_QUIET_PATHS: '1'"]),
+  serverFact('ui/cron/fileServer.ts', 'cluster.worker::process.env.PUBLIC_PORT', 'PUBLIC_PORT', 'integer', ['process.env.PUBLIC_PORT!']),
+  serverFact('ui/cron/fileServer.ts', 'cluster.worker::process.env.UPSTREAM_PORT', 'UPSTREAM_PORT', 'integer', ['process.env.UPSTREAM_PORT!']),
+  serverFact('ui/cron/fileServer.ts', 'getRoots::settings.DATASETS_FOLDER', 'settings.DATASETS_FOLDER', 'path', ["key: { in: ['DATASETS_FOLDER', 'TRAINING_FOLDER', 'DATA_ROOT'] }", "datasets: fromRow('DATASETS_FOLDER'"]),
+  serverFact('ui/cron/fileServer.ts', 'getRoots::settings.TRAINING_FOLDER', 'settings.TRAINING_FOLDER', 'path', ["training: fromRow('TRAINING_FOLDER'"]),
+  serverFact('ui/cron/fileServer.ts', 'getRoots::settings.DATA_ROOT', 'settings.DATA_ROOT', 'path', ["data: fromRow('DATA_ROOT'"]),
+  serverFact('ui/cron/actions/startJob.ts', 'startJob::settings.HF_TOKEN', 'settings.HF_TOKEN', 'string', ['const hfToken = await getHFToken()', 'additionalEnv.HF_TOKEN = hfToken']),
+  serverFact('ui/cron/actions/startJob.ts', 'startJob::process.env.MODELS_PATH', 'MODELS_PATH', 'path', ['process.env.MODELS_PATH', 'additionalEnv.MODELS_PATH = modelsPath']),
+  serverFact('ui/cron/actions/startJob.ts', 'startJob::job.status', 'job.status', 'string', ["status: 'running'", "status: 'error'"], stringValues('error', 'running')),
+  serverFact('ui/cron/actions/startJob.ts', 'startJob::job.return_to_queue', 'job.return_to_queue', 'boolean', ['return_to_queue: false']),
+  serverFact('ui/cron/actions/startJob.ts', 'startJob::job.info', 'job.info', 'string', ["info: 'Starting job...'", 'Error launching job:']),
+  serverFact('ui/cron/actions/startJob.ts', 'startJob::job.pid', 'job.pid', 'integer', ['data: { pid }', 'pid: null']),
+
+  serverFact('ui/src/app/api/ostris_cloud/route.ts', 'GET::process.env.OSTRIS_CLOUD_APP_URL', 'OSTRIS_CLOUD_APP_URL', 'string', ['process.env.OSTRIS_CLOUD_APP_URL']),
+  serverFact('ui/src/app/api/ostris_cloud/route.ts', 'GET::process.env.OSTRIS_CLOUD_API_KEY', 'OSTRIS_CLOUD_API_KEY', 'string', ['process.env.OSTRIS_CLOUD_API_KEY', 'Authorization: `Bearer ${apiKey}`']),
+  serverFact('ui/src/app/api/jobs/route.ts', 'POST::gpuids', 'gpuids', 'string', ['resolveGpuIds(body.gpu_ids, isMac())', 'gpu_ids,']),
+  serverFact('ui/src/app/api/queue/[queueID]/start/route.ts', 'GET::queue.gpu_ids', 'queue.gpu_ids', 'string', ['data: { gpu_ids: queueID, is_running: true }']),
+  serverFact('ui/src/app/api/queue/[queueID]/start/route.ts', 'GET::queue.is_running', 'queue.is_running', 'boolean', ['is_running: true']),
+  serverFact('ui/src/app/api/queue/[queueID]/stop/route.ts', 'GET::queue.is_running', 'queue.is_running', 'boolean', ['is_running: false']),
+  serverFact('ui/cron/actions/processQueue.ts', 'processQueue::queue.is_running', 'queue.is_running', 'boolean', ['if (queue.is_running)', 'data: { is_running: false }']),
+  serverFact('ui/cron/actions/processQueue.ts', 'processQueue::job.return_to_queue', 'job.return_to_queue', 'boolean', ['return_to_queue: true']),
+  serverFact('ui/cron/actions/processQueue.ts', 'processQueue::job.info', 'job.info', 'string', ["info: 'Stopping job...'"]),
+  serverFact('ui/src/app/api/jobs/[jobID]/start/route.ts', 'GET::job.queue_position', 'job.queue_position', 'integer', ['queue_position: queuePosition']),
+  serverFact('ui/src/app/api/jobs/[jobID]/start/route.ts', 'GET::job.status', 'job.status', 'string', ["status: 'queued'"], stringValues('queued')),
+  serverFact('ui/src/app/api/jobs/[jobID]/start/route.ts', 'GET::job.stop', 'job.stop', 'boolean', ['stop: false']),
+  serverFact('ui/src/app/api/jobs/[jobID]/start/route.ts', 'GET::job.return_to_queue', 'job.return_to_queue', 'boolean', ['return_to_queue: false']),
+  serverFact('ui/src/app/api/jobs/[jobID]/start/route.ts', 'GET::job.info', 'job.info', 'string', ["info: 'Job queued'"]),
+  serverFact('ui/src/app/api/jobs/[jobID]/start/route.ts', 'GET::queue.is_running', 'queue.is_running', 'boolean', ['is_running: false']),
+  serverFact('ui/src/app/api/jobs/[jobID]/stop/route.ts', 'GET::job.stop', 'job.stop', 'boolean', ['stop: true']),
+  serverFact('ui/src/app/api/jobs/[jobID]/stop/route.ts', 'GET::job.status', 'job.status', 'string', ["status: 'stopped'"], stringValues('stopped')),
+  serverFact('ui/src/app/api/jobs/[jobID]/stop/route.ts', 'GET::job.info', 'job.info', 'string', ["info: 'Stopping job...'", "info: 'Job stopped'"]),
+  serverFact('ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts', 'GET::job.stop', 'job.stop', 'boolean', ['stop: true']),
+  serverFact('ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts', 'GET::job.status', 'job.status', 'string', ["status: 'stopped'"], stringValues('stopped')),
+  serverFact('ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts', 'GET::job.info', 'job.info', 'string', ["info: 'Job stopped'"]),
+  serverFact('ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts', 'GET::job.pid', 'job.pid', 'integer', ['pid: null']),
+  serverFact('ui/src/app/api/jobs/[jobID]/save_now/route.ts', 'GET::job.save_now', 'job.save_now', 'boolean', ['save_now: true']),
+  serverFact('ui/src/app/api/jobs/[jobID]/sample_now/route.ts', 'GET::job.sample_now', 'job.sample_now', 'boolean', ['sample_now: true']),
+];
+
+const SETTINGS_CONTROL_FACTS: Array<{
+  key: 'HF_TOKEN' | 'TRAINING_FOLDER' | 'DATASETS_FOLDER' | 'MODELS_PATH';
+  label: string;
+  ui_type: 'string' | 'path';
+  input_type: 'password' | 'text';
+}> = [
+  { key: 'HF_TOKEN', label: 'Hugging Face Token', ui_type: 'string', input_type: 'password' },
+  { key: 'TRAINING_FOLDER', label: 'Training Folder Path', ui_type: 'path', input_type: 'text' },
+  { key: 'DATASETS_FOLDER', label: 'Dataset Folder Path', ui_type: 'path', input_type: 'text' },
+  { key: 'MODELS_PATH', label: 'Models Folder Path', ui_type: 'path', input_type: 'text' },
+];
+
+export function collectDeclaredServerGlobalClaimsFromSource(
+  sourcePath: string,
+  source: string,
+): UiSourceClaim[] {
+  const specs = SERVER_GLOBAL_FACTS.filter(
+    spec => spec.source_path === sourcePath,
+  );
+  const claims: UiSourceClaim[] = specs.map(spec => {
+    for (const required of spec.required) {
+      if (!source.includes(required)) {
+        throw new FactsError(
+          `${spec.source_path} no longer satisfies ${spec.symbol}: missing ${required}`,
+        );
+      }
+    }
+    return {
+      source_path: spec.source_path,
+      symbol: spec.symbol,
+      path: spec.path,
+      kind: 'server-state' as const,
+      ui_label: { present: false },
+      value_contract: {
+        ui_type: spec.ui_type,
+        widget_kind: 'read-only' as const,
+        optional: true,
+        nullable: true,
+        ...(spec.accepted_values === undefined ? {} : { accepted_values: spec.accepted_values }),
+      },
+    };
+  });
+  const settingsPath = 'ui/src/app/settings/page.tsx';
+  if (sourcePath === settingsPath) {
+    for (const control of SETTINGS_CONTROL_FACTS) {
+      for (const required of [
+        `htmlFor="${control.key}"`,
+        `type="${control.input_type}"`,
+        `name="${control.key}"`,
+        `value={settings.${control.key}}`,
+        'onChange={handleChange}',
+      ]) {
+        if (!source.includes(required)) {
+          throw new FactsError(`${settingsPath} no longer satisfies ${control.key} control: missing ${required}`);
+        }
+      }
+      claims.push({
+        source_path: settingsPath,
+        symbol: `Settings::input::settings.${control.key}::${control.label}`,
+        path: `settings.${control.key}`,
+        kind: 'setting',
+        ui_label: presence({ kind: 'string', value: control.label }),
+        value_contract: {
+          ui_type: control.ui_type,
+          widget_kind: 'text',
+          optional: true,
+          nullable: false,
+        },
+      });
+    }
+  }
+  const authPath = 'ui/src/components/AuthWrapper.tsx';
+  if (sourcePath === authPath) {
+    for (const required of ['htmlFor="token"', 'name="token"', 'type="password"', 'value={token}', 'onChange={e => setToken(e.target.value)}']) {
+      if (!source.includes(required)) throw new FactsError(`${authPath} no longer satisfies Password control: missing ${required}`);
+    }
+    claims.push({
+      source_path: authPath,
+      symbol: 'AuthWrapper::input::browser.localStorage.AI_TOOLKIT_AUTH::Password',
+      path: 'browser.localStorage.AI_TOOLKIT_AUTH',
+      kind: 'setting',
+      ui_label: presence({ kind: 'string', value: 'Password' }),
+      value_contract: {
+        ui_type: 'string', widget_kind: 'text', optional: false, nullable: false,
+      },
+    });
+  }
+  if (claims.length === 0) {
+    throw new FactsError(
+      `${sourcePath} is not a declared server/global source boundary`,
+    );
+  }
+  return claims.sort((left, right) => compareCodePoint(
+    `${left.source_path}\0${left.symbol}\0${left.path}\0${left.kind}`,
+    `${right.source_path}\0${right.symbol}\0${right.path}\0${right.kind}`,
+  ));
+}
+
+function declaredServerGlobalClaims(root: string): UiSourceClaim[] {
+  const sourcePaths = new Set(SERVER_GLOBAL_FACTS.map(spec => spec.source_path));
+  sourcePaths.add('ui/src/app/settings/page.tsx');
+  sourcePaths.add('ui/src/components/AuthWrapper.tsx');
+  return [...sourcePaths]
+    .sort(compareCodePoint)
+    .flatMap(sourcePath => collectDeclaredServerGlobalClaimsFromSource(
+      sourcePath,
+      readFileSync(join(root, sourcePath), 'utf8'),
+    ));
+}
+
 function globalSettingClaims(root: string, required: boolean): UiSourceClaim[] {
   const sourcePath = 'ui/src/app/jobs/new/SimpleJob.tsx';
   const sourceText = readFileSync(join(root, sourcePath), 'utf8');
@@ -1661,7 +1894,7 @@ function globalSettingClaims(root: string, required: boolean): UiSourceClaim[] {
     exactChange = ts.isCallExpression(body) && ts.isIdentifier(body.expression) && body.expression.text === 'setGpuIDs' && body.arguments.length === 1 && ts.isIdentifier(unwrap(body.arguments[0])) && (unwrap(body.arguments[0]) as ts.Identifier).text === onChange.parameters[0].name.text;
   }
   if (!exactValue || !exactChange) fail(gpuControl, 'GPU ID control binding is unsupported');
-  return [{
+  const claims: UiSourceClaim[] = [{
     source_path: sourcePath,
     symbol: 'SimpleJob::SelectInput::gpuids::GPU ID',
     path: 'gpuids',
@@ -1674,6 +1907,11 @@ function globalSettingClaims(root: string, required: boolean): UiSourceClaim[] {
       nullable: false,
     },
   }];
+  if (required) claims.push(...declaredServerGlobalClaims(root));
+  return claims.sort((left, right) => compareCodePoint(
+    `${left.source_path}\0${left.symbol}\0${left.path}\0${left.kind}`,
+    `${right.source_path}\0${right.symbol}\0${right.path}\0${right.kind}`,
+  ));
 }
 
 export function collectTrainingBookUiFacts(repositoryRoot: string): TrainingBookUiFacts {

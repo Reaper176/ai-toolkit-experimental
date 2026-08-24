@@ -75,6 +75,9 @@ _SOURCE_KEY = re.compile(
 _READ_KIND = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:\[\])?$"
 )
+_NEXT_ROUTE_SEGMENT = re.compile(
+    r"^\[(?:\.\.\.)?[A-Za-z_][A-Za-z0-9_]*\]$"
+)
 
 
 def _require_canonical_location(value: str, kind: str = "yaml") -> str:
@@ -96,13 +99,23 @@ def _require_canonical_location(value: str, kind: str = "yaml") -> str:
 
 def _require_portable_source(value: str) -> str:
     path = PurePosixPath(value)
+    parts = value.split("/")
+    invalid_part = any(
+        any(token in part for token in ("*", "?", "{", "}"))
+        or (
+            any(token in part for token in ("[", "]"))
+            and not _NEXT_ROUTE_SEGMENT.fullmatch(part)
+        )
+        or (".." in part and not _NEXT_ROUTE_SEGMENT.fullmatch(part))
+        for part in parts
+    )
     if (
         path.is_absolute()
         or "\\" in value
         or ":" in value
-        or any(part in {"", ".", ".."} for part in value.split("/"))
+        or any(part in {"", ".", ".."} for part in parts)
         or path.as_posix() != value
-        or any(token in value for token in ("*", "?", "[", "]", "{", "}"))
+        or invalid_part
     ):
         raise ValueError("source must be a portable confined repo-relative path")
     return value
@@ -449,7 +462,10 @@ class Setting(_StrictModel):
     surfaces: tuple[Literal["simple-ui", "advanced-yaml", "cli"], ...] = Field(
         min_length=1
     )
-    persistence: Literal["config", "job-json", "database", "runtime", "transient"]
+    persistence: Literal[
+        "config", "job-json", "database", "runtime", "transient",
+        "browser-storage",
+    ]
     authority: Literal["user", "ui-derived", "server-overwritten", "runtime-forced"]
     ui_projection: Literal[
         "discriminator-control", "composite-option"
@@ -1930,14 +1946,9 @@ def _validate_catalog_relationships(catalog: SettingsCatalog) -> None:
     for setting in catalog.settings:
         if setting.source_claims:
             continue
-        if setting.scope != "ui-state":
-            raise CatalogError(
-                f"source-less source_claims setting {setting.id!r} must use "
-                "scope ui-state"
-            )
         if setting.id not in ui_owned_setting_ids:
             raise CatalogError(
-                f"source-less UI-state setting {setting.id!r} requires atomic "
+                f"source-less setting {setting.id!r} requires atomic "
                 "UI ownership"
             )
 
