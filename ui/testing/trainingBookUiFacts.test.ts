@@ -15,14 +15,16 @@ import {
 
 assert.deepEqual(
   collectCanonicalSetterPathsFromSource(`
-    const validationConfig = jobConfig.config.process[0].train.validation_config;
-    jobConfig.config.process[0].datasets.map((dataset, i) =>
-      setJobConfig(24, \`config.process[0].datasets[\${i}].fps\`));
-    validationConfig.validation_items.map((item, validationIndex) =>
-      setJobConfig('', \`config.process[0].train.validation_config.validation_items[\${validationIndex}].image_path\`));
-    jobConfig.config.process[0].sample.samples.map((sample, i) =>
-      ['ctrl_img_1', 'ctrl_img_2'].map(ctrlKey =>
-        setJobConfig('', \`config.process[0].sample.samples[\${i}].\${ctrlKey}\`)));
+    function SimpleJob({ jobConfig }) {
+      const validationConfig = jobConfig.config.process[0].train.validation_config;
+      jobConfig.config.process[0].datasets.map((dataset, i) =>
+        setJobConfig(24, \`config.process[0].datasets[\${i}].fps\`));
+      validationConfig.validation_items.map((item, validationIndex) =>
+        setJobConfig('', \`config.process[0].train.validation_config.validation_items[\${validationIndex}].image_path\`));
+      jobConfig.config.process[0].sample.samples.map((sample, i) =>
+        ['ctrl_img_1', 'ctrl_img_2'].map(ctrlKey =>
+          setJobConfig('', \`config.process[0].sample.samples[\${i}].\${ctrlKey}\`)));
+    }
   `),
   [
     'config.process[*].datasets[*].fps',
@@ -30,15 +32,27 @@ assert.deepEqual(
     'config.process[*].sample.samples[*].ctrl_img_2',
     'config.process[*].train.validation_config.validation_items[*].image_path',
   ],
+  'a top-level PascalCase function declaration is a proven component-prop boundary',
 );
 assert.deepEqual(
   collectCanonicalSetterPathsFromSource(`
-    function open() {
-      const sampleCfg = jobConfig.config.process[0].sample;
-      const items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt })).filter(item => item.prompt);
-      openUpsamplePromptsModal(items, (index, prompt) => {
-        setJobConfig(prompt, \`config.process[0].sample.samples[\${index}].prompt\`);
-      });
+    const CaptionSimpleJob: React.FC<Props> = ({ jobConfig }) => {
+      jobConfig.config.process[0].datasets.map((dataset, i) =>
+        setJobConfig('', \`config.process[0].datasets[\${i}].caption_ext\`));
+    };
+  `),
+  ['config.process[*].datasets[*].caption_ext'],
+  'a top-level PascalCase variable-bound arrow is a proven component-prop boundary',
+);
+assert.deepEqual(
+  collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig }) {
+      function open() {
+        const sampleCfg = jobConfig.config.process[0].sample;
+        const items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt })).filter(item => item.prompt);
+        openUpsamplePromptsModal(items, (index, prompt) =>
+          setJobConfig(prompt, \`config.process[0].sample.samples[\${index}].prompt\`));
+      }
     }
   `),
   ['config.process[*].sample.samples[*].prompt'],
@@ -51,6 +65,478 @@ assert.throws(
   () => collectCanonicalSetterPathsFromSource("other.map((row, i) => setJobConfig('', `config.process[0].datasets[${i}].fps`));"),
   /approved direct repeatable-array map/,
 );
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    import unrelated from './unrelated';
+    unrelated.config.process[0].datasets.map((dataset, i) =>
+      setJobConfig('', \`config.process[0].datasets[\${i}].fps\`));
+  `),
+  /approved direct repeatable-array map/,
+  'an arbitrary imported .config root must not acquire jobConfig provenance',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    import jobConfig from './unrelated';
+    jobConfig.config.process[0].datasets.map((dataset, i) =>
+      setJobConfig('', \`config.process[0].datasets[\${i}].fps\`));
+  `),
+  /approved direct repeatable-array map/,
+  'an imported jobConfig name is not the collector jobConfig boundary',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    jobConfig.config.process[0].datasets.map((dataset, i) =>
+      setJobConfig('', \`config.process[0].datasets[\${i}].fps\`));
+  `),
+  /approved direct repeatable-array map/,
+  'an unbound jobConfig name is not a proven collector boundary',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function unrelated(jobConfig) {
+      jobConfig.config.process[0].datasets.map((dataset, i) =>
+        setJobConfig('', \`config.process[0].datasets[\${i}].fps\`));
+    }
+  `),
+  /approved direct repeatable-array map/,
+  'a positional parameter named jobConfig is not the component-prop boundary',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function Outer() {
+      function Unrelated({ jobConfig }) {
+        jobConfig.config.process[0].datasets.map((dataset, i) =>
+          setJobConfig('', \`config.process[0].datasets[\${i}].fps\`));
+      }
+    }
+  `),
+  /approved direct repeatable-array map/,
+  'a nested PascalCase helper is not a top-level component boundary',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function unrelated({ jobConfig }) {
+      jobConfig.config.process[0].datasets.map((dataset, i) =>
+        setJobConfig('', \`config.process[0].datasets[\${i}].fps\`));
+    }
+  `),
+  /approved direct repeatable-array map/,
+  'a lowercase top-level function is not a component boundary',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig = unrelated }) {
+      jobConfig.config.process[0].datasets.map((dataset, i) =>
+        setJobConfig('', \`config.process[0].datasets[\${i}].fps\`));
+    }
+  `),
+  /approved direct repeatable-array map/,
+  'a defaulted jobConfig binding is not the exact component prop',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function Fixture(unrelated, { jobConfig }) {
+      jobConfig.config.process[0].datasets.map((dataset, i) =>
+        setJobConfig('', \`config.process[0].datasets[\${i}].fps\`));
+    }
+  `),
+  /approved direct repeatable-array map/,
+  'a later destructured parameter is not the component props boundary',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig }) {
+      function declareAlias() {
+        const sampleCfg = jobConfig.config.process[0].sample;
+        return sampleCfg;
+      }
+      function consumeAlias() {
+        sampleCfg.samples.map((sample, i) =>
+          setJobConfig('', \`config.process[0].sample.samples[\${i}].prompt\`));
+      }
+    }
+  `),
+  /approved direct repeatable-array map/,
+  'an alias declared in a sibling function must not leak into this scope',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig }) {
+      const sampleCfg = jobConfig.config.process[0].sample;
+      function consumeAlias(sampleCfg) {
+        sampleCfg.samples.map((sample, i) =>
+          setJobConfig('', \`config.process[0].sample.samples[\${i}].prompt\`));
+      }
+    }
+  `),
+  /approved direct repeatable-array map/,
+  'a parameter must shadow a same-named source alias',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig }) {
+      const sampleCfg = jobConfig.config.process[0].sample;
+      function consumeAlias() {
+        sampleCfg.samples.map((sample, i) =>
+          setJobConfig('', \`config.process[0].sample.samples[\${i}].prompt\`));
+        if (condition) {
+          var sampleCfg = unrelated.sample;
+        }
+      }
+    }
+  `),
+  /approved direct repeatable-array map/,
+  'a nested-block var declaration must hoist and shadow the source alias throughout the function',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig }) {
+      let sampleCfg = jobConfig.config.process[0].sample;
+      sampleCfg = unrelated.sample;
+      sampleCfg.samples.map((sample, i) =>
+        setJobConfig('', \`config.process[0].sample.samples[\${i}].prompt\`));
+    }
+  `),
+  /approved direct repeatable-array map/,
+  'an alias loses provenance after rebinding',
+);
+for (const operator of ['&&=', '||=', '??=']) {
+  assert.throws(
+    () => collectCanonicalSetterPathsFromSource(`
+      function Fixture({ jobConfig }) {
+        let sampleCfg = jobConfig.config.process[0].sample;
+        sampleCfg ${operator} unrelated.sample;
+        sampleCfg.samples.map((sample, i) =>
+          setJobConfig('', \`config.process[0].sample.samples[\${i}].prompt\`));
+      }
+    `),
+    /approved direct repeatable-array map/,
+    `${operator} must invalidate alias provenance`,
+  );
+}
+for (const assignment of [
+  '[sampleCfg] = [unrelated.sample];',
+  '({ sampleCfg } = { sampleCfg: unrelated.sample });',
+]) {
+  assert.throws(
+    () => collectCanonicalSetterPathsFromSource(`
+      function Fixture({ jobConfig }) {
+        let sampleCfg = jobConfig.config.process[0].sample;
+        ${assignment}
+        sampleCfg.samples.map((sample, i) =>
+          setJobConfig('', \`config.process[0].sample.samples[\${i}].prompt\`));
+      }
+    `),
+    /approved direct repeatable-array map/,
+    `${assignment} must invalidate alias provenance`,
+  );
+}
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig }) {
+      let sampleCfg = jobConfig.config.process[0].sample;
+      {
+        sampleCfg = unrelated.sample;
+      }
+      sampleCfg.samples.map((sample, i) =>
+        setJobConfig('', \`config.process[0].sample.samples[\${i}].prompt\`));
+    }
+  `),
+  /approved direct repeatable-array map/,
+  'a nested-block assignment must rebind its outer lexical alias',
+);
+for (const loopKind of ['of', 'in']) {
+  assert.throws(
+    () => collectCanonicalSetterPathsFromSource(`
+      function Fixture({ jobConfig }) {
+        let sampleCfg = jobConfig.config.process[0].sample;
+        for (sampleCfg ${loopKind} sources) {
+          sampleCfg.samples.map((sample, i) =>
+            setJobConfig('', \`config.process[0].sample.samples[\${i}].prompt\`));
+        }
+      }
+    `),
+    /approved direct repeatable-array map/,
+    `a for-${loopKind} target must invalidate alias provenance before the loop body`,
+  );
+}
+assert.deepEqual(
+  collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig }) {
+      let sampleCfg = jobConfig.config.process[0].sample;
+      for (sampleCfg of sampleCfg.samples.map((sample, i) => {
+        setJobConfig('', \`config.process[0].sample.samples[\${i}].prompt\`);
+        return sample;
+      })) {
+        break;
+      }
+    }
+  `),
+  ['config.process[*].sample.samples[*].prompt'],
+  'a loop target assignment must not invalidate provenance while evaluating its iterable',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig }) {
+      let sampleCfg = jobConfig.config.process[0].sample;
+      {
+        for (sampleCfg of sources) {
+          consume(sampleCfg);
+        }
+      }
+      sampleCfg.samples.map((sample, i) =>
+        setJobConfig('', \`config.process[0].sample.samples[\${i}].prompt\`));
+    }
+  `),
+  /approved direct repeatable-array map/,
+  'a nested loop target must invalidate outer alias provenance after the loop',
+);
+assert.deepEqual(
+  collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig }) {
+      let sampleCfg = jobConfig.config.process[0].sample;
+      {
+        let sampleCfg = unrelated.sample;
+        sampleCfg = other.sample;
+      }
+      sampleCfg.samples.map((sample, i) =>
+        setJobConfig('', \`config.process[0].sample.samples[\${i}].prompt\`));
+    }
+  `),
+  ['config.process[*].sample.samples[*].prompt'],
+  'a nested shadow assignment must not rebind its outer lexical alias',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig }) {
+      jobConfig.config.process[0].datasets.map((dataset, i) => {
+        {
+          const i = 0;
+          setJobConfig('', \`config.process[0].datasets[\${i}].fps\`);
+        }
+      });
+    }
+  `),
+  /unbound setter path template identifier i/,
+  'a map index must be the exact lexical callback binding',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig }) {
+      jobConfig.config.process[0].datasets.map(undefined, (dataset, i) =>
+        setJobConfig('', \`config.process[0].datasets[\${i}].fps\`));
+    }
+  `),
+  /unbound setter path template identifier i/,
+  'a function passed as the map thisArg is not a direct map callback',
+);
+for (const indexParameter of ['...i', 'i = 0']) {
+  assert.throws(
+    () => collectCanonicalSetterPathsFromSource(`
+      function Fixture({ jobConfig }) {
+        jobConfig.config.process[0].datasets.map((dataset, ${indexParameter}) =>
+          setJobConfig('', \`config.process[0].datasets[\${i}].fps\`));
+      }
+    `),
+    /unbound setter path template identifier i/,
+    `map index parameter ${indexParameter} is not an exact numeric index binding`,
+  );
+}
+for (const mutation of ['i++', 'i &&= 0', '[i] = [0]']) {
+  assert.throws(
+    () => collectCanonicalSetterPathsFromSource(`
+      function Fixture({ jobConfig }) {
+        jobConfig.config.process[0].datasets.map((dataset, i) =>
+          (${mutation}, setJobConfig('', \`config.process[0].datasets[\${i}].fps\`)));
+      }
+    `),
+    /unbound setter path template identifier i/,
+    `concise map mutation ${mutation} must invalidate index provenance before the setter`,
+  );
+}
+assert.deepEqual(
+  collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig }) {
+      jobConfig.config.process[0].datasets.map((dataset, i) =>
+        ((() => i++), setJobConfig('', \`config.process[0].datasets[\${i}].fps\`)));
+    }
+  `),
+  ['config.process[*].datasets[*].fps'],
+  'a concise callback frame must not collect assignments from a nested function',
+);
+for (const mutation of ['++i;', 'i &&= 0;', '[i] = [0];']) {
+  assert.throws(
+    () => collectCanonicalSetterPathsFromSource(`
+      function Fixture({ jobConfig }) {
+        jobConfig.config.process[0].datasets.map((dataset, i) => {
+          ${mutation}
+          setJobConfig('', \`config.process[0].datasets[\${i}].fps\`);
+        });
+      }
+    `),
+    /unbound setter path template identifier i/,
+    `${mutation} must invalidate map callback index provenance`,
+  );
+}
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig }) {
+      jobConfig.config.process[0].datasets.map((dataset, i) =>
+        setJobConfig('', \`config.process[0].sample.samples[\${i}].prompt\`));
+    }
+  `),
+  /mapped array does not match setter wildcard/,
+  'a proven index can canonicalize only the exact array that bound it',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(
+    "setJobConfig('', 'config.process[0].datasets[*].fps');",
+  ),
+  /unproven wildcard/,
+  'canonical wildcard spelling in source is not wildcard provenance',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(
+    "setJobConfig('', 'config.process[0].datasets[x].fps');",
+  ),
+  /unresolved index x/,
+  'the model-architecture x placeholder is not valid in setter source',
+);
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig }) {
+      function open() {
+        const sampleCfg = jobConfig.config.process[0].sample;
+        const items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt }));
+        const unrelatedItems = items;
+        openUpsamplePromptsModal(unrelatedItems, (index, prompt) => {
+          setJobConfig(prompt, \`config.process[0].sample.samples[\${index}].prompt\`);
+        });
+      }
+    }
+  `),
+  /unbound setter path template identifier index/,
+  'the modal adapter requires argument zero to be the exact mapped samples array',
+);
+for (const indexParameter of ['...index', 'index = 0']) {
+  assert.throws(
+    () => collectCanonicalSetterPathsFromSource(`
+      function Fixture({ jobConfig }) {
+        function open() {
+          const sampleCfg = jobConfig.config.process[0].sample;
+          const items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt }));
+          openUpsamplePromptsModal(items, (${indexParameter}) => {
+            setJobConfig('', \`config.process[0].sample.samples[\${index}].prompt\`);
+          });
+        }
+      }
+    `),
+    /unbound setter path template identifier index/,
+    `modal index parameter ${indexParameter} is not an exact numeric index binding`,
+  );
+}
+for (const mapperIndexParameter of ['...i', 'i = 0']) {
+  assert.throws(
+    () => collectCanonicalSetterPathsFromSource(`
+      function Fixture({ jobConfig }) {
+        function open() {
+          const sampleCfg = jobConfig.config.process[0].sample;
+          const items = sampleCfg.samples.map((s, ${mapperIndexParameter}) => ({ index: i, prompt: s.prompt }));
+          openUpsamplePromptsModal(items, (index, prompt) => {
+            setJobConfig(prompt, \`config.process[0].sample.samples[\${index}].prompt\`);
+          });
+        }
+      }
+    `),
+    /unbound setter path template identifier index/,
+    `modal mapper index parameter ${mapperIndexParameter} is not an exact numeric index binding`,
+  );
+}
+for (const mutation of ['index++', 'index ||= 0', '[index] = [0]']) {
+  assert.throws(
+    () => collectCanonicalSetterPathsFromSource(`
+      function Fixture({ jobConfig }) {
+        const sampleCfg = jobConfig.config.process[0].sample;
+        const items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt }));
+        openUpsamplePromptsModal(items, (index, prompt) =>
+          (${mutation}, setJobConfig(prompt, \`config.process[0].sample.samples[\${index}].prompt\`)));
+      }
+    `),
+    /unbound setter path template identifier index/,
+    `concise modal mutation ${mutation} must invalidate index provenance before the setter`,
+  );
+}
+for (const mutation of ['items++;', 'items &&= [];', '[items] = [[]];']) {
+  assert.throws(
+    () => collectCanonicalSetterPathsFromSource(`
+      function Fixture({ jobConfig }) {
+        function open() {
+          const sampleCfg = jobConfig.config.process[0].sample;
+          let items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt }));
+          ${mutation}
+          openUpsamplePromptsModal(items, (index, prompt) => {
+            setJobConfig(prompt, \`config.process[0].sample.samples[\${index}].prompt\`);
+          });
+        }
+      }
+    `),
+    /unbound setter path template identifier index/,
+    `${mutation} must invalidate modal items provenance`,
+  );
+}
+for (const loopKind of ['of', 'in']) {
+  assert.throws(
+    () => collectCanonicalSetterPathsFromSource(`
+      function Fixture({ jobConfig }) {
+        const sampleCfg = jobConfig.config.process[0].sample;
+        let items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt }));
+        for (items ${loopKind} groups) {
+          openUpsamplePromptsModal(items, (index, prompt) => {
+            setJobConfig(prompt, \`config.process[0].sample.samples[\${index}].prompt\`);
+          });
+        }
+      }
+    `),
+    /unbound setter path template identifier index/,
+    `a for-${loopKind} target must invalidate modal items provenance before the loop body`,
+  );
+}
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig }) {
+      function open() {
+        const sampleCfg = jobConfig.config.process[0].sample;
+        const items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt }));
+        openUpsamplePromptsModal(items, (index, prompt) => {
+          {
+            const index = 0;
+            setJobConfig(prompt, \`config.process[0].sample.samples[\${index}].prompt\`);
+          }
+        });
+      }
+    }
+  `),
+  /unbound setter path template identifier index/,
+  'the modal wildcard must use the exact callback index binding',
+);
+for (const mutation of ['index ??= 0;', '[index] = [0];', 'for (index of [0]) break;']) {
+  assert.throws(
+    () => collectCanonicalSetterPathsFromSource(`
+      function Fixture({ jobConfig }) {
+        function open() {
+          const sampleCfg = jobConfig.config.process[0].sample;
+          const items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt }));
+          openUpsamplePromptsModal(items, (index, prompt) => {
+            ${mutation}
+            setJobConfig(prompt, \`config.process[0].sample.samples[\${index}].prompt\`);
+          });
+        }
+      }
+    `),
+    /unbound setter path template identifier index/,
+    `${mutation} must invalidate modal callback index provenance`,
+  );
+}
 
 const visibleControlClaims = collectVisibleControlClaimsFromSource(`
   export default function SimpleJob({ jobConfig, setJobConfig }) {
@@ -174,11 +660,12 @@ const defaultPath = '';
 export const modelArchs = [{
   name: 'fixture', label: 'Fixture', group: 'image', controls: ['depth'],
   isVideoModel: false, hasMultiLinePrompts: true,
-  accuracyRecoveryAdapters: { alpha: 'adapter.safetensors' },
+  accuracyRecoveryAdapters: { '\u{10000}': 'astral.safetensors', '\uE000': 'private-use.safetensors' },
   sampleTags: { mood: { title: 'Mood', type: 'text' } },
   gateUrl: 'https://example.test/gate',
   defaults: {
     'config.process[0].model.name_or_path': ['model/repo', defaultPath],
+    'config.process[0].model.empty_kwargs': [{}, {}],
     'config.process[0].model.model_kwargs': [{ nested: { enabled: true }, values: [1, undefined] }, {}],
     'config.process[0].datasets[x].fps': [24, undefined],
   },
@@ -220,6 +707,13 @@ try {
     present: true,
     value: { kind: 'boolean', value: false },
   });
+  assert.deepEqual(
+    architecture.accuracy_recovery_adapters.value?.kind === 'object'
+      ? architecture.accuracy_recovery_adapters.value.entries.map(item => item.key)
+      : [],
+    ['\uE000', '\u{10000}'],
+    'serialized object keys must use Python-compatible Unicode code-point order',
+  );
   assert.deepEqual(architecture.defaults.map(item => item.path), [
     'config.process[*].datasets[*].fps',
     'config.process[*].model.model_kwargs.nested.enabled',
@@ -241,6 +735,11 @@ try {
     },
   );
   assert.deepEqual(architecture.default_containers, [
+    {
+      path: 'config.process[*].model.empty_kwargs',
+      selected_present: true,
+      unselected_present: true,
+    },
     {
       path: 'config.process[*].model.model_kwargs',
       selected_present: true,
