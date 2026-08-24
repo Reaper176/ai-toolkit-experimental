@@ -233,6 +233,15 @@ def _in_model_family_wan(item) -> bool:
     }
 
 
+def _in_model_family_qwen_sd(item) -> bool:
+    return item.source in {
+        "extensions_built_in/diffusion_models/qwen_image/qwen_image.py",
+        "extensions_built_in/diffusion_models/qwen_image/qwen_image_edit_plus.py",
+        "toolkit/models/base_model.py",
+        "toolkit/models/FakeVAE.py",
+    }
+
+
 def _in_train_config_keys(item, keys) -> bool:
     return (
         item.source == "toolkit/config_modules.py"
@@ -465,6 +474,7 @@ def main() -> None:
             ["cli-environment"],
             ["model-family-core"],
             ["model-family-wan"],
+            ["model-family-qwen-sd"],
             ["dataset-core"], ["dataset-modalities"], ["data-loader-cache"],
             ["save-sample-validation"], ["data"],
         ):
@@ -564,6 +574,7 @@ def main() -> None:
             "cli-environment": _in_cli_environment,
             "model-family-core": _in_model_family_core,
             "model-family-wan": _in_model_family_wan,
+            "model-family-qwen-sd": _in_model_family_qwen_sd,
             "dataset-core": lambda item: _in_dataset_keys(item, DATASET_CORE_KEYS),
             "dataset-modalities": lambda item: _in_dataset_keys(item, DATASET_MODALITY_KEYS),
             "data-loader-cache": _in_data_loader_cache,

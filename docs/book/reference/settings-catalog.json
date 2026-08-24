@@ -40407,6 +40407,91 @@
         "drawbacks": "Tiling adds processing overhead and can introduce tile-boundary artifacts.",
         "example": "vae_tiling: true"
       }
+    },
+    {
+      "id": "model.qwen_image_edit_plus.model_kwargs.match_target_res",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.match_target_res"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "ui_architecture": "qwen_image_edit_plus"
+        },
+        {
+          "ui_architecture": "qwen_image_edit_plus:2511"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": [
+            {
+              "ui_architecture": "qwen_image_edit_plus"
+            },
+            {
+              "ui_architecture": "qwen_image_edit_plus:2511"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved and acts falsey, retaining the fixed default control-image pixel budget.",
+          "applicability": [
+            {
+              "ui_architecture": "qwen_image_edit_plus"
+            },
+            {
+              "ui_architecture": "qwen_image_edit_plus:2511"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/qwen_image/qwen_image_edit_plus.py",
+          "symbol": "QwenImageEditPlusModel.get_noise_prediction",
+          "key": "match_target_res",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "models/qwen-image-and-edit.md",
+        "anchor": "model-qwen-image-edit-plus-model-kwargs-match-target-res",
+        "description": "Sizes encoded Qwen Image Edit Plus control images from the current target latent resolution instead of the fixed control-image pixel budget.",
+        "benefits": "Aligns control-image token detail with the target output resolution.",
+        "drawbacks": "Large target resolutions increase control-image encoding memory and time and can reduce consistency across buckets.",
+        "example": "match_target_res: false"
+      }
     }
   ]
 }

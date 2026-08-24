@@ -1673,6 +1673,90 @@
       "key": "noise",
       "read_kind": "kwargs.get",
       "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/qwen_image/qwen_image.py",
+      "symbol": "QwenImageModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/qwen_image/qwen_image.py",
+      "symbol": "QwenImageModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/FakeVAE.py",
+      "symbol": "FakeVAE.to",
+      "key": "device",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/FakeVAE.py",
+      "symbol": "FakeVAE.to",
+      "key": "device",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/FakeVAE.py",
+      "symbol": "FakeVAE.to",
+      "key": "dtype",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/FakeVAE.py",
+      "symbol": "FakeVAE.to",
+      "key": "dtype",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/base_model.py",
+      "symbol": "BaseModel.predict_noise",
+      "key": "down_block_additional_residuals",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/base_model.py",
+      "symbol": "BaseModel.predict_noise",
+      "key": "down_block_additional_residuals",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/base_model.py",
+      "symbol": "BaseModel.predict_noise",
+      "key": "down_intrablock_additional_residuals",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/base_model.py",
+      "symbol": "BaseModel.predict_noise",
+      "key": "down_intrablock_additional_residuals",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/base_model.py",
+      "symbol": "BaseModel.predict_noise",
+      "key": "mid_block_additional_residual",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/base_model.py",
+      "symbol": "BaseModel.predict_noise",
+      "key": "mid_block_additional_residual",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
     }
   ]
 }

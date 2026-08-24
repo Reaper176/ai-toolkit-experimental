@@ -1953,6 +1953,13 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 "extensions_built_in/diffusion_models/wan22/wan22_14b_model.py",
                 "toolkit/models/wan21/wan21.py",
             }
+        if scope == "model-family-qwen-sd":
+            return item.source in {
+                "extensions_built_in/diffusion_models/qwen_image/qwen_image.py",
+                "extensions_built_in/diffusion_models/qwen_image/qwen_image_edit_plus.py",
+                "toolkit/models/base_model.py",
+                "toolkit/models/FakeVAE.py",
+            }
         if scope == "dataset-core":
             return (
                 item.source == "toolkit/config_modules.py"
@@ -2289,6 +2296,46 @@ class CatalogProductionSliceTests(unittest.TestCase):
         ):
             teaching = " ".join(vars(settings[setting_id].render).values()).casefold()
             self.assertIn("at least one", teaching)
+
+    def test_catalog_qwen_sd_model_kwargs_are_exactly_owned(self):
+        try:
+            self.assert_catalog_selector_green("--scope", "model-family-qwen-sd")
+        except DiscoveryError as error:
+            self.fail(str(error))
+        facts = tuple(
+            fact for fact in self.discovered
+            if self._in_scope(fact, "model-family-qwen-sd")
+        )
+        self.assertEqual(len(facts), 13)
+        claimed = {
+            (claim.source, claim.symbol, claim.key, claim.read_kind)
+            for claim in self.claims if self._in_scope(claim, "model-family-qwen-sd")
+        }
+        self.assertEqual(
+            claimed,
+            {
+                (fact.source, fact.symbol, fact.key, fact.read_kind)
+                for fact in facts if fact.read_kind == "model_kwargs.get"
+            },
+        )
+        self.assertEqual(len(claimed), 1)
+        self.assertEqual(
+            len(tuple(item for item in self.exclusions if self._in_scope(item, "model-family-qwen-sd"))),
+            12,
+        )
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        setting = next(
+            item for item in catalog.settings
+            if item.id == "model.qwen_image_edit_plus.model_kwargs.match_target_res"
+        )
+        self.assertEqual(
+            {item.ui_architecture for item in setting.applicability},
+            {"qwen_image_edit_plus", "qwen_image_edit_plus:2511"},
+        )
 
     def test_catalog_train_config_unconsumed_fields_are_source_derived(self):
         expected = {"unet_lr", "text_encoder_lr", "weight_jitter"}
