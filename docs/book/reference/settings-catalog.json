@@ -39435,6 +39435,650 @@
         "drawbacks": "Invalid strings fail module import, while unsuitable depths can stall transfers or increase memory use.",
         "example": "AI_TOOLKIT_OFFLOAD_DEPTH=4 python run.py config/character.yaml"
       }
+    },
+    {
+      "id": "model.anima.model_kwargs.max_sequence_length",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.max_sequence_length"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "engine_architecture": "anima"
+        }
+      ],
+      "contract": {
+        "parser_type": "integer",
+        "supported_type": "positive-integer",
+        "ui_type": null,
+        "example_type": "integer",
+        "accepted_values": null,
+        "range": {
+          "minimum": 1,
+          "maximum": null,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 512,
+          "applicability": [
+            {
+              "engine_architecture": "anima"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/anima/anima.py",
+          "symbol": "AnimaModel.__init__",
+          "key": "max_sequence_length",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "models/anima.md",
+        "anchor": "model-anima-model-kwargs-max-sequence-length",
+        "description": "Limits the token sequence length used by the Anima text conditioner.",
+        "benefits": "Longer captions can preserve more prompt context.",
+        "drawbacks": "Longer sequences increase text-encoding memory and compute.",
+        "example": "max_sequence_length: 512"
+      }
+    },
+    {
+      "id": "model.anima.model_kwargs.train_text_conditioner",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.train_text_conditioner"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "engine_architecture": "anima"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": [
+            {
+              "engine_architecture": "anima"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by model_kwargs.get and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "engine_architecture": "anima"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/diffusion_models/anima/anima.py",
+          "symbol": "AnimaModel.__init__",
+          "key": "train_text_conditioner",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "models/anima.md",
+        "anchor": "model-anima-model-kwargs-train-text-conditioner",
+        "description": "Enables gradient training for Anima text-conditioner projection layers.",
+        "benefits": "Allows the conditioning projection to adapt to the dataset.",
+        "drawbacks": "Adds trainable parameters and memory use and can overfit text conditioning.",
+        "example": "train_text_conditioner: false"
+      }
+    },
+    {
+      "id": "model.flex2.model_kwargs.control_dropout",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.control_dropout"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "engine_architecture": "flex2"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": [
+            {
+              "engine_architecture": "flex2"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/flex2/flex2.py",
+          "symbol": "Flex2.__init__",
+          "key": "control_dropout",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-flex2-model-kwargs-control-dropout",
+        "description": "Sets the chance of dropping a supplied Flex 2 control image during training.",
+        "benefits": "Teaches the model to remain useful when control is absent.",
+        "drawbacks": "Too much dropout weakens control adherence.",
+        "example": "control_dropout: 0.1"
+      }
+    },
+    {
+      "id": "model.flex2.model_kwargs.do_random_inpainting",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.do_random_inpainting"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "engine_architecture": "flex2"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": [
+            {
+              "engine_architecture": "flex2"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by model_kwargs.get and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "engine_architecture": "flex2"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/flex2/flex2.py",
+          "symbol": "Flex2.__init__",
+          "key": "do_random_inpainting",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-flex2-model-kwargs-do-random-inpainting",
+        "description": "Generates a random inpainting condition when a Flex 2 row has no inpaint tensor.",
+        "benefits": "Adds inpainting examples without requiring every row to include a mask.",
+        "drawbacks": "Synthetic masks can shift training away from the curated data distribution.",
+        "example": "do_random_inpainting: false"
+      }
+    },
+    {
+      "id": "model.flex2.model_kwargs.inpaint_dropout",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.inpaint_dropout"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "engine_architecture": "flex2"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": [
+            {
+              "engine_architecture": "flex2"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/flex2/flex2.py",
+          "symbol": "Flex2.__init__",
+          "key": "inpaint_dropout",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-flex2-model-kwargs-inpaint-dropout",
+        "description": "Sets the chance of dropping a Flex 2 inpainting condition.",
+        "benefits": "Improves robustness to missing inpainting control.",
+        "drawbacks": "Too much dropout reduces inpainting specialization.",
+        "example": "inpaint_dropout: 0.1"
+      }
+    },
+    {
+      "id": "model.flex2.model_kwargs.inpaint_random_chance",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.inpaint_random_chance"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "engine_architecture": "flex2"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": [
+            {
+              "engine_architecture": "flex2"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/flex2/flex2.py",
+          "symbol": "Flex2.__init__",
+          "key": "inpaint_random_chance",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-flex2-model-kwargs-inpaint-random-chance",
+        "description": "Sets the chance of replacing a supplied Flex 2 inpainting mask with a random mask.",
+        "benefits": "Varies mask geometry during inpainting training.",
+        "drawbacks": "Random replacement can discard valuable curated mask structure.",
+        "example": "inpaint_random_chance: 0.1"
+      }
+    },
+    {
+      "id": "model.flex2.model_kwargs.invert_inpaint_mask_chance",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.invert_inpaint_mask_chance"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "engine_architecture": "flex2"
+        }
+      ],
+      "contract": {
+        "parser_type": "number",
+        "supported_type": "probability",
+        "ui_type": null,
+        "example_type": "number",
+        "accepted_values": null,
+        "range": {
+          "minimum": 0,
+          "maximum": 1,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": 0,
+          "applicability": [
+            {
+              "engine_architecture": "flex2"
+            }
+          ]
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/flex2/flex2.py",
+          "symbol": "Flex2.__init__",
+          "key": "invert_inpaint_mask_chance",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-flex2-model-kwargs-invert-inpaint-mask-chance",
+        "description": "Sets the chance of inverting a Flex 2 inpainting mask.",
+        "benefits": "Balances learning across masked and complementary regions.",
+        "drawbacks": "Frequent inversion can contradict the intended mask semantics.",
+        "example": "invert_inpaint_mask_chance: 0.1"
+      }
+    },
+    {
+      "id": "model.flex2.model_kwargs.random_blur_mask",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.random_blur_mask"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "engine_architecture": "flex2"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": [
+            {
+              "engine_architecture": "flex2"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by model_kwargs.get and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "engine_architecture": "flex2"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/flex2/flex2.py",
+          "symbol": "Flex2.__init__",
+          "key": "random_blur_mask",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-flex2-model-kwargs-random-blur-mask",
+        "description": "Randomly blurs Flex 2 inpainting mask boundaries.",
+        "benefits": "Can reduce sensitivity to perfectly sharp mask edges.",
+        "drawbacks": "Blurred boundaries can train unwanted transition regions.",
+        "example": "random_blur_mask: false"
+      }
+    },
+    {
+      "id": "model.flex2.model_kwargs.random_dialate_mask",
+      "ui_label": null,
+      "scope": "model",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].model.model_kwargs.random_dialate_mask"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [
+        {
+          "engine_architecture": "flex2"
+        }
+      ],
+      "contract": {
+        "parser_type": "boolean",
+        "supported_type": "boolean",
+        "ui_type": null,
+        "example_type": "boolean",
+        "accepted_values": [
+          false,
+          true,
+          null
+        ],
+        "range": null,
+        "null": "accepted"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "present",
+          "value": false,
+          "applicability": [
+            {
+              "engine_architecture": "flex2"
+            }
+          ]
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "Explicit null is preserved by model_kwargs.get and acts falsey at boolean consumers.",
+          "applicability": [
+            {
+              "engine_architecture": "flex2"
+            }
+          ]
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "model",
+      "source_claims": [
+        {
+          "source": "extensions_built_in/flex2/flex2.py",
+          "symbol": "Flex2.__init__",
+          "key": "random_dialate_mask",
+          "read_kind": "model_kwargs.get"
+        }
+      ],
+      "render": {
+        "page": "reference/advanced-only-settings.md",
+        "anchor": "model-flex2-model-kwargs-random-dialate-mask",
+        "description": "Randomly dilates Flex 2 inpainting masks; the live key intentionally retains the dialate spelling.",
+        "benefits": "Varies mask coverage around the target region.",
+        "drawbacks": "Expansion can include pixels that were meant to stay preserved.",
+        "example": "random_dialate_mask: false"
+      }
     }
   ]
 }

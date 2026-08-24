@@ -1938,6 +1938,16 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 "toolkit/paths.py",
                 "toolkit/memory_management/manager_modules.py",
             }
+        if scope == "model-family-core":
+            return item.source in {
+                "extensions_built_in/diffusion_models/anima/anima.py",
+                "extensions_built_in/diffusion_models/chroma/chroma_model.py",
+                "extensions_built_in/diffusion_models/chroma/chroma_radiance_model.py",
+                "extensions_built_in/diffusion_models/flux_kontext/flux_kontext.py",
+                "extensions_built_in/diffusion_models/zeta_chroma/zeta_chroma_model.py",
+                "extensions_built_in/flex2/flex2.py",
+                "toolkit/models/flux.py",
+            }
         if scope == "dataset-core":
             return (
                 item.source == "toolkit/config_modules.py"
@@ -2189,6 +2199,46 @@ class CatalogProductionSliceTests(unittest.TestCase):
         self.assertEqual(
             settings["environment.models_path"].locations[0].path,
             "MODELS_PATH",
+        )
+
+    def test_catalog_anima_flux_flex_chroma_model_kwargs_are_exactly_owned(self):
+        try:
+            self.assert_catalog_selector_green("--scope", "model-family-core")
+        except DiscoveryError as error:
+            self.fail(str(error))
+        facts = tuple(
+            fact for fact in self.discovered
+            if self._in_scope(fact, "model-family-core")
+        )
+        self.assertEqual(len(facts), 25)
+        model_kwargs = tuple(
+            fact for fact in facts if fact.read_kind == "model_kwargs.get"
+        )
+        self.assertEqual(len(model_kwargs), 9)
+        claimed = {
+            (claim.source, claim.symbol, claim.key, claim.read_kind)
+            for claim in self.claims
+            if self._in_scope(claim, "model-family-core")
+        }
+        excluded = {
+            (item.source, item.symbol, item.key, item.read_kind)
+            for item in self.exclusions
+            if self._in_scope(item, "model-family-core")
+        }
+        self.assertEqual(
+            claimed,
+            {
+                (fact.source, fact.symbol, fact.key, fact.read_kind)
+                for fact in model_kwargs
+            },
+        )
+        self.assertEqual(len(excluded), 16)
+        self.assertEqual(
+            {
+                item.reason for item in self.exclusions
+                if self._in_scope(item, "model-family-core")
+            },
+            {"model-developer API"},
         )
 
     def test_catalog_train_config_unconsumed_fields_are_source_derived(self):

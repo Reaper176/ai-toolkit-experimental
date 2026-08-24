@@ -1547,6 +1547,118 @@
       "key": "path",
       "read_kind": "kwargs.get",
       "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/anima/anima.py",
+      "symbol": "AnimaModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/anima/anima.py",
+      "symbol": "AnimaModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/anima/anima.py",
+      "symbol": "AnimaPromptEmbeds._device_from_to_args",
+      "key": "device",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/anima/anima.py",
+      "symbol": "AnimaPromptEmbeds._device_from_to_args",
+      "key": "device",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/chroma/chroma_model.py",
+      "symbol": "ChromaModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/chroma/chroma_model.py",
+      "symbol": "ChromaModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/chroma/chroma_radiance_model.py",
+      "symbol": "ChromaRadianceModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/chroma/chroma_radiance_model.py",
+      "symbol": "ChromaRadianceModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/flux_kontext/flux_kontext.py",
+      "symbol": "FluxKontextModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/flux_kontext/flux_kontext.py",
+      "symbol": "FluxKontextModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/zeta_chroma/zeta_chroma_model.py",
+      "symbol": "ZetaChromaModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/zeta_chroma/zeta_chroma_model.py",
+      "symbol": "ZetaChromaModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/flex2/flex2.py",
+      "symbol": "Flex2.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/flex2/flex2.py",
+      "symbol": "Flex2.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/flux.py",
+      "symbol": "new_device_to",
+      "key": "device",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/flux.py",
+      "symbol": "new_device_to",
+      "key": "device",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
     }
   ]
 }
