@@ -243,6 +243,9 @@ class SettingContract(_StrictModel):
     supported_type: _NonBlank
     ui_type: _SemanticType | None
     ui_optional: StrictBool | None = None
+    ui_nullable: StrictBool | None = None
+    ui_accepted_values: tuple[Any, ...] | None = None
+    ui_range: NumericRange | None = None
     example_type: _SemanticType
     accepted_values: tuple[Any, ...] | None
     accepted_types: tuple[_SemanticType, ...] | None = None
@@ -250,7 +253,7 @@ class SettingContract(_StrictModel):
     range: NumericRange | None
     null: Literal["accepted", "rejected", "normalized-to-absent"]
 
-    @field_validator("accepted_values")
+    @field_validator("accepted_values", "ui_accepted_values")
     @classmethod
     def _finite_accepted_values(
         cls, values: tuple[Any, ...] | None
@@ -448,6 +451,9 @@ class Setting(_StrictModel):
     )
     persistence: Literal["config", "job-json", "database", "runtime", "transient"]
     authority: Literal["user", "ui-derived", "server-overwritten", "runtime-forced"]
+    ui_projection: Literal[
+        "discriminator-control", "composite-option"
+    ] | None = None
     lifecycle: Literal[
         "supported", "legacy", "deprecated", "experimental", "unconsumed"
     ]
@@ -1194,12 +1200,32 @@ def _setting_paths(setting: Setting) -> set[str]:
 
 
 def _validate_setting_source_contract(
-    setting: Setting, fact: UiOwnedSourceFact
+    setting: Setting,
+    fact: UiOwnedSourceFact,
+    settings: dict[str, Setting],
 ) -> None:
     if fact.path not in _setting_paths(setting):
-        raise CatalogError(
-            f"UI owner {setting.id!r} does not declare emitted path {fact.path!r}"
+        targets = tuple(
+            settings.get(interaction.setting)
+            for interaction in setting.interactions
+            if interaction.kind == "affects"
         )
+        is_exact_mediator = (
+            setting.ui_projection is not None
+            and setting.scope == "ui-state"
+            and not setting.source_claims
+            and all(location.kind == "ui-state" for location in setting.locations)
+            and bool(targets)
+            and all(
+                target is not None and fact.path in _setting_paths(target)
+                for target in targets
+            )
+        )
+        if not is_exact_mediator:
+            raise CatalogError(
+                f"UI owner {setting.id!r} does not declare emitted path "
+                f"{fact.path!r} or an exact projected target"
+            )
     if fact.kind != "setting":
         return
     if "simple-ui" not in setting.surfaces:
@@ -1232,12 +1258,11 @@ def _validate_setting_source_contract(
             f"{emitted.optional!r}, catalog ui_optional "
             f"{contract.ui_optional!r}"
         )
-    emitted_nullable = emitted.nullable
-    catalog_nullable = contract.null != "rejected"
-    if catalog_nullable != emitted_nullable:
+    if contract.ui_nullable != emitted.nullable:
         raise CatalogError(
             f"UI owner {setting.id!r} nullability mismatch: emitted "
-            f"nullable={emitted_nullable!r}, catalog null={contract.null!r}"
+            f"nullable={emitted.nullable!r}, catalog ui_nullable="
+            f"{contract.ui_nullable!r}"
         )
 
     if emitted.accepted_values is None:
@@ -1252,24 +1277,24 @@ def _validate_setting_source_contract(
                 "accepted_values"
             )
         emitted_values = converted
-    if contract.accepted_values != emitted_values:
+    if contract.ui_accepted_values != emitted_values:
         raise CatalogError(
             f"UI owner {setting.id!r} accepted_values mismatch: emitted "
-            f"{emitted_values!r}, catalog {contract.accepted_values!r}"
+            f"{emitted_values!r}, catalog {contract.ui_accepted_values!r}"
         )
 
     if emitted.minimum is None and emitted.maximum is None:
-        if contract.range is not None:
+        if contract.ui_range is not None:
             raise CatalogError(
                 f"UI owner {setting.id!r} range mismatch: emitted no range"
             )
     else:
         if (
-            contract.range is None
-            or contract.range.minimum != emitted.minimum
-            or contract.range.maximum != emitted.maximum
-            or not contract.range.minimum_inclusive
-            or not contract.range.maximum_inclusive
+            contract.ui_range is None
+            or contract.ui_range.minimum != emitted.minimum
+            or contract.ui_range.maximum != emitted.maximum
+            or not contract.ui_range.minimum_inclusive
+            or not contract.ui_range.maximum_inclusive
         ):
             raise CatalogError(
                 f"UI owner {setting.id!r} range mismatch: emitted "
@@ -1305,14 +1330,48 @@ def _ui_value_as_catalog_default(value: UiValue) -> object:
     return converted
 
 
+def _applicability_identity(applicability: Applicability) -> str:
+    return json.dumps(
+        applicability.model_dump(mode="json", exclude_none=True),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _expected_architecture_default_applicability(
+    setting: Setting, architecture: str
+) -> tuple[str, ...]:
+    clauses: Sequence[Applicability | None] = setting.applicability or (None,)
+    identities: set[str] = set()
+    for clause in clauses:
+        if (
+            clause is not None
+            and clause.ui_architecture not in (None, architecture)
+        ):
+            continue
+        data = (
+            {}
+            if clause is None
+            else clause.model_dump(mode="json", exclude_none=True)
+        )
+        data["ui_architecture"] = architecture
+        identities.add(
+            _applicability_identity(Applicability.model_validate(data))
+        )
+    return tuple(sorted(identities))
+
+
 def _default_applies_to_architecture(
-    default: SettingDefault, architecture: str | None
+    setting: Setting, default: SettingDefault, architecture: str | None
 ) -> bool:
     if architecture is None:
-        return not default.applicability
-    return any(
-        clause.ui_architecture == architecture
+        return True
+    actual = tuple(sorted(
+        _applicability_identity(clause)
         for clause in default.applicability
+    ))
+    return actual == _expected_architecture_default_applicability(
+        setting, architecture
     )
 
 
@@ -1325,7 +1384,7 @@ def _require_matching_default(
 ) -> None:
     if not any(
         default.kind == kind
-        and _default_applies_to_architecture(default, architecture)
+        and _default_applies_to_architecture(setting, default, architecture)
         and _default_matches_presence(default, presence)
         for default in setting.defaults
     ):
@@ -1338,9 +1397,11 @@ def _require_matching_default(
         )
 
 
-def _validate_owner_projection(setting: Setting, fact: UiOwnedFact) -> None:
+def _validate_owner_projection(
+    setting: Setting, fact: UiOwnedFact, settings: dict[str, Setting]
+) -> None:
     if isinstance(fact, UiOwnedSourceFact):
-        _validate_setting_source_contract(setting, fact)
+        _validate_setting_source_contract(setting, fact, settings)
         return
     if isinstance(fact, UiOwnedDefaultFact):
         if fact.path not in _setting_paths(setting):
@@ -1427,7 +1488,8 @@ def _validate_architecture_field_owners(
         if (
             setting.contract.ui_type != "string"
             or setting.contract.ui_optional is not False
-            or setting.contract.accepted_values != (architecture,)
+            or setting.contract.ui_nullable is not False
+            or setting.contract.ui_accepted_values != (architecture,)
         ):
             raise CatalogError(
                 f"architecture {architecture!r} selector contract mismatch"
@@ -1516,6 +1578,100 @@ def _validate_architecture_container_owners(
             )
 
 
+def _validate_architecture_projected_exclusions(
+    projected: tuple[UiProjectedFact, ...],
+    owners: dict[str, UiFactOwner],
+    exclusions: dict[str, UiFactExclusion],
+) -> None:
+    fields = {
+        (item.fact.architecture, item.fact.field): item.fact
+        for item in projected
+        if isinstance(item.fact, UiOwnedArchitectureField)
+    }
+    for exclusion in exclusions.values():
+        if exclusion.reason != "architecture-projected-control":
+            continue
+        fact = exclusion.fact
+        if not isinstance(fact, UiOwnedSourceFact) or fact.kind != "setting":
+            raise CatalogError(
+                "architecture-projected-control exclusions require setting facts"
+            )
+        marker = "::architecture="
+        if marker not in fact.symbol:
+            raise CatalogError(
+                "architecture-projected-control exclusion lacks exact architecture"
+            )
+        tail = fact.symbol.split(marker, 1)[1]
+        architecture = tail.split("::tag=", 1)[0]
+        field_name = (
+            "sample_tags" if "::tag=" in tail
+            else "custom_model_select_options"
+        )
+        field = fields.get((architecture, field_name))
+        if field is None or field.model_dump_json() not in owners:
+            raise CatalogError(
+                f"architecture-projected-control {fact.symbol!r} lacks an "
+                f"owned {field_name} projection"
+            )
+        if field_name == "sample_tags":
+            assert isinstance(field.payload, UiArchitecturePresencePayload)
+            presence = field.payload.value
+            if not presence.present or not isinstance(
+                presence.value, UiObjectValue
+            ):
+                raise CatalogError(
+                    f"sample-tag exclusion {fact.symbol!r} lacks tag metadata"
+                )
+            tag = tail.split("::tag=", 1)[1]
+            tag_entry = next(
+                (entry.value for entry in presence.value.entries if entry.key == tag),
+                None,
+            )
+            if not isinstance(tag_entry, UiObjectValue):
+                raise CatalogError(
+                    f"sample-tag exclusion {fact.symbol!r} names unknown tag"
+                )
+            values = {entry.key: entry.value for entry in tag_entry.entries}
+            label = values.get("title")
+            tag_type = values.get("type")
+            emitted_label = fact.ui_label.value
+            expected_type = (
+                "number"
+                if isinstance(tag_type, UiStringValue)
+                and tag_type.value == "number"
+                else "string"
+            )
+            if (
+                not isinstance(label, UiStringValue)
+                or not isinstance(emitted_label, UiStringValue)
+                or label.value != emitted_label.value
+                or fact.value_contract.ui_type != expected_type
+            ):
+                raise CatalogError(
+                    f"sample-tag exclusion {fact.symbol!r} contract disagrees "
+                    "with owned tag metadata"
+                )
+        else:
+            assert isinstance(
+                field.payload, UiArchitectureCustomOptionsPayload
+            )
+            options = field.payload.value
+            emitted_label = fact.ui_label.value
+            matches = (
+                option for option in (options.value or ())
+                if isinstance(emitted_label, UiStringValue)
+                and option.label == emitted_label.value
+            )
+            if not any(
+                any(write.path == fact.path for write in option.writes)
+                for option in matches
+            ):
+                raise CatalogError(
+                    f"custom-option exclusion {fact.symbol!r} lacks an exact "
+                    "owned option/write projection"
+                )
+
+
 def validate_ui_fact_ownership(
     facts: TrainingBookUiFacts,
     catalog: SettingsCatalog,
@@ -1572,7 +1728,9 @@ def validate_ui_fact_ownership(
     settings = {setting.id: setting for setting in catalog.settings}
     for identity, owner in selected_owners.items():
         if identity in emitted:
-            _validate_owner_projection(settings[owner.setting_id], owner.fact)
+            _validate_owner_projection(
+                settings[owner.setting_id], owner.fact, settings
+            )
 
     selected = {
         identity
@@ -1587,6 +1745,9 @@ def validate_ui_fact_ownership(
     if scope in {"ui-defaults-transitions", "all"}:
         _validate_architecture_field_owners(
             projected, selected_owners, selected_exclusions, settings
+        )
+        _validate_architecture_projected_exclusions(
+            projected, selected_owners, selected_exclusions
         )
         _validate_architecture_container_owners(
             projected, selected_owners, selected_exclusions

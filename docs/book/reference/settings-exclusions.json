@@ -2277,5 +2277,424 @@
       "reason": "model-developer API"
     }
   ],
-  "ui_exclusions": []
+  "ui_exclusions": [
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::NumberInput::config.process[*].sample.samples[*].prompt::BPM::architecture=ace_step_15::tag=BPM",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "BPM"
+          }
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "number",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::NumberInput::config.process[*].sample.samples[*].prompt::BPM::architecture=ace_step_15_xl::tag=BPM",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "BPM"
+          }
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "number",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::NumberInput::config.process[*].sample.samples[*].prompt::Duration (sec)::architecture=ace_step_15::tag=DURATION",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Duration (sec)"
+          }
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "number",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::NumberInput::config.process[*].sample.samples[*].prompt::Duration (sec)::architecture=ace_step_15_xl::tag=DURATION",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Duration (sec)"
+          }
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "number",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::SelectInput::config.process[*].model.assistant_lora_path::Distillation Handling Method::architecture=minimax_h3",
+        "path": "config.process[*].model.assistant_lora_path",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Distillation Handling Method"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "select",
+          "optional": true,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "undefined"
+            },
+            {
+              "kind": "string",
+              "value": "ostris/minimax_h3_training_adapter/minimax_h3_training_adapter_v1.safetensors"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::SelectInput::config.process[*].train.do_guidance_loss::Distillation Handling Method::architecture=minimax_h3",
+        "path": "config.process[*].train.do_guidance_loss",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Distillation Handling Method"
+          }
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "select",
+          "optional": true,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": true
+            },
+            {
+              "kind": "undefined"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::SelectInput::config.process[*].train.guidance_loss_target::Distillation Handling Method::architecture=minimax_h3",
+        "path": "config.process[*].train.guidance_loss_target",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Distillation Handling Method"
+          }
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "select",
+          "optional": true,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "number",
+              "value": 3.5
+            },
+            {
+              "kind": "undefined"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextAreaInput::config.process[*].sample.samples[*].prompt::Lyrics::architecture=ace_step_15::tag=LYRICS",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Lyrics"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "multiline",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextAreaInput::config.process[*].sample.samples[*].prompt::Lyrics::architecture=ace_step_15_xl::tag=LYRICS",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Lyrics"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "multiline",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextInput::config.process[*].sample.samples[*].prompt::Audio Prompt::architecture=ace_step_15::tag=CAPTION",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Audio Prompt"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextInput::config.process[*].sample.samples[*].prompt::Audio Prompt::architecture=ace_step_15_xl::tag=CAPTION",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Audio Prompt"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextInput::config.process[*].sample.samples[*].prompt::Key Scale::architecture=ace_step_15::tag=KEYSCALE",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Key Scale"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextInput::config.process[*].sample.samples[*].prompt::Key Scale::architecture=ace_step_15_xl::tag=KEYSCALE",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Key Scale"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextInput::config.process[*].sample.samples[*].prompt::Language::architecture=ace_step_15::tag=LANGUAGE",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Language"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextInput::config.process[*].sample.samples[*].prompt::Language::architecture=ace_step_15_xl::tag=LANGUAGE",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Language"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextInput::config.process[*].sample.samples[*].prompt::Time Signature::architecture=ace_step_15::tag=TIMESIGNATURE",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Time Signature"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextInput::config.process[*].sample.samples[*].prompt::Time Signature::architecture=ace_step_15_xl::tag=TIMESIGNATURE",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Time Signature"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    }
+  ]
 }

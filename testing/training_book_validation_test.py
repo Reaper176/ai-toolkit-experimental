@@ -463,6 +463,14 @@ class CatalogContractTests(unittest.TestCase):
                 "supported_type": "positive-integer",
                 "ui_type": "number",
                 "ui_optional": False,
+                "ui_nullable": False,
+                "ui_accepted_values": None,
+                "ui_range": {
+                    "minimum": 1,
+                    "maximum": None,
+                    "minimum_inclusive": True,
+                    "maximum_inclusive": True,
+                },
                 "example_type": "integer",
                 "accepted_values": None,
                 "range": {
@@ -1693,6 +1701,9 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             "supported_type": "architecture-selector",
             "ui_type": "string",
             "ui_optional": False,
+            "ui_nullable": False,
+            "ui_accepted_values": ["fixture"],
+            "ui_range": None,
             "example_type": "string",
             "accepted_values": ["fixture"],
             "range": None,
@@ -1771,6 +1782,28 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         self.assertEqual(valid.returncode, 0, valid.stdout + valid.stderr)
         self.assertNotEqual(invalid.returncode, 0)
         self.assertIn("UI facts", invalid.stderr)
+
+    def test_validation_cli_ui_scope_reaches_exact_ownership(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "facts.json"
+            path.write_text(json.dumps(self.valid_facts()), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/validate_training_book.py",
+                    "--ui-facts",
+                    str(path),
+                    "--scope",
+                    "ui-defaults-transitions",
+                ],
+                cwd=REPOSITORY_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("stale UI owners", result.stderr)
 
     def test_ui_facts_project_to_exact_scoped_atomic_ownership_facts(self):
         facts = validate_training_book_ui_facts(self.valid_facts())
@@ -1924,8 +1957,8 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         entry = CatalogContractTests().valid_catalog_entry()
         entry["contract"].update({
             "ui_type": "number-list",
-            "accepted_values": [[0.5, 1.0]],
-            "range": None,
+            "ui_accepted_values": [[0.5, 1.0]],
+            "ui_range": None,
         })
         catalog = validate_settings_catalog(
             self.ownership_catalog_data(projected, train_entry=entry),
@@ -1954,6 +1987,125 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
                 undefined_facts,
                 undefined_catalog,
                 (),
+                scope="ui-defaults-transitions",
+            )
+
+    def test_explicit_ui_control_mediator_owns_a_discriminator_target_without_yaml_overlap(self):
+        fact_data = self.valid_facts()
+        fact_data["config_claims"][0]["kind"] = "setting"
+        facts = validate_training_book_ui_facts(fact_data)
+        projected = catalog_module.project_training_book_ui_facts(facts)
+        runtime = CatalogContractTests().valid_catalog_entry()
+        runtime.update({"ui_label": None, "surfaces": ["advanced-yaml"]})
+        runtime["contract"].update({"ui_type": None, "ui_optional": None})
+        runtime["contract"].update({
+            "ui_nullable": None,
+            "ui_accepted_values": None,
+            "ui_range": None,
+        })
+        mediator = CatalogContractTests().valid_catalog_entry()
+        mediator.update({
+            "id": "ui.train.steps-control",
+            "scope": "ui-state",
+            "locations": [{"kind": "ui-state", "path": "ui.controls.steps"}],
+            "surfaces": ["simple-ui"],
+            "persistence": "transient",
+            "authority": "ui-derived",
+            "source_claims": [],
+            "ui_projection": "discriminator-control",
+            "interactions": [{
+                "setting": "train.steps",
+                "kind": "affects",
+                "description": "Writes the exact runtime steps field.",
+                "applicability": [{"process_type": "diffusion_trainer"}],
+            }],
+        })
+        data = self.ownership_catalog_data(projected, train_entry=runtime)
+        data["settings"].append(mediator)
+        source_claim = next(
+            claim for claim in data["ui_claims"]
+            if claim["fact"]["fact_type"] == "source-claim"
+        )
+        source_claim["setting_id"] = "ui.train.steps-control"
+        catalog = validate_settings_catalog(
+            data, CatalogContractTests().discovered_steps()
+        )
+
+        catalog_module.validate_ui_fact_ownership(
+            facts, catalog, (), scope="ui-defaults-transitions"
+        )
+        self.assertEqual(
+            [location.kind for location in catalog.settings[2].locations],
+            ["ui-state"],
+        )
+
+    def test_architecture_projected_control_exclusion_requires_owned_exact_metadata(self):
+        fact_data = self.valid_facts()
+        fact_data["model_architectures"][0]["sample_tags"] = {
+            "present": True,
+            "value": {
+                "kind": "object",
+                "entries": [{
+                    "key": "BPM",
+                    "value": {
+                        "kind": "object",
+                        "entries": [
+                            {
+                                "key": "title",
+                                "value": {"kind": "string", "value": "BPM"},
+                            },
+                            {
+                                "key": "type",
+                                "value": {"kind": "string", "value": "number"},
+                            },
+                        ],
+                    },
+                }],
+            },
+        }
+        fact_data["config_claims"][0].update({
+            "kind": "setting",
+            "path": "config.process[*].sample.samples[*].prompt",
+            "symbol": (
+                "SimpleJob::NumberInput::config.process[*].sample.samples[*].prompt::"
+                "BPM::architecture=fixture::tag=BPM"
+            ),
+            "ui_label": {
+                "present": True,
+                "value": {"kind": "string", "value": "BPM"},
+            },
+        })
+        facts = validate_training_book_ui_facts(fact_data)
+        projected = catalog_module.project_training_book_ui_facts(facts)
+        data = self.ownership_catalog_data(projected)
+        source_claim = next(
+            claim for claim in data["ui_claims"]
+            if claim["fact"]["fact_type"] == "source-claim"
+        )
+        data["ui_claims"].remove(source_claim)
+        catalog = validate_settings_catalog(
+            data, CatalogContractTests().discovered_steps()
+        )
+        exclusion = catalog_module.UiFactExclusion.model_validate({
+            "fact": source_claim["fact"],
+            "reason": "architecture-projected-control",
+        })
+        catalog_module.validate_ui_fact_ownership(
+            facts,
+            catalog,
+            (exclusion,),
+            scope="ui-defaults-transitions",
+        )
+
+        changed = deepcopy(fact_data)
+        changed["model_architectures"][0]["sample_tags"]["value"]["entries"][0][
+            "value"
+        ]["entries"][0]["value"]["value"] = "Tempo"
+        with self.assertRaisesRegex(CatalogError, "stale UI owners"):
+            catalog_module.validate_ui_fact_ownership(
+                validate_training_book_ui_facts(changed),
+                catalog,
+                (exclusion,),
                 scope="ui-defaults-transitions",
             )
 
@@ -2028,11 +2180,17 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         entry["defaults"].extend([
             {
                 "kind": "on-select", "presence": "present", "value": 3000,
-                "applicability": [{"ui_architecture": "fixture"}],
+                "applicability": [{
+                    "process_type": "diffusion_trainer",
+                    "ui_architecture": "fixture",
+                }],
             },
             {
                 "kind": "on-leave", "presence": "absent",
-                "applicability": [{"ui_architecture": "fixture"}],
+                "applicability": [{
+                    "process_type": "diffusion_trainer",
+                    "ui_architecture": "fixture",
+                }],
             },
         ])
 
@@ -2081,6 +2239,17 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             catalog_module.validate_ui_fact_ownership(
                 facts,
                 catalog_for(bad_transition),
+                (),
+                scope="ui-defaults-transitions",
+            )
+
+        missing_runtime_applicability = deepcopy(entry)
+        for default in missing_runtime_applicability["defaults"][2:]:
+            default["applicability"] = [{"ui_architecture": "fixture"}]
+        with self.assertRaisesRegex(CatalogError, "on-select default"):
+            catalog_module.validate_ui_fact_ownership(
+                facts,
+                catalog_for(missing_runtime_applicability),
                 (),
                 scope="ui-defaults-transitions",
             )
@@ -2149,11 +2318,17 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             {
                 "kind": "on-select", "presence": "present",
                 "value": {"kind": "undefined"},
-                "applicability": [{"ui_architecture": "fixture"}],
+                "applicability": [{
+                    "process_type": "diffusion_trainer",
+                    "ui_architecture": "fixture",
+                }],
             },
             {
                 "kind": "on-leave", "presence": "absent",
-                "applicability": [{"ui_architecture": "fixture"}],
+                "applicability": [{
+                    "process_type": "diffusion_trainer",
+                    "ui_architecture": "fixture",
+                }],
             },
         ])
         catalog = validate_settings_catalog(
@@ -2197,11 +2372,17 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         entry["defaults"].extend([
             {
                 "kind": "on-select", "presence": "present", "value": 1,
-                "applicability": [{"ui_architecture": "fixture"}],
+                "applicability": [{
+                    "process_type": "diffusion_trainer",
+                    "ui_architecture": "fixture",
+                }],
             },
             {
                 "kind": "on-leave", "presence": "absent",
-                "applicability": [{"ui_architecture": "fixture"}],
+                "applicability": [{
+                    "process_type": "diffusion_trainer",
+                    "ui_architecture": "fixture",
+                }],
             },
         ])
         catalog = validate_settings_catalog(
@@ -2211,6 +2392,92 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
 
         catalog_module.validate_ui_fact_ownership(
             facts, catalog, (), scope="ui-defaults-transitions"
+        )
+
+    def test_production_ui_projection_boundaries_are_finite_and_runtime_rows_stay_advanced(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        selectors = [
+            setting for setting in catalog.settings
+            if setting.id.startswith("ui.architecture.")
+            and not setting.id.endswith(".qtype-control")
+        ]
+        qtype_controls = [
+            setting for setting in catalog.settings
+            if setting.id.startswith("ui.architecture.")
+            and setting.id.endswith(".qtype-control")
+        ]
+        resolution_ids = {
+            setting.id for setting in catalog.settings
+            if setting.id.startswith("ui.dataset.resolution-")
+        }
+        self.assertEqual(len(selectors), 51)
+        self.assertEqual(len(qtype_controls), 49)
+        self.assertEqual(
+            resolution_ids,
+            {
+                "ui.dataset.resolution-256", "ui.dataset.resolution-512",
+                "ui.dataset.resolution-768", "ui.dataset.resolution-1024",
+                "ui.dataset.resolution-1280", "ui.dataset.resolution-1328",
+                "ui.dataset.resolution-1536", "ui.dataset.resolution-2048",
+            },
+        )
+        mediators = qtype_controls + [
+            settings[setting_id] for setting_id in sorted(resolution_ids)
+        ] + [settings["ui.optimizer.weight-decay-control"]]
+        self.assertTrue(
+            all(
+                setting.source_claims == ()
+                and setting.scope == "ui-state"
+                and all(location.kind == "ui-state" for location in setting.locations)
+                for setting in mediators
+            )
+        )
+        weight_targets = {
+            interaction.setting
+            for interaction in settings[
+                "ui.optimizer.weight-decay-control"
+            ].interactions
+        }
+        self.assertEqual(
+            weight_targets,
+            {
+                "optimizer.adafactor.param.weight_decay",
+                "optimizer.adam8-adamw8.param.weight_decay",
+                "optimizer.automagic.param.weight_decay",
+                "optimizer.automagic2.param.weight_decay",
+                "optimizer.automagic3.param.weight_decay",
+                "optimizer.automagicexperiment.param.weight_decay",
+                "optimizer.prodigy8bit*.param.weight_decay",
+            },
+        )
+        runtime_ids = {
+            "model.qtype", "dataset.resolution", *weight_targets,
+        }
+        self.assertTrue(
+            all(
+                settings[setting_id].ui_label is None
+                and settings[setting_id].contract.ui_type is None
+                and "simple-ui" not in settings[setting_id].surfaces
+                and any(
+                    location.kind == "yaml"
+                    for location in settings[setting_id].locations
+                )
+                for setting_id in runtime_ids
+            )
+        )
+        exclusions = load_ui_exclusions(
+            REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
+        )
+        self.assertEqual(len(catalog.ui_claims), 2157)
+        self.assertEqual(len(exclusions), 17)
+        self.assertEqual(
+            {exclusion.reason for exclusion in exclusions},
+            {"architecture-projected-control"},
         )
 
 

@@ -528,6 +528,22 @@
           "title": "Authority",
           "type": "string"
         },
+        "ui_projection": {
+          "anyOf": [
+            {
+              "enum": [
+                "discriminator-control",
+                "composite-option"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Projection"
+        },
         "lifecycle": {
           "enum": [
             "supported",
@@ -663,6 +679,42 @@
           ],
           "default": null,
           "title": "Ui Optional"
+        },
+        "ui_nullable": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Nullable"
+        },
+        "ui_accepted_values": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Accepted Values"
+        },
+        "ui_range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NumericRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "example_type": {
           "enum": [

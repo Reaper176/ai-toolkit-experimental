@@ -23,6 +23,8 @@ from training_book.catalog import (
     catalog_source_claims,
     load_settings_catalog,
     load_training_book_ui_facts,
+    load_ui_exclusions,
+    validate_ui_fact_ownership,
 )
 from training_book.manifest import load_book_manifest, validate_book_manifest
 
@@ -467,13 +469,17 @@ def main() -> None:
         repository_root / "docs/book/reference/settings-catalog.schema.json",
         None,
     )
-    if arguments.ui_facts is not None:
+    ui_facts = (
         load_training_book_ui_facts(arguments.ui_facts)
+        if arguments.ui_facts is not None
+        else None
+    )
     has_target = (
         arguments.target_source is not None or arguments.target_symbol is not None
     )
     target_mode = False
     production_scope = None
+    ui_scope = None
     if arguments.check_discovery:
         if arguments.inventory_json is not None:
             raise DiscoveryError(
@@ -510,8 +516,23 @@ def main() -> None:
             "target discovery mode requires --check-discovery"
         )
     elif arguments.scope:
-        raise DiscoveryError(
-            "--scope values are inactive without their matching check mode"
+        if (
+            ui_facts is not None
+            and arguments.scope == ["ui-defaults-transitions"]
+        ):
+            ui_scope = arguments.scope[0]
+        else:
+            raise DiscoveryError(
+                "--scope values are inactive without their matching check mode"
+            )
+
+    if ui_scope is not None:
+        assert ui_facts is not None
+        ui_exclusions = load_ui_exclusions(
+            repository_root / "docs/book/reference/settings-exclusions.json"
+        )
+        validate_ui_fact_ownership(
+            ui_facts, settings_catalog, ui_exclusions, scope=ui_scope
         )
 
     needs_production_discovery = bool(
