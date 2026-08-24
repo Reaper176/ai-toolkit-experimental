@@ -462,6 +462,7 @@ class CatalogContractTests(unittest.TestCase):
                 "parser_type": "integer",
                 "supported_type": "positive-integer",
                 "ui_type": "number",
+                "ui_optional": False,
                 "example_type": "integer",
                 "accepted_values": None,
                 "range": {
@@ -653,6 +654,36 @@ class CatalogContractTests(unittest.TestCase):
             with self.subTest(message=message):
                 with self.assertRaisesRegex(CatalogError, message):
                     validate_settings_catalog(payload, self.discovered_steps())
+
+    def test_catalog_allows_source_less_ui_state_only_with_atomic_ui_ownership(self):
+        entry = self.valid_catalog_entry()
+        entry.update({
+            "id": "ui.architecture.fixture",
+            "scope": "ui-state",
+            "locations": [{"kind": "ui-state", "path": "architecture.fixture"}],
+            "persistence": "transient",
+            "authority": "ui-derived",
+            "source_claims": [],
+        })
+        fact = self.ui_owner_facts()[3]
+        data = {
+            "schema_version": 1,
+            "settings": [entry],
+            "ui_claims": [{
+                "setting_id": "ui.architecture.fixture", "fact": fact,
+            }],
+        }
+        validate_settings_catalog(data, ())
+
+        missing_owner = deepcopy(data)
+        missing_owner["ui_claims"] = []
+        with self.assertRaisesRegex(CatalogError, "source-less.*UI ownership"):
+            validate_settings_catalog(missing_owner, ())
+
+        wrong_scope = deepcopy(data)
+        wrong_scope["settings"][0]["scope"] = "train"
+        with self.assertRaisesRegex(CatalogError, "source-less.*ui-state"):
+            validate_settings_catalog(wrong_scope, ())
 
     def test_ui_exclusions_share_the_exact_fact_union_and_closed_reasons(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1642,6 +1673,52 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             "global_settings": [], "architecture_transitions": [],
         }
 
+    def valid_architecture_entry(self):
+        entry = CatalogContractTests().valid_catalog_entry()
+        entry.update({
+            "id": "ui.architecture.fixture",
+            "ui_label": "Fixture",
+            "scope": "ui-state",
+            "locations": [{"kind": "ui-state", "path": "architecture.fixture"}],
+            "surfaces": ["simple-ui"],
+            "persistence": "transient",
+            "authority": "ui-derived",
+            "applicability": [{"ui_architecture": "fixture"}],
+            "defaults": [],
+            "source_claims": [],
+            "section": "model-architecture",
+        })
+        entry["contract"].update({
+            "parser_type": "ui-state",
+            "supported_type": "architecture-selector",
+            "ui_type": "string",
+            "ui_optional": False,
+            "example_type": "string",
+            "accepted_values": ["fixture"],
+            "range": None,
+        })
+        return entry
+
+    def ownership_catalog_data(self, projected, *, train_entry=None):
+        return {
+            "schema_version": 1,
+            "settings": [
+                train_entry or CatalogContractTests().valid_catalog_entry(),
+                self.valid_architecture_entry(),
+            ],
+            "ui_claims": [
+                {
+                    "setting_id": (
+                        "ui.architecture.fixture"
+                        if item.fact.fact_type == "architecture-field"
+                        else "train.steps"
+                    ),
+                    "fact": item.fact.model_dump(mode="json", exclude_unset=True),
+                }
+                for item in projected
+            ],
+        }
+
     def test_ui_facts_contract_accepts_exact_tagged_shape(self):
         facts = validate_training_book_ui_facts(self.valid_facts())
         self.assertEqual(facts.model_architectures[0].name, "fixture")
@@ -1694,6 +1771,447 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         self.assertEqual(valid.returncode, 0, valid.stdout + valid.stderr)
         self.assertNotEqual(invalid.returncode, 0)
         self.assertIn("UI facts", invalid.stderr)
+
+    def test_ui_facts_project_to_exact_scoped_atomic_ownership_facts(self):
+        facts = validate_training_book_ui_facts(self.valid_facts())
+
+        projected = catalog_module.project_training_book_ui_facts(facts)
+
+        self.assertEqual(len(projected), 14)
+        self.assertEqual(
+            {item.scope for item in projected}, {"ui-defaults-transitions"}
+        )
+        self.assertEqual(
+            {item.fact.fact_type for item in projected},
+            {"source-claim", "architecture-field"},
+        )
+        architecture_fields = {
+            item.fact.field
+            for item in projected
+            if item.fact.fact_type == "architecture-field"
+        }
+        self.assertEqual(
+            architecture_fields,
+            {
+                "label", "group", "model_path", "gate_url",
+                "is_video_model", "has_multiline_prompts",
+                "accuracy_recovery_adapters", "sample_tags",
+                "custom_model_select_options", "model_notes", "controls",
+                "disable_sections", "additional_sections",
+            },
+        )
+
+        data = self.valid_facts()
+        data["global_settings"] = [deepcopy(data["config_claims"][0])]
+        data["global_settings"][0].update({
+            "source_path": "ui/src/app/jobs/new/global.tsx",
+            "symbol": "Global::SelectInput::gpuids::GPU ID",
+            "path": "gpuids",
+        })
+        projected = catalog_module.project_training_book_ui_facts(
+            validate_training_book_ui_facts(data)
+        )
+        self.assertEqual(
+            sum(item.scope == "ui-server-global" for item in projected), 1
+        )
+
+    def test_ui_fact_ownership_requires_exactly_one_live_owner_or_exclusion(self):
+        facts = validate_training_book_ui_facts(self.valid_facts())
+        projected = catalog_module.project_training_book_ui_facts(facts)
+        data = self.ownership_catalog_data(projected)
+        catalog = validate_settings_catalog(
+            data, CatalogContractTests().discovered_steps()
+        )
+        catalog_module.validate_ui_fact_ownership(
+            facts, catalog, (), scope="ui-defaults-transitions"
+        )
+
+        split_selector_data = deepcopy(data)
+        architecture_claim = next(
+            claim for claim in split_selector_data["ui_claims"]
+            if claim["fact"]["fact_type"] == "architecture-field"
+        )
+        architecture_claim["setting_id"] = "train.steps"
+        split_selector_catalog = validate_settings_catalog(
+            split_selector_data, CatalogContractTests().discovered_steps()
+        )
+        with self.assertRaisesRegex(CatalogError, "one selector owner"):
+            catalog_module.validate_ui_fact_ownership(
+                facts,
+                split_selector_catalog,
+                (),
+                scope="ui-defaults-transitions",
+            )
+
+        unowned_data = deepcopy(data)
+        del unowned_data["ui_claims"][0]
+        unowned_catalog = validate_settings_catalog(
+            unowned_data, CatalogContractTests().discovered_steps()
+        )
+        with self.assertRaisesRegex(CatalogError, "unowned UI facts.*1"):
+            catalog_module.validate_ui_fact_ownership(
+                facts, unowned_catalog, (), scope="ui-defaults-transitions"
+            )
+
+        stale_data = deepcopy(data)
+        stale = deepcopy(stale_data["ui_claims"][0])
+        stale["fact"]["symbol"] += "::stale"
+        stale_data["ui_claims"].append(stale)
+        stale_catalog = validate_settings_catalog(
+            stale_data, CatalogContractTests().discovered_steps()
+        )
+        with self.assertRaisesRegex(CatalogError, "stale UI owners.*1"):
+            catalog_module.validate_ui_fact_ownership(
+                facts, stale_catalog, (), scope="ui-defaults-transitions"
+            )
+
+        exclusion = catalog_module.UiFactExclusion.model_validate({
+            "fact": projected[0].fact.model_dump(mode="json", exclude_unset=True),
+            "reason": "display-only-control",
+        })
+        with self.assertRaisesRegex(CatalogError, "owner and exclusion"):
+            catalog_module.validate_ui_fact_ownership(
+                facts, catalog, (exclusion,), scope="ui-defaults-transitions"
+            )
+
+    def test_ui_setting_owner_must_match_visible_catalog_contract(self):
+        fact_data = self.valid_facts()
+        fact_data["config_claims"][0]["kind"] = "setting"
+        facts = validate_training_book_ui_facts(fact_data)
+        projected = catalog_module.project_training_book_ui_facts(facts)
+        entry = CatalogContractTests().valid_catalog_entry()
+        entry["contract"]["ui_type"] = "integer"
+        data = self.ownership_catalog_data(projected, train_entry=entry)
+        catalog = validate_settings_catalog(
+            data, CatalogContractTests().discovered_steps()
+        )
+
+        with self.assertRaisesRegex(CatalogError, "train.steps.*ui_type.*number"):
+            catalog_module.validate_ui_fact_ownership(
+                facts, catalog, (), scope="ui-defaults-transitions"
+            )
+
+        optional_entry = CatalogContractTests().valid_catalog_entry()
+        optional_entry["contract"]["ui_optional"] = True
+        optional_catalog = validate_settings_catalog(
+            self.ownership_catalog_data(
+                projected, train_entry=optional_entry
+            ),
+            CatalogContractTests().discovered_steps(),
+        )
+        with self.assertRaisesRegex(CatalogError, "optionality.*False"):
+            catalog_module.validate_ui_fact_ownership(
+                facts, optional_catalog, (), scope="ui-defaults-transitions"
+            )
+
+    def test_ui_setting_owner_compares_nested_accepted_values_and_fails_on_undefined(self):
+        fact_data = self.valid_facts()
+        claim = fact_data["config_claims"][0]
+        claim["kind"] = "setting"
+        claim["value_contract"].update({
+            "ui_type": "number-list",
+            "accepted_values": [{
+                "kind": "array",
+                "items": [
+                    {"kind": "number", "value": 0.5},
+                    {"kind": "number", "value": 1.0},
+                ],
+            }],
+        })
+        del claim["value_contract"]["minimum"]
+        facts = validate_training_book_ui_facts(fact_data)
+        projected = catalog_module.project_training_book_ui_facts(facts)
+        entry = CatalogContractTests().valid_catalog_entry()
+        entry["contract"].update({
+            "ui_type": "number-list",
+            "accepted_values": [[0.5, 1.0]],
+            "range": None,
+        })
+        catalog = validate_settings_catalog(
+            self.ownership_catalog_data(projected, train_entry=entry),
+            CatalogContractTests().discovered_steps(),
+        )
+        catalog_module.validate_ui_fact_ownership(
+            facts, catalog, (), scope="ui-defaults-transitions"
+        )
+
+        undefined_data = deepcopy(fact_data)
+        undefined_data["config_claims"][0]["value_contract"][
+            "accepted_values"
+        ] = [{"kind": "undefined"}]
+        undefined_facts = validate_training_book_ui_facts(undefined_data)
+        undefined_projected = catalog_module.project_training_book_ui_facts(
+            undefined_facts
+        )
+        undefined_catalog = validate_settings_catalog(
+            self.ownership_catalog_data(
+                undefined_projected, train_entry=entry
+            ),
+            CatalogContractTests().discovered_steps(),
+        )
+        with self.assertRaisesRegex(CatalogError, "tagged undefined"):
+            catalog_module.validate_ui_fact_ownership(
+                undefined_facts,
+                undefined_catalog,
+                (),
+                scope="ui-defaults-transitions",
+            )
+
+    def test_ui_ownership_scopes_ignore_other_slice_stale_claims(self):
+        fact_data = self.valid_facts()
+        fact_data["global_settings"] = [deepcopy(fact_data["config_claims"][0])]
+        fact_data["global_settings"][0].update({
+            "source_path": "ui/src/app/jobs/new/global.tsx",
+            "symbol": "Global::SelectInput::gpuids::GPU ID",
+            "path": "gpuids",
+        })
+        facts = validate_training_book_ui_facts(fact_data)
+        projected = catalog_module.project_training_book_ui_facts(facts)
+        data = self.ownership_catalog_data(projected)
+        global_claim = next(
+            claim for claim in data["ui_claims"]
+            if claim["fact"]["path"] == "gpuids"
+        )
+        global_claim["fact"]["symbol"] += "::stale"
+        catalog = validate_settings_catalog(
+            data, CatalogContractTests().discovered_steps()
+        )
+
+        catalog_module.validate_ui_fact_ownership(
+            facts, catalog, (), scope="ui-defaults-transitions"
+        )
+        with self.assertRaisesRegex(CatalogError, "stale UI owners.*1"):
+            catalog_module.validate_ui_fact_ownership(
+                facts, catalog, (), scope="ui-server-global"
+            )
+
+    def test_ui_default_and_transition_owners_match_exact_catalog_defaults(self):
+        fact_data = self.valid_facts()
+        present = {"present": True, "value": {"kind": "number", "value": 3000}}
+        absent = {"present": False}
+        fact_data["defaults"] = [{
+            "source_path": "ui/src/app/jobs/new/jobConfig.ts",
+            "symbol": "defaultJobConfig",
+            "path": "config.process[*].train.steps",
+            "value": present,
+        }]
+        fact_data["architecture_transitions"] = [{
+            "architecture": "fixture",
+            "path": "config.process[*].train.steps",
+            "selected": present,
+            "unselected": absent,
+        }]
+        fact_data["model_architectures"][0]["defaults"] = [{
+            "declaration_path": "config.process[*].train.steps",
+            "path": "config.process[*].train.steps",
+            "selected": present,
+            "unselected": absent,
+        }]
+        fact_data["model_architectures"][0]["default_containers"] = [{
+            "path": "config.process[*].train.steps",
+            "selected_present": True,
+            "unselected_present": True,
+        }]
+        facts = validate_training_book_ui_facts(fact_data)
+        projected = catalog_module.project_training_book_ui_facts(facts)
+        self.assertEqual(len(projected), 18)
+        self.assertEqual(
+            {item.fact.fact_type for item in projected},
+            {
+                "source-claim", "ui-default", "architecture-transition",
+                "architecture-field", "architecture-default",
+                "architecture-container",
+            },
+        )
+
+        entry = CatalogContractTests().valid_catalog_entry()
+        entry["defaults"].extend([
+            {
+                "kind": "on-select", "presence": "present", "value": 3000,
+                "applicability": [{"ui_architecture": "fixture"}],
+            },
+            {
+                "kind": "on-leave", "presence": "absent",
+                "applicability": [{"ui_architecture": "fixture"}],
+            },
+        ])
+
+        def catalog_for(setting):
+            return validate_settings_catalog(
+                self.ownership_catalog_data(projected, train_entry=setting),
+                CatalogContractTests().discovered_steps(),
+            )
+
+        catalog_module.validate_ui_fact_ownership(
+            facts, catalog_for(entry), (), scope="ui-defaults-transitions"
+        )
+
+        wrong_container_data = self.ownership_catalog_data(
+            projected, train_entry=entry
+        )
+        container_claim = next(
+            claim for claim in wrong_container_data["ui_claims"]
+            if claim["fact"]["fact_type"] == "architecture-container"
+        )
+        container_claim["setting_id"] = "ui.architecture.fixture"
+        wrong_container_catalog = validate_settings_catalog(
+            wrong_container_data, CatalogContractTests().discovered_steps()
+        )
+        with self.assertRaisesRegex(CatalogError, "first descendant owner"):
+            catalog_module.validate_ui_fact_ownership(
+                facts,
+                wrong_container_catalog,
+                (),
+                scope="ui-defaults-transitions",
+            )
+
+        bad_ui_default = deepcopy(entry)
+        bad_ui_default["defaults"][0]["value"] = 3001
+        with self.assertRaisesRegex(CatalogError, "ui-created default"):
+            catalog_module.validate_ui_fact_ownership(
+                facts,
+                catalog_for(bad_ui_default),
+                (),
+                scope="ui-defaults-transitions",
+            )
+
+        bad_transition = deepcopy(entry)
+        bad_transition["defaults"][2]["value"] = 3001
+        with self.assertRaisesRegex(CatalogError, "on-select default"):
+            catalog_module.validate_ui_fact_ownership(
+                facts,
+                catalog_for(bad_transition),
+                (),
+                scope="ui-defaults-transitions",
+            )
+
+    def test_empty_architecture_container_requires_exact_structural_exclusion(self):
+        fact_data = self.valid_facts()
+        fact_data["model_architectures"][0]["default_containers"] = [{
+            "path": "config.process[*].model.model_kwargs",
+            "selected_present": True,
+            "unselected_present": True,
+        }]
+        facts = validate_training_book_ui_facts(fact_data)
+        projected = catalog_module.project_training_book_ui_facts(facts)
+        data = self.ownership_catalog_data(projected)
+        container_claim = next(
+            claim for claim in data["ui_claims"]
+            if claim["fact"]["fact_type"] == "architecture-container"
+        )
+        data["ui_claims"].remove(container_claim)
+        catalog = validate_settings_catalog(
+            data, CatalogContractTests().discovered_steps()
+        )
+        exclusion = catalog_module.UiFactExclusion.model_validate({
+            "fact": container_claim["fact"],
+            "reason": "structural-empty-container",
+        })
+        catalog_module.validate_ui_fact_ownership(
+            facts,
+            catalog,
+            (exclusion,),
+            scope="ui-defaults-transitions",
+        )
+
+        wrong_reason = catalog_module.UiFactExclusion.model_validate({
+            "fact": container_claim["fact"],
+            "reason": "structural-architecture-metadata",
+        })
+        with self.assertRaisesRegex(CatalogError, "structural-empty-container"):
+            catalog_module.validate_ui_fact_ownership(
+                facts,
+                catalog,
+                (wrong_reason,),
+                scope="ui-defaults-transitions",
+            )
+
+    def test_ui_transition_defaults_preserve_explicit_undefined(self):
+        fact_data = self.valid_facts()
+        undefined = {"present": True, "value": {"kind": "undefined"}}
+        absent = {"present": False}
+        fact_data["architecture_transitions"] = [{
+            "architecture": "fixture",
+            "path": "config.process[*].train.steps",
+            "selected": undefined,
+            "unselected": absent,
+        }]
+        fact_data["model_architectures"][0]["defaults"] = [{
+            "declaration_path": "config.process[*].train.steps",
+            "path": "config.process[*].train.steps",
+            "selected": undefined,
+            "unselected": absent,
+        }]
+        facts = validate_training_book_ui_facts(fact_data)
+        projected = catalog_module.project_training_book_ui_facts(facts)
+        entry = CatalogContractTests().valid_catalog_entry()
+        entry["defaults"].extend([
+            {
+                "kind": "on-select", "presence": "present",
+                "value": {"kind": "undefined"},
+                "applicability": [{"ui_architecture": "fixture"}],
+            },
+            {
+                "kind": "on-leave", "presence": "absent",
+                "applicability": [{"ui_architecture": "fixture"}],
+            },
+        ])
+        catalog = validate_settings_catalog(
+            self.ownership_catalog_data(projected, train_entry=entry),
+            CatalogContractTests().discovered_steps(),
+        )
+
+        catalog_module.validate_ui_fact_ownership(
+            facts, catalog, (), scope="ui-defaults-transitions"
+        )
+
+    def test_nested_architecture_container_uses_its_root_declaration_descendant(self):
+        fact_data = self.valid_facts()
+        present = {"present": True, "value": {"kind": "number", "value": 1}}
+        absent = {"present": False}
+        fact_data["model_architectures"][0]["defaults"] = [{
+            "declaration_path": "config.process[*].model.model_kwargs",
+            "path": "config.process[*].model.model_kwargs.nested.alpha",
+            "selected": present,
+            "unselected": absent,
+        }]
+        fact_data["model_architectures"][0]["default_containers"] = [
+            {
+                "path": "config.process[*].model.model_kwargs",
+                "selected_present": True,
+                "unselected_present": True,
+            },
+            {
+                "path": "config.process[*].model.model_kwargs.nested",
+                "selected_present": True,
+                "unselected_present": True,
+            },
+        ]
+        facts = validate_training_book_ui_facts(fact_data)
+        projected = catalog_module.project_training_book_ui_facts(facts)
+        entry = CatalogContractTests().valid_catalog_entry()
+        entry["locations"].append({
+            "kind": "yaml",
+            "path": "config.process[*].model.model_kwargs.nested.alpha",
+        })
+        entry["defaults"].extend([
+            {
+                "kind": "on-select", "presence": "present", "value": 1,
+                "applicability": [{"ui_architecture": "fixture"}],
+            },
+            {
+                "kind": "on-leave", "presence": "absent",
+                "applicability": [{"ui_architecture": "fixture"}],
+            },
+        ])
+        catalog = validate_settings_catalog(
+            self.ownership_catalog_data(projected, train_entry=entry),
+            CatalogContractTests().discovered_steps(),
+        )
+
+        catalog_module.validate_ui_fact_ownership(
+            facts, catalog, (), scope="ui-defaults-transitions"
+        )
 
 
 class CatalogProductionSliceTests(unittest.TestCase):

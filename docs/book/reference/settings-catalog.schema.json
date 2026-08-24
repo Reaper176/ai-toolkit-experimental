@@ -586,7 +586,6 @@
           "items": {
             "$ref": "#/$defs/CatalogSourceClaim"
           },
-          "minItems": 1,
           "title": "Source Claims",
           "type": "array"
         },
@@ -653,6 +652,18 @@
           ],
           "title": "Ui Type"
         },
+        "ui_optional": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Optional"
+        },
         "example_type": {
           "enum": [
             "boolean",
@@ -673,25 +684,7 @@
         "accepted_values": {
           "anyOf": [
             {
-              "items": {
-                "anyOf": [
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
+              "items": {},
               "type": "array"
             },
             {

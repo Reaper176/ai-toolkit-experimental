@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal, Sequence
 
@@ -42,7 +43,6 @@ _StableId = Annotated[
     _NonBlank,
     StringConstraints(pattern=r"^[a-z][a-z0-9]*(?:[._-][a-z0-9*]+)*$"),
 ]
-_JsonScalar = StrictBool | StrictInt | StrictFloat | StrictStr | None
 _Numeric = StrictInt | StrictFloat
 _SemanticType = Literal[
     "boolean",
@@ -242,8 +242,9 @@ class SettingContract(_StrictModel):
     parser_type: _NonBlank
     supported_type: _NonBlank
     ui_type: _SemanticType | None
+    ui_optional: StrictBool | None = None
     example_type: _SemanticType
-    accepted_values: tuple[_JsonScalar, ...] | None
+    accepted_values: tuple[Any, ...] | None
     accepted_types: tuple[_SemanticType, ...] | None = None
     collection_length: StrictInt | None = None
     range: NumericRange | None
@@ -252,12 +253,11 @@ class SettingContract(_StrictModel):
     @field_validator("accepted_values")
     @classmethod
     def _finite_accepted_values(
-        cls, values: tuple[_JsonScalar, ...] | None
-    ) -> tuple[_JsonScalar, ...] | None:
+        cls, values: tuple[Any, ...] | None
+    ) -> tuple[Any, ...] | None:
         if values is not None:
             for value in values:
-                if isinstance(value, (int, float)) and not isinstance(value, bool):
-                    _require_finite_number(value)
+                _require_finite_json(value)
         return values
 
     @model_validator(mode="after")
@@ -458,7 +458,7 @@ class Setting(_StrictModel):
     interactions: tuple[Interaction, ...]
     aliases: tuple[Alias, ...]
     section: _NonBlank
-    source_claims: tuple[CatalogSourceClaim, ...] = Field(min_length=1)
+    source_claims: tuple[CatalogSourceClaim, ...]
     render: RenderMetadata
 
     @model_validator(mode="after")
@@ -915,6 +915,7 @@ class UiFactExclusion(_StrictModel):
     reason: Literal[
         "architecture-projected-control",
         "structural-architecture-metadata",
+        "structural-empty-container",
         "server-owned-value",
         "transient-ui-state",
         "display-only-control",
@@ -973,6 +974,162 @@ class TrainingBookUiFacts(_StrictModel):
         return self
 
 
+UiFactScope = Literal["ui-defaults-transitions", "ui-server-global"]
+
+
+@dataclass(frozen=True)
+class UiProjectedFact:
+    """One exact emitted atomic fact and its staged ownership slice."""
+
+    scope: UiFactScope
+    fact: UiOwnedFact
+
+
+def _architecture_field_fact(
+    architecture: str,
+    field: str,
+    payload: UiArchitecturePayload,
+) -> UiOwnedArchitectureField:
+    return UiOwnedArchitectureField.model_validate({
+        "fact_type": "architecture-field",
+        "architecture": architecture,
+        "field": field,
+        "payload": payload.model_dump(mode="json", exclude_unset=True),
+    })
+
+
+def _string_array_value(values: tuple[str, ...]) -> UiArrayValue:
+    return UiArrayValue(
+        kind="array",
+        items=tuple(UiStringValue(kind="string", value=value) for value in values),
+    )
+
+
+def project_training_book_ui_facts(
+    facts: TrainingBookUiFacts,
+) -> tuple[UiProjectedFact, ...]:
+    """Expand emitted UI state into exact, independently owned atomic facts."""
+
+    config_scope: UiFactScope = "ui-defaults-transitions"
+    global_scope: UiFactScope = "ui-server-global"
+    projected: list[UiProjectedFact] = []
+
+    for claim in facts.config_claims:
+        scope = global_scope if claim.kind == "server-state" else config_scope
+        projected.append(UiProjectedFact(
+            scope,
+            UiOwnedSourceFact(
+                fact_type="source-claim",
+                **claim.model_dump(mode="python", exclude_unset=True),
+            ),
+        ))
+    for claim in facts.global_settings:
+        projected.append(UiProjectedFact(
+            global_scope,
+            UiOwnedSourceFact(
+                fact_type="source-claim",
+                **claim.model_dump(mode="python", exclude_unset=True),
+            ),
+        ))
+    for default in facts.defaults:
+        projected.append(UiProjectedFact(
+            config_scope,
+            UiOwnedDefaultFact(
+                fact_type="ui-default",
+                **default.model_dump(mode="python", exclude_unset=True),
+            ),
+        ))
+    for transition in facts.architecture_transitions:
+        projected.append(UiProjectedFact(
+            config_scope,
+            UiOwnedArchitectureTransition(
+                fact_type="architecture-transition",
+                **transition.model_dump(mode="python", exclude_unset=True),
+            ),
+        ))
+
+    for architecture in facts.model_architectures:
+        value_fields = {
+            "label": UiStringValue(kind="string", value=architecture.label),
+            "group": UiStringValue(kind="string", value=architecture.group),
+            "controls": _string_array_value(architecture.controls),
+            "disable_sections": _string_array_value(
+                architecture.disable_sections
+            ),
+            "additional_sections": _string_array_value(
+                architecture.additional_sections
+            ),
+        }
+        for field, value in value_fields.items():
+            projected.append(UiProjectedFact(
+                config_scope,
+                _architecture_field_fact(
+                    architecture.name,
+                    field,
+                    UiArchitectureValuePayload(payload_kind="value", value=value),
+                ),
+            ))
+        for field in (
+            "model_path", "gate_url", "is_video_model",
+            "has_multiline_prompts", "accuracy_recovery_adapters",
+            "sample_tags",
+        ):
+            projected.append(UiProjectedFact(
+                config_scope,
+                _architecture_field_fact(
+                    architecture.name,
+                    field,
+                    UiArchitecturePresencePayload(
+                        payload_kind="presence", value=getattr(architecture, field)
+                    ),
+                ),
+            ))
+        projected.append(UiProjectedFact(
+            config_scope,
+            _architecture_field_fact(
+                architecture.name,
+                "custom_model_select_options",
+                UiArchitectureCustomOptionsPayload(
+                    payload_kind="custom-options",
+                    value=architecture.custom_model_select_options,
+                ),
+            ),
+        ))
+        projected.append(UiProjectedFact(
+            config_scope,
+            _architecture_field_fact(
+                architecture.name,
+                "model_notes",
+                UiArchitectureJsxPayload(
+                    payload_kind="jsx", value=architecture.model_notes
+                ),
+            ),
+        ))
+        for default in architecture.defaults:
+            projected.append(UiProjectedFact(
+                config_scope,
+                UiOwnedArchitectureDefault(
+                    fact_type="architecture-default",
+                    architecture=architecture.name,
+                    **default.model_dump(mode="python", exclude_unset=True),
+                ),
+            ))
+        for container in architecture.default_containers:
+            projected.append(UiProjectedFact(
+                config_scope,
+                UiOwnedArchitectureContainer(
+                    fact_type="architecture-container",
+                    architecture=architecture.name,
+                    **container.model_dump(mode="python"),
+                ),
+            ))
+
+    identities = tuple(item.fact.model_dump_json() for item in projected)
+    if len(identities) != len(set(identities)):
+        raise CatalogError("emitted UI facts contain duplicate atomic facts")
+    return tuple(projected)
+
+
 def _format_validation_error(error: ValidationError) -> str:
     details = []
     for item in error.errors(include_url=False):
@@ -1002,6 +1159,438 @@ def load_training_book_ui_facts(path: Path) -> TrainingBookUiFacts:
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise CatalogError(f"training book UI facts must be valid JSON: {error}") from error
     return validate_training_book_ui_facts(data)
+
+
+_UNREPRESENTABLE_UI_VALUE = object()
+
+
+def _ui_value_as_json(value: UiValue) -> object:
+    if isinstance(value, UiUndefinedValue):
+        return _UNREPRESENTABLE_UI_VALUE
+    if isinstance(value, UiNullValue):
+        return None
+    if isinstance(value, (UiBooleanValue, UiNumberValue, UiStringValue)):
+        return value.value
+    if isinstance(value, UiArrayValue):
+        items = tuple(_ui_value_as_json(item) for item in value.items)
+        if _UNREPRESENTABLE_UI_VALUE in items:
+            return _UNREPRESENTABLE_UI_VALUE
+        return list(items)
+    if isinstance(value, UiObjectValue):
+        entries = {
+            entry.key: _ui_value_as_json(entry.value) for entry in value.entries
+        }
+        if _UNREPRESENTABLE_UI_VALUE in entries.values():
+            return _UNREPRESENTABLE_UI_VALUE
+        return entries
+    raise AssertionError(f"unknown UI value model {type(value)!r}")
+
+
+def _setting_paths(setting: Setting) -> set[str]:
+    return {
+        *(location.path for location in setting.locations),
+        *(alias.location for alias in setting.aliases),
+    }
+
+
+def _validate_setting_source_contract(
+    setting: Setting, fact: UiOwnedSourceFact
+) -> None:
+    if fact.path not in _setting_paths(setting):
+        raise CatalogError(
+            f"UI owner {setting.id!r} does not declare emitted path {fact.path!r}"
+        )
+    if fact.kind != "setting":
+        return
+    if "simple-ui" not in setting.surfaces:
+        raise CatalogError(
+            f"UI owner {setting.id!r} lacks the simple-ui surface"
+        )
+    emitted_label: str | None = None
+    if fact.ui_label.present:
+        if not isinstance(fact.ui_label.value, UiStringValue):
+            raise CatalogError(
+                f"UI owner {setting.id!r} has a non-string emitted label"
+            )
+        emitted_label = fact.ui_label.value.value
+    if setting.ui_label != emitted_label:
+        raise CatalogError(
+            f"UI owner {setting.id!r} label mismatch: emitted "
+            f"{emitted_label!r}, catalog {setting.ui_label!r}"
+        )
+
+    emitted = fact.value_contract
+    contract = setting.contract
+    if contract.ui_type != emitted.ui_type:
+        raise CatalogError(
+            f"UI owner {setting.id!r} ui_type mismatch: emitted "
+            f"{emitted.ui_type!r}, catalog {contract.ui_type!r}"
+        )
+    if contract.ui_optional != emitted.optional:
+        raise CatalogError(
+            f"UI owner {setting.id!r} optionality mismatch: emitted "
+            f"{emitted.optional!r}, catalog ui_optional "
+            f"{contract.ui_optional!r}"
+        )
+    emitted_nullable = emitted.nullable
+    catalog_nullable = contract.null != "rejected"
+    if catalog_nullable != emitted_nullable:
+        raise CatalogError(
+            f"UI owner {setting.id!r} nullability mismatch: emitted "
+            f"nullable={emitted_nullable!r}, catalog null={contract.null!r}"
+        )
+
+    if emitted.accepted_values is None:
+        emitted_values: tuple[object, ...] | None = None
+    else:
+        converted = tuple(
+            _ui_value_as_json(value) for value in emitted.accepted_values
+        )
+        if _UNREPRESENTABLE_UI_VALUE in converted:
+            raise CatalogError(
+                f"UI owner {setting.id!r} has unrepresentable tagged undefined "
+                "accepted_values"
+            )
+        emitted_values = converted
+    if contract.accepted_values != emitted_values:
+        raise CatalogError(
+            f"UI owner {setting.id!r} accepted_values mismatch: emitted "
+            f"{emitted_values!r}, catalog {contract.accepted_values!r}"
+        )
+
+    if emitted.minimum is None and emitted.maximum is None:
+        if contract.range is not None:
+            raise CatalogError(
+                f"UI owner {setting.id!r} range mismatch: emitted no range"
+            )
+    else:
+        if (
+            contract.range is None
+            or contract.range.minimum != emitted.minimum
+            or contract.range.maximum != emitted.maximum
+            or not contract.range.minimum_inclusive
+            or not contract.range.maximum_inclusive
+        ):
+            raise CatalogError(
+                f"UI owner {setting.id!r} range mismatch: emitted "
+                f"[{emitted.minimum!r}, {emitted.maximum!r}]"
+            )
+
+
+def _default_matches_presence(
+    default: SettingDefault, presence: UiPresence
+) -> bool:
+    if (default.presence == "present") != presence.present:
+        return False
+    if not presence.present:
+        return True
+    assert presence.value is not None
+    return default.value == _ui_value_as_catalog_default(presence.value)
+
+
+def _ui_value_as_catalog_default(value: UiValue) -> object:
+    """Preserve explicit JavaScript undefined inside otherwise JSON defaults."""
+
+    if isinstance(value, UiUndefinedValue):
+        return {"kind": "undefined"}
+    if isinstance(value, UiArrayValue):
+        return [_ui_value_as_catalog_default(item) for item in value.items]
+    if isinstance(value, UiObjectValue):
+        return {
+            entry.key: _ui_value_as_catalog_default(entry.value)
+            for entry in value.entries
+        }
+    converted = _ui_value_as_json(value)
+    assert converted is not _UNREPRESENTABLE_UI_VALUE
+    return converted
+
+
+def _default_applies_to_architecture(
+    default: SettingDefault, architecture: str | None
+) -> bool:
+    if architecture is None:
+        return not default.applicability
+    return any(
+        clause.ui_architecture == architecture
+        for clause in default.applicability
+    )
+
+
+def _require_matching_default(
+    setting: Setting,
+    *,
+    kind: str,
+    presence: UiPresence,
+    architecture: str | None,
+) -> None:
+    if not any(
+        default.kind == kind
+        and _default_applies_to_architecture(default, architecture)
+        and _default_matches_presence(default, presence)
+        for default in setting.defaults
+    ):
+        architecture_text = (
+            "" if architecture is None else f" for architecture {architecture!r}"
+        )
+        raise CatalogError(
+            f"UI owner {setting.id!r} lacks exact {kind} default"
+            f"{architecture_text}: {presence.model_dump(mode='json')!r}"
+        )
+
+
+def _validate_owner_projection(setting: Setting, fact: UiOwnedFact) -> None:
+    if isinstance(fact, UiOwnedSourceFact):
+        _validate_setting_source_contract(setting, fact)
+        return
+    if isinstance(fact, UiOwnedDefaultFact):
+        if fact.path not in _setting_paths(setting):
+            raise CatalogError(
+                f"UI owner {setting.id!r} does not declare default path "
+                f"{fact.path!r}"
+            )
+        _require_matching_default(
+            setting, kind="ui-created", presence=fact.value, architecture=None
+        )
+        return
+    if isinstance(
+        fact, (UiOwnedArchitectureTransition, UiOwnedArchitectureDefault)
+    ):
+        if fact.path not in _setting_paths(setting):
+            raise CatalogError(
+                f"UI owner {setting.id!r} does not declare transition path "
+                f"{fact.path!r}"
+            )
+        _require_matching_default(
+            setting,
+            kind="on-select",
+            presence=fact.selected,
+            architecture=fact.architecture,
+        )
+        _require_matching_default(
+            setting,
+            kind="on-leave",
+            presence=fact.unselected,
+            architecture=fact.architecture,
+        )
+
+
+def _validate_architecture_field_owners(
+    projected: tuple[UiProjectedFact, ...],
+    owners: dict[str, UiFactOwner],
+    exclusions: dict[str, UiFactExclusion],
+    settings: dict[str, Setting],
+) -> None:
+    by_architecture: dict[str, list[UiOwnedArchitectureField]] = {}
+    for item in projected:
+        if isinstance(item.fact, UiOwnedArchitectureField):
+            by_architecture.setdefault(item.fact.architecture, []).append(
+                item.fact
+            )
+
+    selector_ids: dict[str, str] = {}
+    for architecture, fields in by_architecture.items():
+        identities = tuple(fact.model_dump_json() for fact in fields)
+        if any(identity in exclusions for identity in identities):
+            raise CatalogError(
+                f"architecture {architecture!r} metadata requires a selector owner"
+            )
+        setting_ids = {owners[identity].setting_id for identity in identities}
+        if len(setting_ids) != 1:
+            raise CatalogError(
+                f"architecture {architecture!r} metadata must have one selector owner"
+            )
+        setting_id = next(iter(setting_ids))
+        selector_ids[architecture] = setting_id
+        setting = settings[setting_id]
+        if (
+            setting.scope != "ui-state"
+            or setting.persistence != "transient"
+            or setting.authority != "ui-derived"
+            or setting.source_claims
+            or not any(location.kind == "ui-state" for location in setting.locations)
+            or not any(
+                clause.ui_architecture == architecture
+                for clause in setting.applicability
+            )
+        ):
+            raise CatalogError(
+                f"architecture {architecture!r} selector {setting_id!r} must be "
+                "a source-less, transient, UI-derived ui-state setting"
+            )
+        label_fact = next(fact for fact in fields if fact.field == "label")
+        assert isinstance(label_fact.payload, UiArchitectureValuePayload)
+        assert isinstance(label_fact.payload.value, UiStringValue)
+        if setting.ui_label != label_fact.payload.value.value:
+            raise CatalogError(
+                f"architecture {architecture!r} selector label mismatch"
+            )
+        if (
+            setting.contract.ui_type != "string"
+            or setting.contract.ui_optional is not False
+            or setting.contract.accepted_values != (architecture,)
+        ):
+            raise CatalogError(
+                f"architecture {architecture!r} selector contract mismatch"
+            )
+    if len(set(selector_ids.values())) != len(selector_ids):
+        raise CatalogError("each architecture requires a distinct selector setting")
+
+
+def _validate_architecture_container_owners(
+    projected: tuple[UiProjectedFact, ...],
+    owners: dict[str, UiFactOwner],
+    exclusions: dict[str, UiFactExclusion],
+) -> None:
+    defaults = tuple(
+        item.fact for item in projected
+        if isinstance(item.fact, UiOwnedArchitectureDefault)
+    )
+    containers = tuple(
+        item.fact for item in projected
+        if isinstance(item.fact, UiOwnedArchitectureContainer)
+    )
+    for container in containers:
+        identity = container.model_dump_json()
+        descendants = tuple(
+            fact for fact in defaults
+            if fact.architecture == container.architecture
+            and (
+                fact.path == container.path
+                or fact.path.startswith(f"{container.path}.")
+            )
+            and (
+                container.path == fact.declaration_path
+                or container.path.startswith(f"{fact.declaration_path}.")
+            )
+        )
+        if not descendants:
+            exclusion = exclusions.get(identity)
+            if (
+                exclusion is None
+                or exclusion.reason != "structural-empty-container"
+            ):
+                raise CatalogError(
+                    f"empty architecture container {container.architecture!r}:"
+                    f"{container.path!r} requires structural-empty-container exclusion"
+                )
+            continue
+        declaration_paths = {fact.declaration_path for fact in descendants}
+        if len(declaration_paths) != 1:
+            raise CatalogError(
+                f"architecture container {container.architecture!r}:"
+                f"{container.path!r} spans ambiguous declarations "
+                f"{sorted(declaration_paths)!r}"
+            )
+        if identity in exclusions:
+            raise CatalogError(
+                f"nonempty architecture container {container.architecture!r}:"
+                f"{container.path!r} requires deterministic descendant ownership"
+            )
+        excluded_descendants = tuple(
+            fact for fact in descendants if fact.model_dump_json() in exclusions
+        )
+        if excluded_descendants:
+            raise CatalogError(
+                f"architecture container {container.architecture!r}:"
+                f"{container.path!r} requires owned descendant defaults"
+            )
+        owned_descendants = tuple(
+            fact for fact in descendants if fact.model_dump_json() in owners
+        )
+        first_path = min(fact.path for fact in owned_descendants)
+        first = tuple(
+            fact for fact in owned_descendants if fact.path == first_path
+        )
+        if len(first) != 1:
+            raise CatalogError(
+                f"architecture container {container.architecture!r}:"
+                f"{container.path!r} has ambiguous first descendant {first_path!r}"
+            )
+        expected_owner = owners[first[0].model_dump_json()].setting_id
+        actual_owner = owners[identity].setting_id
+        if actual_owner != expected_owner:
+            raise CatalogError(
+                f"architecture container {container.architecture!r}:"
+                f"{container.path!r} must use first descendant owner "
+                f"{expected_owner!r}, not {actual_owner!r}"
+            )
+
+
+def validate_ui_fact_ownership(
+    facts: TrainingBookUiFacts,
+    catalog: SettingsCatalog,
+    exclusions: Sequence[UiFactExclusion],
+    *,
+    scope: Literal[
+        "ui-defaults-transitions", "ui-server-global", "all"
+    ] = "all",
+) -> None:
+    """Require exact, non-stale ownership for emitted atomic UI facts."""
+
+    projected = project_training_book_ui_facts(facts)
+    emitted = {item.fact.model_dump_json(): item for item in projected}
+    owners = {
+        owner.fact.model_dump_json(): owner for owner in catalog.ui_claims
+    }
+    excluded = {
+        exclusion.fact.model_dump_json(): exclusion for exclusion in exclusions
+    }
+
+    def fact_scope(fact: UiOwnedFact) -> UiFactScope:
+        if isinstance(fact, UiOwnedSourceFact) and (
+            fact.kind == "server-state" or not fact.path.startswith("config.")
+        ):
+            return "ui-server-global"
+        return "ui-defaults-transitions"
+
+    def selected_identity(identity: str, fact: UiOwnedFact) -> bool:
+        if scope == "all":
+            return True
+        live = emitted.get(identity)
+        return (live.scope if live is not None else fact_scope(fact)) == scope
+
+    selected_owners = {
+        identity: owner for identity, owner in owners.items()
+        if selected_identity(identity, owner.fact)
+    }
+    selected_exclusions = {
+        identity: exclusion for identity, exclusion in excluded.items()
+        if selected_identity(identity, exclusion.fact)
+    }
+    overlap = sorted(set(selected_owners).intersection(selected_exclusions))
+    if overlap:
+        raise CatalogError(
+            f"UI facts have both an owner and exclusion: {len(overlap)}"
+        )
+    stale_owners = sorted(set(selected_owners).difference(emitted))
+    if stale_owners:
+        raise CatalogError(f"stale UI owners: {len(stale_owners)}")
+    stale_exclusions = sorted(set(selected_exclusions).difference(emitted))
+    if stale_exclusions:
+        raise CatalogError(f"stale UI exclusions: {len(stale_exclusions)}")
+
+    settings = {setting.id: setting for setting in catalog.settings}
+    for identity, owner in selected_owners.items():
+        if identity in emitted:
+            _validate_owner_projection(settings[owner.setting_id], owner.fact)
+
+    selected = {
+        identity
+        for identity, item in emitted.items()
+        if scope == "all" or item.scope == scope
+    }
+    unowned = sorted(
+        selected.difference(selected_owners).difference(selected_exclusions)
+    )
+    if unowned:
+        raise CatalogError(f"unowned UI facts: {len(unowned)}")
+    if scope in {"ui-defaults-transitions", "all"}:
+        _validate_architecture_field_owners(
+            projected, selected_owners, selected_exclusions, settings
+        )
+        _validate_architecture_container_owners(
+            projected, selected_owners, selected_exclusions
+        )
 
 
 def _dispatch_pattern_matches(
@@ -1161,6 +1750,7 @@ def _validate_catalog_relationships(catalog: SettingsCatalog) -> None:
             claimed_locations.setdefault(identity, []).append(setting)
 
     owner_facts: dict[str, str] = {}
+    ui_owned_setting_ids: set[str] = set()
     for owner in catalog.ui_claims:
         if owner.setting_id not in by_id:
             raise CatalogError(
@@ -1174,6 +1764,21 @@ def _validate_catalog_relationships(catalog: SettingsCatalog) -> None:
                 f"{previous!r} and {owner.setting_id!r}"
             )
         owner_facts[identity] = owner.setting_id
+        ui_owned_setting_ids.add(owner.setting_id)
+
+    for setting in catalog.settings:
+        if setting.source_claims:
+            continue
+        if setting.scope != "ui-state":
+            raise CatalogError(
+                f"source-less source_claims setting {setting.id!r} must use "
+                "scope ui-state"
+            )
+        if setting.id not in ui_owned_setting_ids:
+            raise CatalogError(
+                f"source-less UI-state setting {setting.id!r} requires atomic "
+                "UI ownership"
+            )
 
 
 def _claims(catalog: SettingsCatalog) -> tuple[SourceClaim, ...]:
