@@ -29,6 +29,7 @@ from scripts.training_book.catalog import (  # noqa: E402
     catalog_source_claims,
     load_settings_catalog,
     load_training_book_ui_facts,
+    load_ui_exclusions,
     settings_catalog_schema,
     validate_settings_catalog,
     validate_training_book_ui_facts,
@@ -519,6 +520,174 @@ class CatalogContractTests(unittest.TestCase):
                 "2000",
             ),
         )
+
+    def ui_source_fact(self):
+        return {
+            "fact_type": "source-claim",
+            "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+            "symbol": (
+                "SimpleJob::NumberInput::"
+                "config.process[*].train.steps::Steps"
+            ),
+            "path": "config.process[*].train.steps",
+            "kind": "setting",
+            "ui_label": {
+                "present": True,
+                "value": {"kind": "string", "value": "Steps"},
+            },
+            "value_contract": {
+                "ui_type": "number",
+                "widget_kind": "number",
+                "optional": False,
+                "nullable": True,
+                "minimum": 1,
+            },
+        }
+
+    def ui_owner_facts(self):
+        present = {
+            "present": True,
+            "value": {"kind": "number", "value": 3000},
+        }
+        return [
+            self.ui_source_fact(),
+            {
+                "fact_type": "ui-default",
+                "source_path": "ui/src/app/jobs/new/jobConfig.ts",
+                "symbol": "defaultJobConfig",
+                "path": "config.process[*].train.steps",
+                "value": present,
+            },
+            {
+                "fact_type": "architecture-transition",
+                "architecture": "fixture",
+                "path": "config.process[*].train.steps",
+                "selected": present,
+                "unselected": {"present": False},
+            },
+            {
+                "fact_type": "architecture-field",
+                "architecture": "fixture",
+                "field": "model_path",
+                "payload": {
+                    "payload_kind": "presence",
+                    "value": {
+                        "present": True,
+                        "value": {"kind": "string", "value": "model/repo"},
+                    },
+                },
+            },
+            {
+                "fact_type": "architecture-default",
+                "architecture": "fixture",
+                "declaration_path": "config.process[*].train.steps",
+                "path": "config.process[*].train.steps",
+                "selected": present,
+                "unselected": {"present": False},
+            },
+            {
+                "fact_type": "architecture-container",
+                "architecture": "fixture",
+                "path": "config.process[*].model.model_kwargs",
+                "selected_present": True,
+                "unselected_present": False,
+            },
+        ]
+
+    def test_catalog_ui_owners_use_a_strict_full_payload_fact_union(self):
+        data = {
+            "schema_version": 1,
+            "settings": [self.valid_catalog_entry()],
+            "ui_claims": [
+                {"setting_id": "train.steps", "fact": fact}
+                for fact in self.ui_owner_facts()
+            ],
+        }
+        catalog = validate_settings_catalog(data, self.discovered_steps())
+        self.assertEqual(len(catalog.ui_claims), 6)
+        self.assertEqual(catalog.ui_claims[0].fact.fact_type, "source-claim")
+        self.assertEqual(
+            catalog.ui_claims[0].fact.ui_label.value.value,
+            "Steps",
+        )
+
+        mutations = []
+        unknown = deepcopy(data)
+        unknown["ui_claims"][0]["setting_id"] = "train.unknown"
+        mutations.append((unknown, "unknown setting_id"))
+        duplicate = deepcopy(data)
+        duplicate["ui_claims"].append(deepcopy(duplicate["ui_claims"][0]))
+        mutations.append((duplicate, "duplicate UI fact owner"))
+        missing_payload = deepcopy(data)
+        del missing_payload["ui_claims"][3]["fact"]["payload"]
+        mutations.append((missing_payload, "payload"))
+        wrong_variant = deepcopy(data)
+        wrong_variant["ui_claims"][1]["fact"]["fact_type"] = "source-claim"
+        mutations.append((wrong_variant, "source-claim"))
+        numeric_label = deepcopy(data)
+        numeric_label["ui_claims"][3]["fact"] = {
+            "fact_type": "architecture-field",
+            "architecture": "fixture",
+            "field": "label",
+            "payload": {
+                "payload_kind": "value",
+                "value": {"kind": "number", "value": 7},
+            },
+        }
+        mutations.append((numeric_label, "label.*string"))
+        numeric_controls_item = deepcopy(data)
+        numeric_controls_item["ui_claims"][3]["fact"] = {
+            "fact_type": "architecture-field",
+            "architecture": "fixture",
+            "field": "controls",
+            "payload": {
+                "payload_kind": "value",
+                "value": {
+                    "kind": "array",
+                    "items": [{"kind": "number", "value": 7}],
+                },
+            },
+        }
+        mutations.append((numeric_controls_item, "controls.*string"))
+        for payload, message in mutations:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(CatalogError, message):
+                    validate_settings_catalog(payload, self.discovered_steps())
+
+    def test_ui_exclusions_share_the_exact_fact_union_and_closed_reasons(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings-exclusions.json"
+            payload = {
+                "schema_version": 1,
+                "exclusions": [],
+                "ui_exclusions": [{
+                    "fact": self.ui_source_fact(),
+                    "reason": "architecture-projected-control",
+                }],
+            }
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            exclusions = load_ui_exclusions(path)
+            self.assertEqual(exclusions[0].fact.fact_type, "source-claim")
+            self.assertEqual(load_exclusions(path), ())
+
+            payload["ui_exclusions"][0]["reason"] = "hand-wavy"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(CatalogError, "reason"):
+                load_ui_exclusions(path)
+
+            payload["ui_exclusions"] = [
+                {
+                    "fact": self.ui_source_fact(),
+                    "reason": "architecture-projected-control",
+                },
+                {
+                    "fact": self.ui_source_fact(),
+                    "reason": "architecture-projected-control",
+                },
+            ]
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(CatalogError, "duplicate UI exclusion"):
+                load_ui_exclusions(path)
 
     def test_catalog_contract_accepts_the_representative_shape_and_empty_catalog(self):
         catalog = validate_settings_catalog(

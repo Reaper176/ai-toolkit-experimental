@@ -483,6 +483,7 @@ class Setting(_StrictModel):
 class SettingsCatalog(_StrictModel):
     schema_version: StrictInt
     settings: tuple[Setting, ...]
+    ui_claims: tuple["UiFactOwner", ...] = ()
 
     @field_validator("schema_version")
     @classmethod
@@ -772,6 +773,173 @@ class UiArchitectureTransition(_StrictModel):
         return _require_canonical_location(value)
 
 
+class UiArchitectureValuePayload(_StrictModel):
+    payload_kind: Literal["value"]
+    value: UiValue
+
+
+class UiArchitecturePresencePayload(_StrictModel):
+    payload_kind: Literal["presence"]
+    value: UiPresence
+
+
+class UiArchitectureJsxPayload(_StrictModel):
+    payload_kind: Literal["jsx"]
+    value: UiStaticJsx
+
+
+class UiArchitectureCustomOptionsPayload(_StrictModel):
+    payload_kind: Literal["custom-options"]
+    value: UiCustomOptions
+
+
+UiArchitecturePayload = Annotated[
+    UiArchitectureValuePayload | UiArchitecturePresencePayload
+    | UiArchitectureJsxPayload | UiArchitectureCustomOptionsPayload,
+    Field(discriminator="payload_kind"),
+]
+
+
+class UiOwnedSourceFact(UiSourceFact):
+    fact_type: Literal["source-claim"]
+
+
+class UiOwnedDefaultFact(UiDefault):
+    fact_type: Literal["ui-default"]
+
+
+class UiOwnedArchitectureTransition(UiArchitectureTransition):
+    fact_type: Literal["architecture-transition"]
+
+
+class UiOwnedArchitectureField(_StrictModel):
+    fact_type: Literal["architecture-field"]
+    architecture: StrictStr
+    field: Literal[
+        "label", "group", "model_path", "gate_url", "is_video_model",
+        "has_multiline_prompts", "accuracy_recovery_adapters", "sample_tags",
+        "custom_model_select_options", "model_notes", "controls",
+        "disable_sections", "additional_sections",
+    ]
+    payload: UiArchitecturePayload
+
+    @model_validator(mode="after")
+    def _field_payload_matches(self) -> "UiOwnedArchitectureField":
+        expected = {
+            "label": "value",
+            "group": "value",
+            "model_path": "presence",
+            "gate_url": "presence",
+            "is_video_model": "presence",
+            "has_multiline_prompts": "presence",
+            "accuracy_recovery_adapters": "presence",
+            "sample_tags": "presence",
+            "custom_model_select_options": "custom-options",
+            "model_notes": "jsx",
+            "controls": "value",
+            "disable_sections": "value",
+            "additional_sections": "value",
+        }[self.field]
+        if self.payload.payload_kind != expected:
+            raise ValueError(
+                f"architecture field {self.field} requires {expected} payload"
+            )
+        if self.field in {"label", "group"}:
+            if (
+                not isinstance(self.payload, UiArchitectureValuePayload)
+                or not isinstance(self.payload.value, UiStringValue)
+            ):
+                raise ValueError(
+                    f"architecture field {self.field} requires a tagged string value"
+                )
+        if self.field in {
+            "controls", "disable_sections", "additional_sections",
+        }:
+            if (
+                not isinstance(self.payload, UiArchitectureValuePayload)
+                or not isinstance(self.payload.value, UiArrayValue)
+                or not all(
+                    isinstance(item, UiStringValue)
+                    for item in self.payload.value.items
+                )
+            ):
+                raise ValueError(
+                    f"architecture field {self.field} requires an array of "
+                    "tagged string values"
+                )
+        return self
+
+
+class UiOwnedArchitectureDefault(_StrictModel):
+    fact_type: Literal["architecture-default"]
+    architecture: StrictStr
+    declaration_path: StrictStr
+    path: StrictStr
+    selected: UiPresence
+    unselected: UiPresence
+
+    @field_validator("declaration_path", "path")
+    @classmethod
+    def _canonical_path(cls, value: str) -> str:
+        return _require_canonical_location(value)
+
+
+class UiOwnedArchitectureContainer(_StrictModel):
+    fact_type: Literal["architecture-container"]
+    architecture: StrictStr
+    path: StrictStr
+    selected_present: StrictBool
+    unselected_present: StrictBool
+
+    @field_validator("path")
+    @classmethod
+    def _canonical_path(cls, value: str) -> str:
+        return _require_canonical_location(value)
+
+
+UiOwnedFact = Annotated[
+    UiOwnedSourceFact | UiOwnedDefaultFact | UiOwnedArchitectureTransition
+    | UiOwnedArchitectureField | UiOwnedArchitectureDefault
+    | UiOwnedArchitectureContainer,
+    Field(discriminator="fact_type"),
+]
+
+
+class UiFactOwner(_StrictModel):
+    setting_id: _StableId
+    fact: UiOwnedFact
+
+
+class UiFactExclusion(_StrictModel):
+    fact: UiOwnedFact
+    reason: Literal[
+        "architecture-projected-control",
+        "structural-architecture-metadata",
+        "server-owned-value",
+        "transient-ui-state",
+        "display-only-control",
+        "runtime-derived-ui-state",
+    ]
+
+
+class UiExclusionsEnvelope(_StrictModel):
+    schema_version: Literal[1]
+    exclusions: tuple[Any, ...]
+    ui_exclusions: tuple[UiFactExclusion, ...] = ()
+
+    @model_validator(mode="after")
+    def _unique_ui_exclusions(self) -> "UiExclusionsEnvelope":
+        identities = tuple(
+            item.fact.model_dump_json() for item in self.ui_exclusions
+        )
+        if len(identities) != len(set(identities)):
+            raise ValueError("duplicate UI exclusion")
+        return self
+
+
+SettingsCatalog.model_rebuild()
+
+
 class TrainingBookUiFacts(_StrictModel):
     schema_version: Literal[1]
     model_architectures: tuple[UiModelArchitecture, ...]
@@ -992,6 +1160,21 @@ def _validate_catalog_relationships(catalog: SettingsCatalog) -> None:
                     )
             claimed_locations.setdefault(identity, []).append(setting)
 
+    owner_facts: dict[str, str] = {}
+    for owner in catalog.ui_claims:
+        if owner.setting_id not in by_id:
+            raise CatalogError(
+                f"UI fact owner names unknown setting_id {owner.setting_id!r}"
+            )
+        identity = owner.fact.model_dump_json()
+        previous = owner_facts.get(identity)
+        if previous is not None:
+            raise CatalogError(
+                "duplicate UI fact owner for exact payload: "
+                f"{previous!r} and {owner.setting_id!r}"
+            )
+        owner_facts[identity] = owner.setting_id
+
 
 def _claims(catalog: SettingsCatalog) -> tuple[SourceClaim, ...]:
     return tuple(
@@ -1036,6 +1219,17 @@ def _load_json(path: Path, label: str) -> object:
         )
     except (OSError, json.JSONDecodeError, ValueError) as error:
         raise CatalogError(f"could not load {label}: {error}") from error
+
+
+def load_ui_exclusions(path: Path) -> tuple[UiFactExclusion, ...]:
+    """Load typed exact UI exclusions from the shared exclusions document."""
+
+    data = _load_json(path, "settings exclusions")
+    try:
+        envelope = UiExclusionsEnvelope.model_validate(data)
+    except ValidationError as error:
+        raise CatalogError(_format_validation_error(error)) from error
+    return envelope.ui_exclusions
 
 
 def load_settings_catalog(

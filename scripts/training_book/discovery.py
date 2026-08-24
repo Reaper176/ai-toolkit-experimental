@@ -268,12 +268,19 @@ def load_exclusions(path: Path) -> tuple[Exclusion, ...]:
     """Load exact exclusions with reasons from the approved taxonomy."""
 
     data = _load_json_object(path, "settings exclusions")
-    _require_fields(data, {"schema_version", "exclusions"}, "settings exclusions")
+    data.setdefault("ui_exclusions", [])
+    _require_fields(
+        data,
+        {"schema_version", "exclusions", "ui_exclusions"},
+        "settings exclusions",
+    )
     if type(data["schema_version"]) is not int or data["schema_version"] != 1:
         raise DiscoveryError("settings exclusions schema_version must equal 1")
     values = data["exclusions"]
     if type(values) is not list:
         raise DiscoveryError("exclusions must be an array")
+    if type(data["ui_exclusions"]) is not list:
+        raise DiscoveryError("ui_exclusions must be an array")
     exclusions: list[Exclusion] = []
     for index, item in enumerate(values):
         label = f"exclusions[{index}]"
