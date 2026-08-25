@@ -87,6 +87,32 @@ export interface UiDefaultFact {
   symbol: string;
 }
 
+export type UiBehaviorPayload =
+  | { kind: 'literal'; value: TrainingBookValueFact }
+  | { kind: 'undefined' }
+  | { kind: 'copy'; source_path: string; fallback?: TrainingBookValueFact }
+  | { kind: 'map-prompt-objects'; source_path: string; item_key: 'prompt' }
+  | { kind: 'architecture-field'; field: 'controls' }
+  | { kind: 'architecture-default'; phase: 'revert' | 'apply'; value_index: 1 | 0 };
+
+export type UiBehaviorGuard =
+  | 'prompts-nonempty-array' | 'after-prompts-write'
+  | 'type-is-ui-trainer' | 'property-present' | 'property-absent'
+  | 'platform-mac' | 'cleaned-model-changed'
+  | 'section-unsupported' | 'section-supported-property-absent'
+  | 'architecture-change' | 'multi-control' | 'single-control'
+  | 'no-control' | 'source-nonempty-target-empty' | 'source-nonempty'
+  | 'frame-count-unsupported' | 'auto-frame-count-unsupported'
+  | 'sample-control-unsupported' | 'revert-current-defaults'
+  | 'apply-next-defaults';
+
+export interface UiBehaviorContract {
+  guard: UiBehaviorGuard;
+  operation: 'write' | 'delete';
+  sources: string[];
+  payload: UiBehaviorPayload;
+}
+
 export interface UiSourceClaim {
   source_path: string;
   symbol: string;
@@ -123,6 +149,7 @@ export interface UiSourceClaim {
     minimum?: number;
     maximum?: number;
   };
+  behavior_contract?: UiBehaviorContract;
 }
 
 export interface ArchitectureTransitionFact {
@@ -3838,6 +3865,58 @@ function validateValueContract(value: unknown, label: string): void {
   if (typeof value.minimum === 'number' && typeof value.maximum === 'number' && value.minimum > value.maximum) throw new FactsError(`${label} minimum exceeds maximum`);
 }
 
+function validateBehaviorPayload(value: unknown, label: string): void {
+  requireKeys(value, ['kind'], label, ['value', 'source_path', 'fallback', 'item_key', 'field', 'phase', 'value_index']);
+  if (value.kind === 'literal') {
+    requireKeys(value, ['kind', 'value'], label);
+    validateValue(value.value, `${label}.value`);
+  } else if (value.kind === 'undefined') {
+    requireKeys(value, ['kind'], label);
+  } else if (value.kind === 'copy') {
+    requireKeys(value, ['kind', 'source_path'], label, ['fallback']);
+    if (typeof value.source_path !== 'string' || normalizeTrainingBookPath(value.source_path) !== value.source_path) throw new FactsError(`${label} copy source_path must be canonical`);
+    if (Object.prototype.hasOwnProperty.call(value, 'fallback')) validateValue(value.fallback, `${label}.fallback`);
+  } else if (value.kind === 'map-prompt-objects') {
+    requireKeys(value, ['kind', 'source_path', 'item_key'], label);
+    if (typeof value.source_path !== 'string' || normalizeTrainingBookPath(value.source_path) !== value.source_path) throw new FactsError(`${label} map-prompt-objects source_path must be canonical`);
+    if (value.item_key !== 'prompt') throw new FactsError(`${label}.item_key must equal prompt`);
+  } else if (value.kind === 'architecture-field') {
+    requireKeys(value, ['kind', 'field'], label);
+    if (value.field !== 'controls') throw new FactsError(`${label}.field must equal controls`);
+  } else if (value.kind === 'architecture-default') {
+    requireKeys(value, ['kind', 'phase', 'value_index'], label);
+    if (!['revert', 'apply'].includes(String(value.phase))) throw new FactsError(`${label}.phase is unsupported`);
+    if ((value.phase === 'revert' && value.value_index !== 1) || (value.phase === 'apply' && value.value_index !== 0)) throw new FactsError(`${label} architecture-default phase/value_index mismatch`);
+  } else throw new FactsError(`${label}.kind is unsupported`);
+}
+
+function validateBehaviorContract(value: unknown, label: string): void {
+  requireKeys(value, ['guard', 'operation', 'sources', 'payload'], label);
+  const guards: UiBehaviorGuard[] = [
+    'prompts-nonempty-array', 'after-prompts-write', 'type-is-ui-trainer',
+    'property-present', 'property-absent', 'platform-mac', 'cleaned-model-changed',
+    'section-unsupported', 'section-supported-property-absent',
+    'architecture-change', 'multi-control', 'single-control', 'no-control',
+    'source-nonempty-target-empty', 'source-nonempty',
+    'frame-count-unsupported', 'auto-frame-count-unsupported',
+    'sample-control-unsupported', 'revert-current-defaults', 'apply-next-defaults',
+  ];
+  if (!guards.includes(value.guard as UiBehaviorGuard)) throw new FactsError(`${label}.guard is unsupported`);
+  if (!['write', 'delete'].includes(String(value.operation))) throw new FactsError(`${label}.operation is unsupported`);
+  validateStringArray(value.sources, `${label}.sources`);
+  let previous: string | undefined;
+  for (const source of value.sources as string[]) {
+    if (normalizeTrainingBookPath(source) !== source) throw new FactsError(`${label}.sources must be canonical`);
+    if (previous !== undefined && compareCodePoint(previous, source) >= 0) throw new FactsError(`${label}.sources must be unique and code-point sorted`);
+    previous = source;
+  }
+  validateBehaviorPayload(value.payload, `${label}.payload`);
+  const payload = value.payload as Record<string, unknown>;
+  if (value.operation === 'delete' && payload.kind !== 'undefined') throw new FactsError(`${label} delete requires undefined payload`);
+  if (value.operation === 'write' && payload.kind === 'undefined') throw new FactsError(`${label} write forbids undefined payload`);
+  if ((payload.kind === 'copy' || payload.kind === 'map-prompt-objects') && !(value.sources as string[]).includes(String(payload.source_path))) throw new FactsError(`${label} payload source_path must be listed in sources`);
+}
+
 export function validateTrainingBookUiFacts(value: unknown): asserts value is TrainingBookUiFacts {
   requireKeys(value, ['schema_version', 'model_architectures', 'defaults', 'config_claims', 'global_settings', 'architecture_transitions'], 'facts');
   if (value.schema_version !== 1) throw new FactsError('facts.schema_version must equal 1');
@@ -3913,7 +3992,7 @@ export function validateTrainingBookUiFacts(value: unknown): asserts value is Tr
   for (const collectionName of ['config_claims', 'global_settings'] as const) {
     (value[collectionName] as unknown[]).forEach((item, index) => {
       const label = `facts.${collectionName}[${index}]`;
-      requireKeys(item, ['source_path', 'symbol', 'path', 'kind', 'ui_label', 'value_contract'], label);
+      requireKeys(item, ['source_path', 'symbol', 'path', 'kind', 'ui_label', 'value_contract'], label, ['behavior_contract']);
       if (typeof item.source_path !== 'string' || typeof item.symbol !== 'string' || typeof item.path !== 'string' || !['setter', 'default', 'doc', 'setting', 'server-state'].includes(String(item.kind))) throw new FactsError(`${label} identity is invalid`);
       if (normalizeTrainingBookPath(item.path) !== item.path) throw new FactsError(`${label}.path is not canonical`);
       const identity = `${item.source_path}\0${item.symbol}\0${item.path}\0${item.kind}`;
@@ -3921,6 +4000,7 @@ export function validateTrainingBookUiFacts(value: unknown): asserts value is Tr
       claimIdentities.add(identity);
       validatePresence(item.ui_label, `${label}.ui_label`);
       validateValueContract(item.value_contract, `${label}.value_contract`);
+      if (item.behavior_contract !== undefined) validateBehaviorContract(item.behavior_contract, `${label}.behavior_contract`);
     });
   }
   const transitionIdentities = new Set<string>();

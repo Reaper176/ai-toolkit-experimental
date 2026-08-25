@@ -764,6 +764,110 @@ class UiValueContract(_StrictModel):
         return self
 
 
+class UiBehaviorLiteralPayload(_StrictModel):
+    kind: Literal["literal"]
+    value: UiValue
+
+
+class UiBehaviorUndefinedPayload(_StrictModel):
+    kind: Literal["undefined"]
+
+
+class UiBehaviorCopyPayload(_StrictModel):
+    kind: Literal["copy"]
+    source_path: StrictStr
+    fallback: UiValue | None = None
+
+    @field_validator("source_path")
+    @classmethod
+    def _canonical_source_path(cls, value: str) -> str:
+        return _require_canonical_location(value)
+
+    @model_validator(mode="after")
+    def _fallback_must_be_supplied_if_present(
+        self,
+    ) -> "UiBehaviorCopyPayload":
+        if "fallback" in self.model_fields_set and self.fallback is None:
+            raise ValueError("copy fallback must be a tagged value")
+        return self
+
+
+class UiBehaviorPromptMapPayload(_StrictModel):
+    kind: Literal["map-prompt-objects"]
+    source_path: StrictStr
+    item_key: Literal["prompt"]
+
+    @field_validator("source_path")
+    @classmethod
+    def _canonical_source_path(cls, value: str) -> str:
+        return _require_canonical_location(value)
+
+
+class UiBehaviorArchitectureFieldPayload(_StrictModel):
+    kind: Literal["architecture-field"]
+    field: Literal["controls"]
+
+
+class UiBehaviorArchitectureDefaultPayload(_StrictModel):
+    kind: Literal["architecture-default"]
+    phase: Literal["revert", "apply"]
+    value_index: Literal[0, 1]
+
+    @model_validator(mode="after")
+    def _phase_matches_index(self) -> "UiBehaviorArchitectureDefaultPayload":
+        if (self.phase, self.value_index) not in {("revert", 1), ("apply", 0)}:
+            raise ValueError("architecture-default phase/value_index mismatch")
+        return self
+
+
+UiBehaviorPayload = Annotated[
+    UiBehaviorLiteralPayload | UiBehaviorUndefinedPayload
+    | UiBehaviorCopyPayload | UiBehaviorPromptMapPayload
+    | UiBehaviorArchitectureFieldPayload
+    | UiBehaviorArchitectureDefaultPayload,
+    Field(discriminator="kind"),
+]
+
+
+class UiBehaviorContract(_StrictModel):
+    guard: Literal[
+        "prompts-nonempty-array", "after-prompts-write",
+        "type-is-ui-trainer", "property-present", "property-absent",
+        "platform-mac", "cleaned-model-changed", "section-unsupported",
+        "section-supported-property-absent", "architecture-change",
+        "multi-control", "single-control", "no-control",
+        "source-nonempty-target-empty", "source-nonempty",
+        "frame-count-unsupported", "auto-frame-count-unsupported",
+        "sample-control-unsupported", "revert-current-defaults",
+        "apply-next-defaults",
+    ]
+    operation: Literal["write", "delete"]
+    sources: tuple[StrictStr, ...]
+    payload: UiBehaviorPayload
+
+    @field_validator("sources")
+    @classmethod
+    def _canonical_sources(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        for value in values:
+            _require_canonical_location(value)
+        if values != tuple(sorted(values)) or len(values) != len(set(values)):
+            raise ValueError("sources must be unique and code-point sorted")
+        return values
+
+    @model_validator(mode="after")
+    def _operation_matches_payload(self) -> "UiBehaviorContract":
+        if self.operation == "delete":
+            if not isinstance(self.payload, UiBehaviorUndefinedPayload):
+                raise ValueError("delete requires undefined payload")
+        elif isinstance(self.payload, UiBehaviorUndefinedPayload):
+            raise ValueError("write forbids undefined payload")
+        if isinstance(
+            self.payload, (UiBehaviorCopyPayload, UiBehaviorPromptMapPayload)
+        ) and self.payload.source_path not in self.sources:
+            raise ValueError("payload source_path must be listed in sources")
+        return self
+
+
 class UiSourceFact(_StrictModel):
     source_path: StrictStr
     symbol: StrictStr
@@ -771,6 +875,16 @@ class UiSourceFact(_StrictModel):
     kind: Literal["setter", "default", "doc", "setting", "server-state"]
     ui_label: UiPresence
     value_contract: UiValueContract
+    behavior_contract: UiBehaviorContract | None = None
+
+    @model_validator(mode="after")
+    def _behavior_must_be_supplied_if_present(self) -> "UiSourceFact":
+        if (
+            "behavior_contract" in self.model_fields_set
+            and self.behavior_contract is None
+        ):
+            raise ValueError("behavior_contract must be a tagged object")
+        return self
 
     @field_validator("source_path")
     @classmethod

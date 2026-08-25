@@ -1842,6 +1842,73 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         self.assertEqual(facts.model_architectures[0].name, "fixture")
         self.assertEqual(facts.config_claims[0].value_contract.ui_type, "number")
 
+    def test_ui_facts_contract_accepts_only_exact_tagged_behavior_claims(self):
+        data = self.valid_facts()
+        behavior = {
+            "guard": "property-absent",
+            "operation": "write",
+            "sources": [],
+            "payload": {
+                "kind": "literal",
+                "value": {
+                    "kind": "object",
+                    "entries": [
+                        {
+                            "key": "log_every",
+                            "value": {"kind": "number", "value": 1},
+                        },
+                        {
+                            "key": "use_ui_logger",
+                            "value": {"kind": "boolean", "value": True},
+                        },
+                    ],
+                },
+            },
+        }
+        data["config_claims"][0]["behavior_contract"] = behavior
+        facts = validate_training_book_ui_facts(data)
+        self.assertEqual(
+            facts.config_claims[0].behavior_contract.model_dump(
+                mode="json", exclude_unset=True
+            ),
+            behavior,
+        )
+
+        invalid_cases = {
+            "unknown operation": (
+                lambda item: item.update(operation="rename"), "operation",
+            ),
+            "noncanonical source": (
+                lambda item: item.update(
+                    sources=["config.process[0].sample.prompts"]
+                ),
+                "sources",
+            ),
+            "untagged payload": (
+                lambda item: item.update(payload={"value": False}), "payload",
+            ),
+            "delete with literal": (
+                lambda item: item.update(operation="delete"),
+                "delete.*undefined",
+            ),
+            "copy without source": (
+                lambda item: item.update(payload={"kind": "copy"}),
+                "source_path",
+            ),
+            "prompt map without source": (
+                lambda item: item.update(payload={
+                    "kind": "map-prompt-objects", "item_key": "prompt",
+                }),
+                "source_path",
+            ),
+        }
+        for label, (mutate, error) in invalid_cases.items():
+            with self.subTest(label=label):
+                invalid = deepcopy(data)
+                mutate(invalid["config_claims"][0]["behavior_contract"])
+                with self.assertRaisesRegex(CatalogError, error):
+                    validate_training_book_ui_facts(invalid)
+
     def test_ui_facts_contract_accepts_exact_next_dynamic_route_sources(self):
         data = self.valid_facts()
         data["global_settings"] = [deepcopy(data["config_claims"][0])]

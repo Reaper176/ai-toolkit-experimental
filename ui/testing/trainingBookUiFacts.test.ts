@@ -1801,6 +1801,39 @@ try {
   const serialized = JSON.parse(readFileSync(output, 'utf8'));
   assert.deepEqual(serialized, facts);
   validateTrainingBookUiFacts(serialized);
+  const behaviorFacts = structuredClone(serialized);
+  behaviorFacts.config_claims[0].behavior_contract = {
+    guard: 'property-absent',
+    operation: 'write',
+    sources: [],
+    payload: {
+      kind: 'literal',
+      value: {
+        kind: 'object',
+        entries: [
+          { key: 'log_every', value: { kind: 'number', value: 1 } },
+          { key: 'use_ui_logger', value: { kind: 'boolean', value: true } },
+        ],
+      },
+    },
+  };
+  validateTrainingBookUiFacts(behaviorFacts);
+  for (const [label, mutate, expectedError] of [
+    ['unknown operation', (contract: any) => { contract.operation = 'rename'; }, /operation/],
+    ['noncanonical source', (contract: any) => { contract.sources = ['config.process[0].sample.prompts']; }, /sources.*canonical/],
+    ['untagged payload', (contract: any) => { contract.payload = { value: false }; }, /payload.*kind/],
+    ['delete with literal', (contract: any) => { contract.operation = 'delete'; }, /delete.*undefined/],
+    ['copy without source', (contract: any) => { contract.payload = { kind: 'copy' }; }, /payload.*source_path/],
+    ['prompt map without source', (contract: any) => { contract.payload = { kind: 'map-prompt-objects', item_key: 'prompt' }; }, /payload.*source_path/],
+  ] as const) {
+    const invalidBehavior = structuredClone(behaviorFacts);
+    mutate(invalidBehavior.config_claims[0].behavior_contract);
+    assert.throws(
+      () => validateTrainingBookUiFacts(invalidBehavior),
+      expectedError,
+      `behavior contracts reject ${label}`,
+    );
+  }
   assert.throws(
     () => validateTrainingBookUiFacts({ ...serialized, extra: true }),
     /unexpected field.*extra/,
