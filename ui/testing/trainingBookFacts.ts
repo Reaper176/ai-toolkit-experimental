@@ -2521,10 +2521,127 @@ function exportedArrowFunction(source: ts.SourceFile, name: string): ts.ArrowFun
 }
 
 type ConfigMutation = {
-  node: ts.BinaryExpression | ts.DeleteExpression;
+  node: ts.Node;
   operation: 'write' | 'delete';
   path: string;
+  syntax: 'assign' | 'delete' | 'compound' | 'update' | 'destructure';
 };
+
+type InvocationSubstitutions = ReadonlyMap<ts.Identifier, ts.Expression>;
+
+function directlyInvokedFunction(
+  call: ts.CallExpression,
+  bindings: LexicalBindings,
+): ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration | undefined {
+  const callee = unwrap(call.expression);
+  if (ts.isArrowFunction(callee) || ts.isFunctionExpression(callee)) return callee;
+  if (!ts.isIdentifier(callee)) return undefined;
+  const declaration = bindings.bindingDeclaration(callee);
+  if (declaration === undefined) return undefined;
+  if (ts.isFunctionDeclaration(declaration.parent) && declaration.parent.name === declaration) {
+    return declaration.parent;
+  }
+  const initializer = bindings.declarationInitializer(callee);
+  if (initializer === undefined) return undefined;
+  const value = unwrap(initializer);
+  return ts.isArrowFunction(value) || ts.isFunctionExpression(value) ? value : undefined;
+}
+
+function visitExecutableFunctionNodes(
+  owner: ts.FunctionLikeDeclaration,
+  bindings: LexicalBindings,
+  visitor: (node: ts.Node, substitutions: InvocationSubstitutions) => void,
+  invokeMapCallbacks = false,
+): void {
+  const active = new Set<ts.FunctionLikeDeclaration>([owner]);
+  const visit = (node: ts.Node, substitutions: InvocationSubstitutions, current: ts.FunctionLikeDeclaration): void => {
+    if (isStaticallyDead(node)) return;
+    if (node !== current && ts.isFunctionLike(node)) return;
+    visitor(node, substitutions);
+    if (ts.isCallExpression(node)) {
+      const invoke = (
+        target: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration,
+        argumentsToBind: readonly ts.Expression[] | undefined,
+      ): void => {
+        if (target.body === undefined || active.has(target)) return;
+        const next = new Map(substitutions);
+        target.parameters.forEach((parameter, index) => {
+          if (ts.isIdentifier(parameter.name) && argumentsToBind?.[index] !== undefined) {
+            next.set(parameter.name, argumentsToBind[index]);
+          }
+        });
+        active.add(target);
+        visit(target.body, next, target);
+        active.delete(target);
+      };
+      const direct = directlyInvokedFunction(node, bindings);
+      if (direct !== undefined) invoke(direct, node.arguments);
+      if (
+        invokeMapCallbacks
+        && ts.isPropertyAccessExpression(unwrap(node.expression))
+        && (unwrap(node.expression) as ts.PropertyAccessExpression).name.text === 'map'
+        && node.arguments[0] !== undefined
+      ) {
+        const callback = unwrap(node.arguments[0]);
+        if (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) invoke(callback, undefined);
+      }
+    }
+    ts.forEachChild(node, child => visit(child, substitutions, current));
+  };
+  if (owner.body !== undefined) visit(owner.body, new Map(), owner);
+}
+
+function assignmentTargetExpressions(expression: ts.Expression): ts.Expression[] {
+  expression = unwrap(expression);
+  if (ts.isArrayLiteralExpression(expression)) {
+    return expression.elements.flatMap(element => ts.isOmittedExpression(element)
+      ? []
+      : assignmentTargetExpressions(ts.isSpreadElement(element) ? element.expression : element as ts.Expression));
+  }
+  if (ts.isObjectLiteralExpression(expression)) {
+    return expression.properties.flatMap(property => {
+      if (ts.isShorthandPropertyAssignment(property)) return [property.name];
+      if (ts.isPropertyAssignment(property)) return assignmentTargetExpressions(property.initializer);
+      if (ts.isSpreadAssignment(property)) return assignmentTargetExpressions(property.expression);
+      return [];
+    });
+  }
+  if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    return assignmentTargetExpressions(expression.left);
+  }
+  return [expression];
+}
+
+function configMutationsAtNode(
+  node: ts.Node,
+  parameter: ts.Identifier,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+): ConfigMutation[] {
+  if (ts.isDeleteExpression(node)) {
+    const path = scopedFunctionConfigPath(node.expression, parameter, bindings, new Set(), substitutions);
+    return path === undefined ? [] : [{ node, operation: 'delete', path, syntax: 'delete' }];
+  }
+  if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) {
+    const targets = assignmentTargetExpressions(node.left);
+    const destructuring = ts.isArrayLiteralExpression(unwrap(node.left)) || ts.isObjectLiteralExpression(unwrap(node.left));
+    const syntax = destructuring
+      ? 'destructure'
+      : node.operatorToken.kind === ts.SyntaxKind.EqualsToken ? 'assign' : 'compound';
+    return targets.flatMap(target => {
+      const path = scopedFunctionConfigPath(target, parameter, bindings, new Set(), substitutions);
+      return path === undefined ? [] : [{ node, operation: 'write' as const, path, syntax }];
+    });
+  }
+  if (
+    (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node))
+    && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)
+  ) {
+    const path = scopedFunctionConfigPath(node.operand, parameter, bindings, new Set(), substitutions);
+    return path === undefined ? [] : [{ node, operation: 'write', path, syntax: 'update' }];
+  }
+  return [];
+}
 
 function parameterConfigPath(
   expression: ts.Expression,
@@ -2578,20 +2695,27 @@ function collectFunctionConfigMutations(
   bindings: LexicalBindings,
 ): ConfigMutation[] {
   const mutations: ConfigMutation[] = [];
-  const visit = (node: ts.Node): void => {
-    if (node !== owner && ts.isFunctionLike(node)) return;
-    if (isStaticallyDead(node)) return;
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-      const path = parameterConfigPath(node.left, parameter, bindings);
-      if (path !== undefined) mutations.push({ node, operation: 'write', path });
-    } else if (ts.isDeleteExpression(node)) {
-      const path = parameterConfigPath(node.expression, parameter, bindings);
-      if (path !== undefined) mutations.push({ node, operation: 'delete', path });
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(owner.body);
+  visitExecutableFunctionNodes(owner, bindings, (node, substitutions) => {
+    mutations.push(...configMutationsAtNode(node, parameter, bindings, substitutions));
+  });
   return mutations;
+}
+
+function invocationIdentifierResolvesTo(
+  identifier: ts.Identifier,
+  target: ts.Identifier,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  seen = new Set<ts.Identifier>(),
+): boolean {
+  if (bindings.isBinding(identifier, target)) return true;
+  const declaration = bindings.bindingDeclaration(identifier);
+  if (declaration === undefined || seen.has(declaration)) return false;
+  const substituted = substitutions.get(declaration);
+  if (substituted === undefined) return false;
+  const value = unwrap(substituted);
+  return ts.isIdentifier(value)
+    && invocationIdentifierResolvesTo(value, target, bindings, substitutions, new Set(seen).add(declaration));
 }
 
 export function collectMigrateJobConfigBehaviorClaimsFromSource(
@@ -2607,7 +2731,8 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
   const mutations = collectFunctionConfigMutations(owner, parameter, bindings);
   const consumed = new Set<ConfigMutation>();
   const take = (operation: ConfigMutation['operation'], path: string): ConfigMutation => {
-    const matches = mutations.filter(item => item.operation === operation && item.path === path);
+    const expectedSyntax = operation === 'write' ? 'assign' : 'delete';
+    const matches = mutations.filter(item => item.operation === operation && item.path === path && item.syntax === expectedSyntax);
     if (matches.length !== 1) fail(owner, `migrateJobConfig behavior requires one ${operation} for ${path}`);
     consumed.add(matches[0]);
     return matches[0];
@@ -2678,7 +2803,27 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
   if (!ts.isObjectLiteralExpression(pushed)) fail(pushed, 'migrateJobConfig prompts behavior requires prompt objects');
   const promptValue = objectProperties(pushed).get('prompt');
   const unwrappedPromptValue = promptValue === undefined ? undefined : unwrap(promptValue);
-  if (unwrappedPromptValue === undefined || !ts.isIdentifier(unwrappedPromptValue) || !bindings.isBinding(unwrappedPromptValue, promptBinding)) fail(pushed, 'migrateJobConfig prompts behavior requires an exact prompt property');
+  if (pushed.properties.length !== 1 || unwrappedPromptValue === undefined || !ts.isIdentifier(unwrappedPromptValue) || !bindings.isBinding(unwrappedPromptValue, promptBinding)) fail(pushed, 'migrateJobConfig prompts behavior requires one exact prompt property');
+  const isAccumulatorAccess = (expression: ts.Expression): boolean => {
+    expression = unwrap(expression);
+    if (ts.isIdentifier(expression)) return bindings.isBinding(expression, samplesDeclaration);
+    if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) return isAccumulatorAccess(expression.expression);
+    return false;
+  };
+  const unsupportedAccumulatorEffects: ts.Node[] = [];
+  const inspectAccumulator = (node: ts.Node): void => {
+    if (node !== owner && ts.isFunctionLike(node)) return;
+    if (isStaticallyDead(node)) return;
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(unwrap(node.expression))) {
+      const callee = unwrap(node.expression) as ts.PropertyAccessExpression;
+      if (isAccumulatorAccess(callee.expression) && node !== pushes[0]) unsupportedAccumulatorEffects.push(node);
+    }
+    if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind) && assignmentTargetExpressions(node.left).some(isAccumulatorAccess)) unsupportedAccumulatorEffects.push(node);
+    if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) && isAccumulatorAccess(node.operand)) unsupportedAccumulatorEffects.push(node);
+    ts.forEachChild(node, inspectAccumulator);
+  };
+  inspectAccumulator(promptIf.thenStatement);
+  if (unsupportedAccumulatorEffects.length > 0) fail(unsupportedAccumulatorEffects[0], 'migrateJobConfig prompts behavior has an unsupported accumulator mutation');
   if (!(samplesDeclaration.getStart() < loops[0].getStart() && loops[0].getStart() < sampleWrite.node.getStart() && sampleWrite.node.getStart() < promptDelete.node.getStart())) fail(promptIf, 'migrateJobConfig prompts behavior requires map, write, then delete order');
 
   const typeWrite = take('write', 'config.process[*].type');
@@ -2707,7 +2852,7 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
   if (deviceGuard === undefined || !ts.isCallExpression(deviceGuard) || deviceGuard.arguments.length !== 0 || !ts.isIdentifier(deviceGuard.expression) || !bindings.isExactNamedImport(deviceGuard.expression, 'isMac', '@/helpers/basic') || !exactString((deviceWrite.node as ts.BinaryExpression).right, 'mps')) fail(deviceWrite.node, 'migrateJobConfig device behavior requires exact isMac/mps semantics');
 
   const unsupported = mutations.filter(item => !consumed.has(item));
-  if (unsupported.length > 0) fail(unsupported[0].node, `migrateJobConfig unsupported reachable mutation ${unsupported[0].operation} ${unsupported[0].path}`);
+  if (unsupported.length > 0) fail(unsupported[0].node, `migrateJobConfig unsupported reachable mutation ${unsupported[0].syntax} ${unsupported[0].path}`);
 
   const claims: UiSourceClaim[] = [
     behaviorSettingClaim(sourceName, 'migrateJobConfig::prompts-to-samples::nonempty-array::write', 'config.process[*].sample.samples', 'object-list', {
@@ -2743,6 +2888,7 @@ function scopedFunctionConfigPath(
   configParameter: ts.Identifier,
   bindings: LexicalBindings,
   seen = new Set<ts.Identifier>(),
+  substitutions: InvocationSubstitutions = new Map(),
 ): string | undefined {
   const normalizeScopedPath = (raw: string): string => {
     const canonical = raw.startsWith('$job.') ? raw.slice('$job.'.length) : raw;
@@ -2756,10 +2902,14 @@ function scopedFunctionConfigPath(
     const declaration = bindings.bindingDeclaration(expression);
     if (declaration === undefined || seen.has(declaration)) return undefined;
     const nextSeen = new Set(seen).add(declaration);
+    const substituted = substitutions.get(declaration);
+    if (substituted !== undefined) {
+      return scopedFunctionConfigPath(substituted, configParameter, bindings, nextSeen, substitutions);
+    }
     if (ts.isParameter(declaration.parent)) {
       const callback = declaration.parent.parent;
       if ((ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) && callback.parameters[0] === declaration.parent && ts.isCallExpression(callback.parent) && callback.parent.arguments[0] === callback && ts.isPropertyAccessExpression(callback.parent.expression) && callback.parent.expression.name.text === 'map') {
-        const receiver = scopedFunctionConfigPath(callback.parent.expression.expression, configParameter, bindings, nextSeen);
+        const receiver = scopedFunctionConfigPath(callback.parent.expression.expression, configParameter, bindings, nextSeen, substitutions);
         return receiver === undefined ? undefined : `${receiver}[*]`;
       }
     }
@@ -2768,19 +2918,19 @@ function scopedFunctionConfigPath(
     const unwrappedInitializer = unwrap(initializer);
     if (ts.isCallExpression(unwrappedInitializer) && unwrappedInitializer.arguments[0] !== undefined) {
       const callName = ts.isIdentifier(unwrappedInitializer.expression) ? unwrappedInitializer.expression.text : undefined;
-      if (callName === 'objectCopy' || callName === 'clearUnsupportedAnimaPaths') return scopedFunctionConfigPath(unwrappedInitializer.arguments[0], configParameter, bindings, nextSeen);
+      if (callName === 'objectCopy' || callName === 'clearUnsupportedAnimaPaths') return scopedFunctionConfigPath(unwrappedInitializer.arguments[0], configParameter, bindings, nextSeen, substitutions);
     }
-    return scopedFunctionConfigPath(unwrappedInitializer, configParameter, bindings, nextSeen);
+    return scopedFunctionConfigPath(unwrappedInitializer, configParameter, bindings, nextSeen, substitutions);
   }
   if (ts.isPropertyAccessExpression(expression)) {
-    const base = scopedFunctionConfigPath(expression.expression, configParameter, bindings, seen);
+    const base = scopedFunctionConfigPath(expression.expression, configParameter, bindings, seen, substitutions);
     if (base === undefined) return undefined;
     return normalizeScopedPath(`${base}.${expression.name.text}`);
   }
   if (ts.isElementAccessExpression(expression) && expression.argumentExpression !== undefined) {
     const argument = unwrap(expression.argumentExpression);
     if (!ts.isNumericLiteral(argument) && !ts.isStringLiteral(argument)) return undefined;
-    const base = scopedFunctionConfigPath(expression.expression, configParameter, bindings, seen);
+    const base = scopedFunctionConfigPath(expression.expression, configParameter, bindings, seen, substitutions);
     if (base === undefined) return undefined;
     return normalizeScopedPath(`${base}[${argument.text}]`);
   }
@@ -2908,6 +3058,23 @@ function validateAnimaPathBehavior(sourceText: string, sourceName: string): void
     ['vae_path', 'model.vae_path'],
   ]);
   if (cleanedBinding === undefined || !returnsCleaned || deleteByPath.size !== expected.size || supportByBinding.size !== expected.size) fail(helper, 'Anima path behavior has unsupported cleanup structure');
+  const identityReturns = helper.body.statements.filter(statement => {
+    if (!ts.isIfStatement(statement) || statement.elseStatement !== undefined) return false;
+    const returned = ts.isBlock(statement.thenStatement) && statement.thenStatement.statements.length === 1
+      ? statement.thenStatement.statements[0]
+      : statement.thenStatement;
+    if (!ts.isReturnStatement(returned) || returned.expression === undefined) return false;
+    const value = unwrap(returned.expression);
+    if (!ts.isIdentifier(value) || !bindings.isBinding(value, modelParameter)) return false;
+    const guards = flattenAnd(statement.expression);
+    if (guards.length !== 2 || guards.some(guard => !ts.isIdentifier(unwrap(guard)))) return false;
+    return new Set(guards.map(guard => {
+      const identifier = unwrap(guard) as ts.Identifier;
+      return [...supportByBinding].find(([binding]) => bindings.isBinding(identifier, binding))?.[1];
+    })).size === 2
+      && guards.every(guard => [...supportByBinding].some(([binding]) => bindings.isBinding(unwrap(guard) as ts.Identifier, binding)));
+  });
+  if (identityReturns.length !== 1 || identityReturns[0].getStart() >= cleanedBinding.parent.getStart()) fail(helper, 'Anima path behavior requires an identity-preserving supported-sections early return');
   for (const [path, section] of expected) {
     const deletion = deleteByPath.get(path);
     if (deletion === undefined) fail(helper, `Anima path behavior requires ${path} deletion`);
@@ -2976,35 +3143,29 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
   const cleanupCalls: ts.CallExpression[] = [];
   const directMutations: ConfigMutation[] = [];
   const setterCalls: HandlerSetterCall[] = [];
-  const visit = (node: ts.Node): void => {
-    if (node !== owner && ts.isFunctionLike(node)) {
-      const isMapCallback = (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) && ts.isCallExpression(node.parent) && node.parent.arguments[0] === node && ts.isPropertyAccessExpression(node.parent.expression) && node.parent.expression.name.text === 'map';
-      if (!isMapCallback) return;
-    }
-    if (isStaticallyDead(node)) return;
+  visitExecutableFunctionNodes(owner, bindings, (node, substitutions) => {
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-      if (bindings.isBinding(node.expression, setterParameter)) {
+      if (invocationIdentifierResolvesTo(node.expression, setterParameter, bindings, substitutions)) {
         if (node.arguments.length !== 2) fail(node, 'handleModelArchChange behavior setter requires two arguments');
         const pathExpression = unwrap(node.arguments[1]);
         setterCalls.push({ node, path: ts.isStringLiteral(pathExpression) || ts.isNoSubstitutionTemplateLiteral(pathExpression) ? normalizePath(pathExpression.text, {}) : undefined, value: node.arguments[0] });
       } else if (node.expression.text === 'clearUnsupportedAnimaPaths') cleanupCalls.push(node);
     }
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-      const path = scopedFunctionConfigPath(node.left, configParameter, bindings);
-      if (path !== undefined) directMutations.push({ node, operation: 'write', path });
-    } else if (ts.isDeleteExpression(node)) {
-      const path = scopedFunctionConfigPath(node.expression, configParameter, bindings);
-      if (path !== undefined) directMutations.push({ node, operation: 'delete', path });
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(ownerBody);
+    directMutations.push(...configMutationsAtNode(node, configParameter, bindings, substitutions));
+  }, true);
   if (cleanupCalls.length !== 1) fail(owner, 'handleModelArchChange behavior requires one Anima cleanup call');
   const cleanupCall = cleanupCalls[0];
   if (!bindings.isExactNamedImport(cleanupCall.expression as ts.Identifier, 'clearUnsupportedAnimaPaths', '@/helpers/animaModelPaths')) fail(cleanupCall, 'handleModelArchChange behavior requires exact Anima cleanup import');
   if (cleanupCall.arguments.length !== 2) fail(cleanupCall, 'handleModelArchChange behavior requires exact Anima cleanup arguments');
   const cleanupModelSource = scopedFunctionConfigPath(cleanupCall.arguments[0], configParameter, bindings);
   if (cleanupModelSource !== 'config.process[*].model') fail(cleanupCall, `handleModelArchChange behavior requires exact Anima model source, received ${cleanupModelSource ?? '<unresolved>'}`);
+  const cleanupModelArgument = unwrap(cleanupCall.arguments[0]);
+  if (!ts.isIdentifier(cleanupModelArgument)) fail(cleanupCall, 'handleModelArchChange behavior requires a bound current model cleanup argument');
+  const cleanupModelBinding = bindings.bindingDeclaration(cleanupModelArgument);
+  if (cleanupModelBinding === undefined) fail(cleanupCall, 'handleModelArchChange behavior requires a bound current model cleanup argument');
+  const cleanupSections = unwrap(cleanupCall.arguments[1]);
+  const cleanupSectionsBase = ts.isPropertyAccessExpression(cleanupSections) ? unwrap(cleanupSections.expression) : undefined;
+  if (!ts.isPropertyAccessExpression(cleanupSections) || cleanupSections.name.text !== 'additionalSections' || cleanupSectionsBase === undefined || !ts.isIdentifier(cleanupSectionsBase) || !bindings.isBinding(cleanupSectionsBase, nextArchitecture)) fail(cleanupCall, 'handleModelArchChange behavior requires selected architecture cleanup sections');
 
   const consumedMutations = new Set<ConfigMutation>();
   const consumedSetters = new Set<HandlerSetterCall>();
@@ -3015,7 +3176,8 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     return matches[0];
   };
   const takeMutation = (operation: ConfigMutation['operation'], path: string, predicate: (mutation: ConfigMutation) => boolean): ConfigMutation => {
-    const matches = directMutations.filter(mutation => mutation.operation === operation && mutation.path === path && predicate(mutation));
+    const expectedSyntax = operation === 'write' ? 'assign' : 'delete';
+    const matches = directMutations.filter(mutation => mutation.operation === operation && mutation.path === path && mutation.syntax === expectedSyntax && predicate(mutation));
     if (matches.length !== 1) fail(owner, `handleModelArchChange behavior requires one ${operation} for ${path}`);
     consumedMutations.add(matches[0]);
     return matches[0];
@@ -3038,7 +3200,9 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
   const cleanupCommit = takeSetter('config.process[*].model', call => setterValueBinding(call, cleanedModel));
   const cleanupGuard = enclosingIfWithin(cleanupCommit.node, owner);
   const cleanupCondition = cleanupGuard === undefined ? undefined : unwrap(cleanupGuard.expression);
-  if (cleanupCondition === undefined || !ts.isBinaryExpression(cleanupCondition) || cleanupCondition.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsEqualsToken) fail(cleanupCommit.node, 'handleModelArchChange behavior requires changed-model cleanup guard');
+  const cleanupGuardLeft = cleanupCondition !== undefined && ts.isBinaryExpression(cleanupCondition) ? unwrap(cleanupCondition.left) : undefined;
+  const cleanupGuardRight = cleanupCondition !== undefined && ts.isBinaryExpression(cleanupCondition) ? unwrap(cleanupCondition.right) : undefined;
+  if (cleanupCondition === undefined || !ts.isBinaryExpression(cleanupCondition) || cleanupCondition.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsEqualsToken || cleanupGuardLeft === undefined || !ts.isIdentifier(cleanupGuardLeft) || !bindings.isBinding(cleanupGuardLeft, cleanedModel) || cleanupGuardRight === undefined || !ts.isIdentifier(cleanupGuardRight) || !bindings.isBinding(cleanupGuardRight, cleanupModelBinding)) fail(cleanupCommit.node, 'handleModelArchChange behavior requires exact changed-model cleanup guard');
 
   const lowVram = takeSetter('config.process[*].model.low_vram');
   const lowGuard = enclosingIfWithin(lowVram.node, owner);
@@ -3130,7 +3294,8 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     return ts.isPrefixUnaryExpression(condition) && valuePath(condition.operand) === 'config.process[*].datasets[*].control_path_1';
   });
   if (!hasMultiSourceGuard || !hasMultiTargetGuard) fail(multiCopy.node, 'handleModelArchChange behavior requires source-nonempty target-empty multi copy guards');
-  takeMutation('delete', 'config.process[*].datasets[*].control_path', mutation => branchRole(mutation.node) === 'multi');
+  const multiSourceDelete = takeMutation('delete', 'config.process[*].datasets[*].control_path', mutation => branchRole(mutation.node) === 'multi');
+  if (multiCopy.node.getStart() >= multiSourceDelete.node.getStart()) fail(multiSourceDelete.node, 'handleModelArchChange behavior requires multi-control copy before source deletion');
 
   const singleInit = takeMutation('write', 'config.process[*].datasets[*].control_path', mutation => branchRole(mutation.node) === 'single' && copyOrNull(mutation, 'config.process[*].datasets[*].control_path'));
   if (singleInit === undefined) fail(multiIf, 'handleModelArchChange behavior requires single control initialization');
@@ -3141,12 +3306,15 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     if (valuePath(value) === 'config.process[*].datasets[*].control_path_1') return true;
     return ts.isBinaryExpression(value) && value.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken && valuePath(value.left) === 'config.process[*].datasets[*].control_path_1' && exactString(value.right, '');
   })) fail(singleCopy.node, 'handleModelArchChange behavior requires nonempty single-control copy guard');
+  const singleDeletions: ConfigMutation[] = [];
   for (const suffix of ['control_path_1', 'control_path_2', 'control_path_3'] as const) {
     const path = `config.process[*].datasets[*].${suffix}`;
     const deletion = takeMutation('delete', path, mutation => branchRole(mutation.node) === 'single');
+    singleDeletions.push(deletion);
     const guard = enclosingIfWithin(deletion.node, owner);
     if (guard === undefined || !exactMembershipGuard(guard.expression, suffix, 'config.process[*].datasets[*]', configParameter, bindings)) fail(deletion.node, `handleModelArchChange behavior requires ${suffix} single-control membership guard`);
   }
+  if (singleDeletions.some(deletion => singleCopy.node.getStart() >= deletion.node.getStart())) fail(singleCopy.node, 'handleModelArchChange behavior requires single-control copy before source deletions');
   for (const suffix of ['control_path', 'control_path_1', 'control_path_2', 'control_path_3'] as const) {
     const path = `config.process[*].datasets[*].${suffix}`;
     const deletion = takeMutation('delete', path, mutation => branchRole(mutation.node) === 'none');
@@ -3205,7 +3373,7 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
   if (!validateExpandedDefaults(currentDefaultsInitializer, currentArchitecture) || !validateExpandedDefaults(newDefaultsInitializer, nextArchitecture)) fail(owner, 'handleModelArchChange behavior requires expanded current/new architecture defaults');
 
   const unsupportedMutation = directMutations.find(mutation => !consumedMutations.has(mutation));
-  if (unsupportedMutation !== undefined) fail(unsupportedMutation.node, `handleModelArchChange unsupported reachable mutation ${unsupportedMutation.operation} ${unsupportedMutation.path}`);
+  if (unsupportedMutation !== undefined) fail(unsupportedMutation.node, `handleModelArchChange unsupported reachable mutation ${unsupportedMutation.syntax} ${unsupportedMutation.path}`);
   const unsupportedSetter = setterCalls.find(call => !consumedSetters.has(call));
   if (unsupportedSetter !== undefined) fail(unsupportedSetter.node, `handleModelArchChange unsupported reachable mutation setter ${unsupportedSetter.path ?? '<dynamic>'}`);
 
