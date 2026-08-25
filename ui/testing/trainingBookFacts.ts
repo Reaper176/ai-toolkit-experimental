@@ -4175,7 +4175,7 @@ function scopedFunctionConfigPath(
     if (key === 'tainted') {
       const base = scopedFunctionConfigPath(expression.expression, configParameter, bindings, seen, substitutions);
       const aggregate = finiteAggregateRelevance(expression.expression, bindings, substitutions, seen);
-      const relevantAggregate = aggregate?.kind === 'tainted' || aggregate?.identities.some(leaf => {
+      const relevantAggregate = aggregate?.kind === 'tainted' || [...(aggregate?.leaves ?? []), ...(aggregate?.identities ?? [])].some(leaf => {
         const path = scopedFunctionConfigPath(leaf, configParameter, bindings, seen, substitutions);
         return path === '$job' || path?.startsWith('config.') === true;
       });

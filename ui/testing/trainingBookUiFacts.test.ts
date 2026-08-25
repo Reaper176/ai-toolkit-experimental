@@ -2516,6 +2516,33 @@ if (liveRoot !== undefined) {
     { missingRejects: [], positiveFailures: [] },
     'recursive finite aggregate relevance joins',
   );
+  const configLeafMissingRejects = [
+    ['literal homogeneous config leaves', summaryMigrateSource.replace('  return jobConfig;', "  [jobConfig, jobConfig][runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['const homogeneous config leaves', summaryMigrateSource.replace('  return jobConfig;', "  const targets = [jobConfig, jobConfig];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['aliased config leaves', summaryMigrateSource.replace('  return jobConfig;', "  const targets = [jobConfig];\n  const aliases = targets;\n  aliases[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['spread config leaves', summaryMigrateSource.replace('  return jobConfig;', "  const targets = [jobConfig];\n  const spreadTargets = [...targets];\n  spreadTargets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['sparse config leaves', summaryMigrateSource.replace('  return jobConfig;', "  const targets = [, jobConfig];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['nested homogeneous config leaves', summaryMigrateSource.replace('  return jobConfig;', "  const targets = [[jobConfig], [jobConfig]];\n  targets[runtimeIndex][0].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['callback-projected config leaves', summaryMigrateSource.replace('  return jobConfig;', "  [[jobConfig], [jobConfig]].forEach(targets => { targets[runtimeIndex].config.process[0].train.steps = 99; });\n  return jobConfig;")],
+    ['Object.assign config leaves', summaryMigrateSource.replace('  return jobConfig;', "  const targets = [jobConfig, jobConfig];\n  Object.assign(targets[runtimeIndex].config.process[0].train, { steps: 99 });\n  return jobConfig;")],
+    ['Reflect.set config leaves', summaryMigrateSource.replace('  return jobConfig;', "  const targets = [jobConfig, jobConfig];\n  Reflect.set(targets[runtimeIndex].config.process[0].train, 'steps', 99);\n  return jobConfig;")],
+    ['Reflect.deleteProperty config leaves', summaryMigrateSource.replace('  return jobConfig;', "  const targets = [jobConfig, jobConfig];\n  Reflect.deleteProperty(targets[runtimeIndex].config.process[0].train, 'steps');\n  return jobConfig;")],
+  ].flatMap(([label, source]) => {
+    try { collectMigrateJobConfigBehaviorClaimsFromSource(source); return [label]; } catch { return []; }
+  });
+  const configLeafPositiveFailures = [
+    ['static homogeneous config leaf', "  const targets = [jobConfig, jobConfig];\n  targets[0];\n  if (isMac()) {"],
+    ['harmless homogeneous numeric leaves', "  const targets = [1, 1];\n  otherObject.value = targets[runtimeIndex];\n  if (isMac()) {"],
+    ['harmless nested sparse leaves', "  const targets = [[, 1], [, 1]];\n  targets[runtimeIndex][1];\n  if (isMac()) {"],
+  ].flatMap(([label, replacement]) => {
+    try { assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts); return []; }
+    catch { return [label]; }
+  });
+  assert.deepEqual(
+    { missingRejects: configLeafMissingRejects, positiveFailures: configLeafPositiveFailures },
+    { missingRejects: [], positiveFailures: [] },
+    'config consumers inspect aggregate leaves and identities',
+  );
   assert.equal(summaryArchFacts.length, 30);
   assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));
