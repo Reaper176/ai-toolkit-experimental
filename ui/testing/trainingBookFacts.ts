@@ -539,6 +539,7 @@ class LexicalBindings {
   private readonly memberProjections = new WeakMap<ts.Expression, Map<string, ts.ElementAccessExpression>>();
   private readonly projectedMembers = new WeakSet<ts.Expression>();
   private readonly activeMemberApiResolution = new Set<ts.CallExpression>();
+  private readonly activeMemberValueResolution = new Set<ts.Expression>();
   private activeMemberTimelineBuildDepth = 0;
 
   constructor(private readonly source: ts.SourceFile) {}
@@ -684,6 +685,21 @@ class LexicalBindings {
           }
           if (truth !== undefined || result !== undefined) return 'invalid';
           result = { owner: parent, arm: current === parent.whenTrue ? 'true' : 'false', arms: ['true', 'false'], exhaustive: true };
+        } else if (ts.isBinaryExpression(parent) && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(parent.operatorToken.kind)) {
+          const truth = staticTruthValue(parent.left, this);
+          const nullish = staticNullishValue(parent.left, this);
+          const rightIsCertain = (parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && truth === true)
+            || (parent.operatorToken.kind === ts.SyntaxKind.BarBarToken && truth === false)
+            || (parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken && nullish === true);
+          const rightIsDead = (parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && truth === false)
+            || (parent.operatorToken.kind === ts.SyntaxKind.BarBarToken && truth === true)
+            || (parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken && nullish === false);
+          if (current === parent.right && rightIsCertain) {
+            current = parent;
+            continue;
+          }
+          if (current === parent.right && (rightIsDead || result !== undefined)) return 'invalid';
+          if (current === parent.right) result = { owner: parent, arm: 'right', arms: ['left', 'right'], exhaustive: false };
         } else if (ts.isForStatement(parent) || ts.isForInStatement(parent) || ts.isForOfStatement(parent) || ts.isWhileStatement(parent) || ts.isDoStatement(parent) || ts.isTryStatement(parent)) return 'invalid';
         current = parent;
       }
@@ -701,10 +717,38 @@ class LexicalBindings {
         for (let current: ts.Node | undefined = at; current !== undefined && current !== node; current = current.parent) {
           if (current === target) return;
         }
-        const member = staticMember(target);
+        let member = staticMember(target);
+        let dynamicProjection = false;
+        if (member === undefined && ts.isElementAccessExpression(unwrap(target))) {
+          const element = unwrap(target) as ts.ElementAccessExpression;
+          if (element.argumentExpression === undefined || root(element.expression, substitutions) !== expectedRoot) return;
+          const projectedKey = resolveAliasProvenance(element.argumentExpression, this, substitutions);
+          const projectedOrigin = projectedKey.kind === 'exact' && !ts.isMethodDeclaration(projectedKey.origin)
+            ? unwrap(projectedKey.origin)
+            : undefined;
+          if (projectedOrigin !== undefined && (ts.isStringLiteral(projectedOrigin) || ts.isNumericLiteral(projectedOrigin) || ts.isNoSubstitutionTemplateLiteral(projectedOrigin))) {
+            member = { base: element.expression, key: projectedOrigin.text };
+          } else {
+            member = { base: element.expression, key };
+            dynamicProjection = true;
+          }
+        }
         if (member === undefined || member.key !== key || root(member.base, substitutions) !== expectedRoot) return;
-        const branch = branchAt(node, scope);
-        const projected = initializer === undefined ? undefined : resolveAliasProvenance(initializer, this, substitutions);
+        const enclosingBranch = branchAt(node, scope);
+        const branch = dynamicProjection && enclosingBranch === undefined
+          ? { owner: target, arm: 'write', arms: ['write'], exhaustive: false }
+          : dynamicProjection
+            ? 'invalid'
+            : enclosingBranch;
+        let projected: AliasProvenance | undefined;
+        if (initializer !== undefined && !this.activeMemberValueResolution.has(initializer)) {
+          this.activeMemberValueResolution.add(initializer);
+          try {
+            projected = resolveAliasProvenance(initializer, this, substitutions);
+          } finally {
+            this.activeMemberValueResolution.delete(initializer);
+          }
+        }
         const projectedInitializer = projected?.kind === 'exact' && !ts.isMethodDeclaration(projected.origin)
           ? projected.origin
           : undefined;
@@ -3192,6 +3236,7 @@ type AliasProvenance =
   | { kind: 'absent' };
 
 const activeInvocationSummaries = new Set<ts.FunctionLikeDeclaration>();
+const activeIdentityReachabilitySummaries = new Set<ts.FunctionLikeDeclaration>();
 
 function sameAliasOrigin(left: AliasOriginNode, right: AliasOriginNode, bindings: LexicalBindings): boolean {
   if (left === right) return true;
@@ -3332,11 +3377,39 @@ function finiteAggregateRelevance(
         if (nested !== undefined) {
           leaves.push(...nested.leaves);
           identities.push(...nested.identities);
-        }
+        } else identities.push(element.expression);
         continue;
       }
       const nested = finiteAggregateRelevance(element, bindings, substitutions, seen, nextAggregateSeen);
       if (nested === undefined) leaves.push(element);
+      else {
+        if (nested.kind === 'tainted') tainted = true;
+        leaves.push(...nested.leaves);
+        identities.push(...nested.identities);
+      }
+    }
+    return tainted ? { kind: 'tainted', leaves, identities } : { kind: 'exact', leaves, identities };
+  }
+  if (ts.isObjectLiteralExpression(expression)) {
+    const leaves: ts.Expression[] = [];
+    const identities: ts.Expression[] = [expression];
+    let tainted = false;
+    for (const property of expression.properties) {
+      let value: ts.Expression | undefined;
+      if (ts.isSpreadAssignment(property)) value = property.expression;
+      else if (ts.isPropertyAssignment(property)) value = property.initializer;
+      else if (ts.isShorthandPropertyAssignment(property)) value = property.name;
+      else {
+        tainted = true;
+        continue;
+      }
+      const nested = finiteAggregateRelevance(value, bindings, substitutions, seen, nextAggregateSeen);
+      if (ts.isSpreadAssignment(property) && nested === undefined) {
+        tainted = true;
+        identities.push(value);
+        continue;
+      }
+      if (nested === undefined) leaves.push(value);
       else {
         if (nested.kind === 'tainted') tainted = true;
         leaves.push(...nested.leaves);
@@ -3526,6 +3599,220 @@ function aliasOriginReachesBinding(
   );
 }
 
+type BindingReachability = 'unrelated' | 'relevant' | 'tainted';
+
+function joinBindingReachability(values: readonly BindingReachability[]): BindingReachability {
+  if (values.includes('relevant')) return 'relevant';
+  return values.includes('tainted') ? 'tainted' : 'unrelated';
+}
+
+function invocationReturnBindingReachability(
+  call: ts.CallExpression,
+  targetBinding: ts.Identifier,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  seen: Set<ts.Node>,
+): BindingReachability | undefined {
+  const invocation = normalizeInvocation(call, bindings, substitutions);
+  const target = localFunctionFromExpression(invocation.target, bindings, substitutions, false);
+  if (target === undefined) return undefined;
+  if (invocation.unsupported !== undefined || invocation.arguments === undefined) return 'tainted';
+  if (activeIdentityReachabilitySummaries.has(target)) return 'tainted';
+  const projected = projectInvocationParameters(target.parameters, invocation.arguments, bindings, substitutions);
+  activeIdentityReachabilitySummaries.add(target);
+  try {
+    if (ts.isArrowFunction(target) && !ts.isBlock(target.body)) {
+      return expressionBindingReachability(target.body, targetBinding, bindings, projected, seen);
+    }
+    if (target.body === undefined) return 'unrelated';
+    if (!ts.isBlock(target.body)) return 'tainted';
+    const returns: BindingReachability[] = [];
+    const visit = (node: ts.Node): void => {
+      if (isStaticallyDead(node) || (node !== target && ts.isFunctionLike(node))) return;
+      if (ts.isReturnStatement(node)) {
+        returns.push(node.expression === undefined
+          ? 'unrelated'
+          : expressionBindingReachability(node.expression, targetBinding, bindings, projected, seen));
+        return;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(target.body);
+    if (!statementDefinitelyReturns(target.body)) returns.push('unrelated');
+    return joinBindingReachability(returns);
+  } finally {
+    activeIdentityReachabilitySummaries.delete(target);
+  }
+}
+
+function expressionBindingReachability(
+  expression: ts.Expression,
+  target: ts.Identifier,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions = new Map(),
+  seen = new Set<ts.Node>(),
+): BindingReachability {
+  expression = unwrap(expression);
+  const declaration = ts.isIdentifier(expression) ? bindings.bindingDeclaration(expression) : undefined;
+  if (declaration !== undefined && declaration === target) return 'relevant';
+  const marker = declaration ?? expression;
+  if (seen.has(marker)) return 'tainted';
+  const nextSeen = new Set(seen).add(marker);
+  try {
+    if (aliasOriginReachesBinding(expression, target, bindings, substitutions)) return 'relevant';
+  } catch (error) {
+    if (!(error instanceof FactsError)) throw error;
+  }
+  const candidateReachability = (candidate: AliasCandidate): BindingReachability => {
+    if (candidate === 'tainted') return 'unrelated';
+    if (candidate === 'absent') return 'unrelated';
+    if (isDefaultAliasCandidate(candidate) || isProjectedAliasCandidate(candidate)) {
+      const provenance = resolveAliasCandidate(candidate, bindings, substitutions, new Set());
+      if (provenance.kind === 'absent') return 'unrelated';
+      if (provenance.kind === 'exact' && !ts.isMethodDeclaration(provenance.origin)) {
+        return expressionBindingReachability(provenance.origin, target, bindings, substitutions, nextSeen);
+      }
+      const structural = isDefaultAliasCandidate(candidate)
+        ? joinBindingReachability([
+          candidateReachability(candidate.source),
+          expressionBindingReachability(candidate.fallback, target, bindings, substitutions, nextSeen),
+        ])
+        : candidateReachability(candidate.source);
+      return structural;
+    }
+    if (ts.isIdentifier(candidate) && declaration !== undefined && (candidate === declaration || bindings.bindingDeclaration(candidate) === declaration)) return 'unrelated';
+    return expressionBindingReachability(candidate, target, bindings, substitutions, nextSeen);
+  };
+  if (ts.isIdentifier(expression)) {
+    const substitution = substitutions.get(expression) ?? (declaration === undefined ? undefined : substitutions.get(declaration));
+    if (substitution !== undefined) {
+      return substitution === 'tainted'
+        ? 'unrelated'
+        : substitution === 'absent'
+          ? 'unrelated'
+          : expressionBindingReachability(substitution, target, bindings, substitutions, nextSeen);
+    }
+    const lookup = bindings.provenanceCandidates(expression);
+    return lookup.found
+      ? joinBindingReachability(lookup.candidates.map(candidateReachability))
+      : 'unrelated';
+  }
+  if (ts.isConditionalExpression(expression)) {
+    const truth = staticTruthValue(expression.condition, bindings);
+    if (truth !== undefined) return expressionBindingReachability(
+      truth ? expression.whenTrue : expression.whenFalse,
+      target,
+      bindings,
+      substitutions,
+      nextSeen,
+    );
+    return joinBindingReachability([
+      expressionBindingReachability(expression.whenTrue, target, bindings, substitutions, nextSeen),
+      expressionBindingReachability(expression.whenFalse, target, bindings, substitutions, nextSeen),
+    ]);
+  }
+  if (ts.isBinaryExpression(expression) && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(expression.operatorToken.kind)) {
+    const truth = staticTruthValue(expression.left, bindings);
+    const nullish = staticNullishValue(expression.left, bindings);
+    if (expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && truth !== undefined) {
+      return expressionBindingReachability(truth ? expression.right : expression.left, target, bindings, substitutions, nextSeen);
+    }
+    if (expression.operatorToken.kind === ts.SyntaxKind.BarBarToken && truth !== undefined) {
+      return expressionBindingReachability(truth ? expression.left : expression.right, target, bindings, substitutions, nextSeen);
+    }
+    if (expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken && nullish !== undefined) {
+      return expressionBindingReachability(nullish ? expression.right : expression.left, target, bindings, substitutions, nextSeen);
+    }
+    return joinBindingReachability([
+      expressionBindingReachability(expression.left, target, bindings, substitutions, nextSeen),
+      expressionBindingReachability(expression.right, target, bindings, substitutions, nextSeen),
+    ]);
+  }
+  if (ts.isArrayLiteralExpression(expression)) {
+    return joinBindingReachability(expression.elements.filter((element): element is ts.Expression => !ts.isOmittedExpression(element)).map(element => {
+      const value = ts.isSpreadElement(element) ? element.expression : element;
+      const reachability = expressionBindingReachability(value, target, bindings, substitutions, nextSeen);
+      if (!ts.isSpreadElement(element) || reachability !== 'unrelated') return reachability;
+      return finiteAggregateRelevance(value, bindings, substitutions)?.kind === 'exact' ? 'unrelated' : 'tainted';
+    }));
+  }
+  if (ts.isObjectLiteralExpression(expression)) {
+    return joinBindingReachability(expression.properties.map(property => {
+      if (ts.isMethodDeclaration(property) || ts.isGetAccessorDeclaration(property) || ts.isSetAccessorDeclaration(property)) return 'tainted';
+      let keyReachability: BindingReachability = 'unrelated';
+      if (!ts.isSpreadAssignment(property) && ts.isComputedPropertyName(property.name)) {
+        keyReachability = expressionBindingReachability(property.name.expression, target, bindings, substitutions, nextSeen);
+        if (keyReachability === 'unrelated') {
+          const key = resolveAliasProvenance(property.name.expression, bindings, substitutions);
+          const origin = key.kind === 'exact' && !ts.isMethodDeclaration(key.origin) ? unwrap(key.origin) : undefined;
+          if (origin === undefined || (!ts.isStringLiteral(origin) && !ts.isNumericLiteral(origin) && !ts.isNoSubstitutionTemplateLiteral(origin))) keyReachability = 'tainted';
+        }
+      }
+      const value = ts.isSpreadAssignment(property)
+        ? property.expression
+        : ts.isPropertyAssignment(property)
+          ? property.initializer
+          : ts.isShorthandPropertyAssignment(property)
+            ? property.name
+            : undefined;
+      if (value === undefined) return joinBindingReachability([keyReachability, 'tainted']);
+      let valueReachability = expressionBindingReachability(value, target, bindings, substitutions, nextSeen);
+      if (ts.isSpreadAssignment(property) && valueReachability === 'unrelated' && finiteAggregateRelevance(value, bindings, substitutions)?.kind !== 'exact') valueReachability = 'tainted';
+      return joinBindingReachability([keyReachability, valueReachability]);
+    }));
+  }
+  if (ts.isCallExpression(expression)) {
+    const returned = invocationReturnBindingReachability(expression, target, bindings, substitutions, nextSeen);
+    if (returned !== undefined) return returned;
+    const receiver = staticMember(expression.expression)?.base;
+    return joinBindingReachability([
+      ...(receiver === undefined ? [] : [expressionBindingReachability(receiver, target, bindings, substitutions, nextSeen)]),
+      ...expression.arguments.map(argument => expressionBindingReachability(
+        ts.isSpreadElement(argument) ? argument.expression : argument,
+        target,
+        bindings,
+        substitutions,
+        nextSeen,
+      )),
+    ]);
+  }
+  const member = staticMember(expression);
+  if (member !== undefined) {
+    const candidates = bindings.memberProvenanceCandidates(member.base, member.key, expression);
+    return joinBindingReachability([
+      expressionBindingReachability(member.base, target, bindings, substitutions, nextSeen),
+      ...(candidates ?? []).map(candidateReachability),
+    ]);
+  }
+  if (ts.isElementAccessExpression(expression)) return expressionBindingReachability(expression.expression, target, bindings, substitutions, nextSeen);
+  return 'unrelated';
+}
+
+function unmodeledCallConsumesRelevantIdentity(
+  call: ts.CallExpression,
+  relevantBindings: readonly ts.Identifier[],
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+): boolean {
+  const invocation = normalizeInvocation(call, bindings, substitutions);
+  if (localFunctionFromExpression(invocation.target, bindings, substitutions, false) !== undefined) return false;
+  if (resolveMutationApiIdentity(invocation.target, bindings, substitutions)?.exactGlobal === true) return false;
+  const member = staticMember(call.expression);
+  const receiver = member === undefined ? undefined : unwrap(member.base);
+  if (member !== undefined && receiver !== undefined && ts.isIdentifier(receiver) && !bindings.lookup(receiver).found && receiver.text === 'Array' && member.key === 'isArray') return false;
+  if (member !== undefined && ['map', 'forEach'].includes(member.key)) return false;
+  if (member?.key === 'bind' && !ownStaticMember(call.expression, bindings) && callableAliasOrigin(member.base, bindings)) return false;
+  if (member?.key === 'push' && receiver !== undefined && !ownStaticMember(call.expression, bindings)) {
+    const provenance = resolveAliasProvenance(receiver, bindings, substitutions);
+    if (provenance.kind === 'exact' && !ts.isMethodDeclaration(provenance.origin) && ts.isArrayLiteralExpression(unwrap(provenance.origin))) return false;
+  }
+  const values = [
+    ...(receiver === undefined ? [] : [receiver]),
+    ...call.arguments.map(argument => ts.isSpreadElement(argument) ? argument.expression : argument),
+  ];
+  return values.some(value => relevantBindings.some(binding => expressionBindingReachability(value, binding, bindings, substitutions) !== 'unrelated'));
+}
+
 type NormalizedInvocation = {
   target: ts.Expression;
   arguments?: readonly ts.Expression[];
@@ -3666,10 +3953,12 @@ function projectInvocationParameters(
         : unwrap(provenance.origin);
   };
   const project = (name: ts.BindingName, rawValue: InvocationValue, fallback?: ts.Expression): void => {
-    const unwrappedValue = typeof rawValue === 'string' ? undefined : unwrap(rawValue);
     const usesDefault = rawValue === 'absent'
-      || (unwrappedValue !== undefined && ts.isIdentifier(unwrappedValue) && unwrappedValue.text === 'undefined' && !bindings.lookup(unwrappedValue).found)
-      || (unwrappedValue !== undefined && ts.isVoidExpression(unwrappedValue) && ts.isNumericLiteral(unwrap(unwrappedValue.expression)) && Number((unwrap(unwrappedValue.expression) as ts.NumericLiteral).text) === 0);
+      || (typeof rawValue !== 'string' && (() => {
+        const provenance = resolveAliasProvenance(rawValue, bindings, projected);
+        return provenance.kind === 'absent'
+          || (provenance.kind === 'exact' && definitelyUndefinedOrigin(provenance.origin, bindings));
+      })());
     const value = usesDefault && fallback !== undefined ? fallback : rawValue;
     if (ts.isIdentifier(name)) {
       projected.set(name, value);
@@ -3731,10 +4020,11 @@ function localFunctionFromExpression(
   expression: ts.Expression,
   bindings: LexicalBindings,
   substitutions: InvocationSubstitutions,
+  failOnTainted = true,
 ): ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration | ts.MethodDeclaration | undefined {
   const provenance = resolveAliasProvenance(expression, bindings, substitutions);
   if (provenance.kind === 'tainted') {
-    if (expression.getSourceFile() === undefined || bindings.isBuildingMemberTimeline()) return undefined;
+    if (!failOnTainted || expression.getSourceFile() === undefined || bindings.isBuildingMemberTimeline()) return undefined;
     fail(expression, `unsupported local invocation: tainted call-target provenance for ${expression.getText()}`);
   }
   if (provenance.kind === 'exact' && ts.isMethodDeclaration(provenance.origin)) return provenance.origin;
@@ -3927,7 +4217,7 @@ function visitExecutableFunctionNodes(
         : [];
       for (const argument of callbackArguments) {
         const callback = unwrap(argument);
-        const callbackTarget = localFunctionFromExpression(callback, bindings, substitutions);
+        const callbackTarget = localFunctionFromExpression(callback, bindings, substitutions, false);
         if (callbackTarget === undefined) {
           if (synchronousMethod && receiverPath?.startsWith('config.')) fail(argument, 'unsupported synchronous callback: dynamic callback may mutate configuration elements');
           if (synchronousMethod && calleeMember !== undefined) {
@@ -4054,10 +4344,11 @@ function boundedMutationApi(
       && (receiver.text === 'Object' || receiver.text === 'Reflect')
       && !bindings.lookup(receiver).found
       && bindings.memberProvenanceCandidates(original.base, original.key, node.expression) !== undefined;
+    if (!overriddenGlobalApi) return [];
     const target = invocation.arguments?.[0] === undefined
       ? undefined
       : scopedFunctionConfigPath(invocation.arguments[0], parameter, bindings, new Set(), substitutions);
-    return overriddenGlobalApi && target !== undefined
+    return target !== undefined
       ? [{ node, operation: 'write', path: target, syntax: 'unmodeled-api', execution, substitutions }]
       : [];
   }
@@ -4187,6 +4478,9 @@ function collectFunctionConfigMutations(
 ): ConfigMutation[] {
   const mutations: ConfigMutation[] = [];
   visitExecutableFunctionNodes(owner, bindings, (node, substitutions, execution) => {
+    if (ts.isCallExpression(node) && unmodeledCallConsumesRelevantIdentity(node, [parameter], bindings, substitutions)) {
+      fail(node, `migrateJobConfig behavior has an unsupported unmodeled call consuming configuration identity: ${node.getText()}`);
+    }
     mutations.push(...configMutationsAtNode(node, parameter, bindings, substitutions, execution));
   }, true);
   return mutations;
@@ -4363,6 +4657,7 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
   const isTrackedPromptMutationTarget = (expression: ts.Expression, substitutions: InvocationSubstitutions): boolean => isAccumulatorAccess(expression, substitutions) || isPromptItemAccess(expression, substitutions);
   const unsupportedAccumulatorEffects: ts.Node[] = [];
   visitExecutableFunctionNodes(owner, bindings, (node, substitutions) => {
+    if (ts.isCallExpression(node) && node !== pushes[0] && unmodeledCallConsumesRelevantIdentity(node, [samplesDeclaration], bindings, substitutions)) unsupportedAccumulatorEffects.push(node);
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(unwrap(node.expression))) {
       const callee = unwrap(node.expression) as ts.PropertyAccessExpression;
       if (isTrackedPromptMutationTarget(callee.expression, substitutions) && node !== pushes[0]) unsupportedAccumulatorEffects.push(node);
@@ -4456,6 +4751,14 @@ function scopedFunctionConfigPath(
     if (substitution === 'tainted' || substitution === 'absent') fail(expression, 'unsupported reachable mutation: tainted callback receiver provenance');
     return scopedFunctionConfigPath(substitution, configParameter, bindings, seen, substitutions);
   }
+  const syntacticMember = staticMember(expression);
+  if (syntacticMember !== undefined) {
+    const provenance = resolveAliasProvenance(expression, bindings, substitutions, seen);
+    const basePath = scopedFunctionConfigPath(syntacticMember.base, configParameter, bindings, seen, substitutions);
+    if (provenance.kind === 'tainted' && basePath === undefined && expressionBindingReachability(expression, configParameter, bindings, substitutions) !== 'unrelated') {
+      fail(expression, `unsupported reachable mutation: tainted member provenance for ${expression.getText()}`);
+    }
+  }
   if (ts.isIdentifier(expression)) {
     if (bindings.isBinding(expression, configParameter)) return '$job';
     const declaration = bindings.bindingDeclaration(expression);
@@ -4475,6 +4778,11 @@ function scopedFunctionConfigPath(
       : scopedFunctionConfigPath(resolved.origin, configParameter, bindings, nextSeen, substitutions);
   }
   if (ts.isCallExpression(expression) && expression.arguments[0] !== undefined) {
+    const returned = resolveAliasProvenance(expression, bindings, substitutions, seen);
+    if (returned.kind === 'tainted') fail(expression, 'unsupported reachable mutation: tainted call return provenance');
+    if (returned.kind === 'exact' && !ts.isMethodDeclaration(returned.origin) && returned.origin !== expression) {
+      return scopedFunctionConfigPath(returned.origin, configParameter, bindings, seen, substitutions);
+    }
     const invocation = normalizeInvocation(expression, bindings, substitutions);
     const callName = unwrap(invocation.target);
     if (ts.isIdentifier(callName) && (
@@ -4504,10 +4812,20 @@ function scopedFunctionConfigPath(
     if (key === 'tainted') {
       const base = scopedFunctionConfigPath(expression.expression, configParameter, bindings, seen, substitutions);
       const aggregate = finiteAggregateRelevance(expression.expression, bindings, substitutions, seen);
-      const relevantAggregate = aggregate?.kind === 'tainted' || [...(aggregate?.leaves ?? []), ...(aggregate?.identities ?? [])].some(leaf => {
+      const relevantLeaf = (leaf: ts.Expression): boolean => {
         const path = scopedFunctionConfigPath(leaf, configParameter, bindings, seen, substitutions);
         return path === '$job' || path?.startsWith('config.') === true;
-      });
+      };
+      const relevantAggregate = aggregate?.leaves.some(relevantLeaf) === true
+        || (aggregate?.kind === 'tainted' && aggregate.identities.some(identity => {
+        if (relevantLeaf(identity)) return true;
+        const provenance = resolveAliasProvenance(identity, bindings, substitutions, seen);
+        return provenance.kind === 'tainted'
+          || (provenance.kind === 'exact'
+            && ts.isIdentifier(provenance.origin)
+            && !bindings.lookup(provenance.origin).found
+            && !bindings.isExactImportBinding(provenance.origin));
+      }));
       if (base !== undefined || relevantAggregate) fail(expression.argumentExpression, 'unsupported reachable mutation: tainted configuration index provenance');
       return undefined;
     }
@@ -4679,6 +4997,10 @@ function validateAnimaPathBehavior(sourceText: string, sourceName: string): void
     }
     for (let candidate: ts.Expression | undefined = expression; candidate !== undefined;) {
       const projected = resolveAliasProvenance(candidate, bindings, substitutions);
+      if (projected.kind === 'tainted' && (
+        expressionBindingReachability(candidate, modelParameter, bindings, substitutions) !== 'unrelated'
+        || expressionBindingReachability(candidate, cleanedBinding!, bindings, substitutions) !== 'unrelated'
+      )) fail(candidate, 'Anima path behavior has tainted member provenance');
       if (projected.kind === 'exact') {
         if (projected.lineage?.has(cleanedBinding!)) projectedRoot = 'cleaned';
         else if (projected.lineage?.has(modelParameter)) projectedRoot = 'model';
@@ -4709,6 +5031,9 @@ function validateAnimaPathBehavior(sourceText: string, sourceName: string): void
     return root === undefined ? undefined : { root, path: parts.join('.') };
   };
   visitExecutableFunctionNodes(helper, bindings, (node, substitutions, execution) => {
+    if (ts.isCallExpression(node) && unmodeledCallConsumesRelevantIdentity(node, [modelParameter, cleanedBinding!], bindings, substitutions)) {
+      fail(node, 'Anima path behavior has an unsupported unmodeled call consuming model identity');
+    }
     const record = (target: ts.Expression, operation: AnimaMutation['operation'], syntax: AnimaMutation['syntax'], key?: string): void => {
       const resolved = animaPath(target, substitutions);
       if (resolved === undefined) return;
@@ -4862,12 +5187,15 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
       const invocation = normalizeInvocation(node, bindings, substitutions);
       const target = unwrap(invocation.target);
       const rawTarget = unwrap(node.expression);
+      let modeledRelevantCall = false;
       const objectCopyCall = (ts.isIdentifier(rawTarget) && rawTarget.text === 'objectCopy')
         || (ts.isIdentifier(target) && identifierResolvesToExactImport(target, 'objectCopy', '@/utils/basic', bindings));
       if (objectCopyCall && (!ts.isIdentifier(target) || !identifierResolvesToExactImport(target, 'objectCopy', '@/utils/basic', bindings))) {
         fail(node, 'handleModelArchChange behavior requires exact objectCopy import provenance');
       }
+      if (objectCopyCall) modeledRelevantCall = true;
       if (ts.isIdentifier(target) && invocationIdentifierResolvesTo(target, setterParameter, bindings, substitutions)) {
+        modeledRelevantCall = true;
         if (invocation.unsupported !== undefined || invocation.arguments?.length !== 2) fail(node, `handleModelArchChange behavior setter requires finite two-argument invocation${invocation.unsupported === undefined ? '' : `: ${invocation.unsupported}`}`);
         const setterArguments = invocation.arguments.map(argument => {
           const value = unwrap(argument);
@@ -4880,9 +5208,14 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
         const pathExpression = unwrap(setterArguments[1]);
         setterCalls.push({ node, arguments: setterArguments, path: ts.isStringLiteral(pathExpression) || ts.isNoSubstitutionTemplateLiteral(pathExpression) ? normalizePath(pathExpression.text, {}) : undefined, value: setterArguments[0], execution });
       } else if (ts.isIdentifier(target) && identifierResolvesToExactImport(target, 'clearUnsupportedAnimaPaths', '@/helpers/animaModelPaths', bindings)) {
+        modeledRelevantCall = true;
         if (invocation.unsupported !== undefined || invocation.arguments === undefined) fail(node, `handleModelArchChange behavior cleanup invocation is unsupported: ${invocation.unsupported ?? 'unknown arguments'}`);
         cleanupCalls.push(node);
       }
+      if (
+        !modeledRelevantCall
+        && unmodeledCallConsumesRelevantIdentity(node, [configParameter, setterParameter], bindings, substitutions)
+      ) fail(node, `handleModelArchChange behavior has an unsupported unmodeled call consuming configuration or setter identity: ${node.getText()}`);
     }
     directMutations.push(...configMutationsAtNode(node, configParameter, bindings, substitutions, execution));
   }, true);

@@ -2852,7 +2852,7 @@ if (liveRoot !== undefined) {
     ['unused relevant fallback with present source', "  const fallback = { targets: [jobConfig] };\n  const { holder: { targets } = fallback } = { holder: { targets: [otherConfig] } };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
     ['nested assignment present source skips fallback', "  let targets = [jobConfig];\n  ({ holder: { targets } = { targets: [jobConfig] } } = { holder: { targets: [otherConfig] } });\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
     ['shadowed Object.assign does not update fallback', "  const fallback = { targets: [otherConfig] };\n  const Object = { assign() {} };\n  Object.assign(fallback, { targets: [jobConfig] });\n  const { holder: { targets } = fallback } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
-    ['rebound Object.assign alias does not update fallback', "  const fallback = { targets: [otherConfig] };\n  let assign = Object.assign;\n  assign = otherAssign;\n  assign(fallback, { targets: [jobConfig] });\n  const { holder: { targets } = fallback } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['rebound Object.assign alias does not update fallback', "  const fallback = { targets: [otherConfig] };\n  let assign = Object.assign;\n  assign = (_target, _source) => {};\n  assign(fallback, { targets: [jobConfig] });\n  const { holder: { targets } = fallback } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
   ].flatMap(([label, replacement]) => {
     try { assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts); return []; }
     catch { return [label]; }
@@ -2885,6 +2885,156 @@ if (liveRoot !== undefined) {
     { projectedMemberTimelineFailures, nestedAssignmentDefaultFailures, projectedDefaultPositiveFailures },
     { projectedMemberTimelineFailures: [], nestedAssignmentDefaultFailures: [], projectedDefaultPositiveFailures: [] },
     'nested projections honor member timelines and assignment default selection',
+  );
+  const logicalMemberJoinFailures = [
+    ['unknown && member assignment', summaryMigrateSource.replace('  return jobConfig;', "  const holder = { targets: [jobConfig] };\n  runtimeCondition && (holder.targets = [otherConfig]);\n  holder.targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['unknown || member assignment', summaryMigrateSource.replace('  return jobConfig;', "  const holder = { targets: [jobConfig] };\n  runtimeCondition || (holder.targets = [otherConfig]);\n  holder.targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['unknown ?? member assignment', summaryMigrateSource.replace('  return jobConfig;', "  const holder = { targets: [jobConfig] };\n  runtimeCondition ?? (holder.targets = [otherConfig]);\n  holder.targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['unknown logical prompt member assignment', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    const holder = { targets: [newSamples] };\n    runtimeCondition && (holder.targets = [otherSamples]);\n    holder.targets[runtimeIndex].reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  for (const [label, insertion] of [
+    ['unknown logical setter member assignment', "  const holder = { setters: [setJobConfig] };\n  runtimeCondition || (holder.setters = [otherSetter]);\n  holder.setters[runtimeIndex](99, 'config.process[0].train.steps');\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', `${insertion}\n  // update samples`),
+      summaryAnimaSource,
+    ));
+    if (failure !== undefined) logicalMemberJoinFailures.push(failure);
+  }
+  for (const [label, insertion] of [
+    ['unknown logical model member assignment', "  const holder = { targets: [cleaned] };\n  runtimeCondition ?? (holder.targets = [otherModel]);\n  delete holder.targets[runtimeIndex].other_path;\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', `${insertion}  return cleaned;`),
+    ));
+    if (failure !== undefined) logicalMemberJoinFailures.push(failure);
+  }
+  const unmodeledIdentityFailures = [
+    ['unmodeled config consumer', summaryMigrateSource.replace('  return jobConfig;', "  dynamicConsumer(jobConfig);\n  return jobConfig;")],
+    ['unmodeled returned config consumer', summaryMigrateSource.replace('  return jobConfig;', "  dynamicConsumer(jobConfig).config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['unmodeled consumer of returned config identity', summaryMigrateSource.replace('  return jobConfig;', "  function selectTarget() { return runtimeCondition ? jobConfig : otherConfig; }\n  dynamicConsumer(selectTarget());\n  return jobConfig;")],
+    ['unmodeled finite config aggregate consumer', summaryMigrateSource.replace('  return jobConfig;', "  dynamicConsumer({ primary: jobConfig, secondary: otherConfig });\n  return jobConfig;")],
+    ['unmodeled finite array config consumer', summaryMigrateSource.replace('  return jobConfig;', "  dynamicConsumer([otherConfig, [jobConfig]]);\n  return jobConfig;")],
+    ['unmodeled ambiguous object spread consumer', summaryMigrateSource.replace('  return jobConfig;', "  dynamicConsumer({ ...otherObject });\n  return jobConfig;")],
+    ['unmodeled ambiguous array spread consumer', summaryMigrateSource.replace('  return jobConfig;', "  dynamicConsumer([...otherValues]);\n  return jobConfig;")],
+    ['unmodeled accessor object consumer', summaryMigrateSource.replace('  return jobConfig;', "  dynamicConsumer({ get target() { return otherConfig; } });\n  return jobConfig;")],
+    ['unmodeled computed object consumer', summaryMigrateSource.replace('  return jobConfig;', "  dynamicConsumer({ [runtimeKey]: otherConfig });\n  return jobConfig;")],
+    ['unmodeled cyclic aggregate consumer', summaryMigrateSource.replace('  return jobConfig;', "  function selectTarget() { return runtimeCondition ? jobConfig : selectTarget(); }\n  dynamicConsumer(selectTarget());\n  return jobConfig;")],
+    ['unmodeled prompt consumer', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    dynamicConsumer(newSamples);\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+    ['unmodeled returned prompt consumer', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    dynamicConsumer(newSamples).reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  for (const [label, insertion] of [
+    ['unmodeled setter consumer', "  dynamicConsumer(setJobConfig);\n"],
+    ['unmodeled returned setter consumer', "  dynamicConsumer(setJobConfig)(99, 'config.process[0].train.steps');\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', `${insertion}\n  // update samples`),
+      summaryAnimaSource,
+    ));
+    if (failure !== undefined) unmodeledIdentityFailures.push(failure);
+  }
+  for (const [label, insertion] of [
+    ['unmodeled model consumer', "  dynamicConsumer(cleaned);\n"],
+    ['unmodeled returned model consumer', "  delete dynamicConsumer(cleaned).other_path;\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', `${insertion}  return cleaned;`),
+    ));
+    if (failure !== undefined) unmodeledIdentityFailures.push(failure);
+  }
+  const finiteObjectAggregateFailures = [
+    ['dynamic finite object config selection', summaryMigrateSource.replace('  return jobConfig;', "  const targets = { primary: jobConfig, secondary: otherConfig };\n  targets[runtimeKey].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['nested dynamic finite object config selection', summaryMigrateSource.replace('  return jobConfig;', "  const targets = { primary: { target: jobConfig }, secondary: { target: otherConfig } };\n  targets[runtimeKey].target.config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['dynamic finite object prompt selection', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    const targets = { primary: newSamples, secondary: otherSamples };\n    targets[runtimeKey].reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+    ['dynamic projected-member config write', summaryMigrateSource.replace('  return jobConfig;', "  const holder = { target: otherConfig };\n  holder[runtimeKey] = jobConfig;\n  holder.target.config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['dynamic projected-member prompt write', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    const holder = { target: otherSamples };\n    holder[runtimeKey] = newSamples;\n    holder.target.reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+    ['bounded dynamic projected-member cycle', summaryMigrateSource.replace('  return jobConfig;', "  const holder = { target: otherConfig };\n  holder[runtimeKey] = holder;\n  holder[runtimeKey] = jobConfig;\n  holder.target.config.process[0].train.steps = 99;\n  return jobConfig;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  for (const [label, insertion] of [
+    ['dynamic finite object setter selection', "  const setters = { primary: setJobConfig, secondary: otherSetter };\n  setters[runtimeKey](99, 'config.process[0].train.steps');\n"],
+    ['dynamic projected-member setter write', "  const holder = { commit: otherSetter };\n  holder[runtimeKey] = setJobConfig;\n  holder.commit(99, 'config.process[0].train.steps');\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', `${insertion}\n  // update samples`),
+      summaryAnimaSource,
+    ));
+    if (failure !== undefined) finiteObjectAggregateFailures.push(failure);
+  }
+  for (const [label, insertion] of [
+    ['dynamic finite object model selection', "  const targets = { primary: cleaned, secondary: otherModel };\n  delete targets[runtimeKey].other_path;\n"],
+    ['dynamic projected-member model write', "  const holder = { target: otherModel };\n  holder[runtimeKey] = cleaned;\n  delete holder.target.other_path;\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', `${insertion}  return cleaned;`),
+    ));
+    if (failure !== undefined) finiteObjectAggregateFailures.push(failure);
+  }
+  const possiblyUndefinedDefaultFailures = [
+    ['aliased undefined parameter default', summaryMigrateSource.replace('  return jobConfig;', "  const missing = undefined;\n  function mutate(target = jobConfig) { target.config.process[0].train.steps = 99; }\n  mutate(missing);\n  return jobConfig;")],
+    ['aliased undefined object binding default', summaryMigrateSource.replace('  return jobConfig;', "  const missing = undefined;\n  function mutate({ target = jobConfig }) { target.config.process[0].train.steps = 99; }\n  mutate({ target: missing });\n  return jobConfig;")],
+    ['aliased undefined array binding default', summaryMigrateSource.replace('  return jobConfig;', "  const missing = undefined;\n  function mutate([target = jobConfig]) { target.config.process[0].train.steps = 99; }\n  mutate([missing]);\n  return jobConfig;")],
+    ['aliased undefined returned default', summaryMigrateSource.replace('  return jobConfig;', "  const missing = undefined;\n  function select(target = jobConfig) { return target; }\n  select(missing).config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['possibly undefined supplied config', summaryMigrateSource.replace('  return jobConfig;', "  const maybeTarget = runtimeCondition ? otherConfig : undefined;\n  function mutate(target = jobConfig) { target.config.process[0].train.steps = 99; }\n  mutate(maybeTarget);\n  return jobConfig;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  for (const [label, insertion] of [
+    ['aliased undefined setter default', "  const missing = undefined;\n  function mutate(commit = setJobConfig) { commit(99, 'config.process[0].train.steps'); }\n  mutate(missing);\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', `${insertion}\n  // update samples`),
+      summaryAnimaSource,
+    ));
+    if (failure !== undefined) possiblyUndefinedDefaultFailures.push(failure);
+  }
+  for (const [label, insertion] of [
+    ['aliased undefined model default', "  const missing = undefined;\n  function mutate(target = cleaned) { delete target.other_path; }\n  mutate(missing);\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', `${insertion}  return cleaned;`),
+    ));
+    if (failure !== undefined) possiblyUndefinedDefaultFailures.push(failure);
+  }
+  const sharedProvenancePositiveFailures = [
+    ['static false && member assignment', "  const holder = { targets: [otherConfig] };\n  false && (holder.targets = [jobConfig]);\n  dynamicConsumer(holder.targets[runtimeIndex]);\n  if (isMac()) {"],
+    ['static true || member assignment', "  const holder = { targets: [otherConfig] };\n  true || (holder.targets = [jobConfig]);\n  dynamicConsumer(holder.targets[runtimeIndex]);\n  if (isMac()) {"],
+    ['static present ?? member assignment', "  const holder = { targets: [otherConfig] };\n  0 ?? (holder.targets = [jobConfig]);\n  dynamicConsumer(holder.targets[runtimeIndex]);\n  if (isMac()) {"],
+    ['harmless unknown call and object', "  const value = dynamicFactory(otherObject);\n  value.other = 1;\n  if (isMac()) {"],
+    ['harmless unrelated local return consumer', "  function selectOther() { return runtimeCondition ? otherConfig : otherObject; }\n  dynamicConsumer(selectOther());\n  if (isMac()) {"],
+    ['harmless primitive aggregate consumer', "  dynamicConsumer({ first: 1, nested: [2] });\n  if (isMac()) {"],
+    ['harmless exact spread and computed consumer', "  const safeKey = 'value';\n  dynamicConsumer({ ...{ first: 1 }, [safeKey]: [...[2]] });\n  if (isMac()) {"],
+    ['modeled harmless consumer shadows unknown', "  function dynamicConsumer(_value) { return 1; }\n  dynamicConsumer(jobConfig);\n  if (isMac()) {"],
+    ['rebound consumer becomes modeled', "  let consume = dynamicConsumer;\n  consume = (_value) => 1;\n  consume(jobConfig);\n  if (isMac()) {"],
+    ['harmless finite object selection', "  const values = { first: 1, second: 2 };\n  otherObject.value = values[runtimeKey];\n  if (isMac()) {"],
+    ['harmless dynamic projected-member write', "  const holder = { value: 1 };\n  holder[runtimeKey] = 2;\n  otherObject.value = holder.value;\n  if (isMac()) {"],
+    ['absent invocation default', "  function getPlatform(fn = isMac) { return fn; }\n  const platformCheck = getPlatform();\n  if (platformCheck()) {"],
+    ['aliased undefined invocation default', "  const missing = undefined;\n  function getPlatform(fn = isMac) { return fn; }\n  const platformCheck = getPlatform(missing);\n  if (platformCheck()) {"],
+    ['exact present invocation argument', "  function getPlatform(fn = otherCheck) { return fn; }\n  const platformCheck = getPlatform(isMac);\n  if (platformCheck()) {"],
+    ['exact null skips invocation default', "  function mutate(target = jobConfig) { target.config.process[0].train.steps = 99; }\n  mutate(null);\n  if (isMac()) {"],
+    ['shadowed undefined skips invocation default', "  const undefined = otherConfig;\n  function mutate(target = jobConfig) { target.config.process[0].train.steps = 99; }\n  mutate(undefined);\n  if (isMac()) {"],
+    ['rebound missing skips invocation default', "  let missing = undefined;\n  missing = otherConfig;\n  function mutate(target = jobConfig) { target.config.process[0].train.steps = 99; }\n  mutate(missing);\n  if (isMac()) {"],
+  ].flatMap(([label, replacement]) => {
+    try { assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts); return []; }
+    catch { return [label]; }
+  });
+  assert.deepEqual(
+    {
+      logicalMemberJoinFailures,
+      unmodeledIdentityFailures,
+      finiteObjectAggregateFailures,
+      possiblyUndefinedDefaultFailures,
+      sharedProvenancePositiveFailures,
+    },
+    {
+      logicalMemberJoinFailures: [],
+      unmodeledIdentityFailures: [],
+      finiteObjectAggregateFailures: [],
+      possiblyUndefinedDefaultFailures: [],
+      sharedProvenancePositiveFailures: [],
+    },
+    'shared fail-closed provenance covers logical member joins, unknown calls, finite objects, dynamic writes, and invocation defaults',
   );
   assert.equal(summaryArchFacts.length, 30);
   assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
