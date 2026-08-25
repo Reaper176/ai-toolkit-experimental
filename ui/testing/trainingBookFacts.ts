@@ -546,7 +546,9 @@ class LexicalBindings {
       if (declarations.length !== 1) return { found: true, candidates: ['tainted'] };
       const declaration = declarations[0];
       if (declaration.position > identifier.getStart(this.source)) return { found: true, candidates: ['tainted'] };
-      let candidates: AliasCandidate[] = declaration.initializer !== undefined
+      let candidates: AliasCandidate[] = declaration.invalid
+        ? ['tainted']
+        : declaration.initializer !== undefined
         ? [declaration.initializer]
         : declaration.parameter === true || ts.isFunctionDeclaration(declaration.name.parent)
           ? [declaration.name]
@@ -865,17 +867,58 @@ class LexicalBindings {
     const project = (initializer: ts.Expression | undefined, key: string | number): ts.Expression | undefined => initializer === undefined
       ? undefined
       : ts.factory.createElementAccessExpression(initializer, typeof key === 'number' ? ts.factory.createNumericLiteral(key) : ts.factory.createStringLiteral(key));
-    const addBindingName = (name: ts.BindingName, initializer: ts.Expression | undefined, position: number, parameter = false): void => {
-      if (ts.isIdentifier(name)) add({ kind: 'declaration', name, initializer, position, parameter });
+    const projectBindingValue = (initializer: ts.Expression | undefined, key: string | number): { initializer?: ts.Expression; invalid?: boolean } => {
+      if (initializer === undefined) return {};
+      const source = unwrap(initializer);
+      if (typeof key === 'number' && ts.isArrayLiteralExpression(source)) {
+        if (source.elements.some(ts.isSpreadElement)) return { invalid: true };
+        const element = source.elements[key];
+        return element === undefined || ts.isOmittedExpression(element) ? {} : { initializer: element };
+      }
+      if (typeof key === 'string' && ts.isObjectLiteralExpression(source)) {
+        if (source.properties.some(property => ts.isSpreadAssignment(property) || ts.isGetAccessorDeclaration(property) || ts.isSetAccessorDeclaration(property))) return { invalid: true };
+        let value: ts.Expression | undefined;
+        for (const property of source.properties) {
+          if (ts.isShorthandPropertyAssignment(property) && property.name.text === key) value = property.name;
+          else if (ts.isPropertyAssignment(property) && propertyName(property.name) === key) value = property.initializer;
+          else if (ts.isMethodDeclaration(property) && propertyName(property.name) === key) return { invalid: true };
+        }
+        return { initializer: value };
+      }
+      return { initializer: project(initializer, key) };
+    };
+    const addBindingName = (name: ts.BindingName, initializer: ts.Expression | undefined, position: number, parameter = false, invalid = false): void => {
+      if (ts.isIdentifier(name)) add({ kind: 'declaration', name, initializer, position, parameter, invalid });
       else if (ts.isObjectBindingPattern(name)) {
         for (const element of name.elements) {
-          if (element.dotDotDotToken !== undefined || element.initializer !== undefined) addBindingName(element.name, undefined, position, parameter);
-          else addBindingName(element.name, project(initializer, propertyName(element.propertyName ?? element.name as ts.PropertyName)), position, parameter);
+          if (element.dotDotDotToken !== undefined) {
+            addBindingName(element.name, undefined, position, parameter, true);
+            continue;
+          }
+          const projected = projectBindingValue(initializer, propertyName(element.propertyName ?? element.name as ts.PropertyName));
+          addBindingName(
+            element.name,
+            projected.initializer ?? (projected.invalid ? undefined : element.initializer),
+            position,
+            parameter,
+            invalid || projected.invalid === true,
+          );
         }
       } else {
         name.elements.forEach((element, index) => {
           if (ts.isOmittedExpression(element)) return;
-          addBindingName(element.name, element.dotDotDotToken !== undefined || element.initializer !== undefined ? undefined : project(initializer, index), position, parameter);
+          if (element.dotDotDotToken !== undefined) {
+            addBindingName(element.name, undefined, position, parameter, true);
+            return;
+          }
+          const projected = projectBindingValue(initializer, index);
+          addBindingName(
+            element.name,
+            projected.initializer ?? (projected.invalid ? undefined : element.initializer),
+            position,
+            parameter,
+            invalid || projected.invalid === true,
+          );
         });
       }
     };
@@ -2971,55 +3014,45 @@ function finiteAggregateRelevance(
   bindings: LexicalBindings,
   substitutions: InvocationSubstitutions = new Map(),
   seen = new Set<ts.Identifier>(),
+  aggregateSeen = new Set<ts.Node>(),
 ): FiniteAggregateRelevance | undefined {
   expression = unwrap(expression);
-  if (ts.isIdentifier(expression)) {
-    const declaration = bindings.bindingDeclaration(expression);
-    if (declaration !== undefined && substitutions.has(declaration)) {
-      const substitution = substitutions.get(declaration)!;
-      return typeof substitution === 'string'
-        ? { kind: 'tainted', leaves: [], identities: [expression] }
-        : finiteAggregateRelevance(substitution, bindings, substitutions, seen);
-    }
-    if (declaration !== undefined && seen.has(declaration)) return { kind: 'tainted', leaves: [], identities: [expression] };
-    const lookup = bindings.provenanceCandidates(expression);
-    if (!lookup.found) return undefined;
-    const nextSeen = declaration === undefined ? seen : new Set(seen).add(declaration);
-    const candidates = lookup.candidates.map(candidate => candidate === 'tainted'
-      ? { kind: 'tainted' as const, leaves: [] as readonly ts.Expression[], identities: [expression] as readonly ts.Expression[] }
-      : candidate === 'absent' || candidate === declaration
-        ? undefined
-        : finiteAggregateRelevance(candidate, bindings, substitutions, nextSeen));
-    const concrete = candidates.filter((candidate): candidate is FiniteAggregateRelevance => candidate !== undefined);
-    if (concrete.length === 0) return undefined;
-    return concrete.some(candidate => candidate.kind === 'tainted') || concrete.length !== candidates.length
-      ? { kind: 'tainted', leaves: concrete.flatMap(candidate => candidate.leaves), identities: [expression, ...concrete.flatMap(candidate => candidate.identities)] }
-      : { kind: 'exact', leaves: concrete.flatMap(candidate => candidate.leaves), identities: [expression, ...concrete.flatMap(candidate => candidate.identities)] };
-  }
-  if (!ts.isArrayLiteralExpression(expression)) return undefined;
-  const leaves: ts.Expression[] = [];
-  const identities: ts.Expression[] = [expression];
-  let tainted = false;
-  for (const element of expression.elements) {
-    if (ts.isOmittedExpression(element)) continue;
-    if (ts.isSpreadElement(element)) {
-      const nested = finiteAggregateRelevance(element.expression, bindings, substitutions, seen);
-      if (nested === undefined || nested.kind === 'tainted') tainted = true;
-      if (nested !== undefined) {
+  const marker = ts.isIdentifier(expression) ? bindings.bindingDeclaration(expression) ?? expression : expression;
+  if (aggregateSeen.has(marker)) return { kind: 'tainted', leaves: [], identities: [expression] };
+  const nextAggregateSeen = new Set(aggregateSeen).add(marker);
+  if (ts.isArrayLiteralExpression(expression)) {
+    const leaves: ts.Expression[] = [];
+    const identities: ts.Expression[] = [expression];
+    let tainted = false;
+    for (const element of expression.elements) {
+      if (ts.isOmittedExpression(element)) continue;
+      if (ts.isSpreadElement(element)) {
+        const nested = finiteAggregateRelevance(element.expression, bindings, substitutions, seen, nextAggregateSeen);
+        if (nested === undefined || nested.kind === 'tainted') tainted = true;
+        if (nested !== undefined) {
+          leaves.push(...nested.leaves);
+          identities.push(...nested.identities);
+        }
+        continue;
+      }
+      const nested = finiteAggregateRelevance(element, bindings, substitutions, seen, nextAggregateSeen);
+      if (nested === undefined) leaves.push(element);
+      else {
+        if (nested.kind === 'tainted') tainted = true;
         leaves.push(...nested.leaves);
         identities.push(...nested.identities);
       }
-      continue;
     }
-    const nested = finiteAggregateRelevance(element, bindings, substitutions, seen);
-    if (nested === undefined) leaves.push(element);
-    else {
-      if (nested.kind === 'tainted') tainted = true;
-      leaves.push(...nested.leaves);
-      identities.push(...nested.identities);
-    }
+    return tainted ? { kind: 'tainted', leaves, identities } : { kind: 'exact', leaves, identities };
   }
-  return tainted ? { kind: 'tainted', leaves, identities } : { kind: 'exact', leaves, identities };
+  const provenance = resolveAliasProvenance(expression, bindings, substitutions, seen);
+  if (provenance.kind === 'tainted') return { kind: 'tainted', leaves: [], identities: [expression] };
+  if (provenance.kind === 'absent' || ts.isMethodDeclaration(provenance.origin)) return undefined;
+  const origin = unwrap(provenance.origin);
+  if (origin === expression) return undefined;
+  const nested = finiteAggregateRelevance(origin, bindings, substitutions, seen, nextAggregateSeen);
+  if (nested === undefined) return undefined;
+  return { ...nested, identities: [expression, ...nested.identities] };
 }
 
 function resolveAliasProvenance(

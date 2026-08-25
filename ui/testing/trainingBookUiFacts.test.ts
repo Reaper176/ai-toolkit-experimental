@@ -2543,6 +2543,84 @@ if (liveRoot !== undefined) {
     { missingRejects: [], positiveFailures: [] },
     'config consumers inspect aggregate leaves and identities',
   );
+  const latticeAggregateMissingRejects = [
+    ['static conditional config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const targets = true ? [jobConfig] : [otherConfig];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['static logical config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const targets = false || [jobConfig];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['static nullish config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const targets = null ?? [jobConfig];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['runtime conditional config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const targets = runtimeCondition ? [jobConfig] : [otherConfig];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['helper-returned config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  function selectTargets() { return [jobConfig]; }\n  selectTargets()[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['IIFE-returned config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  (() => [jobConfig])()[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['recursive helper config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  function selectTargets() { return selectTargets(); }\n  selectTargets()[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['object-member config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const holder = { targets: [jobConfig] };\n  holder.targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['assigned-member config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const holder = {};\n  holder.targets = [jobConfig];\n  holder.targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['rebound-member config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const holder = { targets: [jobConfig] };\n  if (runtimeCondition) holder.targets = [otherConfig];\n  holder.targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['object-destructured config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const { targets } = { targets: [jobConfig] };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['array-destructured config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const [targets] = [[jobConfig]];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['call-returned config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  function selectTargets() { return [jobConfig]; }\n  selectTargets.call(null)[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['apply-returned config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  function selectTargets() { return [jobConfig]; }\n  selectTargets.apply(null, [])[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['bind-returned config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  function selectTargets() { return [jobConfig]; }\n  selectTargets.bind(null)()[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['method-returned config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const holder = { selectTargets() { return [jobConfig]; } };\n  holder.selectTargets()[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['same-branch config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const targets = runtimeCondition ? [jobConfig] : [jobConfig];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['object-destructure-default config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const { targets = [jobConfig] } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['array-destructure-default config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const [targets = [jobConfig]] = [];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['runtime object-destructure-default config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const { targets = [jobConfig] } = runtimeHolder;\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['runtime array-destructure-default config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const [targets = [jobConfig]] = runtimeTargets;\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['member-cycle config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const holder = {};\n  holder.targets = [jobConfig, holder.targets];\n  holder.targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['rebound-method config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const holder = { selectTargets() { return [jobConfig]; } };\n  if (runtimeCondition) holder.selectTargets = () => [otherConfig];\n  holder.selectTargets()[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['helper-returned prompt aggregate', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    function selectTargets() { return [newSamples]; }\n    selectTargets()[runtimeIndex].reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+    ['member prompt aggregate', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    const holder = { targets: [newSamples] };\n    holder.targets[runtimeIndex].reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+    ['runtime conditional prompt aggregate', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    const targets = runtimeCondition ? [newSamples] : [otherSamples];\n    targets[runtimeIndex].reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+  ].flatMap(([label, source]) => {
+    try { collectMigrateJobConfigBehaviorClaimsFromSource(source); return [label]; } catch { return []; }
+  });
+  for (const [label, insertion] of [
+    ['IIFE-returned setter aggregate', "  (() => [setJobConfig])()[runtimeIndex](99, 'config.process[0].train.steps');\n"],
+    ['member setter aggregate', "  const holder = { setters: [setJobConfig] };\n  holder.setters[runtimeIndex](99, 'config.process[0].train.steps');\n"],
+    ['object-destructured setter aggregate', "  const { setters } = { setters: [setJobConfig] };\n  setters[runtimeIndex](99, 'config.process[0].train.steps');\n"],
+    ['static logical setter aggregate', "  const setters = false || [setJobConfig];\n  setters[runtimeIndex](99, 'config.process[0].train.steps');\n"],
+  ] as const) {
+    try {
+      collectHandleModelArchChangeBehaviorClaimsFromSource(
+        summaryArchSource.replace('  // update samples', `${insertion}\n  // update samples`),
+        summaryAnimaSource,
+      );
+      latticeAggregateMissingRejects.push(label);
+    } catch {}
+  }
+  for (const [label, insertion] of [
+    ['helper-returned model aggregate', "  function selectTargets() { return [cleaned]; }\n  delete selectTargets()[runtimeIndex].other_path;\n"],
+    ['assigned-member model aggregate', "  const holder = {};\n  holder.targets = [cleaned];\n  delete holder.targets[runtimeIndex].other_path;\n"],
+    ['array-destructured model aggregate', "  const [targets] = [[cleaned]];\n  delete targets[runtimeIndex].other_path;\n"],
+    ['static nullish model aggregate', "  const targets = null ?? [cleaned];\n  delete targets[runtimeIndex].other_path;\n"],
+  ] as const) {
+    try {
+      collectHandleModelArchChangeBehaviorClaimsFromSource(
+        summaryArchSource,
+        summaryAnimaSource.replace('  return cleaned;', `${insertion}  return cleaned;`),
+      );
+      latticeAggregateMissingRejects.push(label);
+    } catch {}
+  }
+  const latticeAggregatePositiveFailures = [
+    ['harmless static conditional aggregate', "  const values = true ? [1] : [jobConfig];\n  otherObject.value = values[runtimeIndex];\n  if (isMac()) {"],
+    ['harmless static logical aggregate', "  const values = false || [1];\n  otherObject.value = values[runtimeIndex];\n  if (isMac()) {"],
+    ['harmless helper-returned aggregate', "  function selectValues() { return [1]; }\n  otherObject.value = selectValues()[runtimeIndex];\n  if (isMac()) {"],
+    ['harmless member aggregate', "  const holder = { values: [1] };\n  otherObject.value = holder.values[runtimeIndex];\n  if (isMac()) {"],
+    ['harmless destructured aggregate', "  const { values } = { values: [1] };\n  otherObject.value = values[runtimeIndex];\n  if (isMac()) {"],
+    ['harmless call-returned aggregate', "  function selectValues() { return [1]; }\n  otherObject.value = selectValues.call(null)[runtimeIndex];\n  if (isMac()) {"],
+    ['harmless method-returned aggregate', "  const holder = { selectValues() { return [1]; } };\n  otherObject.value = holder.selectValues()[runtimeIndex];\n  if (isMac()) {"],
+    ['harmless same-branch aggregate', "  const values = runtimeCondition ? [1] : [1];\n  otherObject.value = values[runtimeIndex];\n  if (isMac()) {"],
+    ['harmless destructure-default aggregate', "  const { values = [1] } = {};\n  otherObject.value = values[runtimeIndex];\n  if (isMac()) {"],
+    ['harmless member cycle', "  const holder = {};\n  holder.values = [1, holder.values];\n  otherObject.value = holder.values[runtimeIndex];\n  if (isMac()) {"],
+  ].flatMap(([label, replacement]) => {
+    try { assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts); return []; }
+    catch { return [label]; }
+  });
+  assert.deepEqual(
+    { missingRejects: latticeAggregateMissingRejects, positiveFailures: latticeAggregatePositiveFailures },
+    { missingRejects: [], positiveFailures: [] },
+    'finite aggregate relevance consumes the shared provenance lattice',
+  );
   assert.equal(summaryArchFacts.length, 30);
   assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));
