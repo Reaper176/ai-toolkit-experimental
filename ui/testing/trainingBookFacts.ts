@@ -2475,6 +2475,268 @@ function serverStateClaim(
   };
 }
 
+function behaviorSettingClaim(
+  sourcePath: string,
+  symbol: string,
+  path: string,
+  uiType: UiSourceClaim['value_contract']['ui_type'],
+  behavior: UiBehaviorContract,
+  acceptedValues?: TrainingBookValueFact[],
+): UiSourceClaim {
+  return {
+    source_path: sourcePath,
+    symbol,
+    path,
+    kind: 'setting',
+    ui_label: { present: false },
+    value_contract: {
+      ui_type: uiType,
+      widget_kind: null,
+      optional: true,
+      nullable: true,
+      ...(acceptedValues === undefined ? {} : { accepted_values: acceptedValues }),
+    },
+    behavior_contract: behavior,
+  };
+}
+
+function exportedArrowFunction(source: ts.SourceFile, name: string): ts.ArrowFunction | undefined {
+  const declarations: Array<{ statement: ts.VariableStatement; declaration: ts.VariableDeclaration }> = [];
+  for (const statement of source.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === name) declarations.push({ statement, declaration });
+    }
+  }
+  if (declarations.length === 0) return undefined;
+  if (declarations.length !== 1) fail(source, `${name} behavior requires one exact top-level declaration`);
+  const [{ statement, declaration }] = declarations;
+  const modifiers = ts.getModifiers(statement) ?? [];
+  if (!modifiers.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) fail(statement, `${name} behavior requires an exported declaration`);
+  if ((statement.declarationList.flags & ts.NodeFlags.Const) === 0) fail(statement, `${name} behavior requires a const declaration`);
+  const initializer = declaration.initializer === undefined ? undefined : unwrap(declaration.initializer);
+  if (initializer === undefined || !ts.isArrowFunction(initializer) || !ts.isBlock(initializer.body)) fail(declaration, `${name} behavior requires a block-bodied arrow function`);
+  return initializer;
+}
+
+type ConfigMutation = {
+  node: ts.BinaryExpression | ts.DeleteExpression;
+  operation: 'write' | 'delete';
+  path: string;
+};
+
+function parameterConfigPath(
+  expression: ts.Expression,
+  parameter: ts.Identifier,
+  bindings: LexicalBindings,
+): string | undefined {
+  expression = unwrap(expression);
+  const parts = accessParts(expression);
+  if (parts === undefined || parts[0] !== parameter.text || parts[1] !== 'config') return undefined;
+  let base = expression;
+  while (ts.isPropertyAccessExpression(base) || ts.isElementAccessExpression(base)) base = unwrap(base.expression);
+  return ts.isIdentifier(base) && bindings.isBinding(base, parameter)
+    ? normalizePath(parts.slice(1).join('.'), {})
+    : undefined;
+}
+
+function enclosingIfWithin(node: ts.Node, owner: ts.FunctionLikeDeclaration): ts.IfStatement | undefined {
+  let current: ts.Node | undefined = node;
+  while (current !== undefined && current !== owner) {
+    if (ts.isIfStatement(current)) return current;
+    current = current.parent;
+  }
+  return undefined;
+}
+
+function flattenAnd(expression: ts.Expression): ts.Expression[] {
+  expression = unwrap(expression);
+  return ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+    ? [...flattenAnd(expression.left), ...flattenAnd(expression.right)]
+    : [expression];
+}
+
+function exactString(expression: ts.Expression, value: string): boolean {
+  expression = unwrap(expression);
+  return (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) && expression.text === value;
+}
+
+function exactBoolean(expression: ts.Expression, value: boolean): boolean {
+  expression = unwrap(expression);
+  return expression.kind === (value ? ts.SyntaxKind.TrueKeyword : ts.SyntaxKind.FalseKeyword);
+}
+
+function exactNumber(expression: ts.Expression, value: number): boolean {
+  expression = unwrap(expression);
+  return ts.isNumericLiteral(expression) && Number(expression.text) === value;
+}
+
+function collectFunctionConfigMutations(
+  owner: ts.ArrowFunction,
+  parameter: ts.Identifier,
+  bindings: LexicalBindings,
+): ConfigMutation[] {
+  const mutations: ConfigMutation[] = [];
+  const visit = (node: ts.Node): void => {
+    if (node !== owner && ts.isFunctionLike(node)) return;
+    if (isStaticallyDead(node)) return;
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      const path = parameterConfigPath(node.left, parameter, bindings);
+      if (path !== undefined) mutations.push({ node, operation: 'write', path });
+    } else if (ts.isDeleteExpression(node)) {
+      const path = parameterConfigPath(node.expression, parameter, bindings);
+      if (path !== undefined) mutations.push({ node, operation: 'delete', path });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(owner.body);
+  return mutations;
+}
+
+export function collectMigrateJobConfigBehaviorClaimsFromSource(
+  sourceText: string,
+  sourceName = 'ui/src/app/jobs/new/jobConfig.ts',
+): UiSourceClaim[] {
+  const source = ts.createSourceFile(sourceName, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const owner = exportedArrowFunction(source, 'migrateJobConfig');
+  if (owner === undefined) return [];
+  const parameter = exactCallbackIdentifier(owner.parameters[0]);
+  if (parameter === undefined || owner.parameters.length !== 1) fail(owner, 'migrateJobConfig behavior requires one exact parameter');
+  const bindings = new LexicalBindings(source);
+  const mutations = collectFunctionConfigMutations(owner, parameter, bindings);
+  const consumed = new Set<ConfigMutation>();
+  const take = (operation: ConfigMutation['operation'], path: string): ConfigMutation => {
+    const matches = mutations.filter(item => item.operation === operation && item.path === path);
+    if (matches.length !== 1) fail(owner, `migrateJobConfig behavior requires one ${operation} for ${path}`);
+    consumed.add(matches[0]);
+    return matches[0];
+  };
+  const pathIs = (expression: ts.Expression, path: string): boolean => parameterConfigPath(expression, parameter, bindings) === path;
+  const exactInGuard = (expression: ts.Expression, key: string, path: string, negated = false): boolean => {
+    expression = unwrap(expression);
+    if (negated) {
+      if (!ts.isPrefixUnaryExpression(expression) || expression.operator !== ts.SyntaxKind.ExclamationToken) return false;
+      expression = unwrap(expression.operand);
+    }
+    return ts.isBinaryExpression(expression)
+      && expression.operatorToken.kind === ts.SyntaxKind.InKeyword
+      && exactString(expression.left, key)
+      && pathIs(expression.right, path);
+  };
+
+  const sampleWrite = take('write', 'config.process[*].sample.samples');
+  const promptDelete = take('delete', 'config.process[*].sample.prompts');
+  const promptIf = enclosingIfWithin(sampleWrite.node, owner);
+  if (promptIf === undefined || enclosingIfWithin(promptDelete.node, owner) !== promptIf) fail(sampleWrite.node, 'migrateJobConfig prompts behavior requires one shared guard');
+  const promptGuard = flattenAnd(promptIf.expression);
+  if (promptGuard.length !== 4
+    || !pathIs(promptGuard[0], 'config.process')
+    || !pathIs(promptGuard[1], 'config.process[*].sample')) fail(promptIf.expression, 'migrateJobConfig prompts behavior has an unsupported guard');
+  const arrayGuard = unwrap(promptGuard[2]);
+  const lengthGuard = unwrap(promptGuard[3]);
+  const lengthAccess = ts.isBinaryExpression(lengthGuard) ? unwrap(lengthGuard.left) : undefined;
+  if (!ts.isCallExpression(arrayGuard)
+    || accessParts(arrayGuard.expression)?.join('.') !== 'Array.isArray'
+    || arrayGuard.arguments.length !== 1
+    || !pathIs(arrayGuard.arguments[0], 'config.process[*].sample.prompts')
+    || !ts.isBinaryExpression(lengthGuard)
+    || lengthGuard.operatorToken.kind !== ts.SyntaxKind.GreaterThanToken
+    || !exactNumber(lengthGuard.right, 0)
+    || lengthAccess === undefined
+    || !ts.isPropertyAccessExpression(lengthAccess)
+    || lengthAccess.name.text !== 'length'
+    || !pathIs(lengthAccess.expression, 'config.process[*].sample.prompts')) fail(promptIf.expression, 'migrateJobConfig prompts behavior has an unsupported array guard');
+  const sampleAssignment = sampleWrite.node as ts.BinaryExpression;
+  const samplesValue = unwrap(sampleAssignment.right);
+  if (!ts.isIdentifier(samplesValue)) fail(samplesValue, 'migrateJobConfig prompts behavior requires an exact samples binding');
+  const samplesDeclaration = bindings.bindingDeclaration(samplesValue);
+  const samplesInitializer = bindings.declarationInitializer(samplesValue);
+  const unwrappedSamplesInitializer = samplesInitializer === undefined ? undefined : unwrap(samplesInitializer);
+  if (samplesDeclaration === undefined || unwrappedSamplesInitializer === undefined || !ts.isArrayLiteralExpression(unwrappedSamplesInitializer) || unwrappedSamplesInitializer.elements.length !== 0) fail(samplesValue, 'migrateJobConfig prompts behavior requires an empty samples accumulator');
+  const loops = (() => {
+    const result: ts.ForOfStatement[] = [];
+    const visit = (node: ts.Node): void => { if (ts.isForOfStatement(node)) result.push(node); else ts.forEachChild(node, visit); };
+    visit(promptIf.thenStatement);
+    return result;
+  })();
+  if (loops.length !== 1 || !pathIs(loops[0].expression, 'config.process[*].sample.prompts')) fail(promptIf.thenStatement, 'migrateJobConfig prompts behavior requires one exact source-order loop');
+  const loopDeclaration = loops[0].initializer;
+  if (!ts.isVariableDeclarationList(loopDeclaration) || loopDeclaration.declarations.length !== 1 || !ts.isIdentifier(loopDeclaration.declarations[0].name)) fail(loops[0], 'migrateJobConfig prompts behavior requires one exact prompt binding');
+  const promptBinding = loopDeclaration.declarations[0].name;
+  const pushes: ts.CallExpression[] = [];
+  const collectPush = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'push') pushes.push(node);
+    ts.forEachChild(node, collectPush);
+  };
+  collectPush(loops[0].statement);
+  const pushExpression = pushes.length === 1 && ts.isPropertyAccessExpression(pushes[0].expression)
+    ? unwrap(pushes[0].expression.expression)
+    : undefined;
+  if (pushes.length !== 1 || pushExpression === undefined || !ts.isIdentifier(pushExpression) || !bindings.isBinding(pushExpression, samplesDeclaration) || pushes[0].arguments.length !== 1) fail(loops[0], 'migrateJobConfig prompts behavior requires one accumulator push');
+  const pushed = unwrap(pushes[0].arguments[0]);
+  if (!ts.isObjectLiteralExpression(pushed)) fail(pushed, 'migrateJobConfig prompts behavior requires prompt objects');
+  const promptValue = objectProperties(pushed).get('prompt');
+  const unwrappedPromptValue = promptValue === undefined ? undefined : unwrap(promptValue);
+  if (unwrappedPromptValue === undefined || !ts.isIdentifier(unwrappedPromptValue) || !bindings.isBinding(unwrappedPromptValue, promptBinding)) fail(pushed, 'migrateJobConfig prompts behavior requires an exact prompt property');
+  if (!(samplesDeclaration.getStart() < loops[0].getStart() && loops[0].getStart() < sampleWrite.node.getStart() && sampleWrite.node.getStart() < promptDelete.node.getStart())) fail(promptIf, 'migrateJobConfig prompts behavior requires map, write, then delete order');
+
+  const typeWrite = take('write', 'config.process[*].type');
+  const typeIf = enclosingIfWithin(typeWrite.node, owner);
+  const typeParts = typeIf === undefined ? [] : flattenAnd(typeIf.expression);
+  const typeComparison = typeParts[1] === undefined ? undefined : unwrap(typeParts[1]);
+  if (typeParts.length !== 2 || !pathIs(typeParts[0], 'config.process') || typeComparison === undefined || !ts.isBinaryExpression(typeComparison) || typeComparison.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken || !pathIs(typeComparison.left, 'config.process[*].type') || !exactString(typeComparison.right, 'ui_trainer') || !exactString((typeWrite.node as ts.BinaryExpression).right, 'diffusion_trainer')) fail(typeWrite.node, 'migrateJobConfig type behavior is unsupported');
+
+  const autoWrite = take('write', 'config.process[*].model.layer_offloading');
+  const autoDelete = take('delete', 'config.process[*].model.auto_memory');
+  const autoIf = enclosingIfWithin(autoWrite.node, owner);
+  if (autoIf === undefined || enclosingIfWithin(autoDelete.node, owner) !== autoIf || !exactInGuard(autoIf.expression, 'auto_memory', 'config.process[*].model')) fail(autoWrite.node, 'migrateJobConfig auto_memory behavior requires the exact presence guard');
+  const autoValue = unwrap((autoWrite.node as ts.BinaryExpression).right);
+  if (!ts.isBinaryExpression(autoValue) || autoValue.operatorToken.kind !== ts.SyntaxKind.BarBarToken || !pathIs(autoValue.left, 'config.process[*].model.auto_memory') || !exactBoolean(autoValue.right, false) || autoWrite.node.getStart() >= autoDelete.node.getStart()) fail(autoWrite.node, 'migrateJobConfig auto_memory behavior requires falsey fallback, write, then delete');
+
+  const loggingWrite = take('write', 'config.process[*].logging');
+  const loggingIf = enclosingIfWithin(loggingWrite.node, owner);
+  const loggingValue = unwrap((loggingWrite.node as ts.BinaryExpression).right);
+  if (loggingIf === undefined || !exactInGuard(loggingIf.expression, 'logging', 'config.process[*]', true) || !ts.isObjectLiteralExpression(loggingValue)) fail(loggingWrite.node, 'migrateJobConfig logging behavior is unsupported');
+  const loggingProperties = objectProperties(loggingValue);
+  if (loggingProperties.size !== 2 || !exactNumber(loggingProperties.get('log_every')!, 1) || !exactBoolean(loggingProperties.get('use_ui_logger')!, true)) fail(loggingValue, 'migrateJobConfig logging behavior requires exact defaults');
+
+  const deviceWrite = take('write', 'config.process[*].device');
+  const deviceIf = enclosingIfWithin(deviceWrite.node, owner);
+  const deviceGuard = deviceIf === undefined ? undefined : unwrap(deviceIf.expression);
+  if (deviceGuard === undefined || !ts.isCallExpression(deviceGuard) || deviceGuard.arguments.length !== 0 || !ts.isIdentifier(deviceGuard.expression) || !bindings.isExactNamedImport(deviceGuard.expression, 'isMac', '@/helpers/basic') || !exactString((deviceWrite.node as ts.BinaryExpression).right, 'mps')) fail(deviceWrite.node, 'migrateJobConfig device behavior requires exact isMac/mps semantics');
+
+  const unsupported = mutations.filter(item => !consumed.has(item));
+  if (unsupported.length > 0) fail(unsupported[0].node, `migrateJobConfig unsupported reachable mutation ${unsupported[0].operation} ${unsupported[0].path}`);
+
+  const claims: UiSourceClaim[] = [
+    behaviorSettingClaim(sourceName, 'migrateJobConfig::prompts-to-samples::nonempty-array::write', 'config.process[*].sample.samples', 'object-list', {
+      guard: 'prompts-nonempty-array', operation: 'write', sources: ['config.process[*].sample.prompts'],
+      payload: { kind: 'map-prompt-objects', source_path: 'config.process[*].sample.prompts', item_key: 'prompt' },
+    }),
+    behaviorSettingClaim(sourceName, 'migrateJobConfig::prompts-to-samples::after-write::delete', 'config.process[*].sample.prompts', 'string-list', {
+      guard: 'after-prompts-write', operation: 'delete', sources: ['config.process[*].sample.prompts', 'config.process[*].sample.samples'], payload: { kind: 'undefined' },
+    }),
+    behaviorSettingClaim(sourceName, 'migrateJobConfig::type::ui_trainer::write', 'config.process[*].type', 'string', {
+      guard: 'type-is-ui-trainer', operation: 'write', sources: ['config.process[*].type'], payload: { kind: 'literal', value: { kind: 'string', value: 'diffusion_trainer' } },
+    }, [{ kind: 'string', value: 'diffusion_trainer' }]),
+    behaviorSettingClaim(sourceName, 'migrateJobConfig::auto_memory::present::write', 'config.process[*].model.layer_offloading', 'boolean', {
+      guard: 'property-present', operation: 'write', sources: ['config.process[*].model.auto_memory'], payload: { kind: 'copy', source_path: 'config.process[*].model.auto_memory', fallback: { kind: 'boolean', value: false } },
+    }),
+    behaviorSettingClaim(sourceName, 'migrateJobConfig::auto_memory::after-write::delete', 'config.process[*].model.auto_memory', 'boolean', {
+      guard: 'property-present', operation: 'delete', sources: ['config.process[*].model.auto_memory', 'config.process[*].model.layer_offloading'], payload: { kind: 'undefined' },
+    }),
+    behaviorSettingClaim(sourceName, 'migrateJobConfig::logging::absent::write', 'config.process[*].logging', 'object', {
+      guard: 'property-absent', operation: 'write', sources: [], payload: { kind: 'literal', value: { kind: 'object', entries: [
+        { key: 'log_every', value: { kind: 'number', value: 1 } }, { key: 'use_ui_logger', value: { kind: 'boolean', value: true } },
+      ] } },
+    }),
+    behaviorSettingClaim(sourceName, 'migrateJobConfig::device::mac::write', 'config.process[*].device', 'string', {
+      guard: 'platform-mac', operation: 'write', sources: [], payload: { kind: 'literal', value: { kind: 'string', value: 'mps' } },
+    }, [{ kind: 'string', value: 'mps' }]),
+  ];
+  return claims.sort((left, right) => compareCodePoint(left.symbol, right.symbol));
+}
+
 function isProcessEnvironment(expression: ts.Expression): boolean {
   expression = unwrap(expression);
   return ts.isPropertyAccessExpression(expression)

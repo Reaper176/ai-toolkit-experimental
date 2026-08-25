@@ -14,6 +14,7 @@ import {
   collectCanonicalSetterPathsFromSource,
   collectDeclaredServerGlobalClaimsFromSource,
   collectDeclaredTypeScriptSourcePaths,
+  collectMigrateJobConfigBehaviorClaimsFromSource,
   collectVisibleControlClaimsFromSource,
   normalizeTrainingBookPath,
   validateTrainingBookUiFacts,
@@ -2099,6 +2100,169 @@ if (liveRoot !== undefined) {
     'a relevant occurrence added to a previously-zero declared file becomes emitted',
   );
   const liveFacts = collectTrainingBookUiFacts(liveRoot);
+  const migrateJobConfigSource = readFileSync(
+    join(liveRoot, 'ui/src/app/jobs/new/jobConfig.ts'),
+    'utf8',
+  );
+  const migrateClaims = collectMigrateJobConfigBehaviorClaimsFromSource(
+    migrateJobConfigSource,
+    'ui/src/app/jobs/new/jobConfig.ts',
+  );
+  assert.deepEqual(
+    migrateClaims.map(claim => [
+      claim.symbol,
+      claim.path,
+      claim.behavior_contract,
+    ]),
+    [
+      [
+        'migrateJobConfig::auto_memory::after-write::delete',
+        'config.process[*].model.auto_memory',
+        {
+          guard: 'property-present', operation: 'delete',
+          sources: ['config.process[*].model.auto_memory', 'config.process[*].model.layer_offloading'],
+          payload: { kind: 'undefined' },
+        },
+      ],
+      [
+        'migrateJobConfig::auto_memory::present::write',
+        'config.process[*].model.layer_offloading',
+        {
+          guard: 'property-present', operation: 'write',
+          sources: ['config.process[*].model.auto_memory'],
+          payload: {
+            kind: 'copy', source_path: 'config.process[*].model.auto_memory',
+            fallback: { kind: 'boolean', value: false },
+          },
+        },
+      ],
+      [
+        'migrateJobConfig::device::mac::write',
+        'config.process[*].device',
+        {
+          guard: 'platform-mac', operation: 'write', sources: [],
+          payload: { kind: 'literal', value: { kind: 'string', value: 'mps' } },
+        },
+      ],
+      [
+        'migrateJobConfig::logging::absent::write',
+        'config.process[*].logging',
+        {
+          guard: 'property-absent', operation: 'write', sources: [],
+          payload: {
+            kind: 'literal',
+            value: {
+              kind: 'object',
+              entries: [
+                { key: 'log_every', value: { kind: 'number', value: 1 } },
+                { key: 'use_ui_logger', value: { kind: 'boolean', value: true } },
+              ],
+            },
+          },
+        },
+      ],
+      [
+        'migrateJobConfig::prompts-to-samples::after-write::delete',
+        'config.process[*].sample.prompts',
+        {
+          guard: 'after-prompts-write', operation: 'delete',
+          sources: ['config.process[*].sample.prompts', 'config.process[*].sample.samples'],
+          payload: { kind: 'undefined' },
+        },
+      ],
+      [
+        'migrateJobConfig::prompts-to-samples::nonempty-array::write',
+        'config.process[*].sample.samples',
+        {
+          guard: 'prompts-nonempty-array', operation: 'write',
+          sources: ['config.process[*].sample.prompts'],
+          payload: {
+            kind: 'map-prompt-objects',
+            source_path: 'config.process[*].sample.prompts', item_key: 'prompt',
+          },
+        },
+      ],
+      [
+        'migrateJobConfig::type::ui_trainer::write',
+        'config.process[*].type',
+        {
+          guard: 'type-is-ui-trainer', operation: 'write',
+          sources: ['config.process[*].type'],
+          payload: { kind: 'literal', value: { kind: 'string', value: 'diffusion_trainer' } },
+        },
+      ],
+    ],
+    'migrateJobConfig emits one exact semantic fact per reachable mutation',
+  );
+  for (const [label, mutated] of [
+    ['prompt guard', migrateJobConfigSource.replace('.prompts.length > 0', '.prompts.length >= 0')],
+    ['prompt source', migrateJobConfigSource.replaceAll('.sample.prompts', '.sample.legacyPrompts')],
+    ['sample target', migrateJobConfigSource.replace('.sample.samples = newSamples', '.sample.items = newSamples')],
+    ['trainer output', migrateJobConfigSource.replace("= 'diffusion_trainer'", "= 'other_trainer'")],
+    ['auto-memory fallback', migrateJobConfigSource.replace('auto_memory ||\n      false', 'auto_memory ??\n      false')],
+    ['logging value', migrateJobConfigSource.replace(
+      'jobConfig.config.process[0].logging = {\n      log_every: 1',
+      'jobConfig.config.process[0].logging = {\n      log_every: 2',
+    )],
+    ['platform guard', migrateJobConfigSource.replace('if (isMac())', 'if (isLinux())')],
+    ['prompt write/delete order', migrateJobConfigSource.replace(
+      'jobConfig.config.process[0].sample.samples = newSamples;\n    delete jobConfig.config.process[0].sample.prompts;',
+      'delete jobConfig.config.process[0].sample.prompts;\n    jobConfig.config.process[0].sample.samples = newSamples;',
+    )],
+    ['auto-memory write/delete order', migrateJobConfigSource.replace(
+      "jobConfig.config.process[0].model.layer_offloading = (jobConfig.config.process[0].model.auto_memory ||\n      false) as boolean;\n    delete jobConfig.config.process[0].model.auto_memory;",
+      "delete jobConfig.config.process[0].model.auto_memory;\n    jobConfig.config.process[0].model.layer_offloading = (jobConfig.config.process[0].model.auto_memory ||\n      false) as boolean;",
+    )],
+    ['export binding', migrateJobConfigSource.replace('export const migrateJobConfig', 'const migrateJobConfig')],
+    ['added reachable mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      "  jobConfig.config.process[0].train.steps = 99;\n  return jobConfig;",
+    )],
+  ] as const) {
+    assert.throws(
+      () => collectMigrateJobConfigBehaviorClaimsFromSource(
+        mutated,
+        'ui/src/app/jobs/new/jobConfig.ts',
+      ),
+      /migrateJobConfig.*behavior|unsupported reachable mutation/,
+      `migrateJobConfig rejects changed ${label}`,
+    );
+  }
+  assert.deepEqual(
+    collectMigrateJobConfigBehaviorClaimsFromSource(
+      `${migrateJobConfigSource}\nfunction sibling(jobConfig) { jobConfig.config.process[0].device = 'cpu'; }`,
+      'ui/src/app/jobs/new/jobConfig.ts',
+    ),
+    migrateClaims,
+    'sibling-function mutations do not cross the exact function boundary',
+  );
+  assert.deepEqual(
+    collectMigrateJobConfigBehaviorClaimsFromSource(
+      migrateJobConfigSource.replace(
+        '  return jobConfig;',
+        "  if (false) jobConfig.config.process[0].device = 'cpu';\n  return jobConfig;",
+      ),
+      'ui/src/app/jobs/new/jobConfig.ts',
+    ),
+    migrateClaims,
+    'statically dead mutations do not alter migration facts',
+  );
+  assert.deepEqual(
+    collectMigrateJobConfigBehaviorClaimsFromSource(
+      migrateJobConfigSource.replaceAll('newSamples', 'migratedSamples'),
+      'ui/src/app/jobs/new/jobConfig.ts',
+    ),
+    migrateClaims,
+    'harmless local binding renames preserve semantic migration identities',
+  );
+  assert.deepEqual(
+    collectMigrateJobConfigBehaviorClaimsFromSource(
+      `${migrateJobConfigSource}\n// jobConfig.config.process[0].device = 'cpu';\nconst text = "delete jobConfig.config.process[0].sample.prompts";`,
+      'ui/src/app/jobs/new/jobConfig.ts',
+    ),
+    migrateClaims,
+    'comments and inert strings cannot create migration behavior facts',
+  );
   const liveSimpleJobSource = readFileSync(join(liveRoot, 'ui/src/app/jobs/new/SimpleJob.tsx'), 'utf8');
   validateArchitectureProjectedControlTemplates(liveSimpleJobSource, 'ui/src/app/jobs/new/SimpleJob.tsx', true, true);
   assert.throws(
