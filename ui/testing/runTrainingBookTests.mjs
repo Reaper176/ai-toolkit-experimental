@@ -124,7 +124,10 @@ try {
 
   if (!factsOnly) {
     run('python', [validator, '--check-discovery', '--ui-facts', factsPath], { cwd: repositoryRoot });
-    run('python', [testFile], { cwd: repositoryRoot });
+    run('python', [testFile], {
+      cwd: repositoryRoot,
+      env: { ...process.env, TRAINING_BOOK_UI_FACTS_PATH: factsPath },
+    });
   }
 } finally {
   if (outputDirectory !== undefined && existsSync(outputDirectory)) {

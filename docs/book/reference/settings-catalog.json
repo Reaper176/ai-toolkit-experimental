@@ -30456,7 +30456,7 @@
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-adafactor-param-relative_step",
         "description": "In adafactor, selects Adafactor internal relative steps; discovered defaults are get_optimizer.adafactor__relative_step=False, Adafactor.__init__.relative_step=True.",
-        "benefits": "For adafactor, use relative_step: false so the dispatcher\u2019s manual train.lr remains valid.",
+        "benefits": "For adafactor, use relative_step: false so the dispatcher’s manual train.lr remains valid.",
         "drawbacks": "With adafactor, true with manual lr raises ValueError. relative_step=true is unusable through get_optimizer because it always injects a manual learning rate; Adafactor raises ValueError for that combination.",
         "example": "relative_step: false"
       }
@@ -32397,7 +32397,7 @@
         "page": "reference/optimizers-and-schedulers.md",
         "anchor": "optimizer-automagic-param-eps",
         "description": "Automagic uses scalar eps directly and uses the first element when eps is a tuple or list to stabilize its squared-gradient update.",
-        "benefits": "Use eps: 1e-30 to match Automagic\u2019s scalar update floor without changing its denominator scale.",
+        "benefits": "Use eps: 1e-30 to match Automagic’s scalar update floor without changing its denominator scale.",
         "drawbacks": "A large Automagic eps can dominate small gradients and risks suppressing useful updates.",
         "example": "eps: 1.0e-30"
       }
@@ -67611,6 +67611,343 @@
         "drawbacks": "Changing this value can affect every UI session or queued job.",
         "example": "browser.localStorage.theme: dark"
       }
+    },
+    {
+      "id": "ui.job-loss-graph.use-log-scale",
+      "ui_label": "Log Y",
+      "scope": "ui-state",
+      "locations": [
+        {
+          "kind": "ui-state",
+          "path": "browser.localStorage.jobLossGraph.useLogScale"
+        }
+      ],
+      "surfaces": [
+        "simple-ui"
+      ],
+      "persistence": "browser-storage",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "boolean",
+        "ui_type": "boolean",
+        "ui_optional": true,
+        "ui_nullable": false,
+        "ui_accepted_values": null,
+        "ui_range": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "ui-created",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "ui.job-loss-graph.use-log-scale",
+        "description": "Persists the log y preference for the loss graph under the current job URL.",
+        "benefits": "Restores this graph preference when the same job URL is opened again.",
+        "drawbacks": "The preference is browser-local and does not alter training or synchronize to another browser.",
+        "example": "browser.localStorage.jobLossGraph.useLogScale: false"
+      }
+    },
+    {
+      "id": "ui.job-loss-graph.show-trend",
+      "ui_label": "Trend",
+      "scope": "ui-state",
+      "locations": [
+        {
+          "kind": "ui-state",
+          "path": "browser.localStorage.jobLossGraph.showTrend"
+        }
+      ],
+      "surfaces": [
+        "simple-ui"
+      ],
+      "persistence": "browser-storage",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "boolean",
+        "ui_type": "boolean",
+        "ui_optional": true,
+        "ui_nullable": false,
+        "ui_accepted_values": null,
+        "ui_range": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "ui-created",
+          "presence": "present",
+          "value": true,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "ui.job-loss-graph.show-trend",
+        "description": "Persists the trend preference for the loss graph under the current job URL.",
+        "benefits": "Restores this graph preference when the same job URL is opened again.",
+        "drawbacks": "The preference is browser-local and does not alter training or synchronize to another browser.",
+        "example": "browser.localStorage.jobLossGraph.showTrend: true"
+      }
+    },
+    {
+      "id": "ui.job-loss-graph.smoothing",
+      "ui_label": "Smoothing",
+      "scope": "ui-state",
+      "locations": [
+        {
+          "kind": "ui-state",
+          "path": "browser.localStorage.jobLossGraph.smoothing"
+        }
+      ],
+      "surfaces": [
+        "simple-ui"
+      ],
+      "persistence": "browser-storage",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "number-normalized-to-0-through-100",
+        "ui_type": "number",
+        "ui_optional": true,
+        "ui_nullable": false,
+        "ui_accepted_values": null,
+        "ui_range": {
+          "minimum": 0,
+          "maximum": 100,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "ui-created",
+          "presence": "present",
+          "value": 80,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "The slider writes 0 through 100; rendering divides by 100 and clamps the effective smoothing factor to that interval.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "ui.job-loss-graph.smoothing",
+        "description": "Persists the smoothing preference for the loss graph under the current job URL.",
+        "benefits": "Restores this graph preference when the same job URL is opened again.",
+        "drawbacks": "The preference is browser-local and does not alter training or synchronize to another browser.",
+        "example": "browser.localStorage.jobLossGraph.smoothing: 80"
+      }
+    },
+    {
+      "id": "ui.job-loss-graph.plot-stride",
+      "ui_label": "Plot stride",
+      "scope": "ui-state",
+      "locations": [
+        {
+          "kind": "ui-state",
+          "path": "browser.localStorage.jobLossGraph.plotStride"
+        }
+      ],
+      "surfaces": [
+        "simple-ui"
+      ],
+      "persistence": "browser-storage",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "number-integer-coerced-minimum-1",
+        "ui_type": "number",
+        "ui_optional": true,
+        "ui_nullable": false,
+        "ui_accepted_values": null,
+        "ui_range": {
+          "minimum": 1,
+          "maximum": 20,
+          "minimum_inclusive": true,
+          "maximum_inclusive": true
+        },
+        "example_type": "number",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "ui-created",
+          "presence": "present",
+          "value": 1,
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "The slider writes 1 through 20; rendering coerces the stored number to an integer and enforces a minimum stride of one.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "ui.job-loss-graph.plot-stride",
+        "description": "Persists the plot stride preference for the loss graph under the current job URL.",
+        "benefits": "Restores this graph preference when the same job URL is opened again.",
+        "drawbacks": "The preference is browser-local and does not alter training or synchronize to another browser.",
+        "example": "browser.localStorage.jobLossGraph.plotStride: 1"
+      }
+    },
+    {
+      "id": "ui.job-loss-graph.clip-outliers",
+      "ui_label": "Clip outliers",
+      "scope": "ui-state",
+      "locations": [
+        {
+          "kind": "ui-state",
+          "path": "browser.localStorage.jobLossGraph.clipOutliers"
+        }
+      ],
+      "surfaces": [
+        "simple-ui"
+      ],
+      "persistence": "browser-storage",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "boolean",
+        "ui_type": "boolean",
+        "ui_optional": true,
+        "ui_nullable": false,
+        "ui_accepted_values": null,
+        "ui_range": null,
+        "example_type": "boolean",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "ui-created",
+          "presence": "present",
+          "value": false,
+          "applicability": []
+        }
+      ],
+      "normalizations": [],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "ui.job-loss-graph.clip-outliers",
+        "description": "Persists the clip outliers preference for the loss graph under the current job URL.",
+        "benefits": "Restores this graph preference when the same job URL is opened again.",
+        "drawbacks": "The preference is browser-local and does not alter training or synchronize to another browser.",
+        "example": "browser.localStorage.jobLossGraph.clipOutliers: false"
+      }
+    },
+    {
+      "id": "ui.job-loss-graph.enabled",
+      "ui_label": "Visible loss series",
+      "scope": "ui-state",
+      "locations": [
+        {
+          "kind": "ui-state",
+          "path": "browser.localStorage.jobLossGraph.enabled"
+        }
+      ],
+      "surfaces": [
+        "simple-ui"
+      ],
+      "persistence": "browser-storage",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "ui-state",
+        "supported_type": "string-boolean-map",
+        "ui_type": "object",
+        "ui_optional": true,
+        "ui_nullable": false,
+        "ui_accepted_values": null,
+        "ui_range": null,
+        "example_type": "object",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "ui-created",
+          "presence": "present",
+          "value": {},
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "An absent entry means the series is enabled; only an explicit false value hides a loss series.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "training",
+      "source_claims": [],
+      "render": {
+        "page": "reference/training.md",
+        "anchor": "ui.job-loss-graph.enabled",
+        "description": "Persists the visible loss series preference for the loss graph under the current job URL.",
+        "benefits": "Restores this graph preference when the same job URL is opened again.",
+        "drawbacks": "The preference is browser-local and does not alter training or synchronize to another browser.",
+        "example": "browser.localStorage.jobLossGraph.enabled: {}"
+      }
     }
   ],
   "ui_claims": [
@@ -87268,11 +87605,11 @@
               "The checkpoints are pre-quantized and load directly: int8 ConvRot DiT (~21GB) and nvfp4 Qwen3-VL text encoder (~16GB). The default qtypes (",
               " / ",
               ") match the files exactly, so nothing is re-quantized on load. Picking a different quantization re-quantizes the pre-quantized layers into that format, one layer at a time.",
-              "Supports t2v and first-frame i2v (ctrl img / i2v datasets) with joint audio. The model is guidance-distilled \u2014 keep guidance scale at 1. Video is fixed 24 fps and frame counts snap down to the 17n+5 grid (5, 22, 39, 56, ..., 107, 124 \u2248 5s). Image datasets (num_frames 1) train as single frames, and a sample with num_frames 1 renders a single image."
+              "Supports t2v and first-frame i2v (ctrl img / i2v datasets) with joint audio. The model is guidance-distilled — keep guidance scale at 1. Video is fixed 24 fps and frame counts snap down to the 17n+5 grid (5, 22, 39, 56, ..., 107, 124 ≈ 5s). Image datasets (num_frames 1) train as single frames, and a sample with num_frames 1 renders a single image."
             ],
             "code_literals": [
               "Comfy-Org/MiniMax-H3",
-              "<MODELS_PATH>/\n\u251c\u2500\u2500 diffusion_models/\n\u2502   \u2514\u2500\u2500 minimax_h3_fl2va_pruned_int8_convrot.safetensors\n\u251c\u2500\u2500 text_encoders/\n\u2502   \u2514\u2500\u2500 qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors\n\u2514\u2500\u2500 vae/\n    \u251c\u2500\u2500 minimax_h3_video_vae_fp16.safetensors\n    \u2514\u2500\u2500 minimax_h3_audio_vae_fp32.safetensors",
+              "<MODELS_PATH>/\n├── diffusion_models/\n│   └── minimax_h3_fl2va_pruned_int8_convrot.safetensors\n├── text_encoders/\n│   └── qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors\n└── vae/\n    ├── minimax_h3_video_vae_fp16.safetensors\n    └── minimax_h3_audio_vae_fp32.safetensors",
               "convrot8",
               "nvfp4"
             ],
@@ -117993,51 +118330,6 @@
       }
     },
     {
-      "setting_id": "environment.ai_toolkit_db_journal_mode",
-      "fact": {
-        "source_path": "ui/cron/worker.ts",
-        "symbol": "ensureJournalMode::process.env.AI_TOOLKIT_DB_JOURNAL_MODE",
-        "path": "AI_TOOLKIT_DB_JOURNAL_MODE",
-        "kind": "server-state",
-        "ui_label": {
-          "present": false
-        },
-        "value_contract": {
-          "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true,
-          "accepted_values": [
-            {
-              "kind": "string",
-              "value": "DELETE"
-            },
-            {
-              "kind": "string",
-              "value": "TRUNCATE"
-            },
-            {
-              "kind": "string",
-              "value": "PERSIST"
-            },
-            {
-              "kind": "string",
-              "value": "MEMORY"
-            },
-            {
-              "kind": "string",
-              "value": "WAL"
-            },
-            {
-              "kind": "string",
-              "value": "OFF"
-            }
-          ]
-        },
-        "fact_type": "source-claim"
-      }
-    },
-    {
       "setting_id": "environment.ai_toolkit_file_server_workers",
       "fact": {
         "source_path": "ui/cron/fileServer.ts",
@@ -118125,25 +118417,6 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
-        },
-        "fact_type": "source-claim"
-      }
-    },
-    {
-      "setting_id": "ui.auth-token",
-      "fact": {
-        "source_path": "ui/src/utils/api.ts",
-        "symbol": "apiClient.response::status=401",
-        "path": "auth.is_authorized",
-        "kind": "server-state",
-        "ui_label": {
-          "present": false
-        },
-        "value_contract": {
-          "ui_type": "boolean",
           "widget_kind": "read-only",
           "optional": true,
           "nullable": true
@@ -118268,35 +118541,6 @@
     {
       "setting_id": "ui.theme-preference",
       "fact": {
-        "source_path": "ui/src/app/layout.tsx",
-        "symbol": "RootLayout::localStorage.getItem(theme)",
-        "path": "browser.localStorage.theme",
-        "kind": "server-state",
-        "ui_label": {
-          "present": false
-        },
-        "value_contract": {
-          "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true,
-          "accepted_values": [
-            {
-              "kind": "string",
-              "value": "dark"
-            },
-            {
-              "kind": "string",
-              "value": "light"
-            }
-          ]
-        },
-        "fact_type": "source-claim"
-      }
-    },
-    {
-      "setting_id": "ui.theme-preference",
-      "fact": {
         "source_path": "ui/src/components/ThemeProvider.tsx",
         "symbol": "ThemeProvider::localStorage.getItem(theme)",
         "path": "browser.localStorage.theme",
@@ -118306,73 +118550,6 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
-        },
-        "fact_type": "source-claim"
-      }
-    },
-    {
-      "setting_id": "ui.theme-preference",
-      "fact": {
-        "source_path": "ui/src/components/ThemeProvider.tsx",
-        "symbol": "ThemeProvider::localStorage.setItem(theme)",
-        "path": "browser.localStorage.theme",
-        "kind": "server-state",
-        "ui_label": {
-          "present": false
-        },
-        "value_contract": {
-          "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true,
-          "accepted_values": [
-            {
-              "kind": "string",
-              "value": "dark"
-            },
-            {
-              "kind": "string",
-              "value": "light"
-            }
-          ]
-        },
-        "fact_type": "source-claim"
-      }
-    },
-    {
-      "setting_id": "process.performance_log_every",
-      "fact": {
-        "source_path": "ui/src/app/jobs/new/page.tsx",
-        "symbol": "TrainingForm::import::config.process[*].performance_log_every",
-        "path": "config.process[*].performance_log_every",
-        "kind": "server-state",
-        "ui_label": {
-          "present": false
-        },
-        "value_contract": {
-          "ui_type": "number",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
-        },
-        "fact_type": "source-claim"
-      }
-    },
-    {
-      "setting_id": "process.sqlite_db_path",
-      "fact": {
-        "source_path": "ui/src/app/jobs/new/page.tsx",
-        "symbol": "TrainingForm::import::config.process[*].sqlite_db_path",
-        "path": "config.process[*].sqlite_db_path",
-        "kind": "server-state",
-        "ui_label": {
-          "present": false
-        },
-        "value_contract": {
-          "ui_type": "path",
           "widget_kind": "read-only",
           "optional": true,
           "nullable": true
@@ -119065,6 +119242,1512 @@
           "widget_kind": "text",
           "optional": true,
           "nullable": false
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "environment.models_path",
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::process.env.MODELS_PATH",
+        "path": "MODELS_PATH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "environment.models_path",
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::process.env.MODELS_PATH::role=environment-read/lhs:===/rhs:||/guard:if-condition",
+        "path": "MODELS_PATH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "environment.models_path",
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::process.env.MODELS_PATH::role=environment-read/lhs:||/guard:if-condition",
+        "path": "MODELS_PATH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.data-root",
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::settings.DATA_ROOT",
+        "path": "settings.DATA_ROOT",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.models-path",
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::settings.MODELS_PATH",
+        "path": "settings.MODELS_PATH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::settings.TRAINING_FOLDER::role=settings-getter-TRAINING_FOLDER-appendPreflightFailureToExistingLog/initializer:trainingRoot",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::settings.TRAINING_FOLDER::role=settings-getter-TRAINING_FOLDER-launchAndWatchJob/initializer:trainingRoot",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "environment.ai_toolkit_db_journal_mode",
+      "fact": {
+        "source_path": "ui/cron/worker.ts",
+        "symbol": "ensureJournalMode::process.env.AI_TOOLKIT_DB_JOURNAL_MODE",
+        "path": "AI_TOOLKIT_DB_JOURNAL_MODE",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/audio/art/[...audioPath]/route.ts",
+        "symbol": "GET::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.data-root",
+      "fact": {
+        "source_path": "ui/src/app/api/audio/art/[...audioPath]/route.ts",
+        "symbol": "GET::settings.DATA_ROOT",
+        "path": "settings.DATA_ROOT",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/audio/art/[...audioPath]/route.ts",
+        "symbol": "GET::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/caption/get/route.ts",
+        "symbol": "POST::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/caption/getBatch/route.ts",
+        "symbol": "POST::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/datasets/[datasetName]/masks/route.ts",
+        "symbol": "compose::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/datasets/list/route.ts",
+        "symbol": "GET::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/datasets/listImages/route.ts",
+        "symbol": "POST::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/datasets/upload/route.ts",
+        "symbol": "POST::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/files/[...filePath]/route.ts",
+        "symbol": "GET::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/files/[...filePath]/route.ts",
+        "symbol": "GET::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/files/delete/route.ts",
+        "symbol": "POST::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/files/delete/route.ts",
+        "symbol": "POST::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/img/[...imagePath]/route.ts",
+        "symbol": "GET::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.data-root",
+      "fact": {
+        "source_path": "ui/src/app/api/img/[...imagePath]/route.ts",
+        "symbol": "GET::settings.DATA_ROOT",
+        "path": "settings.DATA_ROOT",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/img/[...imagePath]/route.ts",
+        "symbol": "GET::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/img/caption/route.ts",
+        "symbol": "POST::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/img/delete/route.ts",
+        "symbol": "POST::resolveRoots::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/img/delete/route.ts",
+        "symbol": "POST::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.data-root",
+      "fact": {
+        "source_path": "ui/src/app/api/img/upload/route.ts",
+        "symbol": "POST::settings.DATA_ROOT",
+        "path": "settings.DATA_ROOT",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/delete/route.ts",
+        "symbol": "GET::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/files/route.ts",
+        "symbol": "GET::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/log/route.ts",
+        "symbol": "GET::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/loss/route.ts",
+        "symbol": "GET::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/plugin/route.ts",
+        "symbol": "GET::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/samples/route.ts",
+        "symbol": "GET::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.data-root",
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/start/route.ts",
+        "symbol": "GET::prepare::settings.DATA_ROOT",
+        "path": "settings.DATA_ROOT",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/route.ts",
+        "symbol": "POST::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.data-root",
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/route.ts",
+        "symbol": "POST::settings.DATA_ROOT",
+        "path": "settings.DATA_ROOT",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "environment.models_path",
+      "fact": {
+        "source_path": "ui/src/app/api/settings/route.ts",
+        "symbol": "Settings.GET::process.env.MODELS_PATH::role=environment-read/lhs:!==/rhs:process.env.MODELS_PATH/guard:if-condition",
+        "path": "MODELS_PATH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "environment.models_path",
+      "fact": {
+        "source_path": "ui/src/app/api/settings/route.ts",
+        "symbol": "Settings.GET::process.env.MODELS_PATH::role=environment-read/lhs:&&/guard:if-condition",
+        "path": "MODELS_PATH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "environment.models_path",
+      "fact": {
+        "source_path": "ui/src/app/api/settings/route.ts",
+        "symbol": "Settings.GET::process.env.MODELS_PATH::role=environment-read/rhs:settingsObject.MODELS_PATH/guard:if-then:process.env.MODELS_PATH&&process.env.MODELS_PATH.trim()!==''",
+        "path": "MODELS_PATH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/zip/route.ts",
+        "symbol": "POST::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/api/zip/route.ts",
+        "symbol": "zipDataset::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "process.performance_log_every",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::handleFileSelected::onload::import::config.process[*].performance_log_every",
+        "path": "config.process[*].performance_log_every",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "number",
+              "value": 10
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "process.sqlite_db_path",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::handleFileSelected::onload::import::config.process[*].sqlite_db_path",
+        "path": "config.process[*].sqlite_db_path",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "./aitk_db.db"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "process.training_folder",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::handleFileSelected::onload::import::config.process[*].training_folder",
+        "path": "config.process[*].training_folder",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::handleFileSelected::onload::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "process.performance_log_every",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::import::config.process[*].performance_log_every",
+        "path": "config.process[*].performance_log_every",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "number",
+              "value": 10
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "process.sqlite_db_path",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::import::config.process[*].sqlite_db_path",
+        "path": "config.process[*].sqlite_db_path",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "./aitk_db.db"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::settings.TRAINING_FOLDER::role=settings-property-read/arg:setJobConfig[0]/guard:if-then:isSettingsLoaded/arg:useEffect[0]/callback:useEffect[0]",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::settings.TRAINING_FOLDER::role=settings-property-read/rhs:parsed.config.process[*].training_folder/guard:conditional-true:showAdvancedView",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.theme-preference",
+      "fact": {
+        "source_path": "ui/src/app/layout.tsx",
+        "symbol": "RootLayout::localStorage.getItem(theme)",
+        "path": "browser.localStorage.theme",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/app/settings/page.tsx",
+        "symbol": "Settings::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.hf-token",
+      "fact": {
+        "source_path": "ui/src/app/settings/page.tsx",
+        "symbol": "Settings::settings.HF_TOKEN",
+        "path": "settings.HF_TOKEN",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.models-path",
+      "fact": {
+        "source_path": "ui/src/app/settings/page.tsx",
+        "symbol": "Settings::settings.MODELS_PATH",
+        "path": "settings.MODELS_PATH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.training-folder",
+      "fact": {
+        "source_path": "ui/src/app/settings/page.tsx",
+        "symbol": "Settings::settings.TRAINING_FOLDER",
+        "path": "settings.TRAINING_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.auth-token",
+      "fact": {
+        "source_path": "ui/src/components/AuthWrapper.tsx",
+        "symbol": "AuthWrapper::localStorage.getItem(AI_TOOLKIT_AUTH)",
+        "path": "browser.localStorage.AI_TOOLKIT_AUTH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.gpu-ids",
+      "fact": {
+        "source_path": "ui/src/components/CaptionDatasetModal.tsx",
+        "symbol": "CaptionDatasetModal::default::gpuids",
+        "path": "gpuids",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.gpu-ids",
+      "fact": {
+        "source_path": "ui/src/components/CaptionDatasetModal.tsx",
+        "symbol": "CaptionDatasetModal::hydrate::gpuids",
+        "path": "gpuids",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.gpu-ids",
+      "fact": {
+        "source_path": "ui/src/components/CaptionDatasetModal.tsx",
+        "symbol": "CaptionDatasetModal::hydrate::gpuids::role=gpu-selection-hydrate/arg:call[0]/callback:callback[0]/guard:if-then:modalInfo?.cloneId/arg:useEffect[0]/callback:useEffect[0]",
+        "path": "gpuids",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.gpu-ids",
+      "fact": {
+        "source_path": "ui/src/components/CaptionDatasetModal.tsx",
+        "symbol": "CaptionDatasetModal::hydrate::gpuids::role=gpu-selection-hydrate/arg:call[0]/callback:callback[0]/guard:if-then:modalInfo?.jobId/arg:useEffect[0]/callback:useEffect[0]",
+        "path": "gpuids",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.job-loss-graph.clip-outliers",
+      "fact": {
+        "source_path": "ui/src/components/JobLossGraph.tsx",
+        "symbol": "JobLossGraph::hydrate::clipOutliers",
+        "path": "browser.localStorage.jobLossGraph.clipOutliers",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.job-loss-graph.enabled",
+      "fact": {
+        "source_path": "ui/src/components/JobLossGraph.tsx",
+        "symbol": "JobLossGraph::hydrate::enabled",
+        "path": "browser.localStorage.jobLossGraph.enabled",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "object",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.job-loss-graph.plot-stride",
+      "fact": {
+        "source_path": "ui/src/components/JobLossGraph.tsx",
+        "symbol": "JobLossGraph::hydrate::plotStride",
+        "path": "browser.localStorage.jobLossGraph.plotStride",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.job-loss-graph.show-trend",
+      "fact": {
+        "source_path": "ui/src/components/JobLossGraph.tsx",
+        "symbol": "JobLossGraph::hydrate::showTrend",
+        "path": "browser.localStorage.jobLossGraph.showTrend",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.job-loss-graph.smoothing",
+      "fact": {
+        "source_path": "ui/src/components/JobLossGraph.tsx",
+        "symbol": "JobLossGraph::hydrate::smoothing",
+        "path": "browser.localStorage.jobLossGraph.smoothing",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.job-loss-graph.use-log-scale",
+      "fact": {
+        "source_path": "ui/src/components/JobLossGraph.tsx",
+        "symbol": "JobLossGraph::hydrate::useLogScale",
+        "path": "browser.localStorage.jobLossGraph.useLogScale",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.job-loss-graph.clip-outliers",
+      "fact": {
+        "source_path": "ui/src/components/JobLossGraph.tsx",
+        "symbol": "JobLossGraph::persist::clipOutliers",
+        "path": "browser.localStorage.jobLossGraph.clipOutliers",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.job-loss-graph.enabled",
+      "fact": {
+        "source_path": "ui/src/components/JobLossGraph.tsx",
+        "symbol": "JobLossGraph::persist::enabled",
+        "path": "browser.localStorage.jobLossGraph.enabled",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "object",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.job-loss-graph.plot-stride",
+      "fact": {
+        "source_path": "ui/src/components/JobLossGraph.tsx",
+        "symbol": "JobLossGraph::persist::plotStride",
+        "path": "browser.localStorage.jobLossGraph.plotStride",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.job-loss-graph.show-trend",
+      "fact": {
+        "source_path": "ui/src/components/JobLossGraph.tsx",
+        "symbol": "JobLossGraph::persist::showTrend",
+        "path": "browser.localStorage.jobLossGraph.showTrend",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.job-loss-graph.smoothing",
+      "fact": {
+        "source_path": "ui/src/components/JobLossGraph.tsx",
+        "symbol": "JobLossGraph::persist::smoothing",
+        "path": "browser.localStorage.jobLossGraph.smoothing",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.job-loss-graph.use-log-scale",
+      "fact": {
+        "source_path": "ui/src/components/JobLossGraph.tsx",
+        "symbol": "JobLossGraph::persist::useLogScale",
+        "path": "browser.localStorage.jobLossGraph.useLogScale",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "ui.theme-preference",
+      "fact": {
+        "source_path": "ui/src/components/ThemeProvider.tsx",
+        "symbol": "ThemeProvider::toggleTheme::localStorage.setItem(theme)",
+        "path": "browser.localStorage.theme",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.datasets-folder",
+      "fact": {
+        "source_path": "ui/src/server/datasetPresetRouteHandlers.ts",
+        "symbol": "resolveRoots::settings.DATASETS_FOLDER",
+        "path": "settings.DATASETS_FOLDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "settings.data-root",
+      "fact": {
+        "source_path": "ui/src/server/datasetPresetRouteHandlers.ts",
+        "symbol": "resolveRoots::settings.DATA_ROOT",
+        "path": "settings.DATA_ROOT",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": "read-only",
+          "optional": true,
+          "nullable": true
         },
         "fact_type": "source-claim"
       }

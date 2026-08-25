@@ -1,5 +1,6 @@
 import ast
 import json
+import os
 import random
 import re
 import shutil
@@ -10,6 +11,7 @@ from unittest import mock
 from collections import OrderedDict
 from copy import deepcopy
 from dataclasses import FrozenInstanceError
+from functools import cache
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -63,6 +65,52 @@ FULL_ARCHITECTURES = (
     "wan22_5b", "zimage", "zimage:deturbo", "zimage_l2p", "zimage:turbo",
     "zeta_chroma",
 )
+
+
+@cache
+def load_production_training_book_ui_facts():
+    emitted_path = os.environ.get("TRAINING_BOOK_UI_FACTS_PATH")
+    if emitted_path is not None:
+        return load_training_book_ui_facts(Path(emitted_path))
+
+    with tempfile.TemporaryDirectory() as directory:
+        output_directory = Path(directory)
+        subprocess.run(
+            [
+                "node",
+                REPOSITORY_ROOT / "ui/node_modules/typescript/bin/tsc",
+                "--project",
+                REPOSITORY_ROOT / "ui/testing/tsconfig.trainingBook.json",
+                "--outDir",
+                output_directory,
+            ],
+            cwd=REPOSITORY_ROOT / "ui",
+            check=True,
+        )
+        collector = output_directory / "testing/trainingBookFacts.js"
+        facts_path = output_directory / "training-book-ui-facts.json"
+        environment = os.environ.copy()
+        environment["NODE_PATH"] = os.pathsep.join(filter(None, (
+            str(REPOSITORY_ROOT / "ui/node_modules"),
+            environment.get("NODE_PATH"),
+        )))
+        subprocess.run(
+            [
+                "node",
+                "-e",
+                (
+                    "require(process.argv[1]).writeTrainingBookUiFacts("
+                    "process.argv[2], process.argv[3])"
+                ),
+                collector,
+                REPOSITORY_ROOT,
+                facts_path,
+            ],
+            cwd=REPOSITORY_ROOT / "ui",
+            env=environment,
+            check=True,
+        )
+        return load_training_book_ui_facts(facts_path)
 
 BOOK_PAGES = (
     "README.md",
@@ -2081,6 +2129,52 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
                 facts, catalog, (exclusion,), scope="ui-defaults-transitions"
             )
 
+    def test_new_auth_boundary_remains_unowned_until_exactly_classified(self):
+        facts = load_production_training_book_ui_facts()
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        exclusions = load_ui_exclusions(
+            REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
+        )
+        catalog_module.validate_ui_fact_ownership(
+            facts, catalog, exclusions, scope="ui-server-global"
+        )
+        existing = next(
+            fact for fact in facts.global_settings
+            if fact.source_path == "ui/src/utils/api.ts"
+            and fact.symbol == "apiClient.response::status=401"
+            and fact.path == "auth.is_authorized"
+        )
+        existing_identity = catalog_module.UiOwnedSourceFact(
+            fact_type="source-claim",
+            **existing.model_dump(mode="python", exclude_unset=True),
+        ).model_dump_json()
+        self.assertEqual(
+            [
+                exclusion.reason for exclusion in exclusions
+                if exclusion.fact.model_dump_json() == existing_identity
+            ],
+            ["runtime-derived-ui-state"],
+        )
+
+        changed = facts.model_dump(mode="json", exclude_unset=True)
+        added = existing.model_copy(
+            update={"symbol": "apiClient.response::status=403"}
+        )
+        changed["global_settings"].append(
+            added.model_dump(mode="json", exclude_unset=True)
+        )
+        with self.assertRaisesRegex(CatalogError, "unowned UI facts.*1"):
+            catalog_module.validate_ui_fact_ownership(
+                validate_training_book_ui_facts(changed),
+                catalog,
+                exclusions,
+                scope="ui-server-global",
+            )
+
     def test_ui_setting_owner_must_match_visible_catalog_contract(self):
         fact_data = self.valid_facts()
         fact_data["config_claims"][0]["kind"] = "setting"
@@ -2647,8 +2741,8 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         exclusions = load_ui_exclusions(
             REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
         )
-        self.assertEqual(len(catalog.ui_claims), 2213)
-        self.assertEqual(len(exclusions), 53)
+        self.assertEqual(len(catalog.ui_claims), 2285)
+        self.assertEqual(len(exclusions), 109)
         self.assertEqual(
             {exclusion.reason for exclusion in exclusions},
             {
@@ -2727,7 +2821,6 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         client_paths = {
             "browser.localStorage.AI_TOOLKIT_AUTH",
             "http.Authorization",
-            "auth.is_authorized",
         }
         for claim in catalog.ui_claims:
             if claim.fact.fact_type != "source-claim":
@@ -2742,6 +2835,119 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
                     owner_by_identity[claim.fact.model_dump_json()],
                     server_auth.id,
                 )
+
+        exclusions = load_ui_exclusions(
+            REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
+        )
+        auth_state = [
+            exclusion for exclusion in exclusions
+            if exclusion.fact.fact_type == "source-claim"
+            and exclusion.fact.path == "auth.is_authorized"
+        ]
+        self.assertEqual(len(auth_state), 1)
+        self.assertEqual(auth_state[0].reason, "runtime-derived-ui-state")
+        self.assertEqual(
+            (auth_state[0].fact.source_path, auth_state[0].fact.symbol),
+            ("ui/src/utils/api.ts", "apiClient.response::status=401"),
+        )
+        outbound_headers = [
+            exclusion for exclusion in exclusions
+            if exclusion.fact.fact_type == "source-claim"
+            and exclusion.fact.path == "http.Authorization"
+        ]
+        self.assertEqual(len(outbound_headers), 1)
+        self.assertEqual(outbound_headers[0].reason, "server-owned-value")
+        self.assertEqual(
+            (outbound_headers[0].fact.source_path, outbound_headers[0].fact.symbol),
+            (
+                "ui/src/app/api/ostris_cloud/route.ts",
+                "GET::Authorization.bearer",
+            ),
+        )
+
+    def test_job_loss_graph_browser_settings_are_source_derived_and_distinct(self):
+        facts = load_production_training_book_ui_facts()
+        emitted = [
+            fact for fact in facts.global_settings
+            if fact.source_path == "ui/src/components/JobLossGraph.tsx"
+            and fact.path.startswith("browser.localStorage.jobLossGraph.")
+        ]
+        expected = {
+            "useLogScale": ("boolean", False, None),
+            "showTrend": ("boolean", True, None),
+            "smoothing": ("number", 80, (0, 100)),
+            "plotStride": ("number", 1, (1, 20)),
+            "clipOutliers": ("boolean", False, None),
+            "enabled": ("object", {}, None),
+        }
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        for key, (ui_type, default, ui_range) in expected.items():
+            with self.subTest(key=key):
+                setting_id = "ui.job-loss-graph." + re.sub(
+                    r"(?<!^)(?=[A-Z])", "-", key
+                ).lower()
+                setting = settings[setting_id]
+                path = f"browser.localStorage.jobLossGraph.{key}"
+                source_facts = [fact for fact in emitted if fact.path == path]
+                self.assertEqual(
+                    {
+                        (
+                            fact.symbol,
+                            fact.kind,
+                            fact.value_contract.ui_type,
+                        )
+                        for fact in source_facts
+                    },
+                    {
+                        (f"JobLossGraph::hydrate::{key}", "server-state", ui_type),
+                        (f"JobLossGraph::persist::{key}", "server-state", ui_type),
+                    },
+                )
+                self.assertEqual(setting.scope, "ui-state")
+                self.assertEqual(setting.persistence, "browser-storage")
+                self.assertEqual(setting.authority, "user")
+                self.assertEqual(setting.contract.ui_type, ui_type)
+                self.assertTrue(setting.contract.ui_optional)
+                self.assertFalse(setting.contract.ui_nullable)
+                self.assertEqual(setting.contract.null, "rejected")
+                self.assertEqual(
+                    [(location.kind, location.path) for location in setting.locations],
+                    [("ui-state", f"browser.localStorage.jobLossGraph.{key}")],
+                )
+                self.assertEqual(
+                    [(item.kind, item.presence, item.value) for item in setting.defaults],
+                    [("ui-created", "present", default)],
+                )
+                actual_range = setting.contract.ui_range
+                if ui_range is None:
+                    self.assertIsNone(actual_range)
+                else:
+                    self.assertEqual(
+                        (actual_range.minimum, actual_range.maximum), ui_range
+                    )
+                owners = [
+                    claim for claim in catalog.ui_claims
+                    if claim.setting_id == setting_id
+                ]
+                self.assertEqual(
+                    {(claim.fact.symbol, claim.fact.path) for claim in owners},
+                    {
+                        (
+                            f"JobLossGraph::hydrate::{key}",
+                            f"browser.localStorage.jobLossGraph.{key}",
+                        ),
+                        (
+                            f"JobLossGraph::persist::{key}",
+                            f"browser.localStorage.jobLossGraph.{key}",
+                        ),
+                    },
+                )
+        self.assertEqual(len(emitted), 12)
 
 
 class CatalogProductionSliceTests(unittest.TestCase):
