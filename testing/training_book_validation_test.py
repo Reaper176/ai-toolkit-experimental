@@ -2265,7 +2265,7 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
                 scope="ui-server-global",
             )
 
-    def test_production_config_behaviors_are_unowned_and_new_behavior_is_additive(self):
+    def test_new_production_config_behavior_remains_unowned(self):
         facts = load_production_training_book_ui_facts()
         catalog = load_settings_catalog(
             REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
@@ -2280,13 +2280,12 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             if fact.behavior_contract is not None
         ]
         self.assertEqual(len(behaviors), 37)
-        with self.assertRaisesRegex(CatalogError, "unowned UI facts.*37"):
-            catalog_module.validate_ui_fact_ownership(
-                facts,
-                catalog,
-                exclusions,
-                scope="ui-defaults-transitions",
-            )
+        catalog_module.validate_ui_fact_ownership(
+            facts,
+            catalog,
+            exclusions,
+            scope="ui-defaults-transitions",
+        )
 
         logging = next(
             fact for fact in behaviors
@@ -2299,13 +2298,157 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         changed["config_claims"].append(
             added.model_dump(mode="json", exclude_unset=True)
         )
-        with self.assertRaisesRegex(CatalogError, "unowned UI facts.*38"):
+        with self.assertRaisesRegex(CatalogError, "unowned UI facts.*1"):
             catalog_module.validate_ui_fact_ownership(
                 validate_training_book_ui_facts(changed),
                 catalog,
                 exclusions,
                 scope="ui-defaults-transitions",
             )
+
+        changed_existing = facts.model_dump(mode="json", exclude_unset=True)
+        logging_index = next(
+            index for index, fact in enumerate(changed_existing["config_claims"])
+            if fact["symbol"] == "migrateJobConfig::logging::absent::write"
+        )
+        changed_existing["config_claims"][logging_index] = (
+            added.model_dump(mode="json", exclude_unset=True)
+        )
+        with self.assertRaisesRegex(CatalogError, "stale UI owners.*1"):
+            catalog_module.validate_ui_fact_ownership(
+                validate_training_book_ui_facts(changed_existing),
+                catalog,
+                exclusions,
+                scope="ui-defaults-transitions",
+            )
+
+    def test_production_config_behaviors_have_exact_semantic_owners_and_teaching(self):
+        facts = load_production_training_book_ui_facts()
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        exclusions = load_ui_exclusions(
+            REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
+        )
+        behaviors = [
+            fact for fact in facts.config_claims
+            if fact.behavior_contract is not None
+        ]
+        expected_owner_by_path = {
+            "config.process[*].sample.prompts": "sample.samples",
+            "config.process[*].sample.samples": "sample.samples",
+            "config.process[*].type": "process.type",
+            "config.process[*].logging": "process.logging",
+            "config.process[*].device": "process.device",
+            "config.process[*].model.auto_memory": "model.auto_memory",
+            "config.process[*].model.layer_offloading": "model.layer_offloading",
+            "config.process[*].model.layer_offloading_text_encoder_percent": "model.layer_offloading_text_encoder_percent",
+            "config.process[*].model.layer_offloading_transformer_percent": "model.layer_offloading_transformer_percent",
+            "config.process[*].model.low_vram": "model.low_vram",
+            "config.process[*].model.te_name_or_path": "model.te_name_or_path",
+            "config.process[*].model.vae_path": "model.vae_path",
+            "config.process[*].model.arch": "model.arch",
+            "config.process[*].datasets[*].controls": "dataset.controls",
+            "config.process[*].datasets[*].control_path": "dataset.control_path",
+            "config.process[*].datasets[*].control_path_1": "dataset.control_path_1",
+            "config.process[*].datasets[*].control_path_2": "dataset.control_path_2",
+            "config.process[*].datasets[*].control_path_3": "dataset.control_path_3",
+            "config.process[*].datasets[*].num_frames": "dataset.num_frames",
+            "config.process[*].datasets[*].auto_frame_count": "dataset.auto_frame_count",
+            "config.process[*].sample.samples[*].ctrl_img": "sample.item.ctrl_img",
+        }
+        behavior_identities = {
+            catalog_module.UiOwnedSourceFact(
+                fact_type="source-claim",
+                **fact.model_dump(mode="python", exclude_unset=True),
+            ).model_dump_json(): fact
+            for fact in behaviors
+        }
+        owners = {
+            owner.fact.model_dump_json(): owner.setting_id
+            for owner in catalog.ui_claims
+            if owner.fact.model_dump_json() in behavior_identities
+        }
+        self.assertEqual(len(behaviors), 37)
+        self.assertEqual(len(owners), 37)
+        self.assertEqual(
+            {
+                identity: expected_owner_by_path[fact.path]
+                for identity, fact in behavior_identities.items()
+            },
+            owners,
+        )
+        self.assertFalse(
+            set(behavior_identities).intersection(
+                exclusion.fact.model_dump_json() for exclusion in exclusions
+            ),
+            "config behavior facts must be owned, not excluded",
+        )
+        catalog_module.validate_ui_fact_ownership(
+            facts,
+            catalog,
+            exclusions,
+            scope="ui-defaults-transitions",
+        )
+
+        settings = {setting.id: setting for setting in catalog.settings}
+        self.assertEqual(
+            [alias.model_dump(mode="json") for alias in settings["sample.samples"].aliases],
+            [{
+                "location": "config.process[*].sample.prompts",
+                "replacement": "sample.samples",
+                "precedence": "alias-wins",
+                "migration": "Convert each nonempty legacy prompts array in source order to sample objects containing a prompt field, overwrite samples, then delete prompts.",
+                "status": "legacy",
+            }],
+        )
+        self.assertIn(
+            {
+                "location": "config.process[*].model.auto_memory",
+                "replacement": "model.layer_offloading",
+                "precedence": "alias-wins",
+                "migration": "When auto_memory is present, copy its falsey-coerced boolean value to layer_offloading, then delete auto_memory.",
+                "status": "deprecated",
+            },
+            [alias.model_dump(mode="json") for alias in settings["model.layer_offloading"].aliases],
+        )
+        expected_teaching = {
+            "process.type": "The UI migrator rewrites legacy ui_trainer to diffusion_trainer before queueing.",
+            "process.logging": "When logging is absent, the UI migrator writes {log_every: 1, use_ui_logger: true}; an explicitly present value, including null, is retained.",
+            "process.device": "On macOS, the UI migrator forces each process device to mps; this is distinct from the root config.device job setting.",
+            "model.te_name_or_path": "Changing architecture deletes te_name_or_path when the selected architecture does not support model.te_name_or_path.",
+            "model.vae_path": "Changing architecture deletes vae_path when the selected architecture does not support model.vae_path.",
+            "model.low_vram": "Changing architecture writes low_vram=false when the selected architecture does not support model.low_vram.",
+            "model.layer_offloading": "Changing architecture deletes all layer-offloading fields when unsupported; when supported but absent, it writes layer_offloading=false and both percentage fields to 1.",
+            "model.arch": "Changing architecture writes the selected architecture name, reverts current defaults from tuple index 1, then applies selected defaults from tuple index 0.",
+            "dataset.controls": "Changing architecture writes every dataset controls list from the selected architecture controls, falling back to an empty list.",
+            "dataset.control_path": "Architecture changes initialize the active single-control path to null, copy a nonempty multi-control path into it when needed, and delete it for multi-control or no-control architectures.",
+            "dataset.control_path_1": "Architecture changes initialize multi-control path 1 to null, copy a nonempty single-control path into it only when empty, and delete it for single-control or no-control architectures.",
+            "dataset.control_path_2": "Architecture changes initialize multi-control path 2 to null and delete it for single-control or no-control architectures.",
+            "dataset.control_path_3": "Architecture changes initialize multi-control path 3 to null and delete it for single-control or no-control architectures.",
+            "dataset.num_frames": "Changing to an architecture without datasets.num_frames resets every dataset num_frames to 1.",
+            "dataset.auto_frame_count": "Changing to an architecture without datasets.auto_frame_count deletes every dataset auto_frame_count value.",
+            "sample.item.ctrl_img": "Changing to an architecture without sample.ctrl_img deletes ctrl_img from every sample item.",
+        }
+        for setting_id, description in expected_teaching.items():
+            with self.subTest(setting=setting_id):
+                self.assertIn(
+                    description,
+                    [item.description for item in settings[setting_id].normalizations],
+                )
+        process_device = settings["process.device"]
+        self.assertEqual(process_device.authority, "user")
+        self.assertEqual(process_device.persistence, "config")
+        self.assertEqual(
+            [location.path for location in process_device.locations],
+            ["config.process[*].device"],
+        )
+        self.assertNotEqual(
+            process_device.locations[0].path,
+            settings["job.device"].locations[0].path,
+        )
 
     def test_ui_setting_owner_must_match_visible_catalog_contract(self):
         fact_data = self.valid_facts()
@@ -2873,7 +3016,7 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         exclusions = load_ui_exclusions(
             REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
         )
-        self.assertEqual(len(catalog.ui_claims), 2285)
+        self.assertEqual(len(catalog.ui_claims), 2322)
         self.assertEqual(len(exclusions), 109)
         self.assertEqual(
             {exclusion.reason for exclusion in exclusions},

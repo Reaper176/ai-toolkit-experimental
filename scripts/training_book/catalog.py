@@ -1365,6 +1365,18 @@ def _validate_setting_source_contract(
                 f"UI owner {setting.id!r} does not declare emitted path "
                 f"{fact.path!r} or an exact projected target"
             )
+    if fact.behavior_contract is not None:
+        if (
+            fact.kind != "setting"
+            or setting.authority != "user"
+            or setting.persistence != "config"
+            or not any(location.kind == "yaml" for location in setting.locations)
+        ):
+            raise CatalogError(
+                f"behavior owner {setting.id!r} must be a user-authority, "
+                "config-persisted YAML setting"
+            )
+        return
     if fact.kind != "setting":
         return
     if "simple-ui" not in setting.surfaces:

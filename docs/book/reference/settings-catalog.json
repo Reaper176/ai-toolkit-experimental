@@ -538,7 +538,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "The UI migrator rewrites legacy ui_trainer to diffusion_trainer before queueing.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "job-and-model",
@@ -636,6 +641,58 @@
         "benefits": "Allows a job to target a specific available compute device.",
         "drawbacks": "An unavailable or malformed device string prevents the process from running.",
         "example": "device: cpu"
+      }
+    },
+    {
+      "id": "process.device",
+      "ui_label": null,
+      "scope": "process",
+      "locations": [
+        {
+          "kind": "yaml",
+          "path": "config.process[*].device"
+        }
+      ],
+      "surfaces": [
+        "advanced-yaml"
+      ],
+      "persistence": "config",
+      "authority": "user",
+      "lifecycle": "supported",
+      "applicability": [],
+      "contract": {
+        "parser_type": "string",
+        "supported_type": "torch-device",
+        "ui_type": null,
+        "example_type": "string",
+        "accepted_values": null,
+        "range": null,
+        "null": "rejected"
+      },
+      "defaults": [
+        {
+          "kind": "engine-fallback",
+          "presence": "absent",
+          "applicability": []
+        }
+      ],
+      "normalizations": [
+        {
+          "description": "On macOS, the UI migrator forces each process device to mps; this is distinct from the root config.device job setting.",
+          "applicability": []
+        }
+      ],
+      "interactions": [],
+      "aliases": [],
+      "section": "job-and-model",
+      "source_claims": [],
+      "render": {
+        "page": "reference/job-and-model.md",
+        "anchor": "process-device",
+        "description": "Selects the device assigned to an individual process entry.",
+        "benefits": "Allows process-level device selection independently of the root job device.",
+        "drawbacks": "The UI forces mps on macOS, and unavailable device strings prevent the process from running.",
+        "example": "device: mps"
       }
     },
     {
@@ -1472,6 +1529,10 @@
       "normalizations": [
         {
           "description": "BaseProcess.get_conf treats explicit null like omission and applies the engine fallback empty object.",
+          "applicability": []
+        },
+        {
+          "description": "When logging is absent, the UI migrator writes {log_every: 1, use_ui_logger: true}; an explicitly present value, including null, is retained.",
           "applicability": []
         }
       ],
@@ -7623,6 +7684,10 @@
         {
           "description": "Legacy prompts strings are converted in order to sample objects containing a prompt field.",
           "applicability": []
+        },
+        {
+          "description": "Legacy prompts migration overwrites samples only for a nonempty prompts array, preserves source order, and deletes prompts after the write.",
+          "applicability": []
         }
       ],
       "interactions": [],
@@ -7630,8 +7695,8 @@
         {
           "location": "config.process[*].sample.prompts",
           "replacement": "sample.samples",
-          "precedence": "replacement-wins",
-          "migration": "Convert each prompt string to a samples list item with a prompt key; samples is used when both forms are supplied.",
+          "precedence": "alias-wins",
+          "migration": "Convert each nonempty legacy prompts array in source order to sample objects containing a prompt field, overwrite samples, then delete prompts.",
           "status": "legacy"
         }
       ],
@@ -7761,7 +7826,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Changing to an architecture without sample.ctrl_img deletes ctrl_img from every sample item.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "saving-and-sampling",
@@ -40083,7 +40153,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Architecture changes initialize the active single-control path to null, copy a nonempty multi-control path into it when needed, and delete it for multi-control or no-control architectures.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "dataset",
@@ -40150,6 +40225,10 @@
       "normalizations": [
         {
           "description": "When any numbered control path is truthy, the nonempty numbered paths replace control_path as an ordered list.",
+          "applicability": []
+        },
+        {
+          "description": "Architecture changes initialize multi-control path 1 to null, copy a nonempty single-control path into it only when empty, and delete it for single-control or no-control architectures.",
           "applicability": []
         }
       ],
@@ -40220,6 +40299,10 @@
         {
           "description": "When any numbered control path is truthy, the nonempty numbered paths replace control_path as an ordered list.",
           "applicability": []
+        },
+        {
+          "description": "Architecture changes initialize multi-control path 2 to null and delete it for single-control or no-control architectures.",
+          "applicability": []
         }
       ],
       "interactions": [],
@@ -40288,6 +40371,10 @@
       "normalizations": [
         {
           "description": "When any numbered control path is truthy, the nonempty numbered paths replace control_path as an ordered list.",
+          "applicability": []
+        },
+        {
+          "description": "Architecture changes initialize multi-control path 3 to null and delete it for single-control or no-control architectures.",
           "applicability": []
         }
       ],
@@ -41013,7 +41100,12 @@
           }
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Changing to an architecture without datasets.num_frames resets every dataset num_frames to 1.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "dataset",
@@ -41586,6 +41678,10 @@
         {
           "description": "FileItemDTO computes the effective frame count from source duration before bucket construction, and the resulting value is included in the video bucket key.",
           "applicability": []
+        },
+        {
+          "description": "Changing to an architecture without datasets.auto_frame_count deletes every dataset auto_frame_count value.",
+          "applicability": []
         }
       ],
       "interactions": [],
@@ -41918,7 +42014,12 @@
           "value": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Changing architecture writes every dataset controls list from the selected architecture controls, falling back to an empty list.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "dataset",
@@ -43204,9 +43305,98 @@
         {
           "description": "When arch is absent, legacy is_* flags select an architecture in source order; if none is true, the fallback is sd1.",
           "applicability": []
+        },
+        {
+          "description": "Changing architecture writes the selected architecture name, reverts current defaults from tuple index 1, then applies selected defaults from tuple index 0.",
+          "applicability": []
         }
       ],
-      "interactions": [],
+      "interactions": [
+        {
+          "setting": "model.te_name_or_path",
+          "kind": "affects",
+          "description": "Changing model.arch applies the cataloged UI migration behavior for model.te_name_or_path.",
+          "applicability": []
+        },
+        {
+          "setting": "model.vae_path",
+          "kind": "affects",
+          "description": "Changing model.arch applies the cataloged UI migration behavior for model.vae_path.",
+          "applicability": []
+        },
+        {
+          "setting": "model.low_vram",
+          "kind": "affects",
+          "description": "Changing model.arch applies the cataloged UI migration behavior for model.low_vram.",
+          "applicability": []
+        },
+        {
+          "setting": "model.layer_offloading",
+          "kind": "affects",
+          "description": "Changing model.arch applies the cataloged UI migration behavior for model.layer_offloading.",
+          "applicability": []
+        },
+        {
+          "setting": "model.layer_offloading_text_encoder_percent",
+          "kind": "affects",
+          "description": "Changing model.arch applies the cataloged UI migration behavior for model.layer_offloading_text_encoder_percent.",
+          "applicability": []
+        },
+        {
+          "setting": "model.layer_offloading_transformer_percent",
+          "kind": "affects",
+          "description": "Changing model.arch applies the cataloged UI migration behavior for model.layer_offloading_transformer_percent.",
+          "applicability": []
+        },
+        {
+          "setting": "dataset.controls",
+          "kind": "affects",
+          "description": "Changing model.arch applies the cataloged UI migration behavior for dataset.controls.",
+          "applicability": []
+        },
+        {
+          "setting": "dataset.control_path",
+          "kind": "affects",
+          "description": "Changing model.arch applies the cataloged UI migration behavior for dataset.control_path.",
+          "applicability": []
+        },
+        {
+          "setting": "dataset.control_path_1",
+          "kind": "affects",
+          "description": "Changing model.arch applies the cataloged UI migration behavior for dataset.control_path_1.",
+          "applicability": []
+        },
+        {
+          "setting": "dataset.control_path_2",
+          "kind": "affects",
+          "description": "Changing model.arch applies the cataloged UI migration behavior for dataset.control_path_2.",
+          "applicability": []
+        },
+        {
+          "setting": "dataset.control_path_3",
+          "kind": "affects",
+          "description": "Changing model.arch applies the cataloged UI migration behavior for dataset.control_path_3.",
+          "applicability": []
+        },
+        {
+          "setting": "dataset.num_frames",
+          "kind": "affects",
+          "description": "Changing model.arch applies the cataloged UI migration behavior for dataset.num_frames.",
+          "applicability": []
+        },
+        {
+          "setting": "dataset.auto_frame_count",
+          "kind": "affects",
+          "description": "Changing model.arch applies the cataloged UI migration behavior for dataset.auto_frame_count.",
+          "applicability": []
+        },
+        {
+          "setting": "sample.item.ctrl_img",
+          "kind": "affects",
+          "description": "Changing model.arch applies the cataloged UI migration behavior for sample.item.ctrl_img.",
+          "applicability": []
+        }
+      ],
       "aliases": [],
       "section": "model",
       "source_claims": [
@@ -43490,6 +43680,10 @@
         },
         {
           "description": "auto_memory is deprecated; use layer_offloading instead.",
+          "applicability": []
+        },
+        {
+          "description": "When present, the UI migrator copies auto_memory with a false fallback to model.layer_offloading and deletes auto_memory after the write.",
           "applicability": []
         }
       ],
@@ -45269,6 +45463,10 @@
         {
           "description": "When layer offloading is truthy, qfloat8 model and text-encoder qtypes normalize to float8.",
           "applicability": []
+        },
+        {
+          "description": "Changing architecture deletes all layer-offloading fields when unsupported; when supported but absent, it writes layer_offloading=false and both percentage fields to 1.",
+          "applicability": []
         }
       ],
       "interactions": [
@@ -45285,7 +45483,15 @@
           "applicability": []
         }
       ],
-      "aliases": [],
+      "aliases": [
+        {
+          "location": "config.process[*].model.auto_memory",
+          "replacement": "model.layer_offloading",
+          "precedence": "alias-wins",
+          "migration": "When auto_memory is present, copy its falsey-coerced boolean value to layer_offloading, then delete auto_memory.",
+          "status": "deprecated"
+        }
+      ],
       "section": "model",
       "source_claims": [
         {
@@ -45357,7 +45563,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Changing architecture deletes layer_offloading_text_encoder_percent when layer offloading is unsupported and initializes it to 1 when layer offloading is supported but absent.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "model",
@@ -45431,7 +45642,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Changing architecture deletes layer_offloading_transformer_percent when layer offloading is unsupported and initializes it to 1 when layer offloading is supported but absent.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "model",
@@ -46265,6 +46481,10 @@
       "normalizations": [
         {
           "description": "kwargs.get preserves explicit null; boolean consumers treat it as falsey rather than restoring the omission fallback.",
+          "applicability": []
+        },
+        {
+          "description": "Changing architecture writes low_vram=false when the selected architecture does not support model.low_vram.",
           "applicability": []
         }
       ],
@@ -51116,7 +51336,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Changing architecture deletes te_name_or_path when the selected architecture does not support model.te_name_or_path.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "model",
@@ -51783,7 +52008,12 @@
           "applicability": []
         }
       ],
-      "normalizations": [],
+      "normalizations": [
+        {
+          "description": "Changing architecture deletes vae_path when the selected architecture does not support model.vae_path.",
+          "applicability": []
+        }
+      ],
       "interactions": [],
       "aliases": [],
       "section": "model",
@@ -120750,6 +120980,1155 @@
           "nullable": true
         },
         "fact_type": "source-claim"
+      }
+    },
+    {
+      "setting_id": "model.auto_memory",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/jobConfig.ts",
+        "symbol": "migrateJobConfig::auto_memory::after-write::delete",
+        "path": "config.process[*].model.auto_memory",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "property-present",
+          "operation": "delete",
+          "sources": [
+            "config.process[*].model.auto_memory",
+            "config.process[*].model.layer_offloading"
+          ],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "model.layer_offloading",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/jobConfig.ts",
+        "symbol": "migrateJobConfig::auto_memory::present::write",
+        "path": "config.process[*].model.layer_offloading",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "property-present",
+          "operation": "write",
+          "sources": [
+            "config.process[*].model.auto_memory"
+          ],
+          "payload": {
+            "kind": "copy",
+            "source_path": "config.process[*].model.auto_memory",
+            "fallback": {
+              "kind": "boolean",
+              "value": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "process.device",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/jobConfig.ts",
+        "symbol": "migrateJobConfig::device::mac::write",
+        "path": "config.process[*].device",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "mps"
+            }
+          ]
+        },
+        "behavior_contract": {
+          "guard": "platform-mac",
+          "operation": "write",
+          "sources": [],
+          "payload": {
+            "kind": "literal",
+            "value": {
+              "kind": "string",
+              "value": "mps"
+            }
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "process.logging",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/jobConfig.ts",
+        "symbol": "migrateJobConfig::logging::absent::write",
+        "path": "config.process[*].logging",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "object",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "property-absent",
+          "operation": "write",
+          "sources": [],
+          "payload": {
+            "kind": "literal",
+            "value": {
+              "kind": "object",
+              "entries": [
+                {
+                  "key": "log_every",
+                  "value": {
+                    "kind": "number",
+                    "value": 1
+                  }
+                },
+                {
+                  "key": "use_ui_logger",
+                  "value": {
+                    "kind": "boolean",
+                    "value": true
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "sample.samples",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/jobConfig.ts",
+        "symbol": "migrateJobConfig::prompts-to-samples::after-write::delete",
+        "path": "config.process[*].sample.prompts",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string-list",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "after-prompts-write",
+          "operation": "delete",
+          "sources": [
+            "config.process[*].sample.prompts",
+            "config.process[*].sample.samples"
+          ],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "sample.samples",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/jobConfig.ts",
+        "symbol": "migrateJobConfig::prompts-to-samples::nonempty-array::write",
+        "path": "config.process[*].sample.samples",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "object-list",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "prompts-nonempty-array",
+          "operation": "write",
+          "sources": [
+            "config.process[*].sample.prompts"
+          ],
+          "payload": {
+            "kind": "map-prompt-objects",
+            "source_path": "config.process[*].sample.prompts",
+            "item_key": "prompt"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "process.type",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/jobConfig.ts",
+        "symbol": "migrateJobConfig::type::ui_trainer::write",
+        "path": "config.process[*].type",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "diffusion_trainer"
+            }
+          ]
+        },
+        "behavior_contract": {
+          "guard": "type-is-ui-trainer",
+          "operation": "write",
+          "sources": [
+            "config.process[*].type"
+          ],
+          "payload": {
+            "kind": "literal",
+            "value": {
+              "kind": "string",
+              "value": "diffusion_trainer"
+            }
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "model.te_name_or_path",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::anima-paths::te_name_or_path::delete",
+        "path": "config.process[*].model.te_name_or_path",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "cleaned-model-changed",
+          "operation": "delete",
+          "sources": [
+            "config.process[*].model.te_name_or_path"
+          ],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "model.vae_path",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::anima-paths::vae_path::delete",
+        "path": "config.process[*].model.vae_path",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "cleaned-model-changed",
+          "operation": "delete",
+          "sources": [
+            "config.process[*].model.vae_path"
+          ],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "model.arch",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::architecture::change::write",
+        "path": "config.process[*].model.arch",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "architecture-change",
+          "operation": "write",
+          "sources": [],
+          "payload": {
+            "kind": "architecture-name"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.auto_frame_count",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::auto_frame_count::section-unsupported::delete",
+        "path": "config.process[*].datasets[*].auto_frame_count",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "auto-frame-count-unsupported",
+          "operation": "delete",
+          "sources": [],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.controls",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::controls::write",
+        "path": "config.process[*].datasets[*].controls",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string-list",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "architecture-change",
+          "operation": "write",
+          "sources": [],
+          "payload": {
+            "kind": "architecture-field",
+            "field": "controls"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.control_path_1",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::multi-control::control_path-to-control_path_1::copy",
+        "path": "config.process[*].datasets[*].control_path_1",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "source-nonempty-target-empty",
+          "operation": "write",
+          "sources": [
+            "config.process[*].datasets[*].control_path",
+            "config.process[*].datasets[*].control_path_1"
+          ],
+          "payload": {
+            "kind": "copy",
+            "source_path": "config.process[*].datasets[*].control_path"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.control_path",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::multi-control::control_path::delete",
+        "path": "config.process[*].datasets[*].control_path",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "multi-control",
+          "operation": "delete",
+          "sources": [
+            "config.process[*].datasets[*].control_path"
+          ],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.control_path_1",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::multi-control::control_path_1::initialize",
+        "path": "config.process[*].datasets[*].control_path_1",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "multi-control",
+          "operation": "write",
+          "sources": [
+            "config.process[*].datasets[*].control_path_1"
+          ],
+          "payload": {
+            "kind": "copy",
+            "source_path": "config.process[*].datasets[*].control_path_1",
+            "fallback": {
+              "kind": "null"
+            }
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.control_path_2",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::multi-control::control_path_2::initialize",
+        "path": "config.process[*].datasets[*].control_path_2",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "multi-control",
+          "operation": "write",
+          "sources": [
+            "config.process[*].datasets[*].control_path_2"
+          ],
+          "payload": {
+            "kind": "copy",
+            "source_path": "config.process[*].datasets[*].control_path_2",
+            "fallback": {
+              "kind": "null"
+            }
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.control_path_3",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::multi-control::control_path_3::initialize",
+        "path": "config.process[*].datasets[*].control_path_3",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "multi-control",
+          "operation": "write",
+          "sources": [
+            "config.process[*].datasets[*].control_path_3"
+          ],
+          "payload": {
+            "kind": "copy",
+            "source_path": "config.process[*].datasets[*].control_path_3",
+            "fallback": {
+              "kind": "null"
+            }
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.control_path",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::no-control::control_path::delete",
+        "path": "config.process[*].datasets[*].control_path",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "no-control",
+          "operation": "delete",
+          "sources": [
+            "config.process[*].datasets[*].control_path"
+          ],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.control_path_1",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::no-control::control_path_1::delete",
+        "path": "config.process[*].datasets[*].control_path_1",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "no-control",
+          "operation": "delete",
+          "sources": [
+            "config.process[*].datasets[*].control_path_1"
+          ],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.control_path_2",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::no-control::control_path_2::delete",
+        "path": "config.process[*].datasets[*].control_path_2",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "no-control",
+          "operation": "delete",
+          "sources": [
+            "config.process[*].datasets[*].control_path_2"
+          ],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.control_path_3",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::no-control::control_path_3::delete",
+        "path": "config.process[*].datasets[*].control_path_3",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "no-control",
+          "operation": "delete",
+          "sources": [
+            "config.process[*].datasets[*].control_path_3"
+          ],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.num_frames",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::num_frames::section-unsupported::write",
+        "path": "config.process[*].datasets[*].num_frames",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "frame-count-unsupported",
+          "operation": "write",
+          "sources": [],
+          "payload": {
+            "kind": "literal",
+            "value": {
+              "kind": "number",
+              "value": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.control_path",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::single-control::control_path::initialize",
+        "path": "config.process[*].datasets[*].control_path",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "single-control",
+          "operation": "write",
+          "sources": [
+            "config.process[*].datasets[*].control_path"
+          ],
+          "payload": {
+            "kind": "copy",
+            "source_path": "config.process[*].datasets[*].control_path",
+            "fallback": {
+              "kind": "null"
+            }
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.control_path",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::single-control::control_path_1-to-control_path::copy",
+        "path": "config.process[*].datasets[*].control_path",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "source-nonempty",
+          "operation": "write",
+          "sources": [
+            "config.process[*].datasets[*].control_path_1"
+          ],
+          "payload": {
+            "kind": "copy",
+            "source_path": "config.process[*].datasets[*].control_path_1"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.control_path_1",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::single-control::control_path_1::delete",
+        "path": "config.process[*].datasets[*].control_path_1",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "single-control",
+          "operation": "delete",
+          "sources": [
+            "config.process[*].datasets[*].control_path_1"
+          ],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.control_path_2",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::single-control::control_path_2::delete",
+        "path": "config.process[*].datasets[*].control_path_2",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "single-control",
+          "operation": "delete",
+          "sources": [
+            "config.process[*].datasets[*].control_path_2"
+          ],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "dataset.control_path_3",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::datasets::single-control::control_path_3::delete",
+        "path": "config.process[*].datasets[*].control_path_3",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "single-control",
+          "operation": "delete",
+          "sources": [
+            "config.process[*].datasets[*].control_path_3"
+          ],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "model.arch",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::defaults::current::revert",
+        "path": "config.process[*].model.arch",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "revert-current-defaults",
+          "operation": "write",
+          "sources": [
+            "config.process[*].model.arch"
+          ],
+          "payload": {
+            "kind": "architecture-default",
+            "phase": "revert",
+            "value_index": 1
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "model.arch",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::defaults::next::apply",
+        "path": "config.process[*].model.arch",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "apply-next-defaults",
+          "operation": "write",
+          "sources": [
+            "config.process[*].model.arch"
+          ],
+          "payload": {
+            "kind": "architecture-default",
+            "phase": "apply",
+            "value_index": 0
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "model.layer_offloading",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::layer-offloading::section-unsupported::layer_offloading::delete",
+        "path": "config.process[*].model.layer_offloading",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "section-unsupported",
+          "operation": "delete",
+          "sources": [
+            "config.process[*].model.layer_offloading"
+          ],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "model.layer_offloading_text_encoder_percent",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::layer-offloading::section-unsupported::layer_offloading_text_encoder_percent::delete",
+        "path": "config.process[*].model.layer_offloading_text_encoder_percent",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "section-unsupported",
+          "operation": "delete",
+          "sources": [
+            "config.process[*].model.layer_offloading"
+          ],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "model.layer_offloading_transformer_percent",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::layer-offloading::section-unsupported::layer_offloading_transformer_percent::delete",
+        "path": "config.process[*].model.layer_offloading_transformer_percent",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "section-unsupported",
+          "operation": "delete",
+          "sources": [
+            "config.process[*].model.layer_offloading"
+          ],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "model.layer_offloading",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::layer-offloading::supported-absent::layer_offloading::write",
+        "path": "config.process[*].model.layer_offloading",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "section-supported-property-absent",
+          "operation": "write",
+          "sources": [
+            "config.process[*].model.layer_offloading"
+          ],
+          "payload": {
+            "kind": "literal",
+            "value": {
+              "kind": "boolean",
+              "value": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "model.layer_offloading_text_encoder_percent",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::layer-offloading::supported-absent::layer_offloading_text_encoder_percent::write",
+        "path": "config.process[*].model.layer_offloading_text_encoder_percent",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "section-supported-property-absent",
+          "operation": "write",
+          "sources": [
+            "config.process[*].model.layer_offloading"
+          ],
+          "payload": {
+            "kind": "literal",
+            "value": {
+              "kind": "number",
+              "value": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "model.layer_offloading_transformer_percent",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::layer-offloading::supported-absent::layer_offloading_transformer_percent::write",
+        "path": "config.process[*].model.layer_offloading_transformer_percent",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "section-supported-property-absent",
+          "operation": "write",
+          "sources": [
+            "config.process[*].model.layer_offloading"
+          ],
+          "payload": {
+            "kind": "literal",
+            "value": {
+              "kind": "number",
+              "value": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "model.low_vram",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::low_vram::section-unsupported::write",
+        "path": "config.process[*].model.low_vram",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "section-unsupported",
+          "operation": "write",
+          "sources": [],
+          "payload": {
+            "kind": "literal",
+            "value": {
+              "kind": "boolean",
+              "value": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "setting_id": "sample.item.ctrl_img",
+      "fact": {
+        "fact_type": "source-claim",
+        "source_path": "ui/src/app/jobs/new/utils.ts",
+        "symbol": "handleModelArchChange::samples::ctrl_img::section-unsupported::delete",
+        "path": "config.process[*].sample.samples[*].ctrl_img",
+        "kind": "setting",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "path",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "behavior_contract": {
+          "guard": "sample-control-unsupported",
+          "operation": "delete",
+          "sources": [],
+          "payload": {
+            "kind": "undefined"
+          }
+        }
       }
     }
   ]
