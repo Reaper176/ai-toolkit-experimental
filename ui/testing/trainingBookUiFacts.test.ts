@@ -2794,6 +2794,98 @@ if (liveRoot !== undefined) {
     { destructureDefaultFailures: [], destructureDefaultPositiveFailures: [] },
     'destructuring defaults distinguish undefined, present, and ambiguous source values',
   );
+  const projectedMemberTimelineFailures = [
+    ['direct member update before fallback projection', summaryMigrateSource.replace('  return jobConfig;', "  const fallback = { targets: [otherConfig] };\n  fallback.targets = [jobConfig];\n  const { holder: { targets } = fallback } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['helper member update before fallback projection', summaryMigrateSource.replace('  return jobConfig;', "  const fallback = { targets: [otherConfig] };\n  function install() { fallback.targets = [jobConfig]; }\n  install();\n  const { holder: { targets } = fallback } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['Object.assign before fallback projection', summaryMigrateSource.replace('  return jobConfig;', "  const fallback = { targets: [otherConfig] };\n  Object.assign(fallback, { targets: [jobConfig] });\n  const { holder: { targets } = fallback } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['Reflect.set before fallback projection', summaryMigrateSource.replace('  return jobConfig;', "  const fallback = { targets: [otherConfig] };\n  Reflect.set(fallback, 'targets', [jobConfig]);\n  const { holder: { targets } = fallback } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['aliased Object.assign before fallback projection', summaryMigrateSource.replace('  return jobConfig;', "  const fallback = { targets: [otherConfig] };\n  const assign = Object.assign;\n  assign(fallback, { targets: [jobConfig] });\n  const { holder: { targets } = fallback } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['destructured Reflect.set before fallback projection', summaryMigrateSource.replace('  return jobConfig;', "  const fallback = { targets: [otherConfig] };\n  const { set } = Reflect;\n  set(fallback, 'targets', [jobConfig]);\n  const { holder: { targets } = fallback } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['cyclic member update before fallback projection', summaryMigrateSource.replace('  return jobConfig;', "  const fallback: any = { targets: [otherConfig] };\n  fallback.targets = [jobConfig, fallback.targets];\n  const { holder: { targets } = fallback } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['prompt member update before fallback projection', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    const fallback = { targets: [otherSamples] };\n    fallback.targets = [newSamples];\n    const { holder: { targets } = fallback } = {};\n    targets[runtimeIndex].reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  for (const [label, insertion] of [
+    ['setter member update before fallback projection', "  const fallback = { setters: [otherSetter] };\n  Object.assign(fallback, { setters: [setJobConfig] });\n  const { holder: { setters } = fallback } = {};\n  setters[runtimeIndex](99, 'config.process[0].train.steps');\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', `${insertion}\n  // update samples`),
+      summaryAnimaSource,
+    ));
+    if (failure !== undefined) projectedMemberTimelineFailures.push(failure);
+  }
+  for (const [label, insertion] of [
+    ['model member update before fallback projection', "  const fallback = { targets: [otherModel] };\n  Reflect.set(fallback, 'targets', [cleaned]);\n  const { holder: { targets } = fallback } = {};\n  delete targets[runtimeIndex].other_path;\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', `${insertion}  return cleaned;`),
+    ));
+    if (failure !== undefined) projectedMemberTimelineFailures.push(failure);
+  }
+  const nestedAssignmentDefaultFailures = [
+    ['nested assignment absent config', summaryMigrateSource.replace('  return jobConfig;', "  let targets = [otherConfig];\n  ({ holder: { targets } = { targets: [jobConfig] } } = {});\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['nested assignment undefined config', summaryMigrateSource.replace('  return jobConfig;', "  let targets = [otherConfig];\n  ({ holder: { targets } = { targets: [jobConfig] } } = { holder: undefined });\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['nested assignment maybe config', summaryMigrateSource.replace('  return jobConfig;', "  let targets = [otherConfig];\n  ({ holder: { targets } = { targets: [jobConfig] } } = runtimeHolder);\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['nested assignment absent prompt', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    let targets = [otherSamples];\n    ({ holder: { targets } = { targets: [newSamples] } } = {});\n    targets[runtimeIndex].reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  for (const [label, insertion] of [
+    ['nested assignment absent setter', "  let setters = [otherSetter];\n  ({ holder: { setters } = { setters: [setJobConfig] } } = {});\n  setters[runtimeIndex](99, 'config.process[0].train.steps');\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', `${insertion}\n  // update samples`),
+      summaryAnimaSource,
+    ));
+    if (failure !== undefined) nestedAssignmentDefaultFailures.push(failure);
+  }
+  for (const [label, insertion] of [
+    ['nested assignment absent model', "  let targets = [otherModel];\n  ({ holder: { targets } = { targets: [cleaned] } } = {});\n  delete targets[runtimeIndex].other_path;\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', `${insertion}  return cleaned;`),
+    ));
+    if (failure !== undefined) nestedAssignmentDefaultFailures.push(failure);
+  }
+  const projectedDefaultPositiveFailures = [
+    ['member update after fallback projection', "  const fallback = { targets: [otherConfig] };\n  const { holder: { targets } = fallback } = {};\n  fallback.targets = [jobConfig];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['member update overwritten before fallback projection', "  const fallback = { targets: [jobConfig] };\n  fallback.targets = [otherConfig];\n  const { holder: { targets } = fallback } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['unused relevant fallback with present source', "  const fallback = { targets: [jobConfig] };\n  const { holder: { targets } = fallback } = { holder: { targets: [otherConfig] } };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['nested assignment present source skips fallback', "  let targets = [jobConfig];\n  ({ holder: { targets } = { targets: [jobConfig] } } = { holder: { targets: [otherConfig] } });\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['shadowed Object.assign does not update fallback', "  const fallback = { targets: [otherConfig] };\n  const Object = { assign() {} };\n  Object.assign(fallback, { targets: [jobConfig] });\n  const { holder: { targets } = fallback } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['rebound Object.assign alias does not update fallback', "  const fallback = { targets: [otherConfig] };\n  let assign = Object.assign;\n  assign = otherAssign;\n  assign(fallback, { targets: [jobConfig] });\n  const { holder: { targets } = fallback } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
+  ].flatMap(([label, replacement]) => {
+    try { assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts); return []; }
+    catch { return [label]; }
+  });
+  try {
+    assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace(
+      '    jobConfig.config.process[0].sample.samples = newSamples;',
+      "    const fallback = { targets: [newSamples] };\n    let targets = [newSamples];\n    ({ holder: { targets } = fallback } = { holder: { targets: [otherSamples] } });\n    targets[runtimeIndex].reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;",
+    )), summaryMigrateFacts);
+  } catch { projectedDefaultPositiveFailures.push('nested assignment present prompt skips fallback'); }
+  try {
+    assert.deepEqual(collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace(
+        '  // update samples',
+        "  const fallback = { setters: [setJobConfig] };\n  let setters = [setJobConfig];\n  ({ holder: { setters } = fallback } = { holder: { setters: [otherSetter] } });\n  setters[runtimeIndex](99, 'config.process[0].train.steps');\n\n  // update samples",
+      ),
+      summaryAnimaSource,
+    ), summaryArchFacts);
+  } catch { projectedDefaultPositiveFailures.push('nested assignment present setter skips fallback'); }
+  try {
+    assert.deepEqual(collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace(
+        '  return cleaned;',
+        "  const fallback = { targets: [cleaned] };\n  let targets = [cleaned];\n  ({ holder: { targets } = fallback } = { holder: { targets: [otherModel] } });\n  delete targets[runtimeIndex].other_path;\n  return cleaned;",
+      ),
+    ), summaryArchFacts);
+  } catch { projectedDefaultPositiveFailures.push('nested assignment present model skips fallback'); }
+  assert.deepEqual(
+    { projectedMemberTimelineFailures, nestedAssignmentDefaultFailures, projectedDefaultPositiveFailures },
+    { projectedMemberTimelineFailures: [], nestedAssignmentDefaultFailures: [], projectedDefaultPositiveFailures: [] },
+    'nested projections honor member timelines and assignment default selection',
+  );
   assert.equal(summaryArchFacts.length, 30);
   assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));

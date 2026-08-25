@@ -416,6 +416,7 @@ type ProjectedAliasCandidate = {
   kind: 'projection';
   source: AliasCandidate;
   key: string | number;
+  at: ts.Node;
 };
 type AliasCandidate = ts.Expression | 'absent' | 'tainted' | DefaultAliasCandidate | ProjectedAliasCandidate;
 
@@ -537,6 +538,7 @@ class LexicalBindings {
   }>>();
   private readonly memberProjections = new WeakMap<ts.Expression, Map<string, ts.ElementAccessExpression>>();
   private readonly projectedMembers = new WeakSet<ts.Expression>();
+  private readonly activeMemberApiResolution = new Set<ts.CallExpression>();
   private activeMemberTimelineBuildDepth = 0;
 
   constructor(private readonly source: ts.SourceFile) {}
@@ -696,6 +698,9 @@ class LexicalBindings {
       scope: ts.Node,
     ): void => {
       const record = (target: ts.Expression, initializer: ts.Expression | undefined, invalid: boolean): void => {
+        for (let current: ts.Node | undefined = at; current !== undefined && current !== node; current = current.parent) {
+          if (current === target) return;
+        }
         const member = staticMember(target);
         if (member === undefined || member.key !== key || root(member.base, substitutions) !== expectedRoot) return;
         const branch = branchAt(node, scope);
@@ -713,6 +718,110 @@ class LexicalBindings {
       if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) record(node.left, node.operatorToken.kind === ts.SyntaxKind.EqualsToken ? node.right : undefined, node.operatorToken.kind !== ts.SyntaxKind.EqualsToken);
       else if (ts.isDeleteExpression(node)) record(node.expression, undefined, true);
       else if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)) record(node.operand, undefined, true);
+      else if (ts.isCallExpression(node)) {
+        const directMember = staticMember(node.expression);
+        const directReceiver = directMember === undefined ? undefined : unwrap(directMember.base);
+        const directApi: MutationApiIdentity | undefined = directMember !== undefined
+          && directReceiver !== undefined
+          && ts.isIdentifier(directReceiver)
+          && (directReceiver.text === 'Object' || directReceiver.text === 'Reflect')
+          ? { receiver: directReceiver.text, method: directMember.key, exactGlobal: !this.lookup(directReceiver).found }
+          : undefined;
+        let invocation: NormalizedInvocation;
+        let api: MutationApiIdentity | undefined;
+        if (directApi?.exactGlobal === true && !node.arguments.some(ts.isSpreadElement)) {
+          invocation = { target: node.expression, arguments: node.arguments };
+          api = directApi;
+        } else {
+          const mutationMethods = new Set(['assign', 'defineProperty', 'defineProperties', 'set', 'deleteProperty']);
+          const candidateMayResolveToApi = (candidate: AliasCandidate, seen = new Set<ts.Identifier>()): boolean => {
+            if (typeof candidate === 'string') return false;
+            if (isDefaultAliasCandidate(candidate)) return candidateMayResolveToApi(candidate.source, seen)
+              || candidateMayResolveToApi(candidate.fallback, seen);
+            if (isProjectedAliasCandidate(candidate)) return mutationMethods.has(String(candidate.key))
+              && candidateMayResolveToGlobal(candidate.source, seen);
+            return expressionMayResolveToApi(candidate, seen);
+          };
+          const candidateMayResolveToGlobal = (candidate: AliasCandidate, seen: Set<ts.Identifier>): boolean => {
+            if (typeof candidate === 'string') return false;
+            if (isDefaultAliasCandidate(candidate)) return candidateMayResolveToGlobal(candidate.source, seen)
+              || candidateMayResolveToGlobal(candidate.fallback, seen);
+            if (isProjectedAliasCandidate(candidate)) return false;
+            const expression = unwrap(candidate);
+            if (ts.isIdentifier(expression) && (expression.text === 'Object' || expression.text === 'Reflect')) return !this.lookup(expression).found;
+            return false;
+          };
+          const expressionMayResolveToApi = (expression: ts.Expression, seen = new Set<ts.Identifier>()): boolean => {
+            expression = unwrap(expression);
+            const member = staticMember(expression);
+            if (member !== undefined) {
+              const receiver = unwrap(member.base);
+              return mutationMethods.has(member.key)
+                && ts.isIdentifier(receiver)
+                && (receiver.text === 'Object' || receiver.text === 'Reflect')
+                && !this.lookup(receiver).found;
+            }
+            if (!ts.isIdentifier(expression) || seen.has(expression)) return false;
+            const declaration = this.bindingDeclaration(expression);
+            if (declaration === undefined || seen.has(declaration)) return false;
+            const lookup = this.provenanceCandidates(expression);
+            return lookup.found && lookup.candidates.some(candidate => candidateMayResolveToApi(candidate, new Set(seen).add(declaration)));
+          };
+          if (!expressionMayResolveToApi(node.expression) || this.activeMemberApiResolution.has(node)) return;
+          this.activeMemberApiResolution.add(node);
+          try {
+            invocation = normalizeInvocation(node, this, substitutions);
+            api = resolveMutationApiIdentity(invocation.target, this, substitutions);
+          } finally {
+            this.activeMemberApiResolution.delete(node);
+          }
+        }
+        if (api?.exactGlobal !== true || invocation.arguments === undefined || invocation.arguments[0] === undefined) return;
+        const args = invocation.arguments;
+        const recordKey = (memberKey: string | undefined, initializer: ts.Expression | undefined, invalid = false): void => {
+          if (memberKey !== key) return;
+          record(this.stableMemberProjection(args[0], key), initializer, invalid);
+        };
+        if (api.method === 'assign') {
+          for (const sourceExpression of args.slice(1)) {
+            const source = unwrap(sourceExpression);
+            if (!ts.isObjectLiteralExpression(source)) {
+              recordKey(key, undefined, true);
+              continue;
+            }
+            for (const property of source.properties) {
+              if (ts.isSpreadAssignment(property)) recordKey(key, undefined, true);
+              else if (propertyName(property.name) === key) {
+                recordKey(key, ts.isPropertyAssignment(property) ? property.initializer : undefined, !ts.isPropertyAssignment(property));
+              }
+            }
+          }
+        } else if (api.method === 'defineProperty' || (api.receiver === 'Reflect' && api.method === 'set')) {
+          const memberKey = resolveStaticString(args[1], this);
+          if (api.receiver === 'Reflect') recordKey(memberKey, args[2], memberKey === undefined || args[2] === undefined);
+          else {
+            const descriptor = args[2] === undefined ? undefined : unwrap(args[2]);
+            const value = descriptor !== undefined && ts.isObjectLiteralExpression(descriptor)
+              ? descriptor.properties.find(property => !ts.isSpreadAssignment(property) && propertyName(property.name) === 'value')
+              : undefined;
+            recordKey(memberKey, value !== undefined && ts.isPropertyAssignment(value) ? value.initializer : undefined, memberKey === undefined || value === undefined || !ts.isPropertyAssignment(value));
+          }
+        } else if (api.method === 'defineProperties') {
+          const descriptors = args[1] === undefined ? undefined : unwrap(args[1]);
+          if (descriptors === undefined || !ts.isObjectLiteralExpression(descriptors)) recordKey(key, undefined, true);
+          else {
+            const descriptorProperty = descriptors.properties.find(property => !ts.isSpreadAssignment(property) && propertyName(property.name) === key);
+            const descriptor = descriptorProperty !== undefined && ts.isPropertyAssignment(descriptorProperty) ? unwrap(descriptorProperty.initializer) : undefined;
+            const value = descriptor !== undefined && ts.isObjectLiteralExpression(descriptor)
+              ? descriptor.properties.find(property => !ts.isSpreadAssignment(property) && propertyName(property.name) === 'value')
+              : undefined;
+            if (descriptorProperty !== undefined) recordKey(key, value !== undefined && ts.isPropertyAssignment(value) ? value.initializer : undefined, value === undefined || !ts.isPropertyAssignment(value));
+            if (descriptors.properties.some(ts.isSpreadAssignment)) recordKey(key, undefined, true);
+          }
+        } else if (api.receiver === 'Reflect' && api.method === 'deleteProperty') {
+          recordKey(resolveStaticString(args[1], this), undefined, true);
+        }
+      }
     };
     const lexicalVisit = (node: ts.Node): void => {
       if (node !== owner && ts.isFunctionLike(node)) return;
@@ -971,7 +1080,7 @@ class LexicalBindings {
           const projected = projectBindingValue(initializer, key);
           const source: AliasCandidate = candidate === undefined
             ? projected.invalid ? 'tainted' : projected.initializer ?? 'absent'
-            : { kind: 'projection', source: candidate, key };
+            : { kind: 'projection', source: candidate, key, at: element };
           const projectedCandidate: AliasCandidate = element.initializer === undefined
             ? source
             : { kind: 'default', source, fallback: element.initializer };
@@ -994,7 +1103,7 @@ class LexicalBindings {
           const projected = projectBindingValue(initializer, index);
           const source: AliasCandidate = candidate === undefined
             ? projected.invalid ? 'tainted' : projected.initializer ?? 'absent'
-            : { kind: 'projection', source: candidate, key: index };
+            : { kind: 'projection', source: candidate, key: index, at: element };
           const projectedCandidate: AliasCandidate = element.initializer === undefined
             ? source
             : { kind: 'default', source, fallback: element.initializer };
@@ -1102,9 +1211,13 @@ class LexicalBindings {
       const expressionCandidate = (candidate: AliasCandidate): ts.Expression | undefined => (
         typeof candidate === 'string' || isDefaultAliasCandidate(candidate) || isProjectedAliasCandidate(candidate) ? undefined : candidate
       );
-      const projectedCandidate = (candidate: AliasCandidate, key: string | number): AliasCandidate => {
+      const projectedCandidate = (candidate: AliasCandidate, key: string | number, at: ts.Node): AliasCandidate => {
         const initializer = expressionCandidate(candidate);
-        if (initializer === undefined) return candidate === 'absent' ? 'absent' : 'tainted';
+        if (initializer === undefined) return candidate === 'absent'
+          ? 'absent'
+          : candidate === 'tainted'
+            ? 'tainted'
+            : { kind: 'projection', source: candidate, key, at };
         const projected = projectBindingValue(initializer, key);
         return projected.invalid ? 'tainted' : projected.initializer ?? 'absent';
       };
@@ -1116,12 +1229,12 @@ class LexicalBindings {
         }
         if (ts.isArrayLiteralExpression(target)) return target.elements.flatMap((element, index) => {
           if (ts.isOmittedExpression(element)) return [];
-          const value: AliasCandidate = ts.isSpreadElement(element) ? 'tainted' : projectedCandidate(candidate, index);
+          const value: AliasCandidate = ts.isSpreadElement(element) ? 'tainted' : projectedCandidate(candidate, index, node);
           return bind(ts.isSpreadElement(element) ? element.expression : element as ts.Expression, value);
         });
         if (ts.isObjectLiteralExpression(target)) return target.properties.flatMap(property => {
           if (ts.isShorthandPropertyAssignment(property)) {
-            const source = projectedCandidate(candidate, property.name.text);
+            const source = projectedCandidate(candidate, property.name.text, node);
             return bind(property.name, property.objectAssignmentInitializer === undefined
               ? source
               : { kind: 'default', source, fallback: property.objectAssignmentInitializer });
@@ -1130,7 +1243,7 @@ class LexicalBindings {
             const key = bindingPropertyName(property.name, assignmentPosition(node));
             return key === undefined
               ? assignmentTargetIdentifiers(property.initializer).map(name => ({ name, candidate: 'tainted' as const }))
-              : bind(property.initializer, projectedCandidate(candidate, key));
+              : bind(property.initializer, projectedCandidate(candidate, key, node));
           }
           return ts.isSpreadAssignment(property)
             ? assignmentTargetIdentifiers(property.expression).map(name => ({ name, candidate: 'tainted' as const }))
@@ -3150,6 +3263,13 @@ function resolveAliasCandidate(
     if (ts.isMethodDeclaration(source.origin)) return { kind: 'tainted' };
     const origin = unwrap(source.origin);
     const projectionSeen = new Set([...seen, ...(source.lineage ?? [])]);
+    const timelineCandidates = bindings.memberProvenanceCandidates(origin, String(candidate.key), candidate.at);
+    if (timelineCandidates !== undefined) {
+      return joinAliasProvenance(
+        timelineCandidates.map(item => resolveAliasCandidate(item, bindings, substitutions, projectionSeen)),
+        bindings,
+      );
+    }
     if (ts.isArrayLiteralExpression(origin) && typeof candidate.key === 'number') {
       const element = origin.elements[candidate.key];
       if (element === undefined || ts.isOmittedExpression(element)) return { kind: 'absent' };
@@ -4538,6 +4658,8 @@ function validateAnimaPathBehavior(sourceText: string, sourceName: string): void
     substitutions: InvocationSubstitutions,
   ): { root: AnimaMutation['root']; path: string } | undefined => {
     expression = unwrap(expression);
+    let projectedRoot: AnimaMutation['root'] | undefined;
+    let projectedAnchor: ts.Expression | undefined;
     const hasDynamicAggregateAccess = (candidate: ts.Expression): boolean => {
       candidate = unwrap(candidate);
       if (ts.isElementAccessExpression(candidate) && staticMember(candidate) === undefined
@@ -4554,10 +4676,23 @@ function validateAnimaPathBehavior(sourceText: string, sourceName: string): void
     if (syntacticRoot.kind === ts.SyntaxKind.ThisKeyword) {
       const projected = resolveAliasProvenance(expression, bindings, substitutions);
       if (projected.kind === 'tainted') fail(expression, 'Anima path behavior has tainted callback receiver provenance');
-      if (projected.kind === 'exact' && !ts.isMethodDeclaration(projected.origin)) expression = unwrap(projected.origin);
+    }
+    for (let candidate: ts.Expression | undefined = expression; candidate !== undefined;) {
+      const projected = resolveAliasProvenance(candidate, bindings, substitutions);
+      if (projected.kind === 'exact') {
+        if (projected.lineage?.has(cleanedBinding!)) projectedRoot = 'cleaned';
+        else if (projected.lineage?.has(modelParameter)) projectedRoot = 'model';
+        if (projectedRoot !== undefined) {
+          projectedAnchor = candidate;
+          break;
+        }
+      }
+      const member = staticMember(candidate);
+      candidate = member === undefined ? undefined : unwrap(member.base);
     }
     const parts: string[] = [];
     while (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+      if (expression === projectedAnchor) break;
       if (ts.isPropertyAccessExpression(expression)) parts.unshift(expression.name.text);
       else {
         const key = expression.argumentExpression === undefined ? undefined : resolveStaticString(expression.argumentExpression, bindings);
@@ -4566,11 +4701,11 @@ function validateAnimaPathBehavior(sourceText: string, sourceName: string): void
       }
       expression = unwrap(expression.expression);
     }
-    const root = aliasOriginReachesBinding(expression, cleanedBinding!, bindings, substitutions)
+    const root = projectedRoot ?? (aliasOriginReachesBinding(expression, cleanedBinding!, bindings, substitutions)
       ? 'cleaned'
       : aliasOriginReachesBinding(expression, modelParameter, bindings, substitutions)
         ? 'model'
-        : undefined;
+        : undefined);
     return root === undefined ? undefined : { root, path: parts.join('.') };
   };
   visitExecutableFunctionNodes(helper, bindings, (node, substitutions, execution) => {
