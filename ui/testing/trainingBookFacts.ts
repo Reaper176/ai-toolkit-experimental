@@ -92,6 +92,7 @@ export type UiBehaviorPayload =
   | { kind: 'undefined' }
   | { kind: 'copy'; source_path: string; fallback?: TrainingBookValueFact }
   | { kind: 'map-prompt-objects'; source_path: string; item_key: 'prompt' }
+  | { kind: 'architecture-name' }
   | { kind: 'architecture-field'; field: 'controls' }
   | { kind: 'architecture-default'; phase: 'revert' | 'apply'; value_index: 1 | 0 };
 
@@ -2737,6 +2738,502 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
   return claims.sort((left, right) => compareCodePoint(left.symbol, right.symbol));
 }
 
+function scopedFunctionConfigPath(
+  expression: ts.Expression,
+  configParameter: ts.Identifier,
+  bindings: LexicalBindings,
+  seen = new Set<ts.Identifier>(),
+): string | undefined {
+  const normalizeScopedPath = (raw: string): string => {
+    const canonical = raw.startsWith('$job.') ? raw.slice('$job.'.length) : raw;
+    return canonical.startsWith('config.')
+      ? normalizePath(canonical, { allowCanonicalWildcards: true })
+      : raw;
+  };
+  expression = unwrap(expression);
+  if (ts.isIdentifier(expression)) {
+    if (bindings.isBinding(expression, configParameter)) return '$job';
+    const declaration = bindings.bindingDeclaration(expression);
+    if (declaration === undefined || seen.has(declaration)) return undefined;
+    const nextSeen = new Set(seen).add(declaration);
+    if (ts.isParameter(declaration.parent)) {
+      const callback = declaration.parent.parent;
+      if ((ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) && callback.parameters[0] === declaration.parent && ts.isCallExpression(callback.parent) && callback.parent.arguments[0] === callback && ts.isPropertyAccessExpression(callback.parent.expression) && callback.parent.expression.name.text === 'map') {
+        const receiver = scopedFunctionConfigPath(callback.parent.expression.expression, configParameter, bindings, nextSeen);
+        return receiver === undefined ? undefined : `${receiver}[*]`;
+      }
+    }
+    const initializer = bindings.declarationInitializer(expression);
+    if (initializer === undefined) return undefined;
+    const unwrappedInitializer = unwrap(initializer);
+    if (ts.isCallExpression(unwrappedInitializer) && unwrappedInitializer.arguments[0] !== undefined) {
+      const callName = ts.isIdentifier(unwrappedInitializer.expression) ? unwrappedInitializer.expression.text : undefined;
+      if (callName === 'objectCopy' || callName === 'clearUnsupportedAnimaPaths') return scopedFunctionConfigPath(unwrappedInitializer.arguments[0], configParameter, bindings, nextSeen);
+    }
+    return scopedFunctionConfigPath(unwrappedInitializer, configParameter, bindings, nextSeen);
+  }
+  if (ts.isPropertyAccessExpression(expression)) {
+    const base = scopedFunctionConfigPath(expression.expression, configParameter, bindings, seen);
+    if (base === undefined) return undefined;
+    return normalizeScopedPath(`${base}.${expression.name.text}`);
+  }
+  if (ts.isElementAccessExpression(expression) && expression.argumentExpression !== undefined) {
+    const argument = unwrap(expression.argumentExpression);
+    if (!ts.isNumericLiteral(argument) && !ts.isStringLiteral(argument)) return undefined;
+    const base = scopedFunctionConfigPath(expression.expression, configParameter, bindings, seen);
+    if (base === undefined) return undefined;
+    return normalizeScopedPath(`${base}[${argument.text}]`);
+  }
+  return undefined;
+}
+
+function branchContains(branch: ts.Statement, node: ts.Node): boolean {
+  return branch.getStart() <= node.getStart() && node.getEnd() <= branch.getEnd();
+}
+
+function resolveStaticString(expression: ts.Expression, bindings: LexicalBindings): string | undefined {
+  expression = unwrap(expression);
+  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
+  if (!ts.isIdentifier(expression)) return undefined;
+  const initializer = bindings.declarationInitializer(expression);
+  return initializer === undefined ? undefined : resolveStaticString(initializer, bindings);
+}
+
+function additionalSectionCall(
+  expression: ts.Expression,
+  architecture: ts.Identifier,
+  bindings: LexicalBindings,
+): string | undefined {
+  expression = unwrap(expression);
+  if (!ts.isCallExpression(expression) || expression.arguments.length !== 1 || !ts.isPropertyAccessExpression(expression.expression) || expression.expression.name.text !== 'includes') return undefined;
+  const receiver = unwrap(expression.expression.expression);
+  if (!ts.isPropertyAccessExpression(receiver) || receiver.name.text !== 'additionalSections') return undefined;
+  const base = unwrap(receiver.expression);
+  return ts.isIdentifier(base) && bindings.isBinding(base, architecture)
+    ? resolveStaticString(expression.arguments[0], bindings)
+    : undefined;
+}
+
+function sectionFlag(
+  expression: ts.Expression,
+  architecture: ts.Identifier,
+  bindings: LexicalBindings,
+): string | undefined {
+  expression = unwrap(expression);
+  if (!ts.isIdentifier(expression)) return undefined;
+  const initializer = bindings.declarationInitializer(expression);
+  if (initializer === undefined) return undefined;
+  const value = unwrap(initializer);
+  if (!ts.isBinaryExpression(value) || value.operatorToken.kind !== ts.SyntaxKind.BarBarToken || !exactBoolean(value.right, false)) return undefined;
+  return additionalSectionCall(value.left, architecture, bindings);
+}
+
+function negatedSection(
+  expression: ts.Expression,
+  architecture: ts.Identifier,
+  section: string,
+  bindings: LexicalBindings,
+): boolean {
+  expression = unwrap(expression);
+  return ts.isPrefixUnaryExpression(expression)
+    && expression.operator === ts.SyntaxKind.ExclamationToken
+    && additionalSectionCall(expression.operand, architecture, bindings) === section;
+}
+
+function exactMembershipGuard(
+  expression: ts.Expression,
+  key: string,
+  objectPath: string,
+  configParameter: ts.Identifier,
+  bindings: LexicalBindings,
+  negated = false,
+): boolean {
+  expression = unwrap(expression);
+  if (negated) {
+    if (!ts.isPrefixUnaryExpression(expression) || expression.operator !== ts.SyntaxKind.ExclamationToken) return false;
+    expression = unwrap(expression.operand);
+  }
+  return ts.isBinaryExpression(expression)
+    && expression.operatorToken.kind === ts.SyntaxKind.InKeyword
+    && exactString(expression.left, key)
+    && scopedFunctionConfigPath(expression.right, configParameter, bindings) === objectPath;
+}
+
+function validateAnimaPathBehavior(sourceText: string, sourceName: string): void {
+  const source = ts.createSourceFile(sourceName, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const bindings = new LexicalBindings(source);
+  const matches = source.statements.filter(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === 'clearUnsupportedAnimaPaths') as ts.FunctionDeclaration[];
+  if (matches.length !== 1) fail(source, 'Anima path behavior requires one exact helper declaration');
+  const helper = matches[0];
+  const modifiers = ts.getModifiers(helper) ?? [];
+  if (!modifiers.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword) || helper.body === undefined || helper.parameters.length !== 2 || !ts.isIdentifier(helper.parameters[0].name) || !ts.isIdentifier(helper.parameters[1].name)) fail(helper, 'Anima path behavior requires an exported two-parameter helper');
+  const [modelParameter, sectionsParameter] = helper.parameters.map(parameter => parameter.name as ts.Identifier);
+  const supportByBinding = new Map<ts.Identifier, string>();
+  const deleteByPath = new Map<string, ts.DeleteExpression>();
+  let cleanedBinding: ts.Identifier | undefined;
+  let returnsCleaned = false;
+  const visit = (node: ts.Node): void => {
+    if (node !== helper && ts.isFunctionLike(node)) return;
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined) {
+      const initializer = unwrap(node.initializer);
+      if (ts.isBinaryExpression(initializer) && initializer.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken && exactBoolean(initializer.right, true)) {
+        const section = (() => {
+          const call = unwrap(initializer.left);
+          if (!ts.isCallExpression(call) || !ts.isPropertyAccessExpression(call.expression) || call.expression.name.text !== 'includes' || call.arguments.length !== 1) return undefined;
+          const receiver = unwrap(call.expression.expression);
+          return ts.isIdentifier(receiver) && bindings.isBinding(receiver, sectionsParameter)
+            ? resolveStaticString(call.arguments[0], bindings)
+            : undefined;
+        })();
+        if (section !== undefined) supportByBinding.set(node.name, section);
+      }
+      if (ts.isObjectLiteralExpression(initializer) && initializer.properties.length === 1 && ts.isSpreadAssignment(initializer.properties[0])) {
+        const spread = unwrap(initializer.properties[0].expression);
+        if (ts.isIdentifier(spread) && bindings.isBinding(spread, modelParameter)) cleanedBinding = node.name;
+      }
+    }
+    if (ts.isDeleteExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const receiver = unwrap(node.expression.expression);
+      if (cleanedBinding !== undefined && ts.isIdentifier(receiver) && bindings.isBinding(receiver, cleanedBinding)) deleteByPath.set(node.expression.name.text, node);
+    }
+    if (ts.isReturnStatement(node) && node.expression !== undefined && cleanedBinding !== undefined) {
+      const returned = unwrap(node.expression);
+      if (ts.isIdentifier(returned) && bindings.isBinding(returned, cleanedBinding)) returnsCleaned = true;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(helper.body);
+  const expected = new Map([
+    ['te_name_or_path', 'model.te_name_or_path'],
+    ['vae_path', 'model.vae_path'],
+  ]);
+  if (cleanedBinding === undefined || !returnsCleaned || deleteByPath.size !== expected.size || supportByBinding.size !== expected.size) fail(helper, 'Anima path behavior has unsupported cleanup structure');
+  for (const [path, section] of expected) {
+    const deletion = deleteByPath.get(path);
+    if (deletion === undefined) fail(helper, `Anima path behavior requires ${path} deletion`);
+    const guard = enclosingIfWithin(deletion, helper);
+    const operand = guard === undefined ? undefined : unwrap(guard.expression);
+    if (operand === undefined || !ts.isPrefixUnaryExpression(operand) || operand.operator !== ts.SyntaxKind.ExclamationToken || !ts.isIdentifier(unwrap(operand.operand))) fail(deletion, `Anima path behavior requires ${path} unsupported-section guard`);
+    const support = [...supportByBinding].find(([binding]) => bindings.isBinding(unwrap(operand.operand) as ts.Identifier, binding));
+    if (support?.[1] !== section) fail(deletion, `Anima path behavior requires ${section} guard`);
+  }
+}
+
+type HandlerSetterCall = { node: ts.CallExpression; path?: string; value: ts.Expression };
+
+export function collectHandleModelArchChangeBehaviorClaimsFromSource(
+  sourceText: string,
+  animaPathSourceText: string,
+  sourceName = 'ui/src/app/jobs/new/utils.ts',
+  animaPathSourceName = 'ui/src/helpers/animaModelPaths.ts',
+): UiSourceClaim[] {
+  const source = ts.createSourceFile(sourceName, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const owner = exportedArrowFunction(source, 'handleModelArchChange');
+  if (owner === undefined) return [];
+  if (owner.parameters.length !== 4 || owner.parameters.some(parameter => exactCallbackIdentifier(parameter) === undefined)) fail(owner, 'handleModelArchChange behavior requires four exact parameters');
+  const ownerBody = owner.body;
+  if (!ts.isBlock(ownerBody)) fail(owner, 'handleModelArchChange behavior requires a block body');
+  const [currentName, nextName, configParameter, setterParameter] = owner.parameters.map(parameter => exactCallbackIdentifier(parameter)!);
+  const bindings = new LexicalBindings(source);
+  const architectureFinds: Array<{ declaration: ts.Identifier; compared: ts.Identifier }> = [];
+  const findVisit = (node: ts.Node): void => {
+    if (node !== owner && ts.isFunctionLike(node)) return;
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined) {
+      const initializer = unwrap(node.initializer);
+      if (ts.isCallExpression(initializer) && ts.isPropertyAccessExpression(initializer.expression) && initializer.expression.name.text === 'find' && ts.isIdentifier(unwrap(initializer.expression.expression)) && bindings.isExactNamedImport(unwrap(initializer.expression.expression) as ts.Identifier, 'modelArchs', './options') && initializer.arguments.length === 1) {
+        const callback = unwrap(initializer.arguments[0]);
+        if (!ts.isArrowFunction(callback) || callback.parameters.length !== 1 || !ts.isIdentifier(callback.parameters[0].name)) fail(callback, 'handleModelArchChange behavior requires an exact architecture find callback');
+        const comparison = unwrap(callback.body as ts.Expression);
+        if (!ts.isBinaryExpression(comparison) || comparison.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken) fail(comparison, 'handleModelArchChange behavior requires architecture name comparison');
+        const comparisonLeft = unwrap(comparison.left);
+        if (!ts.isPropertyAccessExpression(comparisonLeft) || comparisonLeft.name.text !== 'name') fail(comparison, 'handleModelArchChange behavior requires architecture name comparison');
+        const row = unwrap(comparisonLeft.expression);
+        const compared = unwrap(comparison.right);
+        if (!ts.isIdentifier(row) || !bindings.isBinding(row, callback.parameters[0].name) || !ts.isIdentifier(compared)) fail(comparison, 'handleModelArchChange behavior requires bound architecture comparison');
+        architectureFinds.push({ declaration: node.name, compared });
+      }
+    }
+    ts.forEachChild(node, findVisit);
+  };
+  findVisit(ownerBody);
+  const currentArchitecture = architectureFinds.find(item => bindings.isBinding(item.compared, currentName))?.declaration;
+  const nextArchitecture = architectureFinds.find(item => bindings.isBinding(item.compared, nextName))?.declaration;
+  if (architectureFinds.length !== 2 || currentArchitecture === undefined || nextArchitecture === undefined) fail(owner, 'handleModelArchChange behavior requires exact current and selected architecture bindings');
+  const noOpGuards = ownerBody.statements.filter(ts.isIfStatement).filter(statement => ts.isReturnStatement(ts.isBlock(statement.thenStatement) && statement.thenStatement.statements.length === 1 ? statement.thenStatement.statements[0] : statement.thenStatement));
+  if (noOpGuards.length !== 1) fail(owner, 'handleModelArchChange behavior requires one no-op guard');
+  const noOp = flattenAnd(noOpGuards[0].expression);
+  const noOpExpression = unwrap(noOpGuards[0].expression);
+  if (!ts.isBinaryExpression(noOpExpression) || noOpExpression.operatorToken.kind !== ts.SyntaxKind.BarBarToken) fail(noOpExpression, 'handleModelArchChange behavior requires missing-or-unchanged no-op guard');
+  const missingCurrent = unwrap(noOpExpression.left);
+  const sameArchitecture = unwrap(noOpExpression.right);
+  const missingCurrentOperand = ts.isPrefixUnaryExpression(missingCurrent) ? unwrap(missingCurrent.operand) : undefined;
+  const sameArchitectureLeft = ts.isBinaryExpression(sameArchitecture) ? unwrap(sameArchitecture.left) : undefined;
+  const sameArchitectureBase = sameArchitectureLeft !== undefined && ts.isPropertyAccessExpression(sameArchitectureLeft) ? unwrap(sameArchitectureLeft.expression) : undefined;
+  const sameArchitectureRight = ts.isBinaryExpression(sameArchitecture) ? unwrap(sameArchitecture.right) : undefined;
+  if (!ts.isPrefixUnaryExpression(missingCurrent) || missingCurrent.operator !== ts.SyntaxKind.ExclamationToken || missingCurrentOperand === undefined || !ts.isIdentifier(missingCurrentOperand) || !bindings.isBinding(missingCurrentOperand, currentArchitecture) || !ts.isBinaryExpression(sameArchitecture) || sameArchitecture.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken || sameArchitectureLeft === undefined || !ts.isPropertyAccessExpression(sameArchitectureLeft) || sameArchitectureLeft.name.text !== 'name' || sameArchitectureBase === undefined || !ts.isIdentifier(sameArchitectureBase) || !bindings.isBinding(sameArchitectureBase, currentArchitecture) || sameArchitectureRight === undefined || !ts.isIdentifier(sameArchitectureRight) || !bindings.isBinding(sameArchitectureRight, nextName)) fail(noOpExpression, 'handleModelArchChange behavior has unsupported no-op semantics');
+
+  validateAnimaPathBehavior(animaPathSourceText, animaPathSourceName);
+  const cleanupCalls: ts.CallExpression[] = [];
+  const directMutations: ConfigMutation[] = [];
+  const setterCalls: HandlerSetterCall[] = [];
+  const visit = (node: ts.Node): void => {
+    if (node !== owner && ts.isFunctionLike(node)) {
+      const isMapCallback = (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) && ts.isCallExpression(node.parent) && node.parent.arguments[0] === node && ts.isPropertyAccessExpression(node.parent.expression) && node.parent.expression.name.text === 'map';
+      if (!isMapCallback) return;
+    }
+    if (isStaticallyDead(node)) return;
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      if (bindings.isBinding(node.expression, setterParameter)) {
+        if (node.arguments.length !== 2) fail(node, 'handleModelArchChange behavior setter requires two arguments');
+        const pathExpression = unwrap(node.arguments[1]);
+        setterCalls.push({ node, path: ts.isStringLiteral(pathExpression) || ts.isNoSubstitutionTemplateLiteral(pathExpression) ? normalizePath(pathExpression.text, {}) : undefined, value: node.arguments[0] });
+      } else if (node.expression.text === 'clearUnsupportedAnimaPaths') cleanupCalls.push(node);
+    }
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      const path = scopedFunctionConfigPath(node.left, configParameter, bindings);
+      if (path !== undefined) directMutations.push({ node, operation: 'write', path });
+    } else if (ts.isDeleteExpression(node)) {
+      const path = scopedFunctionConfigPath(node.expression, configParameter, bindings);
+      if (path !== undefined) directMutations.push({ node, operation: 'delete', path });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ownerBody);
+  if (cleanupCalls.length !== 1) fail(owner, 'handleModelArchChange behavior requires one Anima cleanup call');
+  const cleanupCall = cleanupCalls[0];
+  if (!bindings.isExactNamedImport(cleanupCall.expression as ts.Identifier, 'clearUnsupportedAnimaPaths', '@/helpers/animaModelPaths')) fail(cleanupCall, 'handleModelArchChange behavior requires exact Anima cleanup import');
+  if (cleanupCall.arguments.length !== 2) fail(cleanupCall, 'handleModelArchChange behavior requires exact Anima cleanup arguments');
+  const cleanupModelSource = scopedFunctionConfigPath(cleanupCall.arguments[0], configParameter, bindings);
+  if (cleanupModelSource !== 'config.process[*].model') fail(cleanupCall, `handleModelArchChange behavior requires exact Anima model source, received ${cleanupModelSource ?? '<unresolved>'}`);
+
+  const consumedMutations = new Set<ConfigMutation>();
+  const consumedSetters = new Set<HandlerSetterCall>();
+  const takeSetter = (path: string, predicate: (call: HandlerSetterCall) => boolean = () => true): HandlerSetterCall => {
+    const matches = setterCalls.filter(call => call.path === path && predicate(call));
+    if (matches.length !== 1) fail(owner, `handleModelArchChange behavior requires one setter for ${path}`);
+    consumedSetters.add(matches[0]);
+    return matches[0];
+  };
+  const takeMutation = (operation: ConfigMutation['operation'], path: string, predicate: (mutation: ConfigMutation) => boolean): ConfigMutation => {
+    const matches = directMutations.filter(mutation => mutation.operation === operation && mutation.path === path && predicate(mutation));
+    if (matches.length !== 1) fail(owner, `handleModelArchChange behavior requires one ${operation} for ${path}`);
+    consumedMutations.add(matches[0]);
+    return matches[0];
+  };
+  const valuePath = (expression: ts.Expression): string | undefined => scopedFunctionConfigPath(expression, configParameter, bindings);
+  const isNextArchitectureAccess = (expression: ts.Expression, field: string): boolean => {
+    expression = unwrap(expression);
+    if (!ts.isPropertyAccessExpression(expression) || expression.name.text !== field) return false;
+    const base = unwrap(expression.expression);
+    return ts.isIdentifier(base) && bindings.isBinding(base, nextArchitecture);
+  };
+  const setterValueBinding = (call: HandlerSetterCall, declaration: ts.Identifier): boolean => {
+    const value = unwrap(call.value);
+    return ts.isIdentifier(value) && bindings.isBinding(value, declaration);
+  };
+
+  const cleanedDeclaration = cleanupCalls[0].parent;
+  if (!ts.isVariableDeclaration(cleanedDeclaration) || !ts.isIdentifier(cleanedDeclaration.name)) fail(cleanupCalls[0], 'handleModelArchChange behavior requires cleaned model binding');
+  const cleanedModel = cleanedDeclaration.name;
+  const cleanupCommit = takeSetter('config.process[*].model', call => setterValueBinding(call, cleanedModel));
+  const cleanupGuard = enclosingIfWithin(cleanupCommit.node, owner);
+  const cleanupCondition = cleanupGuard === undefined ? undefined : unwrap(cleanupGuard.expression);
+  if (cleanupCondition === undefined || !ts.isBinaryExpression(cleanupCondition) || cleanupCondition.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsEqualsToken) fail(cleanupCommit.node, 'handleModelArchChange behavior requires changed-model cleanup guard');
+
+  const lowVram = takeSetter('config.process[*].model.low_vram');
+  const lowGuard = enclosingIfWithin(lowVram.node, owner);
+  if (lowGuard === undefined || !negatedSection(lowGuard.expression, nextArchitecture, 'model.low_vram', bindings) || !exactBoolean(lowVram.value, false)) fail(lowVram.node, 'handleModelArchChange low_vram behavior is unsupported');
+
+  const layerOuter = ownerBody.statements.find(statement => ts.isIfStatement(statement) && negatedSection(statement.expression, nextArchitecture, 'model.layer_offloading', bindings));
+  if (layerOuter === undefined || !ts.isIfStatement(layerOuter) || layerOuter.elseStatement === undefined) fail(owner, 'handleModelArchChange behavior requires layer-offloading support branches');
+  const inUnsupportedLayer = (node: ts.Node): boolean => branchContains(layerOuter.thenStatement, node);
+  const inSupportedLayer = (node: ts.Node): boolean => branchContains(layerOuter.elseStatement!, node);
+  const layerDeletePaths = ['layer_offloading', 'layer_offloading_text_encoder_percent', 'layer_offloading_transformer_percent'] as const;
+  for (const path of layerDeletePaths) takeMutation('delete', `config.process[*].model.${path}`, mutation => inUnsupportedLayer(mutation.node));
+  const newModelDeclaration = directMutations.find(mutation => mutation.path === 'config.process[*].model.layer_offloading' && mutation.operation === 'delete')?.node;
+  if (newModelDeclaration === undefined) fail(layerOuter, 'handleModelArchChange behavior requires copied model deletions');
+  const modelCommit = takeSetter('config.process[*].model', call => call !== cleanupCommit && inUnsupportedLayer(call.node));
+  const modelValue = unwrap(modelCommit.value);
+  if (!ts.isIdentifier(modelValue) || valuePath(modelValue) !== 'config.process[*].model') fail(modelCommit.node, 'handleModelArchChange behavior requires deleted model aggregate commit');
+  const layerPresenceIf = ts.isBlock(layerOuter.thenStatement) ? layerOuter.thenStatement.statements.find(ts.isIfStatement) : undefined;
+  if (layerPresenceIf === undefined || !exactMembershipGuard(layerPresenceIf.expression, 'layer_offloading', 'config.process[*].model', configParameter, bindings)) fail(layerOuter, 'handleModelArchChange behavior requires unsupported layer presence guard');
+  const supportedIf = (() => {
+    const result: ts.IfStatement[] = [];
+    const walk = (node: ts.Node): void => { if (ts.isIfStatement(node) && inSupportedLayer(node)) result.push(node); ts.forEachChild(node, walk); };
+    walk(layerOuter.elseStatement!);
+    return result.find(item => exactMembershipGuard(item.expression, 'layer_offloading', 'config.process[*].model', configParameter, bindings, true));
+  })();
+  if (supportedIf === undefined) fail(layerOuter.elseStatement, 'handleModelArchChange behavior requires supported layer absence guard');
+  const layerInit = takeSetter('config.process[*].model.layer_offloading', call => inSupportedLayer(call.node));
+  const textInit = takeSetter('config.process[*].model.layer_offloading_text_encoder_percent', call => inSupportedLayer(call.node));
+  const transformerInit = takeSetter('config.process[*].model.layer_offloading_transformer_percent', call => inSupportedLayer(call.node));
+  if (![layerInit, textInit, transformerInit].every(call => branchContains(supportedIf.thenStatement, call.node)) || !exactBoolean(layerInit.value, false) || !exactNumber(textInit.value, 1) || !exactNumber(transformerInit.value, 1)) fail(supportedIf, 'handleModelArchChange behavior requires exact layer initialization values');
+
+  const architectureSetter = takeSetter('config.process[*].model.arch');
+  const architectureValue = unwrap(architectureSetter.value);
+  if (!ts.isIdentifier(architectureValue) || !bindings.isBinding(architectureValue, nextName)) fail(architectureSetter.node, 'handleModelArchChange behavior architecture-name requires exact selected architecture binding');
+
+  const topLevelMapDeclaration = (path: string): ts.VariableDeclaration | undefined => ownerBody.statements
+    .flatMap(statement => ts.isVariableStatement(statement) ? [...statement.declarationList.declarations] : [])
+    .find(declaration => {
+      if (!ts.isIdentifier(declaration.name) || declaration.initializer === undefined) return false;
+      const initializer = unwrap(declaration.initializer);
+      if (!ts.isCallExpression(initializer)) return false;
+      const callee = unwrap(initializer.expression);
+      return ts.isPropertyAccessExpression(callee)
+        && callee.name.text === 'map'
+        && scopedFunctionConfigPath(callee.expression, configParameter, bindings) === path;
+    });
+  const datasetsDeclaration = topLevelMapDeclaration('config.process[*].datasets');
+  if (datasetsDeclaration === undefined || !ts.isIdentifier(datasetsDeclaration.name)) fail(owner, 'handleModelArchChange behavior requires exact dataset map binding');
+  takeSetter('config.process[*].datasets', call => setterValueBinding(call, datasetsDeclaration.name as ts.Identifier));
+  const controlsMutation = takeMutation('write', 'config.process[*].datasets[*].controls', () => true);
+  const controlsValue = unwrap((controlsMutation.node as ts.BinaryExpression).right);
+  if (!ts.isIdentifier(controlsValue)) fail(controlsMutation.node, 'handleModelArchChange behavior requires controls binding');
+  const controlsInitializer = bindings.declarationInitializer(controlsValue);
+  const controlsFallback = controlsInitializer === undefined ? undefined : unwrap(controlsInitializer);
+  const controlsFallbackRight = controlsFallback !== undefined && ts.isBinaryExpression(controlsFallback) ? unwrap(controlsFallback.right) : undefined;
+  if (controlsFallback === undefined || !ts.isBinaryExpression(controlsFallback) || controlsFallback.operatorToken.kind !== ts.SyntaxKind.QuestionQuestionToken || !isNextArchitectureAccess(controlsFallback.left, 'controls') || controlsFallbackRight === undefined || !ts.isArrayLiteralExpression(controlsFallbackRight) || controlsFallbackRight.elements.length !== 0) fail(controlsMutation.node, 'handleModelArchChange behavior requires selected architecture controls fallback');
+
+  const datasetMapCall = unwrap(datasetsDeclaration.initializer!);
+  const datasetCallback = ts.isCallExpression(datasetMapCall) ? unwrap(datasetMapCall.arguments[0]) : undefined;
+  if (datasetCallback === undefined || !ts.isArrowFunction(datasetCallback) || !ts.isBlock(datasetCallback.body)) fail(datasetsDeclaration, 'handleModelArchChange behavior requires block dataset mapper');
+  const multiStatement = datasetCallback.body.statements.find(statement => ts.isIfStatement(statement) && sectionFlag(statement.expression, nextArchitecture, bindings) === 'datasets.multi_control_paths');
+  if (multiStatement === undefined || !ts.isIfStatement(multiStatement)) fail(datasetCallback, 'handleModelArchChange behavior requires exact multi/single/no-control branches');
+  const multiIf = multiStatement;
+  const singleStatement = multiIf.elseStatement;
+  if (singleStatement === undefined || !ts.isIfStatement(singleStatement) || sectionFlag(singleStatement.expression, nextArchitecture, bindings) !== 'datasets.control_path' || singleStatement.elseStatement === undefined) fail(datasetCallback, 'handleModelArchChange behavior requires exact multi/single/no-control branches');
+  const singleIf = singleStatement;
+  const noControlBranch = singleIf.elseStatement;
+  if (noControlBranch === undefined) fail(datasetCallback, 'handleModelArchChange behavior requires exact multi/single/no-control branches');
+  const branchRole = (node: ts.Node): 'multi' | 'single' | 'none' | undefined => branchContains(multiIf.thenStatement, node) ? 'multi' : branchContains(singleIf.thenStatement, node) ? 'single' : branchContains(noControlBranch, node) ? 'none' : undefined;
+  const copyOrNull = (mutation: ConfigMutation, sourcePath: string): boolean => {
+    const right = unwrap((mutation.node as ts.BinaryExpression).right);
+    return ts.isBinaryExpression(right) && right.operatorToken.kind === ts.SyntaxKind.BarBarToken && valuePath(right.left) === sourcePath && unwrap(right.right).kind === ts.SyntaxKind.NullKeyword;
+  };
+  for (const suffix of ['control_path_1', 'control_path_2', 'control_path_3'] as const) {
+    const path = `config.process[*].datasets[*].${suffix}`;
+    const init = takeMutation('write', path, mutation => branchRole(mutation.node) === 'multi' && copyOrNull(mutation, path));
+    if (init === undefined) fail(multiIf, `handleModelArchChange behavior requires ${suffix} initialization`);
+  }
+  const multiCopy = takeMutation('write', 'config.process[*].datasets[*].control_path_1', mutation => branchRole(mutation.node) === 'multi' && valuePath((mutation.node as ts.BinaryExpression).right) === 'config.process[*].datasets[*].control_path');
+  const multiCopyGuards: ts.IfStatement[] = [];
+  let multiAncestor: ts.Node | undefined = multiCopy.node.parent;
+  while (multiAncestor !== undefined && multiAncestor !== multiIf) { if (ts.isIfStatement(multiAncestor)) multiCopyGuards.push(multiAncestor); multiAncestor = multiAncestor.parent; }
+  const multiGuardPaths = multiCopyGuards.map(item => item.expression);
+  const hasMultiSourceGuard = multiGuardPaths.some(expression => flattenAnd(expression).some(part => {
+    const condition = unwrap(part);
+    return valuePath(ts.isBinaryExpression(condition) ? condition.left : condition) === 'config.process[*].datasets[*].control_path';
+  }));
+  const hasMultiTargetGuard = multiGuardPaths.some(expression => {
+    const condition = unwrap(expression);
+    return ts.isPrefixUnaryExpression(condition) && valuePath(condition.operand) === 'config.process[*].datasets[*].control_path_1';
+  });
+  if (!hasMultiSourceGuard || !hasMultiTargetGuard) fail(multiCopy.node, 'handleModelArchChange behavior requires source-nonempty target-empty multi copy guards');
+  takeMutation('delete', 'config.process[*].datasets[*].control_path', mutation => branchRole(mutation.node) === 'multi');
+
+  const singleInit = takeMutation('write', 'config.process[*].datasets[*].control_path', mutation => branchRole(mutation.node) === 'single' && copyOrNull(mutation, 'config.process[*].datasets[*].control_path'));
+  if (singleInit === undefined) fail(multiIf, 'handleModelArchChange behavior requires single control initialization');
+  const singleCopy = takeMutation('write', 'config.process[*].datasets[*].control_path', mutation => branchRole(mutation.node) === 'single' && valuePath((mutation.node as ts.BinaryExpression).right) === 'config.process[*].datasets[*].control_path_1');
+  const singleCopyIf = enclosingIfWithin(singleCopy.node, owner);
+  if (singleCopyIf === undefined || !flattenAnd(singleCopyIf.expression).every(part => {
+    const value = unwrap(part);
+    if (valuePath(value) === 'config.process[*].datasets[*].control_path_1') return true;
+    return ts.isBinaryExpression(value) && value.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken && valuePath(value.left) === 'config.process[*].datasets[*].control_path_1' && exactString(value.right, '');
+  })) fail(singleCopy.node, 'handleModelArchChange behavior requires nonempty single-control copy guard');
+  for (const suffix of ['control_path_1', 'control_path_2', 'control_path_3'] as const) {
+    const path = `config.process[*].datasets[*].${suffix}`;
+    const deletion = takeMutation('delete', path, mutation => branchRole(mutation.node) === 'single');
+    const guard = enclosingIfWithin(deletion.node, owner);
+    if (guard === undefined || !exactMembershipGuard(guard.expression, suffix, 'config.process[*].datasets[*]', configParameter, bindings)) fail(deletion.node, `handleModelArchChange behavior requires ${suffix} single-control membership guard`);
+  }
+  for (const suffix of ['control_path', 'control_path_1', 'control_path_2', 'control_path_3'] as const) {
+    const path = `config.process[*].datasets[*].${suffix}`;
+    const deletion = takeMutation('delete', path, mutation => branchRole(mutation.node) === 'none');
+    const guard = enclosingIfWithin(deletion.node, owner);
+    if (guard === undefined || !exactMembershipGuard(guard.expression, suffix, 'config.process[*].datasets[*]', configParameter, bindings)) fail(deletion.node, `handleModelArchChange behavior requires ${suffix} no-control membership guard`);
+  }
+  const numFrames = takeMutation('write', 'config.process[*].datasets[*].num_frames', () => true);
+  const numFramesIf = enclosingIfWithin(numFrames.node, owner);
+  const numFramesCondition = numFramesIf === undefined ? undefined : unwrap(numFramesIf.expression);
+  if (numFramesCondition === undefined || !ts.isPrefixUnaryExpression(numFramesCondition) || sectionFlag(numFramesCondition.operand, nextArchitecture, bindings) !== 'datasets.num_frames' || !exactNumber((numFrames.node as ts.BinaryExpression).right, 1)) fail(numFrames.node, 'handleModelArchChange behavior requires unsupported num_frames reset');
+  const autoFrames = takeMutation('delete', 'config.process[*].datasets[*].auto_frame_count', () => true);
+  const autoFramesIf = enclosingIfWithin(autoFrames.node, owner);
+  const autoFramesCondition = autoFramesIf === undefined ? undefined : unwrap(autoFramesIf.expression);
+  if (autoFramesCondition === undefined || !ts.isPrefixUnaryExpression(autoFramesCondition) || sectionFlag(autoFramesCondition.operand, nextArchitecture, bindings) !== 'datasets.auto_frame_count') fail(autoFrames.node, 'handleModelArchChange behavior requires unsupported auto_frame_count deletion');
+
+  const samplesDeclaration = topLevelMapDeclaration('config.process[*].sample.samples');
+  if (samplesDeclaration === undefined || !ts.isIdentifier(samplesDeclaration.name)) fail(owner, 'handleModelArchChange behavior requires exact sample map binding');
+  takeSetter('config.process[*].sample.samples', call => setterValueBinding(call, samplesDeclaration.name as ts.Identifier));
+  const ctrlImg = takeMutation('delete', 'config.process[*].sample.samples[*].ctrl_img', () => true);
+  const ctrlIf = enclosingIfWithin(ctrlImg.node, owner);
+  const ctrlCondition = ctrlIf === undefined ? undefined : unwrap(ctrlIf.expression);
+  if (ctrlCondition === undefined || !ts.isPrefixUnaryExpression(ctrlCondition) || sectionFlag(ctrlCondition.operand, nextArchitecture, bindings) !== 'sample.ctrl_img') fail(ctrlImg.node, 'handleModelArchChange behavior requires unsupported sample ctrl_img deletion');
+
+  const dynamicSetters = setterCalls.filter(call => call.path === undefined);
+  if (dynamicSetters.length !== 2) fail(owner, 'handleModelArchChange behavior requires exact current/new default setters');
+  const defaultInfo = dynamicSetters.map(call => {
+    const value = unwrap(call.value);
+    const pathArgument = unwrap(call.node.arguments[1]);
+    if (!ts.isElementAccessExpression(value) || value.argumentExpression === undefined) fail(call.node, 'handleModelArchChange behavior requires bound dynamic default key/index');
+    const valueIndex = unwrap(value.argumentExpression);
+    const keyedDefaults = unwrap(value.expression);
+    if (!ts.isNumericLiteral(valueIndex) || !ts.isElementAccessExpression(keyedDefaults) || keyedDefaults.argumentExpression === undefined) fail(call.node, 'handleModelArchChange behavior requires bound dynamic default key/index');
+    const keyedDefaultsKey = unwrap(keyedDefaults.argumentExpression);
+    const container = unwrap(keyedDefaults.expression);
+    if (!ts.isIdentifier(container) || !ts.isIdentifier(pathArgument) || !ts.isIdentifier(keyedDefaultsKey) || !bindings.sameBinding(keyedDefaultsKey, pathArgument)) fail(call.node, 'handleModelArchChange behavior requires bound dynamic default key/index');
+    const index = Number(valueIndex.text);
+    consumedSetters.add(call);
+    return { call, container, index };
+  });
+  const currentDefaults = defaultInfo.find(item => item.index === 1);
+  const newDefaults = defaultInfo.find(item => item.index === 0);
+  if (currentDefaults === undefined || newDefaults === undefined || currentDefaults.call.node.getStart() >= newDefaults.call.node.getStart()) fail(owner, 'handleModelArchChange behavior requires current-default revert before next-default apply');
+  const currentDefaultsInitializer = bindings.declarationInitializer(currentDefaults.container);
+  const newDefaultsInitializer = bindings.declarationInitializer(newDefaults.container);
+  const validateExpandedDefaults = (initializer: ts.Expression | undefined, architecture: ts.Identifier): boolean => {
+    const call = initializer === undefined ? undefined : unwrap(initializer);
+    if (call === undefined || !ts.isCallExpression(call) || !ts.isIdentifier(call.expression) || call.expression.text !== 'expandDatasetDefaults' || call.arguments.length !== 2) return false;
+    const defaults = unwrap(call.arguments[0]);
+    if (!ts.isBinaryExpression(defaults) || defaults.operatorToken.kind !== ts.SyntaxKind.BarBarToken) return false;
+    const fallback = unwrap(defaults.right);
+    const architectureDefaults = unwrap(defaults.left);
+    if (!ts.isObjectLiteralExpression(fallback) || fallback.properties.length !== 0 || !ts.isPropertyAccessExpression(architectureDefaults) || architectureDefaults.name.text !== 'defaults') return false;
+    const base = unwrap(architectureDefaults.expression);
+    return ts.isIdentifier(base) && bindings.isBinding(base, architecture);
+  };
+  if (!validateExpandedDefaults(currentDefaultsInitializer, currentArchitecture) || !validateExpandedDefaults(newDefaultsInitializer, nextArchitecture)) fail(owner, 'handleModelArchChange behavior requires expanded current/new architecture defaults');
+
+  const unsupportedMutation = directMutations.find(mutation => !consumedMutations.has(mutation));
+  if (unsupportedMutation !== undefined) fail(unsupportedMutation.node, `handleModelArchChange unsupported reachable mutation ${unsupportedMutation.operation} ${unsupportedMutation.path}`);
+  const unsupportedSetter = setterCalls.find(call => !consumedSetters.has(call));
+  if (unsupportedSetter !== undefined) fail(unsupportedSetter.node, `handleModelArchChange unsupported reachable mutation setter ${unsupportedSetter.path ?? '<dynamic>'}`);
+
+  const claims: UiSourceClaim[] = [];
+  const add = (symbol: string, path: string, type: UiSourceClaim['value_contract']['ui_type'], behavior: UiBehaviorContract): void => { claims.push(behaviorSettingClaim(sourceName, symbol, path, type, behavior)); };
+  for (const suffix of ['te_name_or_path', 'vae_path'] as const) add(`handleModelArchChange::anima-paths::${suffix}::delete`, `config.process[*].model.${suffix}`, 'path', { guard: 'cleaned-model-changed', operation: 'delete', sources: [`config.process[*].model.${suffix}`], payload: { kind: 'undefined' } });
+  add('handleModelArchChange::low_vram::section-unsupported::write', 'config.process[*].model.low_vram', 'boolean', { guard: 'section-unsupported', operation: 'write', sources: [], payload: { kind: 'literal', value: { kind: 'boolean', value: false } } });
+  for (const suffix of layerDeletePaths) add(`handleModelArchChange::layer-offloading::section-unsupported::${suffix}::delete`, `config.process[*].model.${suffix}`, suffix === 'layer_offloading' ? 'boolean' : 'number', { guard: 'section-unsupported', operation: 'delete', sources: ['config.process[*].model.layer_offloading'], payload: { kind: 'undefined' } });
+  add('handleModelArchChange::layer-offloading::supported-absent::layer_offloading::write', 'config.process[*].model.layer_offloading', 'boolean', { guard: 'section-supported-property-absent', operation: 'write', sources: ['config.process[*].model.layer_offloading'], payload: { kind: 'literal', value: { kind: 'boolean', value: false } } });
+  for (const suffix of ['layer_offloading_text_encoder_percent', 'layer_offloading_transformer_percent'] as const) add(`handleModelArchChange::layer-offloading::supported-absent::${suffix}::write`, `config.process[*].model.${suffix}`, 'number', { guard: 'section-supported-property-absent', operation: 'write', sources: ['config.process[*].model.layer_offloading'], payload: { kind: 'literal', value: { kind: 'number', value: 1 } } });
+  add('handleModelArchChange::architecture::change::write', 'config.process[*].model.arch', 'string', { guard: 'architecture-change', operation: 'write', sources: [], payload: { kind: 'architecture-name' } });
+  add('handleModelArchChange::datasets::controls::write', 'config.process[*].datasets[*].controls', 'string-list', { guard: 'architecture-change', operation: 'write', sources: [], payload: { kind: 'architecture-field', field: 'controls' } });
+  for (const suffix of ['control_path_1', 'control_path_2', 'control_path_3'] as const) add(`handleModelArchChange::datasets::multi-control::${suffix}::initialize`, `config.process[*].datasets[*].${suffix}`, 'path', { guard: 'multi-control', operation: 'write', sources: [`config.process[*].datasets[*].${suffix}`], payload: { kind: 'copy', source_path: `config.process[*].datasets[*].${suffix}`, fallback: { kind: 'null' } } });
+  add('handleModelArchChange::datasets::multi-control::control_path-to-control_path_1::copy', 'config.process[*].datasets[*].control_path_1', 'path', { guard: 'source-nonempty-target-empty', operation: 'write', sources: ['config.process[*].datasets[*].control_path', 'config.process[*].datasets[*].control_path_1'], payload: { kind: 'copy', source_path: 'config.process[*].datasets[*].control_path' } });
+  add('handleModelArchChange::datasets::multi-control::control_path::delete', 'config.process[*].datasets[*].control_path', 'path', { guard: 'multi-control', operation: 'delete', sources: ['config.process[*].datasets[*].control_path'], payload: { kind: 'undefined' } });
+  add('handleModelArchChange::datasets::single-control::control_path::initialize', 'config.process[*].datasets[*].control_path', 'path', { guard: 'single-control', operation: 'write', sources: ['config.process[*].datasets[*].control_path'], payload: { kind: 'copy', source_path: 'config.process[*].datasets[*].control_path', fallback: { kind: 'null' } } });
+  add('handleModelArchChange::datasets::single-control::control_path_1-to-control_path::copy', 'config.process[*].datasets[*].control_path', 'path', { guard: 'source-nonempty', operation: 'write', sources: ['config.process[*].datasets[*].control_path_1'], payload: { kind: 'copy', source_path: 'config.process[*].datasets[*].control_path_1' } });
+  for (const suffix of ['control_path_1', 'control_path_2', 'control_path_3'] as const) add(`handleModelArchChange::datasets::single-control::${suffix}::delete`, `config.process[*].datasets[*].${suffix}`, 'path', { guard: 'single-control', operation: 'delete', sources: [`config.process[*].datasets[*].${suffix}`], payload: { kind: 'undefined' } });
+  for (const suffix of ['control_path', 'control_path_1', 'control_path_2', 'control_path_3'] as const) add(`handleModelArchChange::datasets::no-control::${suffix}::delete`, `config.process[*].datasets[*].${suffix}`, 'path', { guard: 'no-control', operation: 'delete', sources: [`config.process[*].datasets[*].${suffix}`], payload: { kind: 'undefined' } });
+  add('handleModelArchChange::datasets::num_frames::section-unsupported::write', 'config.process[*].datasets[*].num_frames', 'integer', { guard: 'frame-count-unsupported', operation: 'write', sources: [], payload: { kind: 'literal', value: { kind: 'number', value: 1 } } });
+  add('handleModelArchChange::datasets::auto_frame_count::section-unsupported::delete', 'config.process[*].datasets[*].auto_frame_count', 'boolean', { guard: 'auto-frame-count-unsupported', operation: 'delete', sources: [], payload: { kind: 'undefined' } });
+  add('handleModelArchChange::samples::ctrl_img::section-unsupported::delete', 'config.process[*].sample.samples[*].ctrl_img', 'path', { guard: 'sample-control-unsupported', operation: 'delete', sources: [], payload: { kind: 'undefined' } });
+  add('handleModelArchChange::defaults::current::revert', 'config.process[*].model.arch', 'string', { guard: 'revert-current-defaults', operation: 'write', sources: ['config.process[*].model.arch'], payload: { kind: 'architecture-default', phase: 'revert', value_index: 1 } });
+  add('handleModelArchChange::defaults::next::apply', 'config.process[*].model.arch', 'string', { guard: 'apply-next-defaults', operation: 'write', sources: ['config.process[*].model.arch'], payload: { kind: 'architecture-default', phase: 'apply', value_index: 0 } });
+  if (claims.length !== 30) fail(owner, `handleModelArchChange behavior expected 30 facts, found ${claims.length}`);
+  return claims.sort((left, right) => compareCodePoint(left.symbol, right.symbol));
+}
+
 function isProcessEnvironment(expression: ts.Expression): boolean {
   expression = unwrap(expression);
   return ts.isPropertyAccessExpression(expression)
@@ -4142,6 +4639,8 @@ function validateBehaviorPayload(value: unknown, label: string): void {
     requireKeys(value, ['kind', 'source_path', 'item_key'], label);
     if (typeof value.source_path !== 'string' || normalizeTrainingBookPath(value.source_path) !== value.source_path) throw new FactsError(`${label} map-prompt-objects source_path must be canonical`);
     if (value.item_key !== 'prompt') throw new FactsError(`${label}.item_key must equal prompt`);
+  } else if (value.kind === 'architecture-name') {
+    requireKeys(value, ['kind'], label);
   } else if (value.kind === 'architecture-field') {
     requireKeys(value, ['kind', 'field'], label);
     if (value.field !== 'controls') throw new FactsError(`${label}.field must equal controls`);
@@ -4176,6 +4675,7 @@ function validateBehaviorContract(value: unknown, label: string): void {
   const payload = value.payload as Record<string, unknown>;
   if (value.operation === 'delete' && payload.kind !== 'undefined') throw new FactsError(`${label} delete requires undefined payload`);
   if (value.operation === 'write' && payload.kind === 'undefined') throw new FactsError(`${label} write forbids undefined payload`);
+  if (payload.kind === 'architecture-name' && (value.operation !== 'write' || (value.sources as string[]).length !== 0)) throw new FactsError(`${label} architecture-name requires a source-free write`);
   if ((payload.kind === 'copy' || payload.kind === 'map-prompt-objects') && !(value.sources as string[]).includes(String(payload.source_path))) throw new FactsError(`${label} payload source_path must be listed in sources`);
 }
 

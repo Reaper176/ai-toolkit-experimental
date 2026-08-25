@@ -1028,6 +1028,328 @@
       "title": "UiArrayValue",
       "type": "object"
     },
+    "UiBehaviorArchitectureDefaultPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "architecture-default",
+          "title": "Kind",
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "revert",
+            "apply"
+          ],
+          "title": "Phase",
+          "type": "string"
+        },
+        "value_index": {
+          "enum": [
+            0,
+            1
+          ],
+          "title": "Value Index",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "phase",
+        "value_index"
+      ],
+      "title": "UiBehaviorArchitectureDefaultPayload",
+      "type": "object"
+    },
+    "UiBehaviorArchitectureFieldPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "architecture-field",
+          "title": "Kind",
+          "type": "string"
+        },
+        "field": {
+          "const": "controls",
+          "title": "Field",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "field"
+      ],
+      "title": "UiBehaviorArchitectureFieldPayload",
+      "type": "object"
+    },
+    "UiBehaviorArchitectureNamePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "architecture-name",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "UiBehaviorArchitectureNamePayload",
+      "type": "object"
+    },
+    "UiBehaviorContract": {
+      "additionalProperties": false,
+      "properties": {
+        "guard": {
+          "enum": [
+            "prompts-nonempty-array",
+            "after-prompts-write",
+            "type-is-ui-trainer",
+            "property-present",
+            "property-absent",
+            "platform-mac",
+            "cleaned-model-changed",
+            "section-unsupported",
+            "section-supported-property-absent",
+            "architecture-change",
+            "multi-control",
+            "single-control",
+            "no-control",
+            "source-nonempty-target-empty",
+            "source-nonempty",
+            "frame-count-unsupported",
+            "auto-frame-count-unsupported",
+            "sample-control-unsupported",
+            "revert-current-defaults",
+            "apply-next-defaults"
+          ],
+          "title": "Guard",
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "write",
+            "delete"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "payload": {
+          "discriminator": {
+            "mapping": {
+              "architecture-default": "#/$defs/UiBehaviorArchitectureDefaultPayload",
+              "architecture-field": "#/$defs/UiBehaviorArchitectureFieldPayload",
+              "architecture-name": "#/$defs/UiBehaviorArchitectureNamePayload",
+              "copy": "#/$defs/UiBehaviorCopyPayload",
+              "literal": "#/$defs/UiBehaviorLiteralPayload",
+              "map-prompt-objects": "#/$defs/UiBehaviorPromptMapPayload",
+              "undefined": "#/$defs/UiBehaviorUndefinedPayload"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UiBehaviorLiteralPayload"
+            },
+            {
+              "$ref": "#/$defs/UiBehaviorUndefinedPayload"
+            },
+            {
+              "$ref": "#/$defs/UiBehaviorCopyPayload"
+            },
+            {
+              "$ref": "#/$defs/UiBehaviorPromptMapPayload"
+            },
+            {
+              "$ref": "#/$defs/UiBehaviorArchitectureNamePayload"
+            },
+            {
+              "$ref": "#/$defs/UiBehaviorArchitectureFieldPayload"
+            },
+            {
+              "$ref": "#/$defs/UiBehaviorArchitectureDefaultPayload"
+            }
+          ],
+          "title": "Payload"
+        }
+      },
+      "required": [
+        "guard",
+        "operation",
+        "sources",
+        "payload"
+      ],
+      "title": "UiBehaviorContract",
+      "type": "object"
+    },
+    "UiBehaviorCopyPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "copy",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_path": {
+          "title": "Source Path",
+          "type": "string"
+        },
+        "fallback": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "array": "#/$defs/UiArrayValue",
+                  "boolean": "#/$defs/UiBooleanValue",
+                  "null": "#/$defs/UiNullValue",
+                  "number": "#/$defs/UiNumberValue",
+                  "object": "#/$defs/UiObjectValue",
+                  "string": "#/$defs/UiStringValue",
+                  "undefined": "#/$defs/UiUndefinedValue"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/UiUndefinedValue"
+                },
+                {
+                  "$ref": "#/$defs/UiNullValue"
+                },
+                {
+                  "$ref": "#/$defs/UiBooleanValue"
+                },
+                {
+                  "$ref": "#/$defs/UiNumberValue"
+                },
+                {
+                  "$ref": "#/$defs/UiStringValue"
+                },
+                {
+                  "$ref": "#/$defs/UiArrayValue"
+                },
+                {
+                  "$ref": "#/$defs/UiObjectValue"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fallback"
+        }
+      },
+      "required": [
+        "kind",
+        "source_path"
+      ],
+      "title": "UiBehaviorCopyPayload",
+      "type": "object"
+    },
+    "UiBehaviorLiteralPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "literal",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "discriminator": {
+            "mapping": {
+              "array": "#/$defs/UiArrayValue",
+              "boolean": "#/$defs/UiBooleanValue",
+              "null": "#/$defs/UiNullValue",
+              "number": "#/$defs/UiNumberValue",
+              "object": "#/$defs/UiObjectValue",
+              "string": "#/$defs/UiStringValue",
+              "undefined": "#/$defs/UiUndefinedValue"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UiUndefinedValue"
+            },
+            {
+              "$ref": "#/$defs/UiNullValue"
+            },
+            {
+              "$ref": "#/$defs/UiBooleanValue"
+            },
+            {
+              "$ref": "#/$defs/UiNumberValue"
+            },
+            {
+              "$ref": "#/$defs/UiStringValue"
+            },
+            {
+              "$ref": "#/$defs/UiArrayValue"
+            },
+            {
+              "$ref": "#/$defs/UiObjectValue"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "UiBehaviorLiteralPayload",
+      "type": "object"
+    },
+    "UiBehaviorPromptMapPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "map-prompt-objects",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_path": {
+          "title": "Source Path",
+          "type": "string"
+        },
+        "item_key": {
+          "const": "prompt",
+          "title": "Item Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "source_path",
+        "item_key"
+      ],
+      "title": "UiBehaviorPromptMapPayload",
+      "type": "object"
+    },
+    "UiBehaviorUndefinedPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "undefined",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "UiBehaviorUndefinedPayload",
+      "type": "object"
+    },
     "UiBooleanValue": {
       "additionalProperties": false,
       "properties": {
@@ -1659,6 +1981,17 @@
         },
         "value_contract": {
           "$ref": "#/$defs/UiValueContract"
+        },
+        "behavior_contract": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiBehaviorContract"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "fact_type": {
           "const": "source-claim",

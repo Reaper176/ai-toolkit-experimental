@@ -803,6 +803,10 @@ class UiBehaviorPromptMapPayload(_StrictModel):
         return _require_canonical_location(value)
 
 
+class UiBehaviorArchitectureNamePayload(_StrictModel):
+    kind: Literal["architecture-name"]
+
+
 class UiBehaviorArchitectureFieldPayload(_StrictModel):
     kind: Literal["architecture-field"]
     field: Literal["controls"]
@@ -823,6 +827,7 @@ class UiBehaviorArchitectureDefaultPayload(_StrictModel):
 UiBehaviorPayload = Annotated[
     UiBehaviorLiteralPayload | UiBehaviorUndefinedPayload
     | UiBehaviorCopyPayload | UiBehaviorPromptMapPayload
+    | UiBehaviorArchitectureNamePayload
     | UiBehaviorArchitectureFieldPayload
     | UiBehaviorArchitectureDefaultPayload,
     Field(discriminator="kind"),
@@ -861,6 +866,10 @@ class UiBehaviorContract(_StrictModel):
                 raise ValueError("delete requires undefined payload")
         elif isinstance(self.payload, UiBehaviorUndefinedPayload):
             raise ValueError("write forbids undefined payload")
+        if isinstance(self.payload, UiBehaviorArchitectureNamePayload) and (
+            self.operation != "write" or self.sources
+        ):
+            raise ValueError("architecture-name requires a source-free write")
         if isinstance(
             self.payload, (UiBehaviorCopyPayload, UiBehaviorPromptMapPayload)
         ) and self.payload.source_path not in self.sources:

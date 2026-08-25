@@ -14,6 +14,7 @@ import {
   collectCanonicalSetterPathsFromSource,
   collectDeclaredServerGlobalClaimsFromSource,
   collectDeclaredTypeScriptSourcePaths,
+  collectHandleModelArchChangeBehaviorClaimsFromSource,
   collectMigrateJobConfigBehaviorClaimsFromSource,
   collectVisibleControlClaimsFromSource,
   normalizeTrainingBookPath,
@@ -1819,6 +1820,26 @@ try {
     },
   };
   validateTrainingBookUiFacts(behaviorFacts);
+  const architectureNameFacts = structuredClone(serialized);
+  architectureNameFacts.config_claims[0].behavior_contract = {
+    guard: 'architecture-change',
+    operation: 'write',
+    sources: [],
+    payload: { kind: 'architecture-name' },
+  };
+  validateTrainingBookUiFacts(architectureNameFacts);
+  for (const [label, mutate, expectedError] of [
+    ['source', (contract: any) => { contract.sources = ['config.process[*].model.arch']; }, /architecture-name.*source-free write/],
+    ['delete operation', (contract: any) => { contract.operation = 'delete'; }, /delete requires undefined/],
+  ] as const) {
+    const invalidArchitectureName = structuredClone(architectureNameFacts);
+    mutate(invalidArchitectureName.config_claims[0].behavior_contract);
+    assert.throws(
+      () => validateTrainingBookUiFacts(invalidArchitectureName),
+      expectedError,
+      `architecture-name behavior rejects ${label}`,
+    );
+  }
   for (const [label, mutate, expectedError] of [
     ['unknown operation', (contract: any) => { contract.operation = 'rename'; }, /operation/],
     ['noncanonical source', (contract: any) => { contract.sources = ['config.process[0].sample.prompts']; }, /sources.*canonical/],
@@ -2262,6 +2283,241 @@ if (liveRoot !== undefined) {
     ),
     migrateClaims,
     'comments and inert strings cannot create migration behavior facts',
+  );
+  const modelArchChangeSource = readFileSync(
+    join(liveRoot, 'ui/src/app/jobs/new/utils.ts'),
+    'utf8',
+  );
+  const animaPathSource = readFileSync(
+    join(liveRoot, 'ui/src/helpers/animaModelPaths.ts'),
+    'utf8',
+  );
+  const architectureClaims = collectHandleModelArchChangeBehaviorClaimsFromSource(
+    modelArchChangeSource,
+    animaPathSource,
+    'ui/src/app/jobs/new/utils.ts',
+    'ui/src/helpers/animaModelPaths.ts',
+  );
+  const architectureSummary = architectureClaims.map(claim => ({
+    symbol: claim.symbol,
+    path: claim.path,
+    behavior: claim.behavior_contract,
+  }));
+  const architectureExpected = [
+    {
+      symbol: 'handleModelArchChange::anima-paths::te_name_or_path::delete',
+      path: 'config.process[*].model.te_name_or_path',
+      behavior: { guard: 'cleaned-model-changed', operation: 'delete', sources: ['config.process[*].model.te_name_or_path'], payload: { kind: 'undefined' } },
+    },
+    {
+      symbol: 'handleModelArchChange::anima-paths::vae_path::delete',
+      path: 'config.process[*].model.vae_path',
+      behavior: { guard: 'cleaned-model-changed', operation: 'delete', sources: ['config.process[*].model.vae_path'], payload: { kind: 'undefined' } },
+    },
+    {
+      symbol: 'handleModelArchChange::low_vram::section-unsupported::write',
+      path: 'config.process[*].model.low_vram',
+      behavior: { guard: 'section-unsupported', operation: 'write', sources: [], payload: { kind: 'literal', value: { kind: 'boolean', value: false } } },
+    },
+    ...[
+      'layer_offloading',
+      'layer_offloading_text_encoder_percent',
+      'layer_offloading_transformer_percent',
+    ].map(path => ({
+      symbol: `handleModelArchChange::layer-offloading::section-unsupported::${path}::delete`,
+      path: `config.process[*].model.${path}`,
+      behavior: {
+        guard: 'section-unsupported', operation: 'delete',
+        sources: ['config.process[*].model.layer_offloading'],
+        payload: { kind: 'undefined' },
+      },
+    })),
+    {
+      symbol: 'handleModelArchChange::layer-offloading::supported-absent::layer_offloading::write',
+      path: 'config.process[*].model.layer_offloading',
+      behavior: { guard: 'section-supported-property-absent', operation: 'write', sources: ['config.process[*].model.layer_offloading'], payload: { kind: 'literal', value: { kind: 'boolean', value: false } } },
+    },
+    ...[
+      'layer_offloading_text_encoder_percent',
+      'layer_offloading_transformer_percent',
+    ].map(path => ({
+      symbol: `handleModelArchChange::layer-offloading::supported-absent::${path}::write`,
+      path: `config.process[*].model.${path}`,
+      behavior: { guard: 'section-supported-property-absent', operation: 'write', sources: ['config.process[*].model.layer_offloading'], payload: { kind: 'literal', value: { kind: 'number', value: 1 } } },
+    })),
+    {
+      symbol: 'handleModelArchChange::architecture::change::write',
+      path: 'config.process[*].model.arch',
+      behavior: { guard: 'architecture-change', operation: 'write', sources: [], payload: { kind: 'architecture-name' } },
+    },
+    {
+      symbol: 'handleModelArchChange::datasets::controls::write',
+      path: 'config.process[*].datasets[*].controls',
+      behavior: { guard: 'architecture-change', operation: 'write', sources: [], payload: { kind: 'architecture-field', field: 'controls' } },
+    },
+    ...['control_path_1', 'control_path_2', 'control_path_3'].map(path => ({
+      symbol: `handleModelArchChange::datasets::multi-control::${path}::initialize`,
+      path: `config.process[*].datasets[*].${path}`,
+      behavior: { guard: 'multi-control', operation: 'write', sources: [`config.process[*].datasets[*].${path}`], payload: { kind: 'copy', source_path: `config.process[*].datasets[*].${path}`, fallback: { kind: 'null' } } },
+    })),
+    {
+      symbol: 'handleModelArchChange::datasets::multi-control::control_path-to-control_path_1::copy',
+      path: 'config.process[*].datasets[*].control_path_1',
+      behavior: { guard: 'source-nonempty-target-empty', operation: 'write', sources: ['config.process[*].datasets[*].control_path', 'config.process[*].datasets[*].control_path_1'], payload: { kind: 'copy', source_path: 'config.process[*].datasets[*].control_path' } },
+    },
+    {
+      symbol: 'handleModelArchChange::datasets::multi-control::control_path::delete',
+      path: 'config.process[*].datasets[*].control_path',
+      behavior: { guard: 'multi-control', operation: 'delete', sources: ['config.process[*].datasets[*].control_path'], payload: { kind: 'undefined' } },
+    },
+    {
+      symbol: 'handleModelArchChange::datasets::single-control::control_path::initialize',
+      path: 'config.process[*].datasets[*].control_path',
+      behavior: { guard: 'single-control', operation: 'write', sources: ['config.process[*].datasets[*].control_path'], payload: { kind: 'copy', source_path: 'config.process[*].datasets[*].control_path', fallback: { kind: 'null' } } },
+    },
+    {
+      symbol: 'handleModelArchChange::datasets::single-control::control_path_1-to-control_path::copy',
+      path: 'config.process[*].datasets[*].control_path',
+      behavior: { guard: 'source-nonempty', operation: 'write', sources: ['config.process[*].datasets[*].control_path_1'], payload: { kind: 'copy', source_path: 'config.process[*].datasets[*].control_path_1' } },
+    },
+    ...['control_path_1', 'control_path_2', 'control_path_3'].map(path => ({
+      symbol: `handleModelArchChange::datasets::single-control::${path}::delete`,
+      path: `config.process[*].datasets[*].${path}`,
+      behavior: { guard: 'single-control', operation: 'delete', sources: [`config.process[*].datasets[*].${path}`], payload: { kind: 'undefined' } },
+    })),
+    ...['control_path', 'control_path_1', 'control_path_2', 'control_path_3'].map(path => ({
+      symbol: `handleModelArchChange::datasets::no-control::${path}::delete`,
+      path: `config.process[*].datasets[*].${path}`,
+      behavior: { guard: 'no-control', operation: 'delete', sources: [`config.process[*].datasets[*].${path}`], payload: { kind: 'undefined' } },
+    })),
+    {
+      symbol: 'handleModelArchChange::datasets::num_frames::section-unsupported::write',
+      path: 'config.process[*].datasets[*].num_frames',
+      behavior: { guard: 'frame-count-unsupported', operation: 'write', sources: [], payload: { kind: 'literal', value: { kind: 'number', value: 1 } } },
+    },
+    {
+      symbol: 'handleModelArchChange::datasets::auto_frame_count::section-unsupported::delete',
+      path: 'config.process[*].datasets[*].auto_frame_count',
+      behavior: { guard: 'auto-frame-count-unsupported', operation: 'delete', sources: [], payload: { kind: 'undefined' } },
+    },
+    {
+      symbol: 'handleModelArchChange::samples::ctrl_img::section-unsupported::delete',
+      path: 'config.process[*].sample.samples[*].ctrl_img',
+      behavior: { guard: 'sample-control-unsupported', operation: 'delete', sources: [], payload: { kind: 'undefined' } },
+    },
+    {
+      symbol: 'handleModelArchChange::defaults::current::revert',
+      path: 'config.process[*].model.arch',
+      behavior: { guard: 'revert-current-defaults', operation: 'write', sources: ['config.process[*].model.arch'], payload: { kind: 'architecture-default', phase: 'revert', value_index: 1 } },
+    },
+    {
+      symbol: 'handleModelArchChange::defaults::next::apply',
+      path: 'config.process[*].model.arch',
+      behavior: { guard: 'apply-next-defaults', operation: 'write', sources: ['config.process[*].model.arch'], payload: { kind: 'architecture-default', phase: 'apply', value_index: 0 } },
+    },
+  ].sort((left, right) => left.symbol < right.symbol ? -1 : left.symbol > right.symbol ? 1 : 0);
+  assert.equal(architectureExpected.length, 30, 'architecture behavior inventory is exact');
+  assert.deepEqual(
+    architectureSummary,
+    architectureExpected,
+    'handleModelArchChange emits one exact semantic fact per reachable transition mutation',
+  );
+  for (const [label, mutatedSource, mutatedHelper = animaPathSource] of [
+    ['low-vram section guard', modelArchChangeSource.replace("includes('model.low_vram')", "includes('model.other')")],
+    ['low-vram value', modelArchChangeSource.replace("setJobConfig(false, 'config.process[0].model.low_vram')", "setJobConfig(true, 'config.process[0].model.low_vram')")],
+    ['layer delete target', modelArchChangeSource.replace('delete newModel.layer_offloading_transformer_percent', 'delete newModel.other_percent')],
+    ['layer initialization value', modelArchChangeSource.replace("setJobConfig(1.0, 'config.process[0].model.layer_offloading_text_encoder_percent')", "setJobConfig(0.5, 'config.process[0].model.layer_offloading_text_encoder_percent')")],
+    ['selected architecture binding', modelArchChangeSource.replace("setJobConfig(newArchName, 'config.process[0].model.arch')", "setJobConfig(currentArchName, 'config.process[0].model.arch')")],
+    ['architecture controls source', modelArchChangeSource.replace('const controls = newArch?.controls ?? []', 'const controls = currentArch?.controls ?? []')],
+    ['multi-control copy source', modelArchChangeSource.replace('newDataset.control_path_1 = newDataset.control_path;', 'newDataset.control_path_1 = newDataset.control_path_2;')],
+    ['dataset aggregate commit', modelArchChangeSource.replace("setJobConfig(datasets, 'config.process[0].datasets')", "setJobConfig(otherDatasets, 'config.process[0].datasets')")],
+    ['frame reset value', modelArchChangeSource.replace('newDataset.num_frames = 1;', 'newDataset.num_frames = 2;')],
+    ['sample cleanup target', modelArchChangeSource.replace('delete newSample.ctrl_img;', 'delete newSample.prompt;')],
+    ['current default index', modelArchChangeSource.replace('setJobConfig(currentDefaults[key][1], key);', 'setJobConfig(currentDefaults[key][0], key);')],
+    ['next default index', modelArchChangeSource.replace('setJobConfig(newDefaults[key][0], key);', 'setJobConfig(newDefaults[key][1], key);')],
+    ['added reachable setter', modelArchChangeSource.replace(
+      "  // update samples",
+      "  setJobConfig(99, 'config.process[0].train.steps');\n\n  // update samples",
+    )],
+    ['export binding', modelArchChangeSource.replace('export const handleModelArchChange', 'const handleModelArchChange')],
+    ['architecture import binding', modelArchChangeSource.replace("from './options'", "from './otherOptions'")],
+    ['cleanup import binding', modelArchChangeSource.replace("from '@/helpers/animaModelPaths'", "from '@/helpers/otherAnimaPaths'")],
+    ['shadowed setter', modelArchChangeSource.replace(
+      "    setJobConfig(false, 'config.process[0].model.low_vram');",
+      "    const setJobConfig = otherSetter;\n    setJobConfig(false, 'config.process[0].model.low_vram');",
+    )],
+    ['helper section guard', modelArchChangeSource, animaPathSource.replace("'model.te_name_or_path'", "'model.other_path'")],
+    ['helper delete target', modelArchChangeSource, animaPathSource.replace('delete cleaned.vae_path', 'delete cleaned.te_name_or_path')],
+  ] as const) {
+    assert.throws(
+      () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+        mutatedSource,
+        mutatedHelper,
+        'ui/src/app/jobs/new/utils.ts',
+        'ui/src/helpers/animaModelPaths.ts',
+      ),
+      /handleModelArchChange.*behavior|unsupported reachable mutation|Anima path behavior/,
+      `handleModelArchChange rejects changed ${label}`,
+    );
+  }
+  const defaultLoops = `  // revert defaults from previous model
+  for (const key in currentDefaults) {
+    setJobConfig(currentDefaults[key][1], key);
+  }
+
+  for (const key in newDefaults) {
+    setJobConfig(newDefaults[key][0], key);
+  }`;
+  const reversedDefaultLoops = `  for (const key in newDefaults) {
+    setJobConfig(newDefaults[key][0], key);
+  }
+
+  // revert defaults from previous model
+  for (const key in currentDefaults) {
+    setJobConfig(currentDefaults[key][1], key);
+  }`;
+  assert.throws(
+    () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      modelArchChangeSource.replace(defaultLoops, reversedDefaultLoops),
+      animaPathSource,
+    ),
+    /handleModelArchChange.*behavior/,
+    'previous defaults must be reverted before new defaults are applied',
+  );
+  assert.deepEqual(
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      `${modelArchChangeSource}\nfunction sibling(setJobConfig) { setJobConfig(3, 'config.process[0].train.steps'); }`,
+      animaPathSource,
+    ),
+    architectureClaims,
+    'sibling-function setters do not cross the exact architecture handler boundary',
+  );
+  assert.deepEqual(
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      modelArchChangeSource.replace(
+        '  // update samples',
+        "  if (false) setJobConfig(3, 'config.process[0].train.steps');\n\n  // update samples",
+      ),
+      animaPathSource,
+    ),
+    architectureClaims,
+    'statically dead setters do not alter architecture behavior facts',
+  );
+  assert.deepEqual(
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      modelArchChangeSource
+        .replaceAll('currentModel', 'priorModel')
+        .replaceAll('cleanedModel', 'sanitizedModel')
+        .replace('const controls =', 'const archControls =')
+        .replace('newDataset.controls = controls;', 'newDataset.controls = archControls;')
+        .replace('const datasets =', 'const updatedDatasets =')
+        .replace("setJobConfig(datasets, 'config.process[0].datasets')", "setJobConfig(updatedDatasets, 'config.process[0].datasets')")
+        .replace('const samples =', 'const updatedSamples =')
+        .replace("setJobConfig(samples, 'config.process[0].sample.samples')", "setJobConfig(updatedSamples, 'config.process[0].sample.samples')"),
+      animaPathSource,
+    ),
+    architectureClaims,
+    'harmless local binding renames preserve semantic architecture identities',
   );
   const liveSimpleJobSource = readFileSync(join(liveRoot, 'ui/src/app/jobs/new/SimpleJob.tsx'), 'utf8');
   validateArchitectureProjectedControlTemplates(liveSimpleJobSource, 'ui/src/app/jobs/new/SimpleJob.tsx', true, true);

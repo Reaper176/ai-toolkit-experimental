@@ -1874,6 +1874,29 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             behavior,
         )
 
+        architecture_name = deepcopy(data)
+        architecture_name["config_claims"][0]["behavior_contract"] = {
+            "guard": "architecture-change",
+            "operation": "write",
+            "sources": [],
+            "payload": {"kind": "architecture-name"},
+        }
+        validate_training_book_ui_facts(architecture_name)
+        for label, mutate in {
+            "source": lambda item: item.update(
+                sources=["config.process[*].model.arch"]
+            ),
+            "delete operation": lambda item: item.update(operation="delete"),
+        }.items():
+            with self.subTest(architecture_name=label):
+                invalid = deepcopy(architecture_name)
+                mutate(invalid["config_claims"][0]["behavior_contract"])
+                with self.assertRaisesRegex(
+                    CatalogError,
+                    "architecture-name.*source-free write|delete requires undefined",
+                ):
+                    validate_training_book_ui_facts(invalid)
+
         invalid_cases = {
             "unknown operation": (
                 lambda item: item.update(operation="rename"), "operation",
