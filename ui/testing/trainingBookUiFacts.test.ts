@@ -2325,6 +2325,73 @@ if (liveRoot !== undefined) {
     ['platform helper alias before declaration', migrateJobConfigSource
       .replace('  if (isMac()) {', '  if (platformCheck()) {')
       .replace('  return jobConfig;', '  const platformCheck = isMac;\n  return jobConfig;')],
+    ['local helper call invocation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  function mutate(config) { config.config.process[0].train.steps = 99; }\n  mutate.call(null, jobConfig);\n  return jobConfig;',
+    )],
+    ['local helper finite apply invocation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  function mutate(config) { config.config.process[0].train.steps = 99; }\n  mutate.apply(null, [jobConfig]);\n  return jobConfig;',
+    )],
+    ['local helper immediate bind invocation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  function mutate(config) { config.config.process[0].train.steps = 99; }\n  mutate.bind(null, jobConfig)();\n  return jobConfig;',
+    )],
+    ['local helper dynamic apply invocation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  function mutate(config) { config.config.process[0].train.steps = 99; }\n  mutate.apply(null, runtimeArgs);\n  return jobConfig;',
+    )],
+    ['Object.assign config mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  Object.assign(jobConfig.config.process[0].train, { steps: 99 });\n  return jobConfig;',
+    )],
+    ['Object.defineProperty config mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      "  Object.defineProperty(jobConfig.config.process[0].train, 'steps', { value: 99 });\n  return jobConfig;",
+    )],
+    ['Object.defineProperties config mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  Object.defineProperties(jobConfig.config.process[0].train, { steps: { value: 99 } });\n  return jobConfig;',
+    )],
+    ['Reflect.set config mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      "  Reflect.set(jobConfig.config.process[0].train, 'steps', 99);\n  return jobConfig;",
+    )],
+    ['Reflect.deleteProperty config mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      "  Reflect.deleteProperty(jobConfig.config.process[0].train, 'steps');\n  return jobConfig;",
+    )],
+    ['aliased Object.assign config mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  const assignConfig = Object.assign;\n  const trainConfig = jobConfig.config.process[0].train;\n  assignConfig(trainConfig, { steps: 99 });\n  return jobConfig;',
+    )],
+    ['Object.assign call config mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  Object.assign.call(null, jobConfig.config.process[0].train, { steps: 99 });\n  return jobConfig;',
+    )],
+    ['Object.assign finite apply config mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  Object.assign.apply(null, [jobConfig.config.process[0].train, { steps: 99 }]);\n  return jobConfig;',
+    )],
+    ['prompt accumulator alias mutation', migrateJobConfigSource.replace(
+      '    jobConfig.config.process[0].sample.samples = newSamples;',
+      '    const sampleAccumulator = newSamples;\n    sampleAccumulator.reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;',
+    )],
+    ['prompt accumulator alias API mutation', migrateJobConfigSource.replace(
+      '    jobConfig.config.process[0].sample.samples = newSamples;',
+      "    const sampleAccumulator = newSamples;\n    Reflect.set(sampleAccumulator, '0', { prompt: 'extra' });\n    jobConfig.config.process[0].sample.samples = newSamples;",
+    )],
+    ['prompt element alias mutation', migrateJobConfigSource.replace(
+      '    jobConfig.config.process[0].sample.samples = newSamples;',
+      "    const firstSample = newSamples[0];\n    firstSample.seed = 1;\n    jobConfig.config.process[0].sample.samples = newSamples;",
+    )],
+    ['prompt item alias extra field', migrateJobConfigSource.replace(
+      `      newSamples.push({
+        prompt: prompt,
+      });`,
+      `      const sampleItem = { prompt: prompt, seed: 1 };
+      newSamples.push(sampleItem);`,
+    )],
     ['export binding', migrateJobConfigSource.replace('export const migrateJobConfig', 'const migrateJobConfig')],
     ['added reachable mutation', migrateJobConfigSource.replace(
       '  return jobConfig;',
@@ -2336,7 +2403,7 @@ if (liveRoot !== undefined) {
         mutated,
         'ui/src/app/jobs/new/jobConfig.ts',
       ),
-      /migrateJobConfig.*behavior|unsupported reachable mutation/,
+      /migrateJobConfig.*behavior|unsupported reachable mutation|unsupported local invocation/,
       `migrateJobConfig rejects changed ${label}`,
     );
   }
@@ -2402,6 +2469,50 @@ if (liveRoot !== undefined) {
     migrateClaims,
     'source-ordered aliases of the exact isMac import preserve platform behavior',
   );
+  const aliasedPromptMapping = migrateJobConfigSource.replace(
+    `      newSamples.push({
+        prompt: prompt,
+      });`,
+    `      const sampleItem = { prompt: prompt };
+      const sampleAccumulator = newSamples;
+      sampleAccumulator.push(sampleItem);`,
+  );
+  assert.deepEqual(
+    collectMigrateJobConfigBehaviorClaimsFromSource(aliasedPromptMapping, 'ui/src/app/jobs/new/jobConfig.ts'),
+    migrateClaims,
+    'exact accumulator and prompt-item aliases preserve one-to-one prompt mapping',
+  );
+  for (const [label, insertion] of [
+    ['call', '  function inspect(config) {}\n  inspect.call(null, jobConfig);\n'],
+    ['literal apply', '  function inspect(config) {}\n  inspect.apply(null, [jobConfig]);\n'],
+    ['tuple apply', '  function inspect(config) {}\n  const inspectArgs = [jobConfig] as const;\n  inspect.apply(null, inspectArgs);\n'],
+    ['immediate bind', '  function inspect(config) {}\n  inspect.bind(null, jobConfig)();\n'],
+    ['dead dynamic apply', '  function inspect(config) {}\n  if (false) inspect.apply(null, runtimeArgs);\n'],
+  ] as const) {
+    assert.deepEqual(
+      collectMigrateJobConfigBehaviorClaimsFromSource(
+        migrateJobConfigSource.replace('  return jobConfig;', `${insertion}  return jobConfig;`),
+        'ui/src/app/jobs/new/jobConfig.ts',
+      ),
+      migrateClaims,
+      `finite local helper ${label} invocation preserves migration facts`,
+    );
+  }
+  for (const [label, insertion] of [
+    ['unrelated global API', '  Object.assign({}, { steps: 99 });\n'],
+    ['dead global API', '  if (false) Object.assign(jobConfig.config.process[0].train, { steps: 99 });\n'],
+    ['shadowed API', '  const Object = { assign: (target, value) => target };\n  Object.assign(jobConfig.config.process[0].train, { steps: 99 });\n'],
+    ['rebound API alias', '  let assignConfig = Object.assign;\n  assignConfig = (target, value) => target;\n  assignConfig(jobConfig.config.process[0].train, { steps: 99 });\n'],
+  ] as const) {
+    assert.deepEqual(
+      collectMigrateJobConfigBehaviorClaimsFromSource(
+        migrateJobConfigSource.replace('  return jobConfig;', `${insertion}  return jobConfig;`),
+        'ui/src/app/jobs/new/jobConfig.ts',
+      ),
+      migrateClaims,
+      `${label} does not masquerade as an exact global config mutation API`,
+    );
+  }
   const modelArchChangeSource = readFileSync(
     join(liveRoot, 'ui/src/app/jobs/new/utils.ts'),
     'utf8',
@@ -2627,6 +2738,30 @@ if (liveRoot !== undefined) {
       "    setJobConfig(false, 'config.process[0].model.low_vram');",
       "    commit(false, 'config.process[0].model.low_vram');\n    const commit = setJobConfig;",
     )],
+    ['setter call invocation', modelArchChangeSource.replace(
+      '  // update samples',
+      "  setJobConfig.call(null, 99, 'config.process[0].train.steps');\n\n  // update samples",
+    )],
+    ['setter finite apply invocation', modelArchChangeSource.replace(
+      '  // update samples',
+      "  setJobConfig.apply(null, [99, 'config.process[0].train.steps']);\n\n  // update samples",
+    )],
+    ['setter immediate bind invocation', modelArchChangeSource.replace(
+      '  // update samples',
+      "  setJobConfig.bind(null, 99)('config.process[0].train.steps');\n\n  // update samples",
+    )],
+    ['setter dynamic apply invocation', modelArchChangeSource.replace(
+      '  // update samples',
+      '  setJobConfig.apply(null, runtimeArgs);\n\n  // update samples',
+    )],
+    ['Object.assign architecture config mutation', modelArchChangeSource.replace(
+      '  // update samples',
+      '  Object.assign(jobConfig.config.process[0].train, { steps: 99 });\n\n  // update samples',
+    )],
+    ['Reflect.set architecture config mutation', modelArchChangeSource.replace(
+      '  // update samples',
+      "  Reflect.set(jobConfig.config.process[0].train, 'steps', 99);\n\n  // update samples",
+    )],
     ['arrow IIFE setter', modelArchChangeSource.replace(
       '  // update samples',
       "  (() => setJobConfig(99, 'config.process[0].train.steps'))();\n\n  // update samples",
@@ -2672,6 +2807,22 @@ if (liveRoot !== undefined) {
       "    if ('layer_offloading' in jobConfig.config.process[0].model) {\n      const newModel = objectCopy(cleanedModel);",
       "    if ('layer_offloading' in jobConfig.config.process[0].model) {}\n    {\n      const newModel = objectCopy(cleanedModel);",
     )],
+    ['helper cleaned alias extra mutation', modelArchChangeSource, animaPathSource.replace(
+      '  return cleaned;',
+      "  const target = cleaned;\n  target.other_path = 'changed';\n  return cleaned;",
+    )],
+    ['helper model alias mutation', modelArchChangeSource, animaPathSource.replace(
+      '  const cleaned = { ...model };',
+      "  const sourceModel = model;\n  sourceModel.other_path = 'changed';\n  const cleaned = { ...model };",
+    )],
+    ['helper cleaned API mutation', modelArchChangeSource, animaPathSource.replace(
+      '  return cleaned;',
+      "  Object.defineProperty(cleaned, 'other_path', { value: 'changed' });\n  return cleaned;",
+    )],
+    ['helper required delete runtime wrapper', modelArchChangeSource, animaPathSource.replace(
+      '  if (!supportsVaePath) delete cleaned.vae_path;',
+      '  if (additionalSections) {\n    if (!supportsVaePath) delete cleaned.vae_path;\n  }',
+    )],
   ] as const) {
     assert.throws(
       () => collectHandleModelArchChangeBehaviorClaimsFromSource(
@@ -2680,7 +2831,7 @@ if (liveRoot !== undefined) {
         'ui/src/app/jobs/new/utils.ts',
         'ui/src/helpers/animaModelPaths.ts',
       ),
-      /handleModelArchChange.*behavior|unsupported reachable mutation|Anima path behavior/,
+      /handleModelArchChange.*behavior|unsupported reachable mutation|unsupported local invocation|Anima path behavior/,
       `handleModelArchChange rejects changed ${label}`,
     );
   }
@@ -2781,6 +2932,40 @@ if (liveRoot !== undefined) {
     ),
     architectureClaims,
     'statically dead Anima returns do not alter helper behavior',
+  );
+  for (const [label, transformed] of [
+    ['call', modelArchChangeSource.replace(
+      "setJobConfig(false, 'config.process[0].model.low_vram');",
+      "setJobConfig.call(null, false, 'config.process[0].model.low_vram');",
+    )],
+    ['literal apply', modelArchChangeSource.replace(
+      "setJobConfig(false, 'config.process[0].model.low_vram');",
+      "setJobConfig.apply(null, [false, 'config.process[0].model.low_vram']);",
+    )],
+    ['tuple apply', modelArchChangeSource.replace(
+      "setJobConfig(false, 'config.process[0].model.low_vram');",
+      "const lowVramArgs = [false, 'config.process[0].model.low_vram'] as const;\n    setJobConfig.apply(null, lowVramArgs);",
+    )],
+    ['immediate bind', modelArchChangeSource.replace(
+      "setJobConfig(false, 'config.process[0].model.low_vram');",
+      "setJobConfig.bind(null, false)('config.process[0].model.low_vram');",
+    )],
+  ] as const) {
+    assert.deepEqual(
+      collectHandleModelArchChangeBehaviorClaimsFromSource(transformed, animaPathSource),
+      architectureClaims,
+      `finite setter ${label} invocation preserves architecture facts`,
+    );
+  }
+  assert.deepEqual(
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      modelArchChangeSource,
+      animaPathSource
+        .replace('  const cleaned = { ...model };', '  const cleaned = { ...model };\n  const target = cleaned;')
+        .replaceAll('delete cleaned.', 'delete target.'),
+    ),
+    architectureClaims,
+    'exact cleaned-model aliases preserve required Anima deletions',
   );
   for (const [label, insertion] of [
     ['uninvoked local function', "  function dormant() { setJobConfig(99, 'config.process[0].train.steps'); }\n"],
