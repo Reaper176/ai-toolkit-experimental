@@ -2621,6 +2621,73 @@ if (liveRoot !== undefined) {
     { missingRejects: [], positiveFailures: [] },
     'finite aggregate relevance consumes the shared provenance lattice',
   );
+  const boundedFactsRejection = (label: string, run: () => unknown): string | undefined => {
+    const started = Date.now();
+    try {
+      run();
+      return `${label}: accepted`;
+    } catch (error) {
+      const elapsed = Date.now() - started;
+      if (error instanceof RangeError) return `${label}: RangeError after ${elapsed}ms`;
+      if (!(error instanceof Error) || error.constructor.name !== 'FactsError') return `${label}: ${String(error)}`;
+      if (elapsed > 2_000) return `${label}: FactsError took ${elapsed}ms`;
+      return undefined;
+    }
+  };
+  const runtimeLogicalFailures = [
+    ['runtime && config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const targets = runtimeCondition && [jobConfig];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['runtime || config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const targets = runtimeCondition || [jobConfig];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['runtime ?? config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const targets = runtimeCondition ?? [jobConfig];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['static true && config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const targets = true && [jobConfig];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['same-origin runtime logical config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const candidate = [jobConfig];\n  const targets = candidate || candidate;\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['helper runtime logical config aggregate', summaryMigrateSource.replace('  return jobConfig;', "  function selectTargets() { return runtimeCondition && [jobConfig]; }\n  selectTargets()[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['runtime && prompt aggregate', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    const targets = runtimeCondition && [newSamples];\n    targets[runtimeIndex].reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+    ['helper runtime nullish prompt aggregate', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    function selectTargets() { return runtimeCondition ?? [newSamples]; }\n    selectTargets()[runtimeIndex].reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  for (const [label, insertion] of [
+    ['runtime || setter aggregate', "  const setters = runtimeCondition || [setJobConfig];\n  setters[runtimeIndex](99, 'config.process[0].train.steps');\n"],
+    ['helper runtime logical setter aggregate', "  function selectSetters() { return runtimeCondition && [setJobConfig]; }\n  selectSetters()[runtimeIndex](99, 'config.process[0].train.steps');\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', `${insertion}\n  // update samples`),
+      summaryAnimaSource,
+    ));
+    if (failure !== undefined) runtimeLogicalFailures.push(failure);
+  }
+  for (const [label, insertion] of [
+    ['runtime ?? model aggregate', "  const targets = runtimeCondition ?? [cleaned];\n  delete targets[runtimeIndex].other_path;\n"],
+    ['helper runtime logical model aggregate', "  function selectTargets() { return runtimeCondition || [cleaned]; }\n  delete selectTargets()[runtimeIndex].other_path;\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', `${insertion}  return cleaned;`),
+    ));
+    if (failure !== undefined) runtimeLogicalFailures.push(failure);
+  }
+  const stableProjectionFailures = [
+    ['runtime object default projection', summaryMigrateSource.replace('  return jobConfig;', "  const { targets = [jobConfig] } = runtimeHolder;\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['runtime array default projection', summaryMigrateSource.replace('  return jobConfig;', "  const [targets = [jobConfig]] = runtimeTargets;\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['runtime object projection', summaryMigrateSource.replace('  return jobConfig;', "  const { targets } = runtimeHolder;\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['runtime array projection', summaryMigrateSource.replace('  return jobConfig;', "  const [targets] = runtimeTargets;\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['nested runtime object default projection', summaryMigrateSource.replace('  return jobConfig;', "  const { nested: { targets = [jobConfig] } = {} } = runtimeHolder;\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['multiple runtime object default projections', summaryMigrateSource.replace('  return jobConfig;', "  const { values = [1], targets = [jobConfig] } = runtimeHolder;\n  values;\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['separate static member projection keys', summaryMigrateSource.replace('  return jobConfig;', "  const holder = { values: [1], targets: [jobConfig] };\n  const { values, targets } = holder;\n  otherObject.value = values[runtimeIndex];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['cyclic member default projection', summaryMigrateSource.replace('  return jobConfig;', "  const holder = {};\n  holder.targets = holder.targets;\n  const { targets = [jobConfig] } = holder;\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  const staticLogicalPositiveFailures = [
+    ['static false && excludes aggregate', "  const targets = false && [jobConfig];\n  otherObject.value = targets;\n  if (isMac()) {"],
+    ['static true || excludes aggregate', "  const targets = true || [jobConfig];\n  otherObject.value = targets;\n  if (isMac()) {"],
+    ['static nonnull ?? excludes aggregate', "  const targets = 0 ?? [jobConfig];\n  otherObject.value = targets;\n  if (isMac()) {"],
+    ['separate harmless projection keys', "  const holder = { values: [1], others: [2] };\n  const { values, others } = holder;\n  otherObject.value = [values[runtimeIndex], others[runtimeIndex]];\n  if (isMac()) {"],
+  ].flatMap(([label, replacement]) => {
+    try { assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts); return []; }
+    catch { return [label]; }
+  });
+  assert.deepEqual(
+    { runtimeLogicalFailures, stableProjectionFailures, staticLogicalPositiveFailures },
+    { runtimeLogicalFailures: [], stableProjectionFailures: [], staticLogicalPositiveFailures: [] },
+    'runtime logical joins and destructuring projections fail closed with bounded completion',
+  );
   assert.equal(summaryArchFacts.length, 30);
   assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));

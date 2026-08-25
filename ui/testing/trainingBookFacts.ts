@@ -516,12 +516,38 @@ class LexicalBindings {
     sequence: number;
     current: ts.FunctionLikeDeclaration;
   }>>();
+  private readonly memberProjections = new WeakMap<ts.Expression, Map<string, ts.ElementAccessExpression>>();
+  private readonly projectedMembers = new WeakSet<ts.Expression>();
   private activeMemberTimelineBuildDepth = 0;
 
   constructor(private readonly source: ts.SourceFile) {}
 
   isBuildingMemberTimeline(): boolean {
     return this.activeMemberTimelineBuildDepth > 0;
+  }
+
+  stableMemberProjection(base: ts.Expression, key: string | number): ts.ElementAccessExpression {
+    base = unwrap(base);
+    const canonicalKey = String(key);
+    let projections = this.memberProjections.get(base);
+    if (projections === undefined) {
+      projections = new Map();
+      this.memberProjections.set(base, projections);
+    }
+    let projection = projections.get(canonicalKey);
+    if (projection === undefined) {
+      projection = ts.factory.createElementAccessExpression(
+        base,
+        typeof key === 'number' ? ts.factory.createNumericLiteral(key) : ts.factory.createStringLiteral(key),
+      );
+      projections.set(canonicalKey, projection);
+      this.projectedMembers.add(projection);
+    }
+    return projection;
+  }
+
+  isStableMemberProjection(expression: ts.Expression): boolean {
+    return this.projectedMembers.has(expression);
   }
 
   lookup(identifier: ts.Identifier): LexicalLookup {
@@ -866,7 +892,7 @@ class LexicalBindings {
     };
     const project = (initializer: ts.Expression | undefined, key: string | number): ts.Expression | undefined => initializer === undefined
       ? undefined
-      : ts.factory.createElementAccessExpression(initializer, typeof key === 'number' ? ts.factory.createNumericLiteral(key) : ts.factory.createStringLiteral(key));
+      : this.stableMemberProjection(initializer, key);
     const projectBindingValue = (initializer: ts.Expression | undefined, key: string | number): { initializer?: ts.Expression; invalid?: boolean } => {
       if (initializer === undefined) return {};
       const source = unwrap(initializer);
@@ -3049,7 +3075,9 @@ function finiteAggregateRelevance(
   if (provenance.kind === 'tainted') return { kind: 'tainted', leaves: [], identities: [expression] };
   if (provenance.kind === 'absent' || ts.isMethodDeclaration(provenance.origin)) return undefined;
   const origin = unwrap(provenance.origin);
-  if (origin === expression) return undefined;
+  if (origin === expression) return bindings.isStableMemberProjection(origin)
+    ? { kind: 'tainted', leaves: [], identities: [expression] }
+    : undefined;
   const nested = finiteAggregateRelevance(origin, bindings, substitutions, seen, nextAggregateSeen);
   if (nested === undefined) return undefined;
   return { ...nested, identities: [expression, ...nested.identities] };
@@ -3095,7 +3123,6 @@ function resolveAliasProvenance(
       || ts.isNumericLiteral(right)
       || ts.isStringLiteral(right)
       || ts.isNoSubstitutionTemplateLiteral(right)
-      || ts.isArrayLiteralExpression(right)
       || ts.isObjectLiteralExpression(right)
     ) return { kind: 'exact', origin: expression };
     return joinAliasProvenance([
@@ -3171,7 +3198,7 @@ function resolveAliasProvenance(
       if (ts.isMethodDeclaration(property) && propertyName(property.name) === member.key) return { kind: 'exact', origin: property };
     }
   }
-  return { kind: 'exact', origin: ts.factory.createElementAccessExpression(base, ts.factory.createStringLiteral(member.key)) };
+  return { kind: 'exact', origin: bindings.stableMemberProjection(base, member.key) };
 }
 
 function resolveAliasOrigin(
