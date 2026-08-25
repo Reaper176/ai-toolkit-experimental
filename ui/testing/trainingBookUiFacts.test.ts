@@ -2320,7 +2320,6 @@ if (liveRoot !== undefined) {
     ['explicit undefined mutation default', summaryMigrateSource.replace('  return jobConfig;', "  [undefined].forEach((target = jobConfig) => { target.config.process[0].train.steps = 99; });\n  return jobConfig;")],
     ['hole callback helper', summaryMigrateSource.replace('  if (isMac()) {', "  const helpers = {};\n  [, isMac].forEach(fn => { helpers.platformCheck = fn; });\n  if (helpers.platformCheck()) {")],
     ['unknown callback element helper', summaryMigrateSource.replace('  if (isMac()) {', "  const helpers = {};\n  [dynamicCallback].forEach(fn => { helpers.platformCheck = fn; });\n  if (helpers.platformCheck()) {")],
-    ['this-bound callback helper', summaryMigrateSource.replace('  if (isMac()) {', "  const helpers = {};\n  [isMac].forEach(function (fn) { this.platformCheck = fn; }, helpers);\n  if (helpers.platformCheck()) {")],
   ].flatMap(([label, source]) => {
     try { collectMigrateJobConfigBehaviorClaimsFromSource(source); return [label]; } catch { return []; }
   });
@@ -2359,6 +2358,106 @@ if (liveRoot !== undefined) {
     { missingRejects: callbackProjectionMissingRejects, positiveFailures: callbackProjectionPositiveFailures },
     { missingRejects: [], positiveFailures: [] },
     'general finite map and forEach callback projection',
+  );
+  const callbackBoundaryMissingRejects = [
+    ['ordinary callback absent thisArg', summaryMigrateSource.replace('  return jobConfig;', "  [jobConfig].forEach(function () { this.config.process[0].train.steps = 99; });\n  return jobConfig;")],
+    ['ordinary callback dynamic thisArg', summaryMigrateSource.replace('  return jobConfig;', "  [jobConfig].forEach(function () { this.config.process[0].train.steps = 99; }, dynamicThis);\n  return jobConfig;")],
+    ['arrow ignores dynamic thisArg', summaryMigrateSource.replace('  return jobConfig;', "  [jobConfig].forEach(() => { jobConfig.config.process[0].train.steps = 99; }, dynamicThis);\n  return jobConfig;")],
+    ['unknown callback finite job receiver', summaryMigrateSource.replace('  return jobConfig;', "  [jobConfig].forEach(dynamicCallback);\n  return jobConfig;")],
+    ['unknown callback finite process receiver', summaryMigrateSource.replace('  return jobConfig;', "  [jobConfig.config.process].map(dynamicCallback);\n  return jobConfig;")],
+    ['dynamic exact-base config index', summaryMigrateSource.replace('  return jobConfig;', "  jobConfig.config.process[runtimeIndex].train.steps = 99;\n  return jobConfig;")],
+    ['callback index plus zero', summaryMigrateSource.replace('  return jobConfig;', "  [jobConfig].forEach((value, index, receiver) => { receiver[index + 0].config.process[0].train.steps = 99; });\n  return jobConfig;")],
+    ['const index plus zero', summaryMigrateSource.replace('  return jobConfig;', "  const zero = 0;\n  jobConfig.config.process[zero + 0].train.steps = 99;\n  return jobConfig;")],
+    ['tainted-base dynamic index', summaryMigrateSource.replace('  return jobConfig;', "  let target = jobConfig;\n  if (runtimeCondition) target = otherConfig;\n  target.config.process[runtimeIndex].train.steps = 99;\n  return jobConfig;")],
+    ['rebound static index', summaryMigrateSource.replace('  return jobConfig;', "  let index = 0;\n  index = runtimeIndex;\n  jobConfig.config.process[index].train.steps = 99;\n  return jobConfig;")],
+    ['unsupported computed index operation', summaryMigrateSource.replace('  return jobConfig;', "  const index = 0;\n  jobConfig.config.process[index * 1].train.steps = 99;\n  return jobConfig;")],
+    ['unknown callback const relevant receiver', summaryMigrateSource.replace('  return jobConfig;', "  const receivers = [jobConfig];\n  receivers.forEach(dynamicCallback);\n  return jobConfig;")],
+    ['unknown callback sparse relevant receiver', summaryMigrateSource.replace('  return jobConfig;', "  [, jobConfig].forEach(dynamicCallback);\n  return jobConfig;")],
+    ['exact thisArg prompt mutation', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    const context = { target: newSamples };\n    [1].forEach(function () { this.target.reverse(); }, context);\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+  ].flatMap(([label, source]) => {
+    try { collectMigrateJobConfigBehaviorClaimsFromSource(source); return [label]; } catch { return []; }
+  });
+  const promptBlockStart = summaryMigrateSource.indexOf('  // upgrade prompt strings to samples');
+  const promptBlockEnd = summaryMigrateSource.indexOf('  // upgrade job from ui_trainer', promptBlockStart);
+  const promptBlock = summaryMigrateSource.slice(promptBlockStart, promptBlockEnd);
+  const promptCallbackSource = summaryMigrateSource.replace(
+    promptBlock,
+    `${promptBlock.slice(0, promptBlock.indexOf('\n') + 1)}  [jobConfig].forEach(target => {\n${promptBlock.slice(promptBlock.indexOf('\n') + 1).replaceAll('jobConfig', 'target')}  });\n\n`,
+  );
+  const callbackBoundaryPositiveFailures = [
+    ['exact ordinary callback thisArg', summaryMigrateSource.replace('  if (isMac()) {', "  const helpers = {};\n  [isMac].forEach(function (fn) { this.platformCheck = fn; }, helpers);\n  if (helpers.platformCheck()) {")],
+    ['migrate type callback guard substitution', summaryMigrateSource.replace(
+      "  if (jobConfig?.config?.process && jobConfig.config.process[0]?.type === 'ui_trainer') {\n    jobConfig.config.process[0].type = 'diffusion_trainer';\n  }",
+      "  [jobConfig].forEach(target => {\n    if (target?.config?.process && target.config.process[0]?.type === 'ui_trainer') {\n      target.config.process[0].type = 'diffusion_trainer';\n    }\n  });",
+    )],
+    ['migrate auto-memory callback guard and RHS substitution', summaryMigrateSource.replace(
+      "  if ('auto_memory' in jobConfig.config.process[0].model) {\n    jobConfig.config.process[0].model.layer_offloading = (jobConfig.config.process[0].model.auto_memory ||\n      false) as boolean;\n    delete jobConfig.config.process[0].model.auto_memory;\n  }",
+      "  [jobConfig].forEach(target => {\n    if ('auto_memory' in target.config.process[0].model) {\n      target.config.process[0].model.layer_offloading = (target.config.process[0].model.auto_memory || false) as boolean;\n      delete target.config.process[0].model.auto_memory;\n    }\n  });",
+    )],
+    ['migrate prompt callback guard and source substitution', promptCallbackSource],
+    ['migrate logging callback guard substitution', summaryMigrateSource.replace(
+      "  if (!('logging' in jobConfig.config.process[0])) {\n    //@ts-ignore\n    jobConfig.config.process[0].logging = {\n      log_every: 1,\n      use_ui_logger: true,\n    };\n  }",
+      "  [jobConfig].forEach(target => {\n    if (!('logging' in target.config.process[0])) {\n      target.config.process[0].logging = { log_every: 1, use_ui_logger: true };\n    }\n  });",
+    )],
+    ['migrate device callback guard substitution', summaryMigrateSource.replace(
+      "  if (isMac()) {\n    jobConfig.config.process[0].device = 'mps';\n  }",
+      "  [isMac].forEach(platformCheck => {\n    if (platformCheck()) {\n      jobConfig.config.process[0].device = 'mps';\n    }\n  });",
+    )],
+    ['exact function declaration callback thisArg', summaryMigrateSource.replace('  if (isMac()) {', "  const helpers = {};\n  function install(fn) { this.platformCheck = fn; }\n  [isMac].map(install, helpers);\n  if (helpers.platformCheck()) {")],
+    ['exact method callback thisArg', summaryMigrateSource.replace('  if (isMac()) {', "  const helpers = {};\n  const callbacks = { install(fn) { this.platformCheck = fn; } };\n  [isMac].forEach(callbacks.install, helpers);\n  if (helpers.platformCheck()) {")],
+  ].flatMap(([label, source]) => {
+    try { assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(source), summaryMigrateFacts); return []; } catch { return [label]; }
+  });
+  const animaCallbackFrameSource = summaryAnimaSource
+    .replace('if (!supportsTextEncoderPath) delete cleaned.te_name_or_path;', 'if (!supportsTextEncoderPath) [cleaned].forEach(target => { delete target.te_name_or_path; });')
+    .replace('if (!supportsVaePath) delete cleaned.vae_path;', 'if (!supportsVaePath) [cleaned].forEach(target => { delete target.vae_path; });');
+  try {
+    collectHandleModelArchChangeBehaviorClaimsFromSource(summaryArchSource, animaCallbackFrameSource);
+  } catch {
+    callbackBoundaryPositiveFailures.push('Anima callback frame excluded from runtime guards');
+  }
+  const animaOuterGuardSource = summaryAnimaSource.replace(
+    'if (!supportsTextEncoderPath) delete cleaned.te_name_or_path;',
+    'if (runtimeCondition) { if (!supportsTextEncoderPath) [cleaned].forEach(target => { delete target.te_name_or_path; }); }',
+  );
+  try {
+    collectHandleModelArchChangeBehaviorClaimsFromSource(summaryArchSource, animaOuterGuardSource);
+    callbackBoundaryMissingRejects.push('Anima outer runtime guard counted');
+  } catch {}
+  try {
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', "  const context = { commit: setJobConfig };\n  [99].forEach(function (value) { this.commit(value, 'config.process[0].train.steps'); }, context);\n\n  // update samples"),
+      summaryAnimaSource,
+    );
+    callbackBoundaryMissingRejects.push('exact thisArg setter mutation');
+  } catch {}
+  try {
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', "  const context = { target: cleaned };\n  [1].forEach(function () { delete this.target.other_path; }, context);\n  return cleaned;"),
+    );
+    callbackBoundaryMissingRejects.push('exact thisArg model mutation');
+  } catch {}
+  const animaNestedCallbackFrameSource = summaryAnimaSource
+    .replace('if (!supportsTextEncoderPath) delete cleaned.te_name_or_path;', 'if (!supportsTextEncoderPath) [cleaned].forEach(target => { [target].map(inner => { delete inner.te_name_or_path; }); });')
+    .replace('if (!supportsVaePath) delete cleaned.vae_path;', 'if (!supportsVaePath) [cleaned].forEach(target => { [target].map(inner => { delete inner.vae_path; }); });');
+  try {
+    collectHandleModelArchChangeBehaviorClaimsFromSource(summaryArchSource, animaNestedCallbackFrameSource);
+  } catch {
+    callbackBoundaryPositiveFailures.push('nested Anima callback frames excluded from runtime guards');
+  }
+  for (const [label, replacement] of [
+    ['harmless unknown finite callback', "  [1].forEach(dynamicCallback);\n  if (isMac()) {"],
+    ['harmless dynamic computed index', "  otherObject[runtimeIndex] = 99;\n  if (isMac()) {"],
+    ['harmless sparse unknown callback', "  [, 1].forEach(dynamicCallback);\n  if (isMac()) {"],
+  ] as const) {
+    try { assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts); }
+    catch { callbackBoundaryPositiveFailures.push(label); }
+  }
+  assert.deepEqual(
+    { missingRejects: callbackBoundaryMissingRejects, positiveFailures: callbackBoundaryPositiveFailures },
+    { missingRejects: [], positiveFailures: [] },
+    'finite callback this, unknown receiver, computed index, and frame semantics',
   );
   assert.equal(summaryArchFacts.length, 30);
   assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');

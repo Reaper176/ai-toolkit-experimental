@@ -585,6 +585,10 @@ class LexicalBindings {
       seen = new Set<ts.Identifier>(),
     ): ts.Node | string | undefined => {
       expression = unwrap(expression);
+      const directSubstitution = substitutions.get(expression);
+      if (directSubstitution !== undefined) return typeof directSubstitution === 'string'
+        ? undefined
+        : root(directSubstitution, substitutions, seen);
       if (!ts.isIdentifier(expression)) return expression;
       const declaration = this.bindingDeclaration(expression);
       if (declaration === undefined) return `global:${expression.text}`;
@@ -2903,7 +2907,7 @@ type ConfigMutation = {
 };
 
 type InvocationValue = ts.Expression | 'tainted' | 'absent';
-type InvocationSubstitutions = ReadonlyMap<ts.Identifier, InvocationValue>;
+type InvocationSubstitutions = ReadonlyMap<ts.Node, InvocationValue>;
 
 function staticMember(
   expression: ts.Expression,
@@ -2965,6 +2969,14 @@ function resolveAliasProvenance(
   seen = new Set<ts.Identifier>(),
 ): AliasProvenance {
   expression = unwrap(expression);
+  if (expression.kind === ts.SyntaxKind.ThisKeyword && substitutions.has(expression)) {
+    const substitution = substitutions.get(expression)!;
+    return substitution === 'tainted'
+      ? { kind: 'tainted' }
+      : substitution === 'absent'
+        ? { kind: 'absent' }
+        : resolveAliasProvenance(substitution, bindings, substitutions, seen);
+  }
   if (ts.isCallExpression(expression)) {
     return summarizeInvocationReturnProvenance(expression, bindings, substitutions) ?? { kind: 'exact', origin: expression };
   }
@@ -3077,6 +3089,11 @@ function aliasOriginReachesBinding(
   seen = new Set<ts.Identifier>(),
 ): boolean {
   expression = unwrap(expression);
+  if (substitutions.has(expression)) {
+    const substitution = substitutions.get(expression)!;
+    if (typeof substitution === 'string') fail(expression, 'unsupported local invocation: tainted callback receiver provenance');
+    return aliasOriginReachesBinding(substitution, target, bindings, substitutions, seen);
+  }
   if (ts.isIdentifier(expression)) {
     if (bindings.isBinding(expression, target)) return true;
     const declaration = bindings.bindingDeclaration(expression);
@@ -3188,7 +3205,11 @@ function ownStaticMember(expression: ts.Expression, bindings: LexicalBindings): 
   return base.origin.properties.some(property => !ts.isSpreadAssignment(property) && propertyName(property.name) === member.key);
 }
 
-function normalizeInvocation(call: ts.CallExpression, bindings: LexicalBindings): NormalizedInvocation {
+function normalizeInvocation(
+  call: ts.CallExpression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions = new Map(),
+): NormalizedInvocation {
   const callee = unwrap(call.expression);
   if (ts.isCallExpression(callee)) {
     const bindCallee = staticMember(callee.expression);
@@ -3211,7 +3232,7 @@ function normalizeInvocation(call: ts.CallExpression, bindings: LexicalBindings)
       ? { target, unsupported: 'apply requires one exact finite array/tuple argument' }
       : { target, arguments: applied };
   }
-  const direct = resolveAliasProvenance(call.expression, bindings);
+  const direct = resolveAliasProvenance(call.expression, bindings, substitutions);
   if (direct.kind === 'tainted') return { target: call.expression, unsupported: 'tainted call target provenance' };
   const directArguments = finiteInvocationArgumentList(call.arguments, bindings);
   return {
@@ -3231,7 +3252,7 @@ function projectInvocationParameters(
   argumentValues: readonly InvocationValue[],
   bindings: LexicalBindings,
   inherited: InvocationSubstitutions,
-): Map<ts.Identifier, InvocationValue> {
+): Map<ts.Node, InvocationValue> {
   const projected = new Map(inherited);
   const taint = (name: ts.BindingName): void => {
     for (const identifier of bindingIdentifiers(name)) projected.set(identifier, 'tainted');
@@ -3358,7 +3379,7 @@ function summarizeInvocationReturnProvenance(
   bindings: LexicalBindings,
   substitutions: InvocationSubstitutions,
 ): AliasProvenance | undefined {
-  const invocation = normalizeInvocation(call, bindings);
+  const invocation = normalizeInvocation(call, bindings, substitutions);
   const target = localFunctionFromExpression(invocation.target, bindings, substitutions);
   if (target === undefined) return undefined;
   if (invocation.unsupported !== undefined || invocation.arguments === undefined) return { kind: 'tainted' };
@@ -3404,6 +3425,22 @@ function visitExecutableFunctionNodes(
 ): void {
   const active = new Set<ts.FunctionLikeDeclaration>([owner]);
   const synchronousArrayCallbacks = new Set(['map', 'forEach']);
+  const finiteProjectedValue = (
+    expression: ts.Expression,
+    substitutions: InvocationSubstitutions,
+  ): InvocationValue => {
+    const provenance = resolveAliasProvenance(expression, bindings, substitutions);
+    const exactUndefined = ts.isIdentifier(expression)
+      && expression.text === 'undefined'
+      && !bindings.lookup(expression).found;
+    return !exactUndefined && (provenance.kind !== 'exact'
+      || ts.isMethodDeclaration(provenance.origin)
+      || (ts.isIdentifier(provenance.origin)
+        && !bindings.lookup(provenance.origin).found
+        && !bindings.isExactImportBinding(provenance.origin)))
+      ? 'tainted'
+      : expression;
+  };
   let sequence = 0;
   const hasPotentialEffect = (target: ts.FunctionLikeDeclaration): boolean => {
     if (target.body === undefined) return false;
@@ -3444,6 +3481,7 @@ function visitExecutableFunctionNodes(
         target: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration | ts.MethodDeclaration,
         argumentsToBind: readonly InvocationValue[] | undefined,
         targetExecution: 'known' | 'unmodeled-callback',
+        thisValue: InvocationValue = 'absent',
       ): void => {
         if (target.body === undefined) return;
         if (active.has(target)) {
@@ -3453,11 +3491,22 @@ function visitExecutableFunctionNodes(
         const next = argumentsToBind === undefined
           ? new Map(substitutions)
           : projectInvocationParameters(target.parameters, argumentsToBind, bindings, substitutions);
+        if (!ts.isArrowFunction(target)) {
+          const bindThis = (candidate: ts.Node): void => {
+            if (candidate.kind === ts.SyntaxKind.ThisKeyword) {
+              next.set(candidate, thisValue);
+              return;
+            }
+            if (candidate !== target.body && ts.isFunctionLike(candidate) && !ts.isArrowFunction(candidate)) return;
+            ts.forEachChild(candidate, bindThis);
+          };
+          bindThis(target.body);
+        }
         active.add(target);
         visit(target.body, next, target, targetExecution);
         active.delete(target);
       };
-      const invocation = normalizeInvocation(node, bindings);
+      const invocation = normalizeInvocation(node, bindings, substitutions);
       const direct = localFunctionFromExpression(invocation.target, bindings, substitutions);
       if (direct !== undefined && invocation.unsupported !== undefined && hasPotentialEffect(direct)) fail(node, `unsupported local invocation: ${invocation.unsupported}`);
       if (direct !== undefined && invocation.arguments !== undefined) invoke(direct, invocation.arguments, execution);
@@ -3482,6 +3531,31 @@ function visitExecutableFunctionNodes(
         const callbackTarget = localFunctionFromExpression(callback, bindings, substitutions);
         if (callbackTarget === undefined) {
           if (synchronousMethod && receiverPath?.startsWith('config.')) fail(argument, 'unsupported synchronous callback: dynamic callback may mutate configuration elements');
+          if (synchronousMethod && calleeMember !== undefined) {
+            const receiverProvenance = resolveAliasProvenance(calleeMember.base, bindings, substitutions);
+            const receiver = receiverProvenance.kind === 'exact' && !ts.isMethodDeclaration(receiverProvenance.origin)
+              ? unwrap(receiverProvenance.origin)
+              : undefined;
+            const finiteElements = receiver !== undefined && ts.isArrayLiteralExpression(receiver)
+              ? finiteInvocationArguments(receiver, bindings)
+              : undefined;
+            const relevantElements = finiteElements ?? (receiver !== undefined && ts.isArrayLiteralExpression(receiver)
+              ? receiver.elements.filter(element => !ts.isOmittedExpression(element) && !ts.isSpreadElement(element)) as readonly ts.Expression[]
+              : undefined);
+            if (relevantElements?.some(element => {
+              const value = finiteProjectedValue(element, substitutions);
+              if (value === 'tainted') return true;
+              if (value === 'absent') return false;
+              const exact = unwrap(value);
+              return !(ts.isNumericLiteral(exact)
+                || ts.isStringLiteral(exact)
+                || ts.isNoSubstitutionTemplateLiteral(exact)
+                || exact.kind === ts.SyntaxKind.TrueKeyword
+                || exact.kind === ts.SyntaxKind.FalseKeyword
+                || exact.kind === ts.SyntaxKind.NullKeyword
+                || (ts.isIdentifier(exact) && exact.text === 'undefined' && !bindings.lookup(exact).found));
+            })) fail(argument, 'unsupported synchronous callback: dynamic callback may consume a relevant finite receiver');
+          }
           continue;
         }
         if (callbackTarget === direct) continue;
@@ -3492,7 +3566,10 @@ function visitExecutableFunctionNodes(
         if (receiverPath !== undefined && receiverPath.startsWith('config.')) {
           const wildcard = ts.factory.createStringLiteral('*');
           const element = ts.factory.createElementAccessExpression(calleeMember.base, wildcard);
-          invoke(callbackTarget, [element, wildcard, calleeMember.base], execution);
+          const callbackThis: InvocationValue = node.arguments[1] === undefined
+            ? 'absent'
+            : finiteProjectedValue(node.arguments[1], substitutions);
+          invoke(callbackTarget, [element, wildcard, calleeMember.base], execution, callbackThis);
           continue;
         }
         const receiverProvenance = resolveAliasProvenance(calleeMember.base, bindings, substitutions);
@@ -3503,23 +3580,16 @@ function visitExecutableFunctionNodes(
           const finiteElements = finiteInvocationArguments(receiver, bindings);
           if (finiteElements !== undefined) {
             finiteElements.forEach((element, index) => {
-              const elementProvenance = resolveAliasProvenance(element, bindings, substitutions);
-              const exactUndefined = ts.isIdentifier(element)
-                && element.text === 'undefined'
-                && !bindings.lookup(element).found;
-              const value: InvocationValue = !exactUndefined && (elementProvenance.kind !== 'exact'
-                || ts.isMethodDeclaration(elementProvenance.origin)
-                || (ts.isIdentifier(elementProvenance.origin)
-                  && !bindings.lookup(elementProvenance.origin).found
-                  && !bindings.isExactImportBinding(elementProvenance.origin)))
-                ? 'tainted'
-                : element;
-              invoke(callbackTarget, [value, ts.factory.createNumericLiteral(index), calleeMember.base], execution);
+              const value = finiteProjectedValue(element, substitutions);
+              const callbackThis: InvocationValue = node.arguments[1] === undefined
+                ? 'absent'
+                : finiteProjectedValue(node.arguments[1], substitutions);
+              invoke(callbackTarget, [value, ts.factory.createNumericLiteral(index), calleeMember.base], execution, callbackThis);
             });
             continue;
           }
         }
-        invoke(callbackTarget, ['tainted', 'tainted', 'tainted'], execution);
+        invoke(callbackTarget, ['tainted', 'tainted', 'tainted'], execution, node.arguments[1] === undefined ? 'absent' : 'tainted');
       }
     }
     ts.forEachChild(node, child => visit(child, substitutions, current, execution));
@@ -3572,7 +3642,7 @@ function boundedMutationApi(
   substitutions: InvocationSubstitutions,
   execution: ConfigMutation['execution'],
 ): ConfigMutation[] {
-  const invocation = normalizeInvocation(node, bindings);
+  const invocation = normalizeInvocation(node, bindings, substitutions);
   const api = resolveMutationApiIdentity(invocation.target, bindings, substitutions);
   if (api === undefined || !api.exactGlobal) {
     const original = staticMember(node.expression);
@@ -3672,15 +3742,10 @@ function parameterConfigPath(
   expression: ts.Expression,
   parameter: ts.Identifier,
   bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions = new Map(),
 ): string | undefined {
-  expression = unwrap(expression);
-  const parts = accessParts(expression);
-  if (parts === undefined || parts[0] !== parameter.text || parts[1] !== 'config') return undefined;
-  let base = expression;
-  while (ts.isPropertyAccessExpression(base) || ts.isElementAccessExpression(base)) base = unwrap(base.expression);
-  return ts.isIdentifier(base) && bindings.isBinding(base, parameter)
-    ? normalizePath(parts.slice(1).join('.'), {})
-    : undefined;
+  const path = scopedFunctionConfigPath(expression, parameter, bindings, new Set(), substitutions);
+  return path?.startsWith('config.') ? path : undefined;
 }
 
 function enclosingIfWithin(node: ts.Node, owner: ts.FunctionLikeDeclaration): ts.IfStatement | undefined {
@@ -3740,8 +3805,9 @@ function identifierResolvesToExactImport(
   importedName: string,
   moduleName: string,
   bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions = new Map(),
 ): boolean {
-  const resolved = resolveAliasProvenance(identifier, bindings);
+  const resolved = resolveAliasProvenance(identifier, bindings, substitutions);
   return resolved.kind === 'exact' && ts.isIdentifier(resolved.origin) && bindings.isExactNamedImport(resolved.origin, importedName, moduleName);
 }
 
@@ -3764,8 +3830,18 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
     consumed.add(matches[0]);
     return matches[0];
   };
-  const pathIs = (expression: ts.Expression, path: string): boolean => parameterConfigPath(expression, parameter, bindings) === path;
-  const exactInGuard = (expression: ts.Expression, key: string, path: string, negated = false): boolean => {
+  const pathIs = (
+    expression: ts.Expression,
+    path: string,
+    substitutions: InvocationSubstitutions = new Map(),
+  ): boolean => parameterConfigPath(expression, parameter, bindings, substitutions) === path;
+  const exactInGuard = (
+    expression: ts.Expression,
+    key: string,
+    path: string,
+    negated = false,
+    substitutions: InvocationSubstitutions = new Map(),
+  ): boolean => {
     expression = unwrap(expression);
     if (negated) {
       if (!ts.isPrefixUnaryExpression(expression) || expression.operator !== ts.SyntaxKind.ExclamationToken) return false;
@@ -3774,31 +3850,32 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
     return ts.isBinaryExpression(expression)
       && expression.operatorToken.kind === ts.SyntaxKind.InKeyword
       && exactString(expression.left, key)
-      && pathIs(expression.right, path);
+      && pathIs(expression.right, path, substitutions);
   };
 
   const sampleWrite = take('write', 'config.process[*].sample.samples');
   const promptDelete = take('delete', 'config.process[*].sample.prompts');
+  const promptSubstitutions = sampleWrite.substitutions;
   const promptIf = enclosingIfWithin(sampleWrite.node, owner);
   if (promptIf === undefined || enclosingIfWithin(promptDelete.node, owner) !== promptIf) fail(sampleWrite.node, 'migrateJobConfig prompts behavior requires one shared guard');
   const promptGuard = flattenAnd(promptIf.expression);
   if (promptGuard.length !== 4
-    || !pathIs(promptGuard[0], 'config.process')
-    || !pathIs(promptGuard[1], 'config.process[*].sample')) fail(promptIf.expression, 'migrateJobConfig prompts behavior has an unsupported guard');
+    || !pathIs(promptGuard[0], 'config.process', promptSubstitutions)
+    || !pathIs(promptGuard[1], 'config.process[*].sample', promptSubstitutions)) fail(promptIf.expression, 'migrateJobConfig prompts behavior has an unsupported guard');
   const arrayGuard = unwrap(promptGuard[2]);
   const lengthGuard = unwrap(promptGuard[3]);
   const lengthAccess = ts.isBinaryExpression(lengthGuard) ? unwrap(lengthGuard.left) : undefined;
   if (!ts.isCallExpression(arrayGuard)
     || accessParts(arrayGuard.expression)?.join('.') !== 'Array.isArray'
     || arrayGuard.arguments.length !== 1
-    || !pathIs(arrayGuard.arguments[0], 'config.process[*].sample.prompts')
+    || !pathIs(arrayGuard.arguments[0], 'config.process[*].sample.prompts', promptSubstitutions)
     || !ts.isBinaryExpression(lengthGuard)
     || lengthGuard.operatorToken.kind !== ts.SyntaxKind.GreaterThanToken
     || !exactNumber(lengthGuard.right, 0)
     || lengthAccess === undefined
     || !ts.isPropertyAccessExpression(lengthAccess)
     || lengthAccess.name.text !== 'length'
-    || !pathIs(lengthAccess.expression, 'config.process[*].sample.prompts')) fail(promptIf.expression, 'migrateJobConfig prompts behavior has an unsupported array guard');
+    || !pathIs(lengthAccess.expression, 'config.process[*].sample.prompts', promptSubstitutions)) fail(promptIf.expression, 'migrateJobConfig prompts behavior has an unsupported array guard');
   const sampleAssignment = sampleWrite.node as ts.BinaryExpression;
   const samplesValue = unwrap(sampleAssignment.right);
   if (!ts.isIdentifier(samplesValue)) fail(samplesValue, 'migrateJobConfig prompts behavior requires an exact samples binding');
@@ -3812,7 +3889,7 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
     visit(promptIf.thenStatement);
     return result;
   })();
-  if (loops.length !== 1 || !pathIs(loops[0].expression, 'config.process[*].sample.prompts')) fail(promptIf.thenStatement, 'migrateJobConfig prompts behavior requires one exact source-order loop');
+  if (loops.length !== 1 || !pathIs(loops[0].expression, 'config.process[*].sample.prompts', promptSubstitutions)) fail(promptIf.thenStatement, 'migrateJobConfig prompts behavior requires one exact source-order loop');
   const loopDeclaration = loops[0].initializer;
   if (!ts.isVariableDeclarationList(loopDeclaration) || loopDeclaration.declarations.length !== 1 || !ts.isIdentifier(loopDeclaration.declarations[0].name)) fail(loops[0], 'migrateJobConfig prompts behavior requires one exact prompt binding');
   const promptBinding = loopDeclaration.declarations[0].name;
@@ -3851,7 +3928,9 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
     expression = unwrap(expression);
     if (ts.isIdentifier(expression)) return invocationIdentifierResolvesTo(expression, samplesDeclaration, bindings, substitutions);
     const member = staticMember(expression);
-    if (member !== undefined) return isAccumulatorAccess(member.base, substitutions);
+    if (member !== undefined) return (unwrap(member.base).kind === ts.SyntaxKind.ThisKeyword
+      && aliasOriginReachesBinding(expression, samplesDeclaration, bindings, substitutions))
+      || isAccumulatorAccess(member.base, substitutions);
     return aliasOriginReachesBinding(expression, samplesDeclaration, bindings, substitutions);
   };
   const pushedItemBinding = ts.isIdentifier(pushedArgument) ? bindings.bindingDeclaration(pushedArgument) : undefined;
@@ -3862,7 +3941,10 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
       return invocationIdentifierResolvesTo(expression, samplesDeclaration, bindings, substitutions);
     }
     const member = staticMember(expression);
-    if (member !== undefined) return isPromptItemAccess(member.base, substitutions);
+    if (member !== undefined) return (unwrap(member.base).kind === ts.SyntaxKind.ThisKeyword
+      && ((pushedItemBinding !== undefined && aliasOriginReachesBinding(expression, pushedItemBinding, bindings, substitutions))
+        || aliasOriginReachesBinding(expression, samplesDeclaration, bindings, substitutions)))
+      || isPromptItemAccess(member.base, substitutions);
     return (pushedItemBinding !== undefined && aliasOriginReachesBinding(expression, pushedItemBinding, bindings, substitutions))
       || aliasOriginReachesBinding(expression, samplesDeclaration, bindings, substitutions);
   };
@@ -3874,7 +3956,7 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
       if (isTrackedPromptMutationTarget(callee.expression, substitutions) && node !== pushes[0]) unsupportedAccumulatorEffects.push(node);
     }
     if (ts.isCallExpression(node)) {
-      const invocation = normalizeInvocation(node, bindings);
+      const invocation = normalizeInvocation(node, bindings, substitutions);
       const api = resolveMutationApiIdentity(invocation.target, bindings, substitutions);
       if (api?.exactGlobal === true && (invocation.arguments === undefined || invocation.arguments[0] === undefined || invocation.unsupported !== undefined ? false : isTrackedPromptMutationTarget(invocation.arguments[0], substitutions))) unsupportedAccumulatorEffects.push(node);
     }
@@ -3888,28 +3970,28 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
   const typeIf = enclosingIfWithin(typeWrite.node, owner);
   const typeParts = typeIf === undefined ? [] : flattenAnd(typeIf.expression);
   const typeComparison = typeParts[1] === undefined ? undefined : unwrap(typeParts[1]);
-  if (typeParts.length !== 2 || !pathIs(typeParts[0], 'config.process') || typeComparison === undefined || !ts.isBinaryExpression(typeComparison) || typeComparison.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken || !pathIs(typeComparison.left, 'config.process[*].type') || !exactString(typeComparison.right, 'ui_trainer') || !exactString((typeWrite.node as ts.BinaryExpression).right, 'diffusion_trainer')) fail(typeWrite.node, 'migrateJobConfig type behavior is unsupported');
+  if (typeParts.length !== 2 || !pathIs(typeParts[0], 'config.process', typeWrite.substitutions) || typeComparison === undefined || !ts.isBinaryExpression(typeComparison) || typeComparison.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken || !pathIs(typeComparison.left, 'config.process[*].type', typeWrite.substitutions) || !exactString(typeComparison.right, 'ui_trainer') || !exactString((typeWrite.node as ts.BinaryExpression).right, 'diffusion_trainer')) fail(typeWrite.node, 'migrateJobConfig type behavior is unsupported');
 
   const autoWrite = take('write', 'config.process[*].model.layer_offloading');
   const autoDelete = take('delete', 'config.process[*].model.auto_memory');
   const autoIf = enclosingIfWithin(autoWrite.node, owner);
-  if (autoIf === undefined || enclosingIfWithin(autoDelete.node, owner) !== autoIf || !exactInGuard(autoIf.expression, 'auto_memory', 'config.process[*].model')) fail(autoWrite.node, 'migrateJobConfig auto_memory behavior requires the exact presence guard');
+  if (autoIf === undefined || enclosingIfWithin(autoDelete.node, owner) !== autoIf || !exactInGuard(autoIf.expression, 'auto_memory', 'config.process[*].model', false, autoWrite.substitutions)) fail(autoWrite.node, 'migrateJobConfig auto_memory behavior requires the exact presence guard');
   const autoValue = unwrap((autoWrite.node as ts.BinaryExpression).right);
-  if (!ts.isBinaryExpression(autoValue) || autoValue.operatorToken.kind !== ts.SyntaxKind.BarBarToken || !pathIs(autoValue.left, 'config.process[*].model.auto_memory') || !exactBoolean(autoValue.right, false) || autoWrite.node.getStart() >= autoDelete.node.getStart()) fail(autoWrite.node, 'migrateJobConfig auto_memory behavior requires falsey fallback, write, then delete');
+  if (!ts.isBinaryExpression(autoValue) || autoValue.operatorToken.kind !== ts.SyntaxKind.BarBarToken || !pathIs(autoValue.left, 'config.process[*].model.auto_memory', autoWrite.substitutions) || !exactBoolean(autoValue.right, false) || autoWrite.node.getStart() >= autoDelete.node.getStart()) fail(autoWrite.node, 'migrateJobConfig auto_memory behavior requires falsey fallback, write, then delete');
 
   const loggingWrite = take('write', 'config.process[*].logging');
   const loggingIf = enclosingIfWithin(loggingWrite.node, owner);
   const loggingValue = unwrap((loggingWrite.node as ts.BinaryExpression).right);
-  if (loggingIf === undefined || !exactInGuard(loggingIf.expression, 'logging', 'config.process[*]', true) || !ts.isObjectLiteralExpression(loggingValue)) fail(loggingWrite.node, 'migrateJobConfig logging behavior is unsupported');
+  if (loggingIf === undefined || !exactInGuard(loggingIf.expression, 'logging', 'config.process[*]', true, loggingWrite.substitutions) || !ts.isObjectLiteralExpression(loggingValue)) fail(loggingWrite.node, 'migrateJobConfig logging behavior is unsupported');
   const loggingProperties = objectProperties(loggingValue);
   if (loggingProperties.size !== 2 || !exactNumber(loggingProperties.get('log_every')!, 1) || !exactBoolean(loggingProperties.get('use_ui_logger')!, true)) fail(loggingValue, 'migrateJobConfig logging behavior requires exact defaults');
 
   const deviceWrite = take('write', 'config.process[*].device');
   const deviceIf = enclosingIfWithin(deviceWrite.node, owner);
   const deviceGuard = deviceIf === undefined ? undefined : unwrap(deviceIf.expression);
-  const deviceInvocation = deviceGuard !== undefined && ts.isCallExpression(deviceGuard) ? normalizeInvocation(deviceGuard, bindings) : undefined;
+  const deviceInvocation = deviceGuard !== undefined && ts.isCallExpression(deviceGuard) ? normalizeInvocation(deviceGuard, bindings, deviceWrite.substitutions) : undefined;
   const deviceTarget = deviceInvocation === undefined ? undefined : unwrap(deviceInvocation.target);
-  if (deviceInvocation === undefined || deviceInvocation.unsupported !== undefined || deviceInvocation.arguments?.length !== 0 || deviceTarget === undefined || !ts.isIdentifier(deviceTarget) || !identifierResolvesToExactImport(deviceTarget, 'isMac', '@/helpers/basic', bindings) || !exactString((deviceWrite.node as ts.BinaryExpression).right, 'mps')) fail(deviceWrite.node, 'migrateJobConfig device behavior requires exact isMac/mps semantics');
+  if (deviceInvocation === undefined || deviceInvocation.unsupported !== undefined || deviceInvocation.arguments?.length !== 0 || deviceTarget === undefined || !ts.isIdentifier(deviceTarget) || !identifierResolvesToExactImport(deviceTarget, 'isMac', '@/helpers/basic', bindings, deviceWrite.substitutions) || !exactString((deviceWrite.node as ts.BinaryExpression).right, 'mps')) fail(deviceWrite.node, 'migrateJobConfig device behavior requires exact isMac/mps semantics');
 
   const unsupported = mutations.filter(item => !consumed.has(item));
   if (unsupported.length > 0) fail(unsupported[0].node, `migrateJobConfig unsupported reachable mutation ${unsupported[0].syntax} ${unsupported[0].path}`);
@@ -3957,6 +4039,11 @@ function scopedFunctionConfigPath(
       : raw;
   };
   expression = unwrap(expression);
+  if (substitutions.has(expression)) {
+    const substitution = substitutions.get(expression)!;
+    if (substitution === 'tainted' || substitution === 'absent') fail(expression, 'unsupported reachable mutation: tainted callback receiver provenance');
+    return scopedFunctionConfigPath(substitution, configParameter, bindings, seen, substitutions);
+  }
   if (ts.isIdentifier(expression)) {
     if (bindings.isBinding(expression, configParameter)) return '$job';
     const declaration = bindings.bindingDeclaration(expression);
@@ -3976,23 +4063,38 @@ function scopedFunctionConfigPath(
       : scopedFunctionConfigPath(resolved.origin, configParameter, bindings, nextSeen, substitutions);
   }
   if (ts.isCallExpression(expression) && expression.arguments[0] !== undefined) {
-    const invocation = normalizeInvocation(expression, bindings);
+    const invocation = normalizeInvocation(expression, bindings, substitutions);
     const callName = unwrap(invocation.target);
     if (ts.isIdentifier(callName) && (
       identifierResolvesToExactImport(callName, 'objectCopy', '@/utils/basic', bindings)
       || identifierResolvesToExactImport(callName, 'clearUnsupportedAnimaPaths', '@/helpers/animaModelPaths', bindings)
     ) && invocation.arguments?.[0] !== undefined) return scopedFunctionConfigPath(invocation.arguments[0], configParameter, bindings, seen, substitutions);
   }
+  const staticComputedKey = (candidate: ts.Expression): string | 'tainted' => {
+    candidate = unwrap(candidate);
+    if (ts.isBinaryExpression(candidate) && candidate.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const left = staticComputedKey(candidate.left);
+      const right = staticComputedKey(candidate.right);
+      return left !== 'tainted' && right !== 'tainted' && /^-?\d+(?:\.\d+)?$/.test(left) && /^-?\d+(?:\.\d+)?$/.test(right)
+        ? String(Number(left) + Number(right))
+        : 'tainted';
+    }
+    const provenance = resolveAliasProvenance(candidate, bindings, substitutions);
+    if (provenance.kind !== 'exact' || ts.isMethodDeclaration(provenance.origin)) return 'tainted';
+    const origin = unwrap(provenance.origin);
+    return ts.isStringLiteral(origin) || ts.isNumericLiteral(origin) || ts.isNoSubstitutionTemplateLiteral(origin)
+      ? origin.text
+      : 'tainted';
+  };
   let member = staticMember(expression);
   if (member === undefined && ts.isElementAccessExpression(expression) && expression.argumentExpression !== undefined) {
-    const keyProvenance = resolveAliasProvenance(expression.argumentExpression, bindings, substitutions);
-    if (keyProvenance.kind === 'tainted') fail(expression.argumentExpression, 'unsupported reachable mutation: tainted configuration index provenance');
-    const key = keyProvenance.kind === 'exact' && !ts.isMethodDeclaration(keyProvenance.origin)
-      ? unwrap(keyProvenance.origin)
-      : undefined;
-    if (key !== undefined && (ts.isStringLiteral(key) || ts.isNumericLiteral(key) || ts.isNoSubstitutionTemplateLiteral(key))) {
-      member = { base: expression.expression, key: key.text };
+    const key = staticComputedKey(expression.argumentExpression);
+    if (key === 'tainted') {
+      const base = scopedFunctionConfigPath(expression.expression, configParameter, bindings, seen, substitutions);
+      if (base !== undefined) fail(expression.argumentExpression, 'unsupported reachable mutation: tainted configuration index provenance');
+      return undefined;
     }
+    member = { base: expression.expression, key };
   }
   if (member !== undefined) {
     const baseExpression = unwrap(member.base);
@@ -4139,6 +4241,13 @@ function validateAnimaPathBehavior(sourceText: string, sourceName: string): void
     substitutions: InvocationSubstitutions,
   ): { root: AnimaMutation['root']; path: string } | undefined => {
     expression = unwrap(expression);
+    let syntacticRoot = expression;
+    for (let member = staticMember(syntacticRoot); member !== undefined; member = staticMember(syntacticRoot)) syntacticRoot = unwrap(member.base);
+    if (syntacticRoot.kind === ts.SyntaxKind.ThisKeyword) {
+      const projected = resolveAliasProvenance(expression, bindings, substitutions);
+      if (projected.kind === 'tainted') fail(expression, 'Anima path behavior has tainted callback receiver provenance');
+      if (projected.kind === 'exact' && !ts.isMethodDeclaration(projected.origin)) expression = unwrap(projected.origin);
+    }
     const parts: string[] = [];
     while (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
       if (ts.isPropertyAccessExpression(expression)) parts.unshift(expression.name.text);
@@ -4167,7 +4276,7 @@ function validateAnimaPathBehavior(sourceText: string, sourceName: string): void
       for (const target of assignmentTargetExpressions(node.left)) record(target, 'write', 'direct');
     } else if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)) record(node.operand, 'write', 'direct');
     else if (ts.isCallExpression(node)) {
-      const invocation = normalizeInvocation(node, bindings);
+      const invocation = normalizeInvocation(node, bindings, substitutions);
       const api = resolveMutationApiIdentity(invocation.target, bindings, substitutions);
       if (api?.exactGlobal !== true) return;
       if (invocation.unsupported !== undefined || invocation.arguments === undefined) fail(node, `Anima path behavior has unsupported mutation API invocation: ${invocation.unsupported ?? 'unknown arguments'}`);
@@ -4225,8 +4334,7 @@ function validateAnimaPathBehavior(sourceText: string, sourceName: string): void
     const runtimeWrappers: ts.Node[] = [];
     let ancestor: ts.Node | undefined = deletion.parent;
     while (ancestor !== undefined && ancestor !== helper) {
-      if (ts.isFunctionLike(ancestor)) runtimeWrappers.push(ancestor);
-      else if (ts.isIfStatement(ancestor) || ts.isConditionalExpression(ancestor) || ts.isForStatement(ancestor) || ts.isForOfStatement(ancestor) || ts.isForInStatement(ancestor) || ts.isWhileStatement(ancestor) || ts.isDoStatement(ancestor) || ts.isTryStatement(ancestor) || ts.isSwitchStatement(ancestor)) runtimeWrappers.push(ancestor);
+      if (ts.isIfStatement(ancestor) || ts.isConditionalExpression(ancestor) || ts.isForStatement(ancestor) || ts.isForOfStatement(ancestor) || ts.isForInStatement(ancestor) || ts.isWhileStatement(ancestor) || ts.isDoStatement(ancestor) || ts.isTryStatement(ancestor) || ts.isSwitchStatement(ancestor)) runtimeWrappers.push(ancestor);
       else if (ts.isBinaryExpression(ancestor) && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(ancestor.operatorToken.kind)) runtimeWrappers.push(ancestor);
       ancestor = ancestor.parent;
     }
@@ -4308,7 +4416,7 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
   const setterCalls: HandlerSetterCall[] = [];
   visitExecutableFunctionNodes(owner, bindings, (node, substitutions, execution) => {
     if (ts.isCallExpression(node)) {
-      const invocation = normalizeInvocation(node, bindings);
+      const invocation = normalizeInvocation(node, bindings, substitutions);
       const target = unwrap(invocation.target);
       const rawTarget = unwrap(node.expression);
       const objectCopyCall = (ts.isIdentifier(rawTarget) && rawTarget.text === 'objectCopy')
