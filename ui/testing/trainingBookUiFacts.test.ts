@@ -2688,6 +2688,69 @@ if (liveRoot !== undefined) {
     { runtimeLogicalFailures: [], stableProjectionFailures: [], staticLogicalPositiveFailures: [] },
     'runtime logical joins and destructuring projections fail closed with bounded completion',
   );
+  const destructureDefaultFailures = [
+    ['declaration unshadowed undefined default', summaryMigrateSource.replace('  return jobConfig;', "  const { targets = [jobConfig] } = { targets: undefined };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['declaration void zero default', summaryMigrateSource.replace('  return jobConfig;', "  const { targets = [jobConfig] } = { targets: void 0 };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['declaration runtime-value default', summaryMigrateSource.replace('  return jobConfig;', "  const { targets = [jobConfig] } = { targets: runtimeTargets };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['declaration call-result default', summaryMigrateSource.replace('  return jobConfig;', "  const { targets = [jobConfig] } = { targets: maybeTargets() };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['nested declaration undefined default', summaryMigrateSource.replace('  return jobConfig;', "  const { nested: { targets = [jobConfig] } } = { nested: { targets: undefined } };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['literal-computed declaration undefined default', summaryMigrateSource.replace('  return jobConfig;', "  const { ['targets']: targets = [jobConfig] } = { targets: undefined };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['dynamic-computed declaration default', summaryMigrateSource.replace('  return jobConfig;', "  const { [runtimeKey]: targets = [jobConfig] } = runtimeHolder;\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['undefined source uses default helper', summaryMigrateSource.replace('  return jobConfig;', "  function fallbackTargets() { return [jobConfig]; }\n  const { targets = fallbackTargets() } = { targets: undefined };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['undefined source uses renamed default', summaryMigrateSource.replace('  return jobConfig;', "  const fallbackTargets = [jobConfig];\n  const { targets = fallbackTargets } = { targets: undefined };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['assignment unshadowed undefined default', summaryMigrateSource.replace('  return jobConfig;', "  let targets = [otherConfig];\n  ({ targets = [jobConfig] } = { targets: undefined });\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['assignment void zero default', summaryMigrateSource.replace('  return jobConfig;', "  let targets = [otherConfig];\n  ({ targets = [jobConfig] } = { targets: void 0 });\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['assignment possibly undefined default', summaryMigrateSource.replace('  return jobConfig;', "  let targets = [otherConfig];\n  ({ targets = [jobConfig] } = runtimeHolder);\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['assignment call-result default', summaryMigrateSource.replace('  return jobConfig;', "  let targets = [otherConfig];\n  ({ targets = [jobConfig] } = { targets: maybeTargets() });\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['computed assignment undefined default', summaryMigrateSource.replace('  return jobConfig;', "  const key = 'targets';\n  let targets = [otherConfig];\n  ({ [key]: targets = [jobConfig] } = { targets: undefined });\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['nested assignment undefined default', summaryMigrateSource.replace('  return jobConfig;', "  let targets = [otherConfig];\n  ({ nested: { targets = [jobConfig] } } = { nested: { targets: undefined } });\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['array assignment undefined default', summaryMigrateSource.replace('  return jobConfig;', "  let targets = [otherConfig];\n  [targets = [jobConfig]] = [undefined];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['array assignment runtime default', summaryMigrateSource.replace('  return jobConfig;', "  let targets = [otherConfig];\n  [targets = [jobConfig]] = runtimeTargets;\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['array assignment cyclic default', summaryMigrateSource.replace('  return jobConfig;', "  const values = [];\n  values[0] = values;\n  let targets = [otherConfig];\n  [targets = [jobConfig]] = values;\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['prompt declaration undefined default', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    const { targets = [newSamples] } = { targets: undefined };\n    targets[runtimeIndex].reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+    ['prompt assignment undefined default', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    let targets = [otherSamples];\n    ({ targets = [newSamples] } = { targets: undefined });\n    targets[runtimeIndex].reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  for (const [label, insertion] of [
+    ['setter declaration undefined default', "  const { setters = [setJobConfig] } = { setters: undefined };\n  setters[runtimeIndex](99, 'config.process[0].train.steps');\n"],
+    ['setter assignment undefined default', "  let setters = [otherSetter];\n  ({ setters = [setJobConfig] } = { setters: undefined });\n  setters[runtimeIndex](99, 'config.process[0].train.steps');\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', `${insertion}\n  // update samples`),
+      summaryAnimaSource,
+    ));
+    if (failure !== undefined) destructureDefaultFailures.push(failure);
+  }
+  for (const [label, insertion] of [
+    ['model declaration undefined default', "  const { targets = [cleaned] } = { targets: undefined };\n  delete targets[runtimeIndex].other_path;\n"],
+    ['model assignment undefined default', "  let targets = [otherModel];\n  ({ targets = [cleaned] } = { targets: undefined });\n  delete targets[runtimeIndex].other_path;\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', `${insertion}  return cleaned;`),
+    ));
+    if (failure !== undefined) destructureDefaultFailures.push(failure);
+  }
+  const destructureDefaultPositiveFailures = [
+    ['declaration null does not default', "  const { targets = [jobConfig] } = { targets: null };\n  targets;\n  if (isMac()) {"],
+    ['declaration present value does not default', "  const { targets = [jobConfig] } = { targets: [otherConfig] };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['declaration shadowed undefined does not default', "  const undefined = [otherConfig];\n  const { targets = [jobConfig] } = { targets: undefined };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['declaration exact computed key', "  const key = 'targets';\n  const { [key]: targets = [jobConfig] } = { targets: [otherConfig] };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['assignment null does not default', "  let targets = [otherConfig];\n  ({ targets = [jobConfig] } = { targets: null });\n  targets;\n  if (isMac()) {"],
+    ['assignment present value does not default', "  let targets = [otherConfig];\n  ({ targets = [jobConfig] } = { targets: [otherConfig] });\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['assignment shadowed undefined does not default', "  const undefined = [otherConfig];\n  let targets = [otherConfig];\n  ({ targets = [jobConfig] } = { targets: undefined });\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['present source skips default helper', "  function fallbackTargets() { return [jobConfig]; }\n  const { targets = fallbackTargets() } = { targets: [otherConfig] };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['assignment exact computed key', "  const key = 'targets';\n  let targets = [otherConfig];\n  ({ [key]: targets = [jobConfig] } = { targets: [otherConfig] });\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['present source skips renamed default', "  const fallbackTargets = [jobConfig];\n  const { targets = fallbackTargets } = { targets: [otherConfig] };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['array assignment present value control', "  let targets = [otherConfig];\n  [targets = [jobConfig]] = [[otherConfig]];\n  targets[runtimeIndex];\n  if (isMac()) {"],
+  ].flatMap(([label, replacement]) => {
+    try { assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts); return []; }
+    catch { return [label]; }
+  });
+  assert.deepEqual(
+    { destructureDefaultFailures, destructureDefaultPositiveFailures },
+    { destructureDefaultFailures: [], destructureDefaultPositiveFailures: [] },
+    'destructuring defaults distinguish undefined, present, and ambiguous source values',
+  );
   assert.equal(summaryArchFacts.length, 30);
   assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));
