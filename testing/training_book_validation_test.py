@@ -2265,6 +2265,48 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
                 scope="ui-server-global",
             )
 
+    def test_production_config_behaviors_are_unowned_and_new_behavior_is_additive(self):
+        facts = load_production_training_book_ui_facts()
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        exclusions = load_ui_exclusions(
+            REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
+        )
+        behaviors = [
+            fact for fact in facts.config_claims
+            if fact.behavior_contract is not None
+        ]
+        self.assertEqual(len(behaviors), 37)
+        with self.assertRaisesRegex(CatalogError, "unowned UI facts.*37"):
+            catalog_module.validate_ui_fact_ownership(
+                facts,
+                catalog,
+                exclusions,
+                scope="ui-defaults-transitions",
+            )
+
+        logging = next(
+            fact for fact in behaviors
+            if fact.symbol == "migrateJobConfig::logging::absent::write"
+        )
+        changed = facts.model_dump(mode="json", exclude_unset=True)
+        added = logging.model_copy(update={
+            "symbol": "migrateJobConfig::logging::absent::secondary-write"
+        })
+        changed["config_claims"].append(
+            added.model_dump(mode="json", exclude_unset=True)
+        )
+        with self.assertRaisesRegex(CatalogError, "unowned UI facts.*38"):
+            catalog_module.validate_ui_fact_ownership(
+                validate_training_book_ui_facts(changed),
+                catalog,
+                exclusions,
+                scope="ui-defaults-transitions",
+            )
+
     def test_ui_setting_owner_must_match_visible_catalog_contract(self):
         fact_data = self.valid_facts()
         fact_data["config_claims"][0]["kind"] = "setting"

@@ -2422,6 +2422,21 @@ if (liveRoot !== undefined) {
     architectureExpected,
     'handleModelArchChange emits one exact semantic fact per reachable transition mutation',
   );
+  const expectedProductionBehaviorClaims = [...migrateClaims, ...architectureClaims]
+    .sort((left, right) => {
+      const leftKey = `${left.source_path}\0${left.symbol}\0${left.path}\0${left.kind}`;
+      const rightKey = `${right.source_path}\0${right.symbol}\0${right.path}\0${right.kind}`;
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    });
+  const productionBehaviorClaims = liveFacts.config_claims.filter(
+    claim => claim.behavior_contract !== undefined,
+  );
+  assert.equal(productionBehaviorClaims.length, 37, 'production facts contain all 37 exact config behaviors');
+  assert.deepEqual(
+    productionBehaviorClaims,
+    expectedProductionBehaviorClaims,
+    'production behavior facts are the exact focused collector output',
+  );
   for (const [label, mutatedSource, mutatedHelper = animaPathSource] of [
     ['low-vram section guard', modelArchChangeSource.replace("includes('model.low_vram')", "includes('model.other')")],
     ['low-vram value', modelArchChangeSource.replace("setJobConfig(false, 'config.process[0].model.low_vram')", "setJobConfig(true, 'config.process[0].model.low_vram')")],
@@ -2699,7 +2714,9 @@ if (liveRoot !== undefined) {
       minimum: 1,
     },
   }, 'NumberInput accepts any finite number even though the Python parser requires an integer');
-  const settingClaims = liveFacts.config_claims.filter(item => item.kind === 'setting');
+  const settingClaims = liveFacts.config_claims.filter(
+    item => item.kind === 'setting' && item.behavior_contract === undefined,
+  );
   assert.equal(settingClaims.length, 172, 'every current directly bound or architecture-projected config control must emit');
   assert.ok(settingClaims.every(item => item.ui_label.present), 'all current visible config controls must resolve an exact label');
   assert.deepEqual(

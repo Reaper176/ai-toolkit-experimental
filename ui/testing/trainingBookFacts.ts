@@ -4509,6 +4509,27 @@ function globalSettingClaims(root: string, required: boolean): UiSourceClaim[] {
   ));
 }
 
+function configBehaviorClaims(root: string, required: boolean): UiSourceClaim[] {
+  if (!required) return [];
+  const migrationSourcePath = 'ui/src/app/jobs/new/jobConfig.ts';
+  const transitionSourcePath = 'ui/src/app/jobs/new/utils.ts';
+  const animaPathSourcePath = 'ui/src/helpers/animaModelPaths.ts';
+  const migrationClaims = collectMigrateJobConfigBehaviorClaimsFromSource(
+    readFileSync(join(root, migrationSourcePath), 'utf8'),
+    migrationSourcePath,
+  );
+  const transitionClaims = collectHandleModelArchChangeBehaviorClaimsFromSource(
+    readFileSync(join(root, transitionSourcePath), 'utf8'),
+    readFileSync(join(root, animaPathSourcePath), 'utf8'),
+    transitionSourcePath,
+    animaPathSourcePath,
+  );
+  if (migrationClaims.length !== 7 || transitionClaims.length !== 30) {
+    fail(undefined, `production config behavior inventory requires 7 migration and 30 transition facts, received ${migrationClaims.length} and ${transitionClaims.length}`);
+  }
+  return [...migrationClaims, ...transitionClaims];
+}
+
 export function collectTrainingBookUiFacts(repositoryRoot: string): TrainingBookUiFacts {
   const root = resolve(repositoryRoot);
   const repo = new AstRepository(root);
@@ -4523,14 +4544,21 @@ export function collectTrainingBookUiFacts(repositoryRoot: string): TrainingBook
   ];
   defaults.sort((left, right) => compareCodePoint(`${left.path}\0${left.source_path}\0${left.symbol}`, `${right.path}\0${right.source_path}\0${right.symbol}`));
   const model_architectures = architectureFacts(repo);
-  const config_claims = [...defaultClaims(defaults), ...docClaims(root, repo), ...setterClaims(root), ...visibleSettingClaims(root, model_architectures, repo)];
+  const requiredProductionFacts = model_architectures.length === 51;
+  const config_claims = [
+    ...defaultClaims(defaults),
+    ...docClaims(root, repo),
+    ...setterClaims(root),
+    ...visibleSettingClaims(root, model_architectures, repo),
+    ...configBehaviorClaims(root, requiredProductionFacts),
+  ];
   config_claims.sort((left, right) => compareCodePoint(`${left.source_path}\0${left.symbol}\0${left.path}\0${left.kind}`, `${right.source_path}\0${right.symbol}\0${right.path}\0${right.kind}`));
   const facts: TrainingBookUiFacts = {
     schema_version: 1,
     model_architectures,
     defaults,
     config_claims,
-    global_settings: globalSettingClaims(root, model_architectures.length === 51),
+    global_settings: globalSettingClaims(root, requiredProductionFacts),
     architecture_transitions: [],
   };
   facts.architecture_transitions = facts.model_architectures
