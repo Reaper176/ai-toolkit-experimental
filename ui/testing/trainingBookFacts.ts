@@ -392,11 +392,20 @@ type LexicalBindingEvent = {
   initializer?: ts.Expression;
   position: number;
   parameter?: boolean;
+  invalid?: boolean;
+  branch?: {
+    owner: ts.Node;
+    arm: string;
+    arms: readonly string[];
+    exhaustive: boolean;
+  };
 };
 
 type LexicalLookup =
   | { found: false }
   | { found: true; event?: LexicalBindingEvent };
+
+type AliasCandidate = ts.Expression | 'absent' | 'tainted';
 
 function isLexicalFunction(node: ts.Node): node is ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction | ts.MethodDeclaration {
   return ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node) || ts.isMethodDeclaration(node);
@@ -462,11 +471,39 @@ function assignedIdentifiers(node: ts.Node): ts.Identifier[] {
   return [];
 }
 
-function staticTruthValue(expression: ts.Expression): boolean | undefined {
+function staticTruthValue(expression: ts.Expression, bindings?: LexicalBindings): boolean | undefined {
   expression = unwrap(expression);
   if (expression.kind === ts.SyntaxKind.FalseKeyword) return false;
   if (expression.kind === ts.SyntaxKind.TrueKeyword) return true;
-  return ts.isNumericLiteral(expression) ? Number(expression.text) !== 0 : undefined;
+  if (expression.kind === ts.SyntaxKind.NullKeyword) return false;
+  if (ts.isIdentifier(expression) && expression.text === 'undefined') return bindings !== undefined && !bindings.lookup(expression).found ? false : undefined;
+  if (ts.isNumericLiteral(expression)) return Number(expression.text) !== 0;
+  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text.length !== 0;
+  if (ts.isArrayLiteralExpression(expression) || ts.isObjectLiteralExpression(expression) || ts.isFunctionExpression(expression) || ts.isArrowFunction(expression)) return true;
+  if (ts.isPrefixUnaryExpression(expression) && expression.operator === ts.SyntaxKind.ExclamationToken) {
+    const operand = staticTruthValue(expression.operand, bindings);
+    return operand === undefined ? undefined : !operand;
+  }
+  if (ts.isVoidExpression(expression)) return false;
+  return undefined;
+}
+
+function staticNullishValue(expression: ts.Expression, bindings?: LexicalBindings): boolean | undefined {
+  expression = unwrap(expression);
+  if (expression.kind === ts.SyntaxKind.NullKeyword || ts.isVoidExpression(expression)) return true;
+  if (ts.isIdentifier(expression) && expression.text === 'undefined') return bindings !== undefined && !bindings.lookup(expression).found ? true : undefined;
+  if (
+    expression.kind === ts.SyntaxKind.TrueKeyword
+    || expression.kind === ts.SyntaxKind.FalseKeyword
+    || ts.isNumericLiteral(expression)
+    || ts.isStringLiteral(expression)
+    || ts.isNoSubstitutionTemplateLiteral(expression)
+    || ts.isArrayLiteralExpression(expression)
+    || ts.isObjectLiteralExpression(expression)
+    || ts.isFunctionExpression(expression)
+    || ts.isArrowFunction(expression)
+  ) return false;
+  return undefined;
 }
 
 class LexicalBindings {
@@ -486,6 +523,157 @@ class LexicalBindings {
       return event.kind === 'assignment' && event.initializer === undefined ? { found: true } : { found: true, event };
     }
     return { found: false };
+  }
+
+  provenanceCandidates(identifier: ts.Identifier): { found: false } | { found: true; candidates: AliasCandidate[] } {
+    for (const scope of this.scopes(identifier)) {
+      const events = this.eventsFor(scope).get(identifier.text);
+      if (events === undefined) continue;
+      const declarations = events.filter(event => event.kind === 'declaration');
+      if (declarations.length !== 1) return { found: true, candidates: ['tainted'] };
+      const declaration = declarations[0];
+      if (declaration.position > identifier.getStart(this.source)) return { found: true, candidates: ['tainted'] };
+      let candidates: AliasCandidate[] = declaration.initializer !== undefined
+        ? [declaration.initializer]
+        : declaration.parameter === true || ts.isFunctionDeclaration(declaration.name.parent)
+          ? [declaration.name]
+          : ['absent'];
+      const preceding = events.filter(event => event.kind === 'assignment' && event.position <= identifier.getStart(this.source));
+      for (let index = 0; index < preceding.length;) {
+        const event = preceding[index];
+        if (event.branch === undefined) {
+          candidates = [event.invalid || event.initializer === undefined ? 'tainted' : event.initializer];
+          index += 1;
+          continue;
+        }
+        const owner = event.branch.owner;
+        const grouped: LexicalBindingEvent[] = [];
+        while (index < preceding.length && preceding[index].branch?.owner === owner) grouped.push(preceding[index++]);
+        const lastByArm = new Map<string, LexicalBindingEvent>();
+        for (const item of grouped) lastByArm.set(item.branch!.arm, item);
+        const next: AliasCandidate[] = [];
+        for (const arm of event.branch.arms) {
+          const branchEvent = lastByArm.get(arm);
+          if (branchEvent === undefined) next.push(...candidates);
+          else next.push(branchEvent.invalid || branchEvent.initializer === undefined ? 'tainted' : branchEvent.initializer);
+        }
+        if (!event.branch.exhaustive) next.push(...candidates);
+        candidates = next;
+      }
+      return { found: true, candidates };
+    }
+    return { found: false };
+  }
+
+  memberProvenanceCandidates(base: ts.Expression, key: string, at: ts.Node): AliasCandidate[] | undefined {
+    const root = (expression: ts.Expression, seen = new Set<ts.Identifier>()): ts.Node | string | undefined => {
+      expression = unwrap(expression);
+      if (!ts.isIdentifier(expression)) return expression;
+      const declaration = this.bindingDeclaration(expression);
+      if (declaration === undefined) return `global:${expression.text}`;
+      if (seen.has(declaration)) return undefined;
+      const initializer = this.declarationInitializer(expression);
+      return initializer === undefined ? declaration : root(initializer, new Set(seen).add(declaration));
+    };
+    const expectedRoot = root(base);
+    if (expectedRoot === undefined) return ['tainted'];
+    let owner: ts.Node | undefined = at;
+    while (owner !== undefined && !isLexicalFunction(owner) && !ts.isSourceFile(owner)) owner = owner.parent;
+    if (owner === undefined) return undefined;
+    type MemberEvent = { initializer?: ts.Expression; invalid: boolean; position: number; rawPosition: number; branch?: NonNullable<LexicalBindingEvent['branch']> };
+    const events: MemberEvent[] = [];
+    const branchAt = (node: ts.Node): MemberEvent['branch'] | 'invalid' | undefined => {
+      let current: ts.Node | undefined = node;
+      let result: MemberEvent['branch'] | undefined;
+      while (current?.parent !== undefined && current.parent !== owner) {
+        const parent: ts.Node = current.parent;
+        if (ts.isIfStatement(parent)) {
+          const truth = staticTruthValue(parent.expression);
+          if ((truth === true && current === parent.thenStatement) || (truth === false && current === parent.elseStatement)) {
+            current = parent;
+            continue;
+          }
+          if (truth !== undefined || result !== undefined) return 'invalid';
+          result = { owner: parent, arm: current === parent.thenStatement ? 'then' : 'else', arms: ['then', 'else'], exhaustive: parent.elseStatement !== undefined };
+        } else if (ts.isCaseClause(parent) || ts.isDefaultClause(parent)) {
+          const switchStatement = ts.isCaseBlock(parent.parent) && ts.isSwitchStatement(parent.parent.parent) ? parent.parent.parent : undefined;
+          if (switchStatement === undefined || result !== undefined) return 'invalid';
+          const clauses = switchStatement.caseBlock.clauses;
+          result = { owner: switchStatement, arm: String(clauses.indexOf(parent)), arms: clauses.map((_, index) => String(index)), exhaustive: clauses.some(ts.isDefaultClause) };
+        } else if (ts.isConditionalExpression(parent)) {
+          const truth = staticTruthValue(parent.condition);
+          if ((truth === true && current === parent.whenTrue) || (truth === false && current === parent.whenFalse)) {
+            current = parent;
+            continue;
+          }
+          if (truth !== undefined || result !== undefined) return 'invalid';
+          result = { owner: parent, arm: current === parent.whenTrue ? 'true' : 'false', arms: ['true', 'false'], exhaustive: true };
+        } else if (ts.isForStatement(parent) || ts.isForInStatement(parent) || ts.isForOfStatement(parent) || ts.isWhileStatement(parent) || ts.isDoStatement(parent) || ts.isTryStatement(parent)) return 'invalid';
+        current = parent;
+      }
+      return result;
+    };
+    const visit = (node: ts.Node): void => {
+      if (node !== owner && ts.isFunctionLike(node)) return;
+      if (isStaticallyDead(node)) return;
+      const record = (target: ts.Expression, initializer: ts.Expression | undefined, invalid: boolean): void => {
+        const member = staticMember(target);
+        if (member === undefined || member.key !== key || root(member.base) !== expectedRoot) return;
+        const branch = branchAt(node);
+        events.push({ initializer, invalid: invalid || branch === 'invalid', branch: branch === 'invalid' ? undefined : branch, position: branch !== undefined && branch !== 'invalid' ? branch.owner.end : node.end, rawPosition: node.end });
+      };
+      if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) record(node.left, node.operatorToken.kind === ts.SyntaxKind.EqualsToken ? node.right : undefined, node.operatorToken.kind !== ts.SyntaxKind.EqualsToken);
+      else if (ts.isDeleteExpression(node)) record(node.expression, undefined, true);
+      else if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)) record(node.operand, undefined, true);
+      ts.forEachChild(node, visit);
+    };
+    ts.forEachChild(owner, visit);
+    const atPosition = at.getStart(this.source);
+    const preceding = events.filter(event => {
+      if (event.rawPosition > atPosition) return false;
+      if (event.position <= atPosition || event.branch === undefined) return true;
+      const owner = event.branch.owner;
+      if (ts.isIfStatement(owner)) {
+        const arm = event.branch.arm === 'then' ? owner.thenStatement : owner.elseStatement;
+        return arm !== undefined && arm.getStart(this.source) <= atPosition && atPosition <= arm.end;
+      }
+      if (ts.isConditionalExpression(owner)) {
+        const arm = event.branch.arm === 'true' ? owner.whenTrue : owner.whenFalse;
+        return arm.getStart(this.source) <= atPosition && atPosition <= arm.end;
+      }
+      if (ts.isSwitchStatement(owner)) {
+        const arm = owner.caseBlock.clauses[Number(event.branch.arm)];
+        return arm !== undefined && arm.getStart(this.source) <= atPosition && atPosition <= arm.end;
+      }
+      return false;
+    }).sort((left, right) => left.position - right.position);
+    if (preceding.length === 0) return undefined;
+    let candidates: AliasCandidate[] = ['absent'];
+    for (let index = 0; index < preceding.length;) {
+      const event = preceding[index];
+      if (event.branch === undefined) {
+        candidates = [event.invalid || event.initializer === undefined ? 'tainted' : event.initializer];
+        index += 1;
+        continue;
+      }
+      if (event.position > atPosition) {
+        candidates = [event.invalid || event.initializer === undefined ? 'tainted' : event.initializer];
+        index += 1;
+        continue;
+      }
+      const grouped: MemberEvent[] = [];
+      while (index < preceding.length && preceding[index].branch?.owner === event.branch.owner) grouped.push(preceding[index++]);
+      const lastByArm = new Map(grouped.map(item => [item.branch!.arm, item]));
+      const next: AliasCandidate[] = [];
+      for (const arm of event.branch.arms) {
+        const item = lastByArm.get(arm);
+        if (item === undefined) next.push(...candidates);
+        else next.push(item.invalid || item.initializer === undefined ? 'tainted' : item.initializer);
+      }
+      if (!event.branch.exhaustive) next.push(...candidates);
+      candidates = next;
+    }
+    return candidates;
   }
 
   path(identifier: ts.Identifier, seen = new Set<ts.Node>()): string | undefined {
@@ -643,25 +831,85 @@ class LexicalBindings {
         ? node.statement.getStart(this.source)
         : node.end
     );
-    const assignmentIsUnconditional = (node: ts.Node): boolean => {
+    const assignmentBranch = (node: ts.Node): LexicalBindingEvent['branch'] | 'invalid' | undefined => {
       let current: ts.Node | undefined = node;
+      let result: LexicalBindingEvent['branch'] | undefined;
       while (current?.parent !== undefined && current.parent !== scope) {
         const parent: ts.Node = current.parent;
         if (ts.isIfStatement(parent)) {
           const truth = staticTruthValue(parent.expression);
-          if (!((truth === true && current === parent.thenStatement) || (truth === false && current === parent.elseStatement))) return false;
+          if ((truth === true && current === parent.thenStatement) || (truth === false && current === parent.elseStatement)) {
+            current = parent;
+            continue;
+          }
+          if (truth !== undefined) return 'invalid';
+          if (result !== undefined) return 'invalid';
+          result = {
+            owner: parent,
+            arm: current === parent.thenStatement ? 'then' : 'else',
+            arms: ['then', 'else'],
+            exhaustive: parent.elseStatement !== undefined,
+          };
         } else if (ts.isConditionalExpression(parent)) {
           const truth = staticTruthValue(parent.condition);
-          if (!((truth === true && current === parent.whenTrue) || (truth === false && current === parent.whenFalse))) return false;
+          if ((truth === true && current === parent.whenTrue) || (truth === false && current === parent.whenFalse)) {
+            current = parent;
+            continue;
+          }
+          if (truth !== undefined || result !== undefined) return 'invalid';
+          result = { owner: parent, arm: current === parent.whenTrue ? 'true' : 'false', arms: ['true', 'false'], exhaustive: true };
         } else if (ts.isBinaryExpression(parent) && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(parent.operatorToken.kind)) {
           const truth = staticTruthValue(parent.left);
-          if (current === parent.right && !((parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && truth === true) || (parent.operatorToken.kind === ts.SyntaxKind.BarBarToken && truth === false))) return false;
-        } else if (ts.isForStatement(parent) || ts.isForInStatement(parent) || ts.isForOfStatement(parent) || ts.isWhileStatement(parent) || ts.isDoStatement(parent) || ts.isSwitchStatement(parent) || ts.isTryStatement(parent)) return false;
+          const nullish = staticNullishValue(parent.left);
+          const rightIsCertain = (parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && truth === true)
+            || (parent.operatorToken.kind === ts.SyntaxKind.BarBarToken && truth === false)
+            || (parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken && nullish === true);
+          const rightIsDead = (parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && truth === false)
+            || (parent.operatorToken.kind === ts.SyntaxKind.BarBarToken && truth === true)
+            || (parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken && nullish === false);
+          if (current === parent.right && rightIsCertain) {
+            current = parent;
+            continue;
+          }
+          if (current === parent.right && (rightIsDead || result !== undefined)) return 'invalid';
+          if (current === parent.right) result = { owner: parent, arm: 'right', arms: ['left', 'right'], exhaustive: false };
+        } else if (ts.isCaseClause(parent) || ts.isDefaultClause(parent)) {
+          const switchStatement = ts.isCaseBlock(parent.parent) && ts.isSwitchStatement(parent.parent.parent) ? parent.parent.parent : undefined;
+          if (switchStatement === undefined || result !== undefined) return 'invalid';
+          const clauses = switchStatement.caseBlock.clauses;
+          result = {
+            owner: switchStatement,
+            arm: String(clauses.indexOf(parent)),
+            arms: clauses.map((_, index) => String(index)),
+            exhaustive: clauses.some(ts.isDefaultClause),
+          };
+        } else if (ts.isSwitchStatement(parent)) {
+          if (result?.owner === parent) {
+            current = parent;
+            continue;
+          }
+          const clause = current.parent !== undefined && (ts.isCaseClause(current.parent) || ts.isDefaultClause(current.parent))
+            ? current.parent
+            : undefined;
+          if (clause === undefined || result !== undefined) return 'invalid';
+          const clauses = parent.caseBlock.clauses;
+          result = {
+            owner: parent,
+            arm: String(clauses.indexOf(clause)),
+            arms: clauses.map((_, index) => String(index)),
+            exhaustive: clauses.some(ts.isDefaultClause),
+          };
+        } else if (ts.isForStatement(parent) || ts.isForInStatement(parent) || ts.isForOfStatement(parent) || ts.isWhileStatement(parent) || ts.isDoStatement(parent) || ts.isTryStatement(parent)) return 'invalid';
         current = parent;
       }
-      return true;
+      return result;
     };
-    const assignmentBindings = (node: ts.Node): Array<{ name: ts.Identifier; initializer?: ts.Expression }> => {
+    const assignmentBindings = (node: ts.Node): Array<{
+      name: ts.Identifier;
+      initializer?: ts.Expression;
+      invalid?: boolean;
+      branch?: LexicalBindingEvent['branch'];
+    }> => {
       if (isStaticallyDead(node)) return [];
       const bind = (target: ts.Expression, initializer: ts.Expression | undefined): Array<{ name: ts.Identifier; initializer?: ts.Expression }> => {
         target = unwrap(target);
@@ -683,11 +931,12 @@ class LexicalBindings {
         });
         return [];
       };
-      const unconditional = assignmentIsUnconditional(node);
+      const branch = assignmentBranch(node);
       if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) {
-        return bind(node.left, unconditional && node.operatorToken.kind === ts.SyntaxKind.EqualsToken ? node.right : undefined);
+        return bind(node.left, node.operatorToken.kind === ts.SyntaxKind.EqualsToken && branch !== 'invalid' ? node.right : undefined)
+          .map(item => ({ ...item, branch: branch === 'invalid' ? undefined : branch, invalid: branch === 'invalid' || item.initializer === undefined }));
       }
-      return assignedIdentifiers(node).map(name => ({ name }));
+      return assignedIdentifiers(node).map(name => ({ name, invalid: true }));
     };
     if (isLexicalFunction(scope)) {
       for (const parameter of scope.parameters) addBindingName(parameter.name, undefined, Number.NEGATIVE_INFINITY, true);
@@ -704,7 +953,7 @@ class LexicalBindings {
         const collectConciseAssignments = (node: ts.Node): void => {
           if (isLexicalFunction(node) || ts.isClassLike(node)) return;
           for (const target of assignmentBindings(node)) {
-            add({ kind: 'assignment', name: target.name, initializer: target.initializer, position: assignmentPosition(node) });
+            add({ kind: 'assignment', ...target, position: target.branch?.owner.end ?? assignmentPosition(node) });
           }
           ts.forEachChild(node, collectConciseAssignments);
         };
@@ -736,14 +985,14 @@ class LexicalBindings {
         if (isLexicalScope(child)) {
           if (isLexicalFunction(child) || ts.isClassLike(child)) return;
           for (const target of assignmentBindings(child)) {
-            if (!shadowed.has(target.name.text)) add({ kind: 'assignment', name: target.name, initializer: target.initializer, position: assignmentPosition(child) });
+            if (!shadowed.has(target.name.text)) add({ kind: 'assignment', ...target, position: target.branch?.owner.end ?? assignmentPosition(child) });
           }
           const nestedShadowed = new Set([...shadowed, ...declarationsIn(child)]);
           ts.forEachChild(child, descendant => walk(descendant, nestedShadowed));
           return;
         }
         for (const target of assignmentBindings(child)) {
-          if (!shadowed.has(target.name.text)) add({ kind: 'assignment', name: target.name, initializer: target.initializer, position: assignmentPosition(child) });
+          if (!shadowed.has(target.name.text)) add({ kind: 'assignment', ...target, position: target.branch?.owner.end ?? assignmentPosition(child) });
         }
         ts.forEachChild(child, descendant => walk(descendant, shadowed));
       };
@@ -755,7 +1004,7 @@ class LexicalBindings {
         if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name !== undefined) {
           add({ kind: 'declaration', name: node.name, position: Number.NEGATIVE_INFINITY });
         } else if (!isLexicalFunction(node) && !ts.isClassLike(node)) {
-          for (const target of assignmentBindings(node)) add({ kind: 'assignment', name: target.name, initializer: target.initializer, position: assignmentPosition(node) });
+          for (const target of assignmentBindings(node)) add({ kind: 'assignment', ...target, position: target.branch?.owner.end ?? assignmentPosition(node) });
           addNestedAssignments(node);
         }
         return;
@@ -765,9 +1014,10 @@ class LexicalBindings {
       } else if ((ts.isNamespaceImport(node) || ts.isImportSpecifier(node)) && node.name.text === 'jobConfig') {
         add({ kind: 'declaration', name: node.name, position: Number.NEGATIVE_INFINITY });
       } else if (ts.isVariableDeclaration(node) && (isBlockScopedVariable(node) || ts.isSourceFile(scope))) {
-        addBindingName(node.name, node.initializer, node.end);
+        const listOwner = ts.isVariableDeclarationList(node.parent) ? node.parent.parent : undefined;
+        addBindingName(node.name, node.initializer, node.end, listOwner !== undefined && (ts.isForInStatement(listOwner) || ts.isForOfStatement(listOwner)));
       } else {
-        for (const target of assignmentBindings(node)) add({ kind: 'assignment', name: target.name, initializer: target.initializer, position: assignmentPosition(node) });
+        for (const target of assignmentBindings(node)) add({ kind: 'assignment', ...target, position: target.branch?.owner.end ?? assignmentPosition(node) });
       }
       ts.forEachChild(node, visit);
     };
@@ -2612,35 +2862,133 @@ function staticMember(
   return undefined;
 }
 
+type AliasOriginNode = ts.Expression | ts.MethodDeclaration;
+type AliasProvenance =
+  | { kind: 'exact'; origin: AliasOriginNode }
+  | { kind: 'tainted' }
+  | { kind: 'absent' };
+
+function sameAliasOrigin(left: AliasOriginNode, right: AliasOriginNode, bindings: LexicalBindings): boolean {
+  if (left === right) return true;
+  if (ts.isIdentifier(left) && ts.isIdentifier(right)) {
+    const leftLookup = bindings.lookup(left);
+    const rightLookup = bindings.lookup(right);
+    return leftLookup.found || rightLookup.found
+      ? bindings.sameBinding(left, right)
+      : left.text === right.text;
+  }
+  if (ts.isMethodDeclaration(left) || ts.isMethodDeclaration(right)) return false;
+  const leftMember = staticMember(left);
+  const rightMember = staticMember(right);
+  if (leftMember !== undefined && rightMember !== undefined) {
+    return leftMember.key === rightMember.key && sameAliasOrigin(leftMember.base, rightMember.base, bindings);
+  }
+  if ((ts.isStringLiteral(left) || ts.isNoSubstitutionTemplateLiteral(left)) && (ts.isStringLiteral(right) || ts.isNoSubstitutionTemplateLiteral(right))) return left.text === right.text;
+  if (ts.isNumericLiteral(left) && ts.isNumericLiteral(right)) return Number(left.text) === Number(right.text);
+  return left.kind === right.kind && [ts.SyntaxKind.NullKeyword, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword].includes(left.kind);
+}
+
+function joinAliasProvenance(values: readonly AliasProvenance[], bindings: LexicalBindings): AliasProvenance {
+  if (values.length === 0 || values.some(value => value.kind === 'tainted')) return { kind: 'tainted' };
+  if (values.every(value => value.kind === 'absent')) return { kind: 'absent' };
+  if (values.some(value => value.kind === 'absent')) return { kind: 'tainted' };
+  const exact = values as Array<{ kind: 'exact'; origin: AliasOriginNode }>;
+  return exact.every(value => sameAliasOrigin(value.origin, exact[0].origin, bindings))
+    ? exact[0]
+    : { kind: 'tainted' };
+}
+
+function resolveAliasProvenance(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions = new Map(),
+  seen = new Set<ts.Identifier>(),
+): AliasProvenance {
+  expression = unwrap(expression);
+  if (ts.isConditionalExpression(expression)) {
+    const truth = staticTruthValue(expression.condition, bindings);
+    if (truth !== undefined) return resolveAliasProvenance(truth ? expression.whenTrue : expression.whenFalse, bindings, substitutions, seen);
+    return joinAliasProvenance([
+      resolveAliasProvenance(expression.whenTrue, bindings, substitutions, seen),
+      resolveAliasProvenance(expression.whenFalse, bindings, substitutions, seen),
+    ], bindings);
+  }
+  if (ts.isBinaryExpression(expression) && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(expression.operatorToken.kind)) {
+    const truth = staticTruthValue(expression.left, bindings);
+    const nullish = staticNullishValue(expression.left, bindings);
+    if (expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && truth !== undefined) return resolveAliasProvenance(truth ? expression.right : expression.left, bindings, substitutions, seen);
+    if (expression.operatorToken.kind === ts.SyntaxKind.BarBarToken && truth !== undefined) return resolveAliasProvenance(truth ? expression.left : expression.right, bindings, substitutions, seen);
+    if (expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken && nullish !== undefined) return resolveAliasProvenance(nullish ? expression.right : expression.left, bindings, substitutions, seen);
+    const right = unwrap(expression.right);
+    if (
+      right.kind === ts.SyntaxKind.TrueKeyword
+      || right.kind === ts.SyntaxKind.FalseKeyword
+      || right.kind === ts.SyntaxKind.NullKeyword
+      || ts.isNumericLiteral(right)
+      || ts.isStringLiteral(right)
+      || ts.isNoSubstitutionTemplateLiteral(right)
+      || ts.isArrayLiteralExpression(right)
+      || ts.isObjectLiteralExpression(right)
+    ) return { kind: 'exact', origin: expression };
+    return joinAliasProvenance([
+      resolveAliasProvenance(expression.left, bindings, substitutions, seen),
+      resolveAliasProvenance(expression.right, bindings, substitutions, seen),
+    ], bindings);
+  }
+  if (ts.isIdentifier(expression)) {
+    const declaration = bindings.bindingDeclaration(expression);
+    if (declaration !== undefined && substitutions.has(declaration)) {
+      if (seen.has(declaration)) return { kind: 'tainted' };
+      return resolveAliasProvenance(substitutions.get(declaration)!, bindings, substitutions, new Set(seen).add(declaration));
+    }
+    const lookup = bindings.provenanceCandidates(expression);
+    if (!lookup.found) return { kind: 'exact', origin: expression };
+    if (declaration !== undefined && seen.has(declaration)) return { kind: 'tainted' };
+    const nextSeen = declaration === undefined ? seen : new Set(seen).add(declaration);
+    return joinAliasProvenance(lookup.candidates.map(candidate => candidate === 'tainted'
+      ? { kind: 'tainted' as const }
+      : candidate === 'absent'
+        ? { kind: 'absent' as const }
+        : candidate === declaration
+          ? { kind: 'exact' as const, origin: candidate }
+        : resolveAliasProvenance(candidate, bindings, substitutions, nextSeen)), bindings);
+  }
+  const member = staticMember(expression);
+  if (member === undefined) return { kind: 'exact', origin: expression };
+  const memberCandidates = bindings.memberProvenanceCandidates(member.base, member.key, expression);
+  if (memberCandidates !== undefined) {
+    return joinAliasProvenance(memberCandidates.map(candidate => candidate === 'tainted'
+      ? { kind: 'tainted' as const }
+      : candidate === 'absent'
+        ? { kind: 'absent' as const }
+        : resolveAliasProvenance(candidate, bindings, substitutions, seen)), bindings);
+  }
+  const baseProvenance = resolveAliasProvenance(member.base, bindings, substitutions, seen);
+  if (baseProvenance.kind !== 'exact') return baseProvenance;
+  const base = baseProvenance.origin;
+  if (ts.isMethodDeclaration(base)) return { kind: 'tainted' };
+  if (ts.isArrayLiteralExpression(base) && /^\d+$/.test(member.key)) {
+    const item = base.elements[Number(member.key)];
+    if (item !== undefined && !ts.isOmittedExpression(item) && !ts.isSpreadElement(item)) return resolveAliasProvenance(item, bindings, substitutions, seen);
+  }
+  if (ts.isObjectLiteralExpression(base)) {
+    for (const property of base.properties) {
+      if (ts.isShorthandPropertyAssignment(property) && property.name.text === member.key) return resolveAliasProvenance(property.name, bindings, substitutions, seen);
+      if (ts.isPropertyAssignment(property) && propertyName(property.name) === member.key) return resolveAliasProvenance(property.initializer, bindings, substitutions, seen);
+      if (ts.isMethodDeclaration(property) && propertyName(property.name) === member.key) return { kind: 'exact', origin: property };
+    }
+  }
+  return { kind: 'exact', origin: ts.factory.createElementAccessExpression(base, ts.factory.createStringLiteral(member.key)) };
+}
+
 function resolveAliasOrigin(
   expression: ts.Expression,
   bindings: LexicalBindings,
   substitutions: InvocationSubstitutions = new Map(),
   seen = new Set<ts.Identifier>(),
 ): ts.Expression {
-  expression = unwrap(expression);
-  if (ts.isIdentifier(expression)) {
-    const declaration = bindings.bindingDeclaration(expression);
-    if (declaration === undefined || seen.has(declaration)) return expression;
-    const initializer = substitutions.get(declaration) ?? bindings.declarationInitializer(expression);
-    return initializer === undefined
-      ? expression
-      : resolveAliasOrigin(initializer, bindings, substitutions, new Set(seen).add(declaration));
-  }
-  const member = staticMember(expression);
-  if (member === undefined) return expression;
-  const base = resolveAliasOrigin(member.base, bindings, substitutions, seen);
-  if (ts.isArrayLiteralExpression(base) && /^\d+$/.test(member.key)) {
-    const item = base.elements[Number(member.key)];
-    if (item !== undefined && !ts.isOmittedExpression(item) && !ts.isSpreadElement(item)) return resolveAliasOrigin(item, bindings, substitutions, seen);
-  }
-  if (ts.isObjectLiteralExpression(base)) {
-    for (const property of base.properties) {
-      if (ts.isShorthandPropertyAssignment(property) && property.name.text === member.key) return resolveAliasOrigin(property.name, bindings, substitutions, seen);
-      if (ts.isPropertyAssignment(property) && propertyName(property.name) === member.key) return resolveAliasOrigin(property.initializer, bindings, substitutions, seen);
-    }
-  }
-  return ts.factory.createElementAccessExpression(base, ts.factory.createStringLiteral(member.key));
+  const provenance = resolveAliasProvenance(expression, bindings, substitutions, seen);
+  return provenance.kind === 'exact' && !ts.isMethodDeclaration(provenance.origin) ? provenance.origin : expression;
 }
 
 function aliasOriginReachesBinding(
@@ -2654,26 +3002,29 @@ function aliasOriginReachesBinding(
   if (ts.isIdentifier(expression)) {
     if (bindings.isBinding(expression, target)) return true;
     const declaration = bindings.bindingDeclaration(expression);
-    if (declaration === undefined || seen.has(declaration)) return false;
-    const initializer = substitutions.get(declaration) ?? bindings.declarationInitializer(expression);
-    return initializer !== undefined && aliasOriginReachesBinding(initializer, target, bindings, substitutions, new Set(seen).add(declaration));
-  }
-  const member = staticMember(expression);
-  if (member === undefined) return false;
-  if (aliasOriginReachesBinding(member.base, target, bindings, substitutions, seen)) return true;
-  const base = resolveAliasOrigin(member.base, bindings, substitutions, seen);
-  if (ts.isArrayLiteralExpression(base) && /^\d+$/.test(member.key)) {
-    const item = base.elements[Number(member.key)];
-    return item !== undefined && !ts.isOmittedExpression(item) && !ts.isSpreadElement(item)
-      && aliasOriginReachesBinding(item, target, bindings, substitutions, seen);
-  }
-  if (ts.isObjectLiteralExpression(base)) {
-    for (const property of base.properties) {
-      if (ts.isShorthandPropertyAssignment(property) && property.name.text === member.key) return aliasOriginReachesBinding(property.name, target, bindings, substitutions, seen);
-      if (ts.isPropertyAssignment(property) && propertyName(property.name) === member.key) return aliasOriginReachesBinding(property.initializer, target, bindings, substitutions, seen);
+    if (declaration !== undefined && seen.has(declaration)) fail(expression, 'unsupported local invocation: tainted alias provenance');
+    if (declaration !== undefined && substitutions.has(declaration)) {
+      return aliasOriginReachesBinding(substitutions.get(declaration)!, target, bindings, substitutions, new Set(seen).add(declaration));
+    }
+    const lookup = bindings.provenanceCandidates(expression);
+    if (lookup.found) {
+      const nextSeen = declaration === undefined ? seen : new Set(seen).add(declaration);
+      const outcomes = lookup.candidates.map(candidate => candidate === 'tainted'
+        ? 'tainted'
+        : candidate === 'absent'
+          ? false
+          : candidate === declaration
+            ? false
+            : aliasOriginReachesBinding(candidate, target, bindings, substitutions, nextSeen));
+      if (outcomes.includes('tainted') || new Set(outcomes).size > 1) fail(expression, 'unsupported local invocation: tainted alias provenance');
+      return outcomes[0] === true;
     }
   }
-  return false;
+  const member = staticMember(expression);
+  if (member !== undefined && aliasOriginReachesBinding(member.base, target, bindings, substitutions, seen)) return true;
+  const provenance = resolveAliasProvenance(expression, bindings, substitutions, seen);
+  if (provenance.kind === 'tainted') fail(expression, 'unsupported local invocation: tainted alias provenance');
+  return provenance.kind === 'exact' && ts.isIdentifier(provenance.origin) && bindings.isBinding(provenance.origin, target);
 }
 
 type NormalizedInvocation = {
@@ -2702,18 +3053,48 @@ function exactThisArgument(expression: ts.Expression | undefined, bindings: Lexi
     || (ts.isVoidExpression(expression) && ts.isNumericLiteral(unwrap(expression.expression)) && Number((unwrap(expression.expression) as ts.NumericLiteral).text) === 0);
 }
 
+function callableAliasOrigin(expression: ts.Expression, bindings: LexicalBindings): boolean {
+  const provenance = resolveAliasProvenance(expression, bindings);
+  if (provenance.kind !== 'exact') return false;
+  const origin = provenance.origin;
+  if (ts.isFunctionLike(origin)) return true;
+  if (ts.isIdentifier(origin)) {
+    const declaration = bindings.bindingDeclaration(origin);
+    if (declaration !== undefined && ts.isFunctionDeclaration(declaration.parent) && declaration.parent.name === declaration) return true;
+    return declaration !== undefined && ts.isParameter(declaration.parent) && declaration.parent.type !== undefined
+      && (ts.isFunctionTypeNode(declaration.parent.type) || ts.isConstructorTypeNode(declaration.parent.type));
+  }
+  if (ts.isMethodDeclaration(origin)) return true;
+  const api = ts.isMethodDeclaration(origin) ? undefined : staticMember(origin);
+  if (api === undefined) return false;
+  const receiver = resolveAliasOrigin(api.base, bindings);
+  return ts.isIdentifier(receiver)
+    && !bindings.lookup(receiver).found
+    && ((receiver.text === 'Object' && ['assign', 'defineProperty', 'defineProperties'].includes(api.key))
+      || (receiver.text === 'Reflect' && ['set', 'deleteProperty'].includes(api.key)));
+}
+
+function ownStaticMember(expression: ts.Expression, bindings: LexicalBindings): boolean {
+  const member = staticMember(expression);
+  if (member === undefined) return false;
+  if (bindings.memberProvenanceCandidates(member.base, member.key, expression) !== undefined) return true;
+  const base = resolveAliasProvenance(member.base, bindings);
+  if (base.kind !== 'exact' || !ts.isObjectLiteralExpression(base.origin)) return false;
+  return base.origin.properties.some(property => !ts.isSpreadAssignment(property) && propertyName(property.name) === member.key);
+}
+
 function normalizeInvocation(call: ts.CallExpression, bindings: LexicalBindings): NormalizedInvocation {
   const callee = unwrap(call.expression);
   if (ts.isCallExpression(callee)) {
     const bindCallee = staticMember(callee.expression);
-    if (bindCallee?.key === 'bind') {
+    if (bindCallee?.key === 'bind' && !ownStaticMember(callee.expression, bindings) && callableAliasOrigin(bindCallee.base, bindings)) {
       return exactThisArgument(callee.arguments[0], bindings)
         ? { target: unwrap(bindCallee.base), arguments: [...callee.arguments.slice(1), ...call.arguments] }
         : { target: unwrap(bindCallee.base), unsupported: 'bind requires an exact null/undefined this argument' };
     }
   }
   const member = staticMember(callee);
-  if (member !== undefined && (member.key === 'call' || member.key === 'apply')) {
+  if (member !== undefined && (member.key === 'call' || member.key === 'apply') && !ownStaticMember(callee, bindings) && callableAliasOrigin(member.base, bindings)) {
     const target = unwrap(member.base);
     if (!exactThisArgument(call.arguments[0], bindings)) return { target, unsupported: `${member.key} requires an exact null/undefined this argument` };
     if (member.key === 'call') return { target, arguments: call.arguments.slice(1) };
@@ -2722,15 +3103,26 @@ function normalizeInvocation(call: ts.CallExpression, bindings: LexicalBindings)
       ? { target, unsupported: 'apply requires one exact finite array/tuple argument' }
       : { target, arguments: applied };
   }
-  return { target: call.expression, arguments: call.arguments };
+  const direct = resolveAliasProvenance(call.expression, bindings);
+  if (direct.kind === 'tainted') return { target: call.expression, unsupported: 'tainted call target provenance' };
+  return {
+    target: direct.kind === 'exact' && !ts.isMethodDeclaration(direct.origin) ? direct.origin : call.expression,
+    arguments: call.arguments,
+  };
 }
 
 function localFunctionFromExpression(
   expression: ts.Expression,
   bindings: LexicalBindings,
   substitutions: InvocationSubstitutions,
-): ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration | undefined {
-  const callee = resolveAliasOrigin(expression, bindings, substitutions);
+): ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration | ts.MethodDeclaration | undefined {
+  const provenance = resolveAliasProvenance(expression, bindings, substitutions);
+  if (provenance.kind === 'tainted') {
+    if (expression.getSourceFile() === undefined) return undefined;
+    fail(expression, 'unsupported local invocation: tainted call-target provenance');
+  }
+  if (provenance.kind === 'exact' && ts.isMethodDeclaration(provenance.origin)) return provenance.origin;
+  const callee = provenance.kind === 'exact' && !ts.isMethodDeclaration(provenance.origin) ? provenance.origin : expression;
   if (ts.isArrowFunction(callee) || ts.isFunctionExpression(callee)) return callee;
   if (ts.isIdentifier(callee)) {
     const declaration = bindings.bindingDeclaration(callee);
@@ -2760,7 +3152,7 @@ function visitExecutableFunctionNodes(
     visitor(node, substitutions, execution);
     if (ts.isCallExpression(node)) {
       const invoke = (
-        target: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration,
+        target: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration | ts.MethodDeclaration,
         argumentsToBind: readonly ts.Expression[] | undefined,
         targetExecution: 'known' | 'unmodeled-callback',
       ): void => {
@@ -2842,7 +3234,22 @@ function boundedMutationApi(
 ): ConfigMutation[] {
   const invocation = normalizeInvocation(node, bindings);
   const api = resolveMutationApiIdentity(invocation.target, bindings);
-  if (api === undefined || !api.exactGlobal) return [];
+  if (api === undefined || !api.exactGlobal) {
+    const original = staticMember(node.expression);
+    const receiver = original === undefined ? undefined : resolveAliasOrigin(original.base, bindings);
+    const overriddenGlobalApi = original !== undefined
+      && receiver !== undefined
+      && ts.isIdentifier(receiver)
+      && (receiver.text === 'Object' || receiver.text === 'Reflect')
+      && !bindings.lookup(receiver).found
+      && bindings.memberProvenanceCandidates(original.base, original.key, node.expression) !== undefined;
+    const target = invocation.arguments?.[0] === undefined
+      ? undefined
+      : scopedFunctionConfigPath(invocation.arguments[0], parameter, bindings, new Set(), substitutions);
+    return overriddenGlobalApi && target !== undefined
+      ? [{ node, operation: 'write', path: target, syntax: 'unmodeled-api', execution }]
+      : [];
+  }
   if (invocation.unsupported !== undefined || invocation.arguments === undefined) fail(node, `unsupported mutation API invocation: ${invocation.unsupported ?? 'unknown arguments'}`);
   const args = invocation.arguments;
   if (args[0] === undefined) return [];
@@ -2993,8 +3400,9 @@ function identifierResolvesToExactImport(
   moduleName: string,
   bindings: LexicalBindings,
 ): boolean {
-  const resolved = resolveAliasOrigin(identifier, bindings);
-  return ts.isIdentifier(resolved) && bindings.isExactNamedImport(resolved, importedName, moduleName);
+  const resolved = resolveAliasProvenance(identifier, bindings);
+  if (resolved.kind === 'tainted') fail(identifier, 'tainted imported-helper provenance is unsupported');
+  return resolved.kind === 'exact' && ts.isIdentifier(resolved.origin) && bindings.isExactNamedImport(resolved.origin, importedName, moduleName);
 }
 
 export function collectMigrateJobConfigBehaviorClaimsFromSource(
@@ -3220,8 +3628,11 @@ function scopedFunctionConfigPath(
         return receiver === undefined ? undefined : `${receiver}[*]`;
       }
     }
-    const resolved = resolveAliasOrigin(expression, bindings, substitutions, seen);
-    return resolved === expression ? undefined : scopedFunctionConfigPath(resolved, configParameter, bindings, nextSeen, substitutions);
+    const resolved = resolveAliasProvenance(expression, bindings, substitutions, seen);
+    if (resolved.kind === 'tainted') fail(expression, 'unsupported reachable mutation: tainted configuration provenance');
+    return resolved.kind !== 'exact' || ts.isMethodDeclaration(resolved.origin) || resolved.origin === expression
+      ? undefined
+      : scopedFunctionConfigPath(resolved.origin, configParameter, bindings, nextSeen, substitutions);
   }
   if (ts.isCallExpression(expression) && expression.arguments[0] !== undefined) {
     const invocation = normalizeInvocation(expression, bindings);
@@ -3536,7 +3947,12 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
       const target = unwrap(invocation.target);
       if (ts.isIdentifier(target) && invocationIdentifierResolvesTo(target, setterParameter, bindings, substitutions)) {
         if (invocation.unsupported !== undefined || invocation.arguments?.length !== 2) fail(node, `handleModelArchChange behavior setter requires finite two-argument invocation${invocation.unsupported === undefined ? '' : `: ${invocation.unsupported}`}`);
-        const setterArguments = invocation.arguments;
+        const setterArguments = invocation.arguments.map(argument => {
+          const value = unwrap(argument);
+          if (!ts.isIdentifier(value)) return argument;
+          const declaration = bindings.bindingDeclaration(value);
+          return declaration !== undefined && substitutions.has(declaration) ? substitutions.get(declaration)! : argument;
+        });
         const pathExpression = unwrap(setterArguments[1]);
         setterCalls.push({ node, arguments: setterArguments, path: ts.isStringLiteral(pathExpression) || ts.isNoSubstitutionTemplateLiteral(pathExpression) ? normalizePath(pathExpression.text, {}) : undefined, value: setterArguments[0], execution });
       } else if (ts.isIdentifier(target) && identifierResolvesToExactImport(target, 'clearUnsupportedAnimaPaths', '@/helpers/animaModelPaths', bindings)) {
