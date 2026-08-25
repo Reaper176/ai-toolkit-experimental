@@ -2730,6 +2730,47 @@ if (liveRoot !== undefined) {
     ));
     if (failure !== undefined) destructureDefaultFailures.push(failure);
   }
+  for (const [label, source] of [
+    ['nested object fallback config', summaryMigrateSource.replace('  return jobConfig;', "  const { holder: { targets } = { targets: [jobConfig] } } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['nested array fallback config', summaryMigrateSource.replace('  return jobConfig;', "  const [[targets] = [[jobConfig]]] = [];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['mixed object-array fallback config', summaryMigrateSource.replace('  return jobConfig;', "  const { holder: [targets] = [[jobConfig]] } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['renamed nested fallback config', summaryMigrateSource.replace('  return jobConfig;', "  const { holder: { source: targets } = { source: [jobConfig] } } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['computed nested fallback config', summaryMigrateSource.replace('  return jobConfig;', "  const key = 'source';\n  const { holder: { [key]: targets } = { source: [jobConfig] } } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['aliased nested fallback config', summaryMigrateSource.replace('  return jobConfig;', "  const fallback = { targets: [jobConfig] };\n  const { holder: { targets } = fallback } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['called nested fallback config', summaryMigrateSource.replace('  return jobConfig;', "  function fallback() { return { targets: [jobConfig] }; }\n  const { holder: { targets } = fallback() } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['multi-level nested fallback config', summaryMigrateSource.replace('  return jobConfig;', "  const { outer: { holder: { targets } = { targets: [jobConfig] } } = {} } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['tainted nested fallback config', summaryMigrateSource.replace('  return jobConfig;', "  const fallback = runtimeCondition ? { targets: [jobConfig] } : { targets: [otherConfig] };\n  const { holder: { targets } = fallback } = {};\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['nested rest fallback config', summaryMigrateSource.replace('  return jobConfig;', "  const { holder: { ...targets } = { config: jobConfig } } = {};\n  targets.config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['nested assignment fallback config', summaryMigrateSource.replace('  return jobConfig;', "  let targets = [otherConfig];\n  ({ holder: { targets } = { targets: [jobConfig] } } = {});\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['explicit-undefined nested fallback config', summaryMigrateSource.replace('  return jobConfig;', "  const { holder: { targets } = { targets: [jobConfig] } } = { holder: undefined };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['void nested fallback config', summaryMigrateSource.replace('  return jobConfig;', "  const { holder: { targets } = { targets: [jobConfig] } } = { holder: void 0 };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['maybe nested fallback config', summaryMigrateSource.replace('  return jobConfig;', "  const { holder: { targets } = { targets: [jobConfig] } } = { holder: maybeHolder() };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['nested object fallback prompt', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    const { holder: { targets } = { targets: [newSamples] } } = {};\n    targets[runtimeIndex].reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+    ['nested array fallback prompt', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    const [[targets] = [[newSamples]]] = [];\n    targets[runtimeIndex].reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source));
+    if (failure !== undefined) destructureDefaultFailures.push(failure);
+  }
+  for (const [label, insertion] of [
+    ['nested object fallback setter', "  const { holder: { setters } = { setters: [setJobConfig] } } = {};\n  setters[runtimeIndex](99, 'config.process[0].train.steps');\n"],
+    ['nested array fallback setter', "  const [[setters] = [[setJobConfig]]] = [];\n  setters[runtimeIndex](99, 'config.process[0].train.steps');\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', `${insertion}\n  // update samples`),
+      summaryAnimaSource,
+    ));
+    if (failure !== undefined) destructureDefaultFailures.push(failure);
+  }
+  for (const [label, insertion] of [
+    ['nested object fallback model', "  const { holder: { targets } = { targets: [cleaned] } } = {};\n  delete targets[runtimeIndex].other_path;\n"],
+    ['nested array fallback model', "  const [[targets] = [[cleaned]]] = [];\n  delete targets[runtimeIndex].other_path;\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', `${insertion}  return cleaned;`),
+    ));
+    if (failure !== undefined) destructureDefaultFailures.push(failure);
+  }
   const destructureDefaultPositiveFailures = [
     ['declaration null does not default', "  const { targets = [jobConfig] } = { targets: null };\n  targets;\n  if (isMac()) {"],
     ['declaration present value does not default', "  const { targets = [jobConfig] } = { targets: [otherConfig] };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
@@ -2742,6 +2783,8 @@ if (liveRoot !== undefined) {
     ['assignment exact computed key', "  const key = 'targets';\n  let targets = [otherConfig];\n  ({ [key]: targets = [jobConfig] } = { targets: [otherConfig] });\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
     ['present source skips renamed default', "  const fallbackTargets = [jobConfig];\n  const { targets = fallbackTargets } = { targets: [otherConfig] };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
     ['array assignment present value control', "  let targets = [otherConfig];\n  [targets = [jobConfig]] = [[otherConfig]];\n  targets[runtimeIndex];\n  if (isMac()) {"],
+    ['nested present source skips fallback', "  const { holder: { targets } = { targets: [jobConfig] } } = { holder: { targets: [otherConfig] } };\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['harmless cyclic nested fallback completes', "  const fallback: any = {};\n  fallback.targets = fallback;\n  const { holder: { targets } = fallback } = {};\n  targets;\n  if (isMac()) {"],
   ].flatMap(([label, replacement]) => {
     try { assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts); return []; }
     catch { return [label]; }
