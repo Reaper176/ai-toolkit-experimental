@@ -3036,6 +3036,249 @@ if (liveRoot !== undefined) {
     },
     'shared fail-closed provenance covers logical member joins, unknown calls, finite objects, dynamic writes, and invocation defaults',
   );
+  const reviewTaintedMemberFailures = [
+    ['nested conditional config member write', summaryMigrateSource.replace('  return jobConfig;', "  const holder = { target: otherConfig };\n  if (runtimeCondition) { if (otherCondition) holder.target = jobConfig; }\n  holder.target.config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['conditional dynamic config member write', summaryMigrateSource.replace('  return jobConfig;', "  const holder = { target: otherConfig };\n  if (runtimeCondition) holder[runtimeKey] = jobConfig;\n  holder.target.config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['nested conditional prompt member write', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    const holder = { target: otherSamples };\n    if (runtimeCondition) { if (otherCondition) holder.target = newSamples; }\n    holder.target.reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  for (const [label, insertion] of [
+    ['conditional dynamic setter member write', "  const holder = { commit: otherSetter };\n  if (runtimeCondition) holder[runtimeKey] = setJobConfig;\n  holder.commit(99, 'config.process[0].train.steps');\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', `${insertion}\n  // update samples`),
+      summaryAnimaSource,
+    ));
+    if (failure !== undefined) reviewTaintedMemberFailures.push(failure);
+  }
+  for (const [label, insertion] of [
+    ['nested conditional cleaned member write', "  const holder = { target: otherModel };\n  if (runtimeCondition) { if (otherCondition) holder.target = cleaned; }\n  delete holder.target.other_path;\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', `${insertion}  return cleaned;`),
+    ));
+    if (failure !== undefined) reviewTaintedMemberFailures.push(failure);
+  }
+  const reviewObjectProjectionFailures = [
+    ['duplicate literal unsafe last', "  const holder = { target: otherConfig, target: jobConfig };\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['computed property unsafe last', "  const key = 'target';\n  const holder = { target: otherConfig, [key]: jobConfig };\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['exact spread unsafe last', "  const holder = { target: otherConfig, ...{ target: jobConfig } };\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['unknown spread unsafe last', "  const holder = { target: otherConfig, ...otherObject };\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['getter definition shadowed by unsafe last', "  const holder = { get target() { return otherConfig; }, target: jobConfig };\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const reviewDestructuringWriteFailures = [
+    ['array destructuring config member write', summaryMigrateSource.replace('  return jobConfig;', "  const holder = { target: otherConfig };\n  [holder.target] = [jobConfig];\n  holder.target.config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['object destructuring config member write', summaryMigrateSource.replace('  return jobConfig;', "  const holder = { target: otherConfig };\n  ({ target: holder.target } = { target: jobConfig });\n  holder.target.config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['nested destructuring config member write', summaryMigrateSource.replace('  return jobConfig;', "  const holder = { target: otherConfig };\n  ({ nested: [holder.target] } = { nested: [jobConfig] });\n  holder.target.config.process[0].train.steps = 99;\n  return jobConfig;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  for (const [label, insertion] of [
+    ['object destructuring setter member write', "  const holder = { commit: otherSetter };\n  ({ commit: holder.commit } = { commit: setJobConfig });\n  holder.commit(99, 'config.process[0].train.steps');\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', `${insertion}\n  // update samples`),
+      summaryAnimaSource,
+    ));
+    if (failure !== undefined) reviewDestructuringWriteFailures.push(failure);
+  }
+  for (const [label, insertion] of [
+    ['array destructuring cleaned member write', "  const holder = { target: otherModel };\n  [holder.target] = [cleaned];\n  delete holder.target.other_path;\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', `${insertion}  return cleaned;`),
+    ));
+    if (failure !== undefined) reviewDestructuringWriteFailures.push(failure);
+  }
+  const reviewUnknownBuiltinFailures = [
+    ['array push adds relevant config target', summaryMigrateSource.replace('  return jobConfig;', "  const targets = [otherConfig];\n  targets.push(jobConfig);\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['non-array config map receiver', summaryMigrateSource.replace('  return jobConfig;', "  jobConfig.config.process[0].train.map();\n  return jobConfig;")],
+    ['non-array config forEach receiver', summaryMigrateSource.replace('  return jobConfig;', "  jobConfig.config.process[0].model.forEach();\n  return jobConfig;")],
+    ['non-array config push receiver', summaryMigrateSource.replace('  return jobConfig;', "  jobConfig.config.process[0].train.push(otherConfig);\n  return jobConfig;")],
+    ['own map consumer', summaryMigrateSource.replace('  return jobConfig;', "  const items = { map: dynamicConsumer };\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['own map on exact array', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  Object.defineProperty(items, 'map', { value: dynamicConsumer });\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['rebound map consumer', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  items.map = dynamicConsumer;\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['global prototype map rebound', summaryMigrateSource.replace('  return jobConfig;', "  Array.prototype.map = dynamicConsumer;\n  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['assigned global prototype map rebound', summaryMigrateSource.replace('  return jobConfig;', "  Object.assign(Array.prototype, { map: dynamicConsumer });\n  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['defined global prototype map rebound', summaryMigrateSource.replace('  return jobConfig;', "  Object.defineProperty(Array.prototype, 'map', { value: dynamicConsumer });\n  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['local prototype map rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  Object.setPrototypeOf(items, { map: dynamicConsumer });\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['conditional global prototype map rebound', summaryMigrateSource.replace('  return jobConfig;', "  if (runtimeCondition) Array.prototype.map = dynamicConsumer;\n  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['dynamic global prototype member rebound', summaryMigrateSource.replace('  return jobConfig;', "  Array.prototype[runtimeKey] = dynamicConsumer;\n  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['aliased global prototype map rebound', summaryMigrateSource.replace('  return jobConfig;', "  const ArrayAlias = Array;\n  ArrayAlias.prototype.map = dynamicConsumer;\n  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['aliased assigned prototype push rebound', summaryMigrateSource.replace('  return jobConfig;', "  const ArrayAlias = Array;\n  Object.assign(ArrayAlias.prototype, { push: dynamicConsumer });\n  const items = [];\n  items.push(jobConfig);\n  return jobConfig;")],
+    ['aliased defined prototype forEach rebound', summaryMigrateSource.replace('  return jobConfig;', "  const ArrayAlias = Array;\n  Object.defineProperty(ArrayAlias.prototype, 'forEach', { value: dynamicConsumer });\n  const items = [];\n  items.forEach(jobConfig);\n  return jobConfig;")],
+    ['destructured prototype alias map rebound', summaryMigrateSource.replace('  return jobConfig;', "  const { prototype: arrayPrototype } = Array;\n  arrayPrototype.map = dynamicConsumer;\n  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['ambiguous rebound Array alias map', summaryMigrateSource.replace('  return jobConfig;', "  let ArrayAlias = Array;\n  if (runtimeCondition) ArrayAlias = otherArrayLike;\n  ArrayAlias.prototype.map = dynamicConsumer;\n  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['computed global prototype map rebound', summaryMigrateSource.replace('  return jobConfig;', "  Array['prototype']['map'] = dynamicConsumer;\n  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['dynamic global prototype key rebound', summaryMigrateSource.replace('  return jobConfig;', "  Array[runtimeKey].map = dynamicConsumer;\n  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['module global prototype map rebound', summaryMigrateSource.replace('export const migrateJobConfig', "Array.prototype.map = dynamicConsumer;\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['module assigned prototype push rebound', summaryMigrateSource.replace('export const migrateJobConfig', "Object.assign(Array.prototype, { push: dynamicConsumer });\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.push(jobConfig);\n  return jobConfig;")],
+    ['module defined prototype forEach rebound', summaryMigrateSource.replace('export const migrateJobConfig', "Object.defineProperty(Array.prototype, 'forEach', { value: dynamicConsumer });\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.forEach(jobConfig);\n  return jobConfig;")],
+    ['later module prototype map rebound', `${summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")}\nArray.prototype.map = dynamicConsumer;`],
+    ['legacy local prototype map rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  items.__proto__ = { map: dynamicConsumer };\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['legacy local prototype forEach rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  items.__proto__ = { forEach: dynamicConsumer };\n  items.forEach(jobConfig);\n  return jobConfig;")],
+    ['legacy local prototype push rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  items.__proto__ = { push: dynamicConsumer };\n  items.push(jobConfig);\n  return jobConfig;")],
+    ['computed legacy prototype map rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  items['__proto__'] = { map: dynamicConsumer };\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['legacy prototype direct map rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  items.__proto__.map = dynamicConsumer;\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['legacy prototype direct forEach rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  items.__proto__.forEach = dynamicConsumer;\n  items.forEach(jobConfig);\n  return jobConfig;")],
+    ['legacy prototype direct push rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  items.__proto__.push = dynamicConsumer;\n  items.push(jobConfig);\n  return jobConfig;")],
+    ['legacy prototype assigned map rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  Object.assign(items.__proto__, { map: dynamicConsumer });\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['legacy prototype assigned forEach rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  Object.assign(items.__proto__, { forEach: dynamicConsumer });\n  items.forEach(jobConfig);\n  return jobConfig;")],
+    ['legacy prototype assigned push rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  Object.assign(items.__proto__, { push: dynamicConsumer });\n  items.push(jobConfig);\n  return jobConfig;")],
+    ['legacy prototype defined map rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  Object.defineProperty(items.__proto__, 'map', { value: dynamicConsumer });\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['legacy prototype defined forEach rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  Object.defineProperty(items.__proto__, 'forEach', { value: dynamicConsumer });\n  items.forEach(jobConfig);\n  return jobConfig;")],
+    ['legacy prototype defined push rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  Object.defineProperty(items.__proto__, 'push', { value: dynamicConsumer });\n  items.push(jobConfig);\n  return jobConfig;")],
+    ['dynamic legacy prototype key rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  items[runtimeKey] = { map: dynamicConsumer };\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['own forEach consumer', summaryMigrateSource.replace('  return jobConfig;', "  const items = { forEach: dynamicConsumer };\n  items.forEach(jobConfig);\n  return jobConfig;")],
+    ['own forEach on exact array', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  Object.defineProperty(items, 'forEach', { value: dynamicConsumer });\n  items.forEach(jobConfig);\n  return jobConfig;")],
+    ['rebound forEach consumer', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  items.forEach = dynamicConsumer;\n  items.forEach(jobConfig);\n  return jobConfig;")],
+    ['global prototype forEach rebound', summaryMigrateSource.replace('  return jobConfig;', "  Array.prototype.forEach = dynamicConsumer;\n  const items = [];\n  items.forEach(jobConfig);\n  return jobConfig;")],
+    ['assigned global prototype forEach rebound', summaryMigrateSource.replace('  return jobConfig;', "  Object.assign(Array.prototype, { forEach: dynamicConsumer });\n  const items = [];\n  items.forEach(jobConfig);\n  return jobConfig;")],
+    ['defined global prototype forEach rebound', summaryMigrateSource.replace('  return jobConfig;', "  Object.defineProperty(Array.prototype, 'forEach', { value: dynamicConsumer });\n  const items = [];\n  items.forEach(jobConfig);\n  return jobConfig;")],
+    ['local prototype forEach rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  Object.setPrototypeOf(items, { forEach: dynamicConsumer });\n  items.forEach(jobConfig);\n  return jobConfig;")],
+    ['conditional local prototype forEach rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  if (runtimeCondition) Object.setPrototypeOf(items, { forEach: dynamicConsumer });\n  items.forEach(jobConfig);\n  return jobConfig;")],
+    ['own push consumer', summaryMigrateSource.replace('  return jobConfig;', "  const items = { push: dynamicConsumer };\n  items.push(jobConfig);\n  return jobConfig;")],
+    ['own push on exact array', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  Object.defineProperty(items, 'push', { value: dynamicConsumer });\n  items.push(jobConfig);\n  return jobConfig;")],
+    ['rebound push consumer', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  items.push = dynamicConsumer;\n  items.push(jobConfig);\n  return jobConfig;")],
+    ['global prototype push rebound', summaryMigrateSource.replace('  return jobConfig;', "  Array.prototype.push = dynamicConsumer;\n  const items = [];\n  items.push(jobConfig);\n  return jobConfig;")],
+    ['assigned global prototype push rebound', summaryMigrateSource.replace('  return jobConfig;', "  Object.assign(Array.prototype, { push: dynamicConsumer });\n  const items = [];\n  items.push(jobConfig);\n  return jobConfig;")],
+    ['defined global prototype push rebound', summaryMigrateSource.replace('  return jobConfig;', "  Object.defineProperty(Array.prototype, 'push', { value: dynamicConsumer });\n  const items = [];\n  items.push(jobConfig);\n  return jobConfig;")],
+    ['local prototype push rebound', summaryMigrateSource.replace('  return jobConfig;', "  const items = [];\n  Object.setPrototypeOf(items, { push: dynamicConsumer });\n  items.push(jobConfig);\n  return jobConfig;")],
+    ['Reflect.apply dynamic consumer', summaryMigrateSource.replace('  return jobConfig;', "  Reflect.apply(dynamicConsumer, null, [jobConfig]);\n  return jobConfig;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  const reviewDefaultEffectFailures = [
+    ['absent config parameter default effect', summaryMigrateSource.replace('  return jobConfig;', "  function use(target = (jobConfig.config.process[0].train.steps = 99, otherConfig)) {}\n  use();\n  return jobConfig;")],
+    ['undefined config parameter default effect', summaryMigrateSource.replace('  return jobConfig;', "  function use(target = (jobConfig.config.process[0].train.steps = 99, otherConfig)) {}\n  use(undefined);\n  return jobConfig;")],
+    ['maybe undefined config parameter default effect', summaryMigrateSource.replace('  return jobConfig;', "  const maybeTarget = runtimeCondition ? otherConfig : undefined;\n  function use(target = (jobConfig.config.process[0].train.steps = 99, otherConfig)) {}\n  use(maybeTarget);\n  return jobConfig;")],
+    ['object binding config default effect', summaryMigrateSource.replace('  return jobConfig;', "  function use({ target = (jobConfig.config.process[0].train.steps = 99, otherConfig) } = {}) {}\n  use({});\n  return jobConfig;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  for (const [label, insertion] of [
+    ['undefined cleaned model default effect', "  function use(target = (delete cleaned.other_path, otherModel)) {}\n  use(undefined);\n"],
+    ['maybe undefined cleaned model default effect', "  const maybeTarget = runtimeCondition ? otherModel : undefined;\n  function use(target = (delete cleaned.other_path, otherModel)) {}\n  use(maybeTarget);\n"],
+  ] as const) {
+    const failure = boundedFactsRejection(label, () => collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', `${insertion}  return cleaned;`),
+    ));
+    if (failure !== undefined) reviewDefaultEffectFailures.push(failure);
+  }
+  const reviewLogicalAliasFailures = [
+    ['rebound false alias remains unknown', summaryMigrateSource.replace('  return jobConfig;', "  let flag = false;\n  flag = runtimeCondition;\n  const holder = { target: otherConfig };\n  flag && (holder.target = jobConfig);\n  holder.target.config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['unknown const alias remains unknown', summaryMigrateSource.replace('  return jobConfig;', "  const flag = runtimeCondition;\n  const holder = { target: otherConfig };\n  flag || (holder.target = jobConfig);\n  holder.target.config.process[0].train.steps = 99;\n  return jobConfig;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  const reviewPositiveFailures = [
+    ['nested conditional unrelated member', "  const holder = { target: otherConfig };\n  if (runtimeCondition) { if (otherCondition) holder.target = otherTarget; }\n  dynamicConsumer(holder.target);\n  if (isMac()) {"],
+    ['conditional dynamic unrelated member', "  const holder = { target: otherConfig };\n  if (runtimeCondition) holder[runtimeKey] = otherTarget;\n  dynamicConsumer(holder.target);\n  if (isMac()) {"],
+    ['duplicate literal safe last', "  const holder = { target: jobConfig, target: otherConfig };\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['computed property safe last', "  const key = 'target';\n  const holder = { target: jobConfig, [key]: otherConfig };\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['exact spread safe last', "  const holder = { target: jobConfig, ...{ target: otherConfig } };\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['unknown spread shadowed by safe last', "  const holder = { ...otherObject, target: otherConfig };\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['getter shadowed by safe last', "  const holder = { get target() { return jobConfig; }, target: otherConfig };\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['array destructuring safe member overwrite', "  const holder = { target: jobConfig };\n  [holder.target] = [otherConfig];\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['object destructuring safe member overwrite', "  const holder = { target: jobConfig };\n  ({ target: holder.target } = { target: otherConfig });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['exact native array methods', "  [jobConfig].map(() => 1);\n  [jobConfig].forEach(() => 1);\n  const items = [];\n  items.push(jobConfig);\n  if (isMac()) {"],
+    ['const-array native methods', "  const items = [jobConfig];\n  items.map(() => 1);\n  items.forEach(() => 1);\n  const output = [];\n  output.push(jobConfig);\n  if (isMac()) {"],
+    ['known config-array native methods', "  jobConfig.config.process.map(() => 1);\n  jobConfig.config.process[0].datasets.forEach(() => 1);\n  jobConfig.config.process[0].sample.samples.map(() => 1);\n  jobConfig.config.process[0].train.validation_config.validation_items.forEach(() => 1);\n  if (isMac()) {"],
+    ['later prototype rebind preserves earlier native calls', "  const items = [jobConfig];\n  items.map(() => 1);\n  items.forEach(() => 1);\n  const output = [];\n  output.push(jobConfig);\n  Array.prototype.map = dynamicConsumer;\n  Array.prototype.forEach = dynamicConsumer;\n  Array.prototype.push = dynamicConsumer;\n  if (isMac()) {"],
+    ['later mutation APIs preserve earlier native calls', "  [jobConfig].map(() => 1);\n  [jobConfig].forEach(() => 1);\n  const output = [];\n  output.push(jobConfig);\n  Object.assign(Array.prototype, { map: dynamicConsumer });\n  Object.defineProperty(Array.prototype, 'forEach', { value: dynamicConsumer });\n  const unrelated = [];\n  unrelated.push(otherConfig);\n  Object.setPrototypeOf(unrelated, { push: dynamicConsumer });\n  if (isMac()) {"],
+    ['unrelated object prototype rebind preserves array natives', "  const unrelated = {};\n  Object.setPrototypeOf(unrelated, { map: dynamicConsumer, forEach: dynamicConsumer, push: dynamicConsumer });\n  const items = [jobConfig];\n  items.map(() => 1);\n  items.forEach(() => 1);\n  const output = [];\n  output.push(jobConfig);\n  if (isMac()) {"],
+    ['shadowed Array prototype writes preserve global natives', "  {\n    const Array = { prototype: {} };\n    Array.prototype.map = dynamicConsumer;\n    Array.prototype.forEach = dynamicConsumer;\n    Array.prototype.push = dynamicConsumer;\n  }\n  const items = [jobConfig];\n  items.map(() => 1);\n  items.forEach(() => 1);\n  const output = [];\n  output.push(jobConfig);\n  if (isMac()) {"],
+    ['shadowed Object prototype APIs preserve array natives', "  {\n    const Object = { assign: dynamicConsumer, defineProperty: dynamicConsumer, setPrototypeOf: dynamicConsumer };\n    const unrelated = {};\n    Object.assign(unrelated, { map: otherConsumer });\n    Object.defineProperty(unrelated, 'forEach', { value: otherConsumer });\n    Object.setPrototypeOf(unrelated, { push: otherConsumer });\n  }\n  const items = [jobConfig];\n  items.map(() => 1);\n  items.forEach(() => 1);\n  const output = [];\n  output.push(jobConfig);\n  if (isMac()) {"],
+    ['restored native array methods remain exact', "  const nativeMap = [].map;\n  const nativeForEach = [].forEach;\n  const nativePush = [].push;\n  Array.prototype.map = dynamicConsumer;\n  Array.prototype.forEach = dynamicConsumer;\n  Array.prototype.push = dynamicConsumer;\n  Array.prototype.map = nativeMap;\n  Array.prototype.forEach = nativeForEach;\n  Array.prototype.push = nativePush;\n  const items = [jobConfig];\n  items.map(() => 1);\n  items.forEach(() => 1);\n  const output = [];\n  output.push(jobConfig);\n  if (isMac()) {"],
+    ['exact Array alias without mutation preserves natives', "  const ArrayAlias = Array;\n  ArrayAlias;\n  const items = [jobConfig];\n  items.map(() => 1);\n  items.forEach(() => 1);\n  const output = [];\n  output.push(jobConfig);\n  if (isMac()) {"],
+    ['shadowed Array alias prototype writes are unrelated', "  {\n    const ArrayAlias = { prototype: {} };\n    ArrayAlias.prototype.map = dynamicConsumer;\n    Object.assign(ArrayAlias.prototype, { forEach: dynamicConsumer });\n    Object.defineProperty(ArrayAlias.prototype, 'push', { value: dynamicConsumer });\n  }\n  const items = [jobConfig];\n  items.map(() => 1);\n  items.forEach(() => 1);\n  const output = [];\n  output.push(jobConfig);\n  if (isMac()) {"],
+    ['exact unrelated rebound Array alias is harmless', "  let ArrayAlias = Array;\n  ArrayAlias = { prototype: {} };\n  ArrayAlias.prototype.map = dynamicConsumer;\n  const items = [jobConfig];\n  items.map(() => 1);\n  if (isMac()) {"],
+    ['later legacy prototype rebind preserves earlier call', "  const items = [];\n  items.map(() => 1);\n  items.forEach(() => 1);\n  items.push(otherConfig);\n  items.__proto__ = { map: dynamicConsumer, forEach: dynamicConsumer, push: dynamicConsumer };\n  if (isMac()) {"],
+    ['unrelated dynamic prototype key is harmless', "  otherObject[runtimeKey] = { map: dynamicConsumer, forEach: dynamicConsumer, push: dynamicConsumer };\n  const items = [jobConfig];\n  items.map(() => 1);\n  items.forEach(() => 1);\n  const output = [];\n  output.push(jobConfig);\n  if (isMac()) {"],
+    ['selected present config skips default effect', "  function use(target = (jobConfig.config.process[0].train.steps = 99, otherConfig)) {}\n  use(otherConfig);\n  if (isMac()) {"],
+    ['selected null config skips default effect', "  function use(target = (jobConfig.config.process[0].train.steps = 99, otherConfig)) {}\n  use(null);\n  if (isMac()) {"],
+    ['const false alias dead && branch', "  const flag = false;\n  const holder = { target: otherConfig };\n  flag && (holder.target = jobConfig);\n  dynamicConsumer(holder.target);\n  if (isMac()) {"],
+    ['chained false alias dead && branch', "  const first = false;\n  const flag = first;\n  const holder = { target: otherConfig };\n  flag && (holder.target = jobConfig);\n  dynamicConsumer(holder.target);\n  if (isMac()) {"],
+    ['const true alias certain && branch', "  const flag = true;\n  const holder = { target: jobConfig };\n  flag && (holder.target = otherConfig);\n  dynamicConsumer(holder.target);\n  if (isMac()) {"],
+    ['const true alias dead || branch', "  const flag = true;\n  const holder = { target: otherConfig };\n  flag || (holder.target = jobConfig);\n  dynamicConsumer(holder.target);\n  if (isMac()) {"],
+    ['const false alias certain || branch', "  const flag = false;\n  const holder = { target: jobConfig };\n  flag || (holder.target = otherConfig);\n  dynamicConsumer(holder.target);\n  if (isMac()) {"],
+    ['const present alias dead nullish branch', "  const value = 0;\n  const holder = { target: otherConfig };\n  value ?? (holder.target = jobConfig);\n  dynamicConsumer(holder.target);\n  if (isMac()) {"],
+    ['const null alias certain nullish branch', "  const value = null;\n  const holder = { target: jobConfig };\n  value ?? (holder.target = otherConfig);\n  dynamicConsumer(holder.target);\n  if (isMac()) {"],
+  ].flatMap(([label, replacement]) => {
+    try { assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts); return []; }
+    catch { return [label]; }
+  });
+  for (const [label, insertion] of [
+    ['selected present model skips default effect', "  function use(target = (delete cleaned.other_path, otherModel)) {}\n  use(otherModel);\n"],
+  ] as const) {
+    try {
+      assert.deepEqual(collectHandleModelArchChangeBehaviorClaimsFromSource(
+        summaryArchSource,
+        summaryAnimaSource.replace('  return cleaned;', `${insertion}  return cleaned;`),
+      ), summaryArchFacts);
+    } catch { reviewPositiveFailures.push(label); }
+  }
+  const reviewAppendedRootFailures = [
+    ['non-array map consumer', summaryMigrateSource.replace('  return jobConfig;', "  dynamicConsumer.map(jobConfig);\n  return jobConfig;")],
+    ['nested conditional member RHS join', summaryMigrateSource.replace('  return jobConfig;', "  const holder = { target: otherConfig };\n  if (runtimeA) { if (runtimeB) holder.target = runtimeCondition ? jobConfig : otherConfig; }\n  holder.target.config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['mutated named spread source', summaryMigrateSource.replace('  return jobConfig;', "  const source = { target: otherConfig };\n  source.target = jobConfig;\n  const holder = { ...source };\n  holder.target.config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['dynamic spread may select config default', summaryMigrateSource.replace('  return jobConfig;', "  function use(target = (jobConfig.config.process[0].train.steps = 99, otherConfig)) {}\n  use(...runtimeArgs);\n  return jobConfig;")],
+    ['unknown callback may select config default', summaryMigrateSource.replace('  return jobConfig;', "  dynamicConsumer(function use(target = (jobConfig.config.process[0].train.steps = 99, otherConfig)) {});\n  return jobConfig;")],
+    ['const true direct and branch stays live', summaryMigrateSource.replace('  return jobConfig;', "  const directFlag = true;\n  directFlag && (jobConfig.config.process[0].train.steps = 99);\n  return jobConfig;")],
+    ['const false direct or branch stays live', summaryMigrateSource.replace('  return jobConfig;', "  const directFlag = false;\n  directFlag || (jobConfig.config.process[0].train.steps = 99);\n  return jobConfig;")],
+    ['const null direct nullish branch stays live', summaryMigrateSource.replace('  return jobConfig;', "  const directValue = null;\n  directValue ?? (jobConfig.config.process[0].train.steps = 99);\n  return jobConfig;")],
+    ['rebound direct logical branch stays unknown', summaryMigrateSource.replace('  return jobConfig;', "  let directFlag = false;\n  directFlag = runtimeCondition;\n  directFlag && (jobConfig.config.process[0].train.steps = 99);\n  return jobConfig;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  for (const [label, replacement] of [
+    ['unrelated non-array map call', "  dynamicConsumer.map(otherConfig);\n  if (isMac()) {"],
+    ['nested conditional unrelated RHS join', "  const holder = { target: otherConfig };\n  if (runtimeA) { if (runtimeB) holder.target = runtimeCondition ? otherConfig : otherTarget; }\n  dynamicConsumer(holder.target);\n  if (isMac()) {"],
+    ['mutated named spread safe last', "  const source = { target: jobConfig };\n  source.target = otherConfig;\n  const holder = { ...source };\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['finite present spread skips config default', "  function use(target = (jobConfig.config.process[0].train.steps = 99, otherConfig)) {}\n  const args = [otherConfig];\n  use(...args);\n  if (isMac()) {"],
+    ['unknown callback harmless default', "  dynamicConsumer(function use(target = (otherConfig.other = 1, otherConfig)) {});\n  if (isMac()) {"],
+    ['const false direct and branch is dead', "  const directFlag = false;\n  directFlag && (jobConfig.config.process[0].train.steps = 99);\n  if (isMac()) {"],
+    ['const true direct or branch is dead', "  const directFlag = true;\n  directFlag || (jobConfig.config.process[0].train.steps = 99);\n  if (isMac()) {"],
+    ['const present direct nullish branch is dead', "  const directValue = 0;\n  directValue ?? (jobConfig.config.process[0].train.steps = 99);\n  if (isMac()) {"],
+    ['const false direct call branch is dead', "  const directFlag = false;\n  directFlag && dynamicConsumer(jobConfig);\n  if (isMac()) {"],
+  ] as const) {
+    try {
+      assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts);
+    } catch {
+      reviewPositiveFailures.push(label);
+    }
+  }
+  const repeatedCalls = Array.from({ length: 32 }, () => '  inspectRepeated(holder);').join('\n');
+  const repeatedQuerySource = summaryMigrateSource.replace(
+    '  if (isMac()) {',
+    `  const holder = { target: otherConfig };\n  function inspectRepeated(value) { dynamicConsumer(value.target); }\n${repeatedCalls}\n  if (isMac()) {`,
+  );
+  const repeatedQueryStarted = Date.now();
+  const reviewRepeatedQueryFailures: string[] = [];
+  try {
+    assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(repeatedQuerySource), summaryMigrateFacts);
+  } catch {
+    reviewRepeatedQueryFailures.push('same-binding repeated query changed semantics');
+  }
+  const repeatedQueryElapsed = Date.now() - repeatedQueryStarted;
+  if (repeatedQueryElapsed > 3_000) reviewRepeatedQueryFailures.push(`32 same-binding repeated queries took ${repeatedQueryElapsed}ms`);
+  assert.deepEqual(
+    {
+      reviewTaintedMemberFailures,
+      reviewObjectProjectionFailures,
+      reviewDestructuringWriteFailures,
+      reviewUnknownBuiltinFailures,
+      reviewDefaultEffectFailures,
+      reviewLogicalAliasFailures,
+      reviewPositiveFailures,
+      reviewAppendedRootFailures,
+      reviewRepeatedQueryFailures,
+    },
+    {
+      reviewTaintedMemberFailures: [],
+      reviewObjectProjectionFailures: [],
+      reviewDestructuringWriteFailures: [],
+      reviewUnknownBuiltinFailures: [],
+      reviewDefaultEffectFailures: [],
+      reviewLogicalAliasFailures: [],
+      reviewPositiveFailures: [],
+      reviewAppendedRootFailures: [],
+      reviewRepeatedQueryFailures: [],
+    },
+    'reviewed provenance roots preserve taint, exact object order, destructuring writes, built-in identity, default effects, and lexical logical constants',
+  );
   assert.equal(summaryArchFacts.length, 30);
   assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));
