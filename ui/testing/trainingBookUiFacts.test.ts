@@ -2286,6 +2286,45 @@ if (liveRoot !== undefined) {
       '    jobConfig.config.process[0].sample.samples = newSamples;',
       "    newSamples.unshift({ prompt: 'extra' });\n    jobConfig.config.process[0].sample.samples = newSamples;",
     )],
+    ['conditional prompt push', migrateJobConfigSource.replace(
+      `      newSamples.push({
+        prompt: prompt,
+      });`,
+      `      if (prompt) {
+        newSamples.push({
+          prompt: prompt,
+        });
+      }`,
+    )],
+    ['prompt accumulator IIFE mutation', migrateJobConfigSource.replace(
+      '    jobConfig.config.process[0].sample.samples = newSamples;',
+      '    (() => newSamples.reverse())();\n    jobConfig.config.process[0].sample.samples = newSamples;',
+    )],
+    ['prompt accumulator invoked helper mutation', migrateJobConfigSource.replace(
+      '    jobConfig.config.process[0].sample.samples = newSamples;',
+      '    function reorderSamples() { newSamples.reverse(); }\n    reorderSamples();\n    jobConfig.config.process[0].sample.samples = newSamples;',
+    )],
+    ['synchronous forEach config mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  [1].forEach(() => { jobConfig.config.process[0].train.steps = 99; });\n  return jobConfig;',
+    )],
+    ['bound synchronous forEach config mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  const mutateEach = () => { jobConfig.config.process[0].train.steps = 99; };\n  [1].forEach(mutateEach);\n  return jobConfig;',
+    )],
+    ['unmodeled callback config mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  scheduleLater(() => { jobConfig.config.process[0].train.steps = 99; });\n  return jobConfig;',
+    )],
+    ['invoked callback through local helper', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  function invokeCallback(callback) { callback(); }\n  invokeCallback(() => { jobConfig.config.process[0].train.steps = 99; });\n  return jobConfig;',
+    )],
+    ['rebound platform helper alias', migrateJobConfigSource
+      .replace('  if (isMac()) {', '  let platformCheck = isMac;\n  platformCheck = otherCheck;\n  if (platformCheck()) {')],
+    ['platform helper alias before declaration', migrateJobConfigSource
+      .replace('  if (isMac()) {', '  if (platformCheck()) {')
+      .replace('  return jobConfig;', '  const platformCheck = isMac;\n  return jobConfig;')],
     ['export binding', migrateJobConfigSource.replace('export const migrateJobConfig', 'const migrateJobConfig')],
     ['added reachable mutation', migrateJobConfigSource.replace(
       '  return jobConfig;',
@@ -2340,7 +2379,9 @@ if (liveRoot !== undefined) {
     ['uninvoked local function', "  function dormant() { jobConfig.config.process[0].train.steps = 99; }\n"],
     ['uninvoked local arrow', "  const dormant = () => { jobConfig.config.process[0].train.steps = 99; };\n"],
     ['dead IIFE', "  if (false) (() => { jobConfig.config.process[0].train.steps = 99; })();\n"],
-    ['arbitrary callback', "  [1].forEach(() => { jobConfig.config.process[0].train.steps = 99; });\n"],
+    ['dead synchronous callback', "  if (false) [1].forEach(() => { jobConfig.config.process[0].train.steps = 99; });\n"],
+    ['harmless unmodeled callback', "  scheduleLater(() => 42);\n"],
+    ['unused callback in invoked local helper', "  function ignoreCallback(callback) {}\n  ignoreCallback(() => { jobConfig.config.process[0].train.steps = 99; });\n"],
     ['recursive no-op helper', "  function recurse() { recurse(); }\n  recurse();\n"],
   ] as const) {
     assert.deepEqual(
@@ -2352,6 +2393,15 @@ if (liveRoot !== undefined) {
       `${label} is not an executable config mutation boundary`,
     );
   }
+  assert.deepEqual(
+    collectMigrateJobConfigBehaviorClaimsFromSource(
+      migrateJobConfigSource
+        .replace('  if (isMac()) {', '  const platformCheck = isMac;\n  if (platformCheck()) {'),
+      'ui/src/app/jobs/new/jobConfig.ts',
+    ),
+    migrateClaims,
+    'source-ordered aliases of the exact isMac import preserve platform behavior',
+  );
   const modelArchChangeSource = readFileSync(
     join(liveRoot, 'ui/src/app/jobs/new/utils.ts'),
     'utf8',
@@ -2534,9 +2584,49 @@ if (liveRoot !== undefined) {
     ['helper early-return removal', modelArchChangeSource, animaPathSource.replace('  if (supportsTextEncoderPath && supportsVaePath) return model;\n', '')],
     ['helper early-return copy', modelArchChangeSource, animaPathSource.replace('return model;', 'return { ...model };')],
     ['helper early-return guard', modelArchChangeSource, animaPathSource.replace('supportsTextEncoderPath && supportsVaePath', 'supportsTextEncoderPath || supportsVaePath')],
+    ['helper live extra return', modelArchChangeSource, animaPathSource.replace(
+      '  const cleaned = { ...model };',
+      '  if (additionalSections) return model;\n  const cleaned = { ...model };',
+    )],
+    ['helper statically dead required delete', modelArchChangeSource, animaPathSource.replace(
+      '  if (!supportsVaePath) delete cleaned.vae_path;',
+      '  if (false) delete cleaned.vae_path;',
+    )],
+    ['helper conditional final identity', modelArchChangeSource, animaPathSource.replace(
+      '  return cleaned;',
+      '  if (additionalSections) return cleaned;\n  return model;',
+    )],
     ['cleanup selected-section argument', modelArchChangeSource.replace('clearUnsupportedAnimaPaths(currentModel, newArch?.additionalSections)', 'clearUnsupportedAnimaPaths(currentModel, currentArch?.additionalSections)')],
     ['cleanup changed-model left operand', modelArchChangeSource.replace('cleanedModel !== currentModel', 'newArch !== currentModel')],
     ['cleanup changed-model right operand', modelArchChangeSource.replace('cleanedModel !== currentModel', 'cleanedModel !== newArch')],
+    ['setter value alias', modelArchChangeSource.replace(
+      '  // update samples',
+      "  const commit = setJobConfig;\n  commit(99, 'config.process[0].train.steps');\n\n  // update samples",
+    )],
+    ['setter value alias rebound', modelArchChangeSource.replace(
+      "setJobConfig(false, 'config.process[0].model.low_vram');",
+      "let commit = setJobConfig;\n    commit = otherSetter;\n    commit(false, 'config.process[0].model.low_vram');",
+    )],
+    ['synchronous forEach setter', modelArchChangeSource.replace(
+      '  // update samples',
+      "  [1].forEach(() => setJobConfig(99, 'config.process[0].train.steps'));\n\n  // update samples",
+    )],
+    ['bound synchronous forEach setter', modelArchChangeSource.replace(
+      '  // update samples',
+      "  const mutateEach = () => setJobConfig(99, 'config.process[0].train.steps');\n  [1].forEach(mutateEach);\n\n  // update samples",
+    )],
+    ['unmodeled callback setter', modelArchChangeSource.replace(
+      '  // update samples',
+      "  scheduleLater(() => setJobConfig(99, 'config.process[0].train.steps'));\n\n  // update samples",
+    )],
+    ['invoked setter callback through local helper', modelArchChangeSource.replace(
+      '  // update samples',
+      "  function invokeCallback(callback) { callback(); }\n  invokeCallback(() => setJobConfig(99, 'config.process[0].train.steps'));\n\n  // update samples",
+    )],
+    ['setter alias before declaration', modelArchChangeSource.replace(
+      "    setJobConfig(false, 'config.process[0].model.low_vram');",
+      "    commit(false, 'config.process[0].model.low_vram');\n    const commit = setJobConfig;",
+    )],
     ['arrow IIFE setter', modelArchChangeSource.replace(
       '  // update samples',
       "  (() => setJobConfig(99, 'config.process[0].train.steps'))();\n\n  // update samples",
@@ -2568,6 +2658,19 @@ if (liveRoot !== undefined) {
     ['destructuring config mutation', modelArchChangeSource.replace(
       '  // update samples',
       "  [jobConfig.config.process[0].train.steps] = [99];\n\n  // update samples",
+    )],
+    ['objectCopy import source', modelArchChangeSource.replace("from '@/utils/basic'", "from '@/utils/other'")],
+    ['shadowed objectCopy helper', modelArchChangeSource.replace(
+      '  // handle layer offloading setting',
+      '  const objectCopy = value => value;\n\n  // handle layer offloading setting',
+    )],
+    ['shadowed expandDatasetDefaults helper', modelArchChangeSource.replace(
+      '  // update the defaults when a model is selected',
+      '  const expandDatasetDefaults = () => ({});\n\n  // update the defaults when a model is selected',
+    )],
+    ['layer presence decoy', modelArchChangeSource.replace(
+      "    if ('layer_offloading' in jobConfig.config.process[0].model) {\n      const newModel = objectCopy(cleanedModel);",
+      "    if ('layer_offloading' in jobConfig.config.process[0].model) {}\n    {\n      const newModel = objectCopy(cleanedModel);",
     )],
   ] as const) {
     assert.throws(
@@ -2668,11 +2771,24 @@ if (liveRoot !== undefined) {
     architectureClaims,
     'statically dead setters do not alter architecture behavior facts',
   );
+  assert.deepEqual(
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      modelArchChangeSource,
+      animaPathSource.replace(
+        '  const cleaned = { ...model };',
+        '  if (false) return model;\n  const cleaned = { ...model };',
+      ),
+    ),
+    architectureClaims,
+    'statically dead Anima returns do not alter helper behavior',
+  );
   for (const [label, insertion] of [
     ['uninvoked local function', "  function dormant() { setJobConfig(99, 'config.process[0].train.steps'); }\n"],
     ['uninvoked local arrow', "  const dormant = () => setJobConfig(99, 'config.process[0].train.steps');\n"],
     ['dead IIFE', "  if (false) (() => setJobConfig(99, 'config.process[0].train.steps'))();\n"],
-    ['arbitrary callback', "  [1].forEach(() => setJobConfig(99, 'config.process[0].train.steps'));\n"],
+    ['dead synchronous callback', "  if (false) [1].forEach(() => setJobConfig(99, 'config.process[0].train.steps'));\n"],
+    ['harmless unmodeled callback', "  scheduleLater(() => 42);\n"],
+    ['unused callback in invoked local helper', "  function ignoreCallback(callback) {}\n  ignoreCallback(() => setJobConfig(99, 'config.process[0].train.steps'));\n"],
     ['recursive no-op helper', "  function recurse() { recurse(); }\n  recurse();\n"],
   ] as const) {
     assert.deepEqual(
@@ -2684,6 +2800,20 @@ if (liveRoot !== undefined) {
       `${label} is not an executable architecture mutation boundary`,
     );
   }
+  const aliasedArchitectureHelpers = modelArchChangeSource
+    .replace("import { objectCopy } from '@/utils/basic';", "import { objectCopy } from '@/utils/basic';\nconst copyValue = objectCopy;")
+    .replace("import { clearUnsupportedAnimaPaths } from '@/helpers/animaModelPaths';", "import { clearUnsupportedAnimaPaths } from '@/helpers/animaModelPaths';\nconst cleanupPaths = clearUnsupportedAnimaPaths;")
+    .replace('export const handleModelArchChange', 'const expandDefaults = expandDatasetDefaults;\n\nexport const handleModelArchChange')
+    .replaceAll('objectCopy(', 'copyValue(')
+    .replace('clearUnsupportedAnimaPaths(currentModel, newArch?.additionalSections)', 'cleanupPaths(currentModel, newArch?.additionalSections)')
+    .replaceAll('expandDatasetDefaults(', 'expandDefaults(')
+    .replace('  setJobConfig: (value: any, key: string) => void,\n) => {', '  setJobConfig: (value: any, key: string) => void,\n) => {\n  const commit = setJobConfig;')
+    .replaceAll('setJobConfig(', 'commit(');
+  assert.deepEqual(
+    collectHandleModelArchChangeBehaviorClaimsFromSource(aliasedArchitectureHelpers, animaPathSource),
+    architectureClaims,
+    'source-ordered aliases of exact setters and approved helpers preserve architecture behavior',
+  );
   assert.deepEqual(
     collectHandleModelArchChangeBehaviorClaimsFromSource(
       modelArchChangeSource
