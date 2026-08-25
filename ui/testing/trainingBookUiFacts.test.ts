@@ -2204,6 +2204,103 @@ if (liveRoot !== undefined) {
       `${label} preserves exact migration facts`,
     );
   }
+  const finiteBindingMissingRejects = [
+    ['object-pattern config mutation', summaryMigrateSource.replace('  return jobConfig;', "  function mutate({ target }) { target.config.process[0].train.steps = 99; }\n  mutate({ target: jobConfig });\n  return jobConfig;")],
+    ['nested-pattern config mutation', summaryMigrateSource.replace('  return jobConfig;', "  function mutate([, { target }]) { target.config.process[0].train.steps = 99; }\n  mutate([0, { target: jobConfig }]);\n  return jobConfig;")],
+    ['dynamic spread config mutation', summaryMigrateSource.replace('  return jobConfig;', "  function mutate(target) { target.config.process[0].train.steps = 99; }\n  mutate(...dynamicArgs);\n  return jobConfig;")],
+    ['rest-parameter config mutation', summaryMigrateSource.replace('  return jobConfig;', "  function mutate(...args) { args[0].config.process[0].train.steps = 99; }\n  mutate(jobConfig);\n  return jobConfig;")],
+    ['sparse callback config mutation', summaryMigrateSource.replace('  return jobConfig;', "  [, jobConfig].forEach(target => { target.config.process[0].train.steps = 99; });\n  return jobConfig;")],
+    ['dynamic callback element config mutation', summaryMigrateSource.replace('  return jobConfig;', "  [dynamicConfig].forEach(target => { target.config.process[0].train.steps = 99; });\n  return jobConfig;")],
+    ['unknown callback receiver config mutation', summaryMigrateSource.replace('  return jobConfig;', "  dynamicConfigs.forEach(target => { target.config.process[0].train.steps = 99; });\n  return jobConfig;")],
+    ['destructured API parameter mutation', summaryMigrateSource.replace('  return jobConfig;', "  function mutate({ assign }) { assign(jobConfig.config.process[0].train, { steps: 99 }); }\n  mutate({ assign: Object.assign });\n  return jobConfig;")],
+    ['returned destructured prompt accumulator', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    function getSamples({ target }) { return target; }\n    getSamples({ target: newSamples }).reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+  ].flatMap(([label, source]) => {
+    try { collectMigrateJobConfigBehaviorClaimsFromSource(source); return [label]; } catch { return []; }
+  });
+  try {
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', "  function mutate([commit]) { commit(99, 'config.process[0].train.steps'); }\n  mutate([setJobConfig]);\n\n  // update samples"),
+      summaryAnimaSource,
+    );
+    finiteBindingMissingRejects.push('array-pattern setter mutation');
+  } catch {}
+  try {
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', "  function select({ target }) { return target; }\n  select({ target: cleaned }).other_path = 'changed';\n  return cleaned;"),
+    );
+    finiteBindingMissingRejects.push('object-pattern cleaned-model mutation');
+  } catch {}
+  const finiteBindingPositiveFailures = [
+    ['object parameter helper', "  function getPlatform({ fn }) { return fn; }\n  const platformCheck = getPlatform({ fn: isMac });\n  if (platformCheck()) {"],
+    ['nested array parameter helper', "  function getPlatform([, { fn }]) { return fn; }\n  const platformCheck = getPlatform([0, { fn: isMac }]);\n  if (platformCheck()) {"],
+    ['parameter default helper', "  function getPlatform({ fn } = { fn: isMac }) { return fn; }\n  const platformCheck = getPlatform();\n  if (platformCheck()) {"],
+    ['binding default helper', "  function getPlatform({ fn = isMac }) { return fn; }\n  const platformCheck = getPlatform({});\n  if (platformCheck()) {"],
+    ['direct literal tuple spread', "  const helpers = {};\n  function install(target, fn) { target.platformCheck = fn; }\n  install(...[helpers, isMac]);\n  if (helpers.platformCheck()) {"],
+    ['const tuple spread', "  const helpers = {};\n  const args = [helpers, isMac];\n  function install(target, fn) { target.platformCheck = fn; }\n  install(...args);\n  if (helpers.platformCheck()) {"],
+    ['call tuple spread', "  const helpers = {};\n  function install(target, fn) { target.platformCheck = fn; }\n  install.call(null, ...[helpers, isMac]);\n  if (helpers.platformCheck()) {"],
+    ['bind tuple spread', "  const helpers = {};\n  function install(target, fn) { target.platformCheck = fn; }\n  install.bind(null, ...[helpers])(isMac);\n  if (helpers.platformCheck()) {"],
+    ['literal forEach element', "  const helpers = {};\n  [isMac].forEach(fn => { helpers.platformCheck = fn; });\n  if (helpers.platformCheck()) {"],
+    ['const-array map element', "  const helpers = {};\n  const callbacks = [isMac];\n  callbacks.map(fn => { helpers.platformCheck = fn; });\n  if (helpers.platformCheck()) {"],
+    ['callback index and receiver', "  const helpers = {};\n  [isMac].forEach((fn, index, receiver) => { helpers.platformCheck = receiver[index]; });\n  if (helpers.platformCheck()) {"],
+    ['harmless dynamic spread', "  function ignore() { return 1; }\n  ignore(...dynamicArgs);\n  if (isMac()) {"],
+    ['harmless unknown callback', "  dynamicItems.forEach(() => 42);\n  if (isMac()) {"],
+  ].flatMap(([label, replacement]) => {
+    try {
+      assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts);
+      return [];
+    } catch { return [label]; }
+  });
+  assert.deepEqual(
+    { missingRejects: finiteBindingMissingRejects, positiveFailures: finiteBindingPositiveFailures },
+    { missingRejects: [], positiveFailures: [] },
+    'finite parameter patterns, tuple spreads, and synchronous callback provenance',
+  );
+  for (const [label, source] of [
+    ['exact tuple-spread config mutation', summaryMigrateSource.replace('  return jobConfig;', "  function mutate(target) { target.config.process[0].train.steps = 99; }\n  mutate(...[jobConfig]);\n  return jobConfig;")],
+    ['conditional tuple-spread config mutation', summaryMigrateSource.replace('  return jobConfig;', "  const args = runtimeCondition ? [jobConfig] : [otherConfig];\n  function mutate(target) { target.config.process[0].train.steps = 99; }\n  mutate(...args);\n  return jobConfig;")],
+    ['object-rest config mutation', summaryMigrateSource.replace('  return jobConfig;', "  function mutate({ ...rest }) { rest.target.config.process[0].train.steps = 99; }\n  mutate({ target: jobConfig });\n  return jobConfig;")],
+    ['callback setter mutation', summaryMigrateSource.replace('  return jobConfig;', "  [jobConfig].map(target => { target.config.process[0].train.steps = 99; });\n  return jobConfig;")],
+    ['spread prompt mutation', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    function reorder(target) { target.reverse(); }\n    reorder(...[newSamples]);\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+    ['callback prompt mutation', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    [newSamples].forEach(target => target.reverse());\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+  ] as const) {
+    assert.throws(() => collectMigrateJobConfigBehaviorClaimsFromSource(source), /tainted|unsupported|requires exact|requires one write|accumulator mutation/, `${label} must fail closed`);
+  }
+  for (const [label, insertion] of [
+    ['spread setter mutation', "  function mutate(commit, value, path) { commit(value, path); }\n  mutate(...[setJobConfig, 99, 'config.process[0].train.steps']);\n"],
+    ['callback setter mutation', "  [setJobConfig].forEach(commit => commit(99, 'config.process[0].train.steps'));\n"],
+  ] as const) {
+    assert.throws(
+      () => collectHandleModelArchChangeBehaviorClaimsFromSource(summaryArchSource.replace('  // update samples', `${insertion}\n  // update samples`), summaryAnimaSource),
+      /handleModelArchChange.*behavior|unsupported reachable mutation|unsupported local invocation/,
+      `${label} must fail closed`,
+    );
+  }
+  for (const [label, mutation] of [
+    ['spread cleaned-model mutation', "  function mutate(target) { target.other_path = 'changed'; }\n  mutate(...[cleaned]);\n"],
+    ['callback cleaned-model mutation', "  [cleaned].forEach(target => { target.other_path = 'changed'; });\n"],
+  ] as const) {
+    assert.throws(
+      () => collectHandleModelArchChangeBehaviorClaimsFromSource(summaryArchSource, summaryAnimaSource.replace('  return cleaned;', `${mutation}  return cleaned;`)),
+      /Anima path behavior|unsupported reachable model mutation|unsupported local invocation/,
+      `${label} must fail closed`,
+    );
+  }
+  for (const [label, replacement] of [
+    ['computed object binding key', "  function getPlatform({ ['fn']: selected }) { return selected; }\n  const platformCheck = getPlatform({ fn: isMac });\n  if (platformCheck()) {"],
+    ['nested binding default', "  function getPlatform({ nested: { fn = isMac } = {} } = {}) { return fn; }\n  const platformCheck = getPlatform();\n  if (platformCheck()) {"],
+    ['explicit undefined parameter default', "  function getPlatform({ fn: selected } = { fn: isMac }) { return selected; }\n  const platformCheck = getPlatform(undefined);\n  if (platformCheck()) {"],
+    ['explicit undefined binding default', "  function getPlatform({ fn = isMac }) { return fn; }\n  const platformCheck = getPlatform({ fn: undefined });\n  if (platformCheck()) {"],
+    ['spread finite callback receiver', "  const helpers = {};\n  const callbacks = [isMac];\n  [...callbacks].forEach(fn => { helpers.platformCheck = fn; });\n  if (helpers.platformCheck()) {"],
+    ['harmless destructuring rest', "  function ignore({ ...rest }) { return 1; }\n  ignore({ value: dynamicValue });\n  if (isMac()) {"],
+    ['harmless sparse callback', "  [, dynamicValue].forEach(() => 42);\n  if (isMac()) {"],
+  ] as const) {
+    assert.deepEqual(
+      collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)),
+      summaryMigrateFacts,
+      `${label} preserves exact migration facts`,
+    );
+  }
   assert.equal(summaryArchFacts.length, 30);
   assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));
