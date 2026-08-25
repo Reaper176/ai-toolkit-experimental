@@ -2459,6 +2459,63 @@ if (liveRoot !== undefined) {
     { missingRejects: [], positiveFailures: [] },
     'finite callback this, unknown receiver, computed index, and frame semantics',
   );
+  const aggregateRelevanceMissingRejects = [
+    ['dynamic config aggregate access', summaryMigrateSource.replace('  return jobConfig;', "  const targets = [jobConfig, otherConfig];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['nested dynamic config aggregate access', summaryMigrateSource.replace('  return jobConfig;', "  const targets = [[otherConfig], [jobConfig]];\n  targets[runtimeIndex][0].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['spread mixed dynamic config aggregate access', summaryMigrateSource.replace('  return jobConfig;', "  const configTargets = [jobConfig];\n  const targets = [1, ...configTargets];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['unknown spread dynamic config aggregate access', summaryMigrateSource.replace('  return jobConfig;', "  const targets = [...dynamicTargets];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['cyclic dynamic config aggregate access', summaryMigrateSource.replace('  return jobConfig;', "  const targets = [jobConfig, targets];\n  targets[runtimeIndex].config.process[0].train.steps = 99;\n  return jobConfig;")],
+    ['dynamic prompt aggregate access', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    const targets = [newSamples, otherSamples];\n    targets[runtimeIndex].reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+    ['unknown spread dynamic prompt aggregate access', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', "    const targets = [...dynamicTargets];\n    targets[runtimeIndex].reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;")],
+    ['unknown spread callback aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const targets = [...dynamicTargets];\n  targets.forEach(dynamicCallback);\n  return jobConfig;")],
+    ['cyclic callback aggregate', summaryMigrateSource.replace('  return jobConfig;', "  const targets = [jobConfig, targets];\n  targets.forEach(dynamicCallback);\n  return jobConfig;")],
+    ['exact static aggregate selection', summaryMigrateSource.replace('  return jobConfig;', "  const targets = [jobConfig];\n  targets[0].config.process[0].train.steps = 99;\n  return jobConfig;")],
+  ].flatMap(([label, source]) => {
+    try { collectMigrateJobConfigBehaviorClaimsFromSource(source); return [label]; } catch { return []; }
+  });
+  try {
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', "  const setters = [setJobConfig, otherSetter];\n  setters[runtimeIndex](99, 'config.process[0].train.steps');\n\n  // update samples"),
+      summaryAnimaSource,
+    );
+    aggregateRelevanceMissingRejects.push('dynamic setter aggregate access');
+  } catch {}
+  try {
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', "  const setters = [[otherSetter], [setJobConfig]];\n  setters[runtimeIndex][0](99, 'config.process[0].train.steps');\n\n  // update samples"),
+      summaryAnimaSource,
+    );
+    aggregateRelevanceMissingRejects.push('nested dynamic setter aggregate access');
+  } catch {}
+  try {
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', "  const targets = [cleaned, otherModel];\n  delete targets[runtimeIndex].other_path;\n  return cleaned;"),
+    );
+    aggregateRelevanceMissingRejects.push('dynamic model aggregate access');
+  } catch {}
+  try {
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', "  const targets = [[otherModel], [cleaned]];\n  delete targets[runtimeIndex][0].other_path;\n  return cleaned;"),
+    );
+    aggregateRelevanceMissingRejects.push('nested dynamic model aggregate access');
+  } catch {}
+  const aggregateRelevancePositiveFailures = [
+    ['harmless nested finite callback', "  [[1], [2]].forEach(dynamicCallback);\n  if (isMac()) {"],
+    ['harmless const spread nested callback', "  const values = [1, 2];\n  [[...values]].forEach(dynamicCallback);\n  if (isMac()) {"],
+    ['harmless mixed literal callback', "  [1, 'two', null, undefined].forEach(dynamicCallback);\n  if (isMac()) {"],
+    ['harmless dynamic nested access', "  const values = [[1], [2]];\n  values[runtimeIndex][0];\n  if (isMac()) {"],
+    ['harmless sparse nested callback', "  [, [1], [2]].forEach(dynamicCallback);\n  if (isMac()) {"],
+  ].flatMap(([label, replacement]) => {
+    try { assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts); return []; }
+    catch { return [label]; }
+  });
+  assert.deepEqual(
+    { missingRejects: aggregateRelevanceMissingRejects, positiveFailures: aggregateRelevancePositiveFailures },
+    { missingRejects: [], positiveFailures: [] },
+    'recursive finite aggregate relevance joins',
+  );
   assert.equal(summaryArchFacts.length, 30);
   assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));

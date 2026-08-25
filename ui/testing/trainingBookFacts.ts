@@ -2962,6 +2962,66 @@ function joinAliasProvenance(values: readonly AliasProvenance[], bindings: Lexic
   return lineage.size === 0 ? { kind: 'exact', origin: exact[0].origin } : { kind: 'exact', origin: exact[0].origin, lineage };
 }
 
+type FiniteAggregateRelevance =
+  | { kind: 'exact'; leaves: readonly ts.Expression[]; identities: readonly ts.Expression[] }
+  | { kind: 'tainted'; leaves: readonly ts.Expression[]; identities: readonly ts.Expression[] };
+
+function finiteAggregateRelevance(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions = new Map(),
+  seen = new Set<ts.Identifier>(),
+): FiniteAggregateRelevance | undefined {
+  expression = unwrap(expression);
+  if (ts.isIdentifier(expression)) {
+    const declaration = bindings.bindingDeclaration(expression);
+    if (declaration !== undefined && substitutions.has(declaration)) {
+      const substitution = substitutions.get(declaration)!;
+      return typeof substitution === 'string'
+        ? { kind: 'tainted', leaves: [], identities: [expression] }
+        : finiteAggregateRelevance(substitution, bindings, substitutions, seen);
+    }
+    if (declaration !== undefined && seen.has(declaration)) return { kind: 'tainted', leaves: [], identities: [expression] };
+    const lookup = bindings.provenanceCandidates(expression);
+    if (!lookup.found) return undefined;
+    const nextSeen = declaration === undefined ? seen : new Set(seen).add(declaration);
+    const candidates = lookup.candidates.map(candidate => candidate === 'tainted'
+      ? { kind: 'tainted' as const, leaves: [] as readonly ts.Expression[], identities: [expression] as readonly ts.Expression[] }
+      : candidate === 'absent' || candidate === declaration
+        ? undefined
+        : finiteAggregateRelevance(candidate, bindings, substitutions, nextSeen));
+    const concrete = candidates.filter((candidate): candidate is FiniteAggregateRelevance => candidate !== undefined);
+    if (concrete.length === 0) return undefined;
+    return concrete.some(candidate => candidate.kind === 'tainted') || concrete.length !== candidates.length
+      ? { kind: 'tainted', leaves: concrete.flatMap(candidate => candidate.leaves), identities: [expression, ...concrete.flatMap(candidate => candidate.identities)] }
+      : { kind: 'exact', leaves: concrete.flatMap(candidate => candidate.leaves), identities: [expression, ...concrete.flatMap(candidate => candidate.identities)] };
+  }
+  if (!ts.isArrayLiteralExpression(expression)) return undefined;
+  const leaves: ts.Expression[] = [];
+  const identities: ts.Expression[] = [expression];
+  let tainted = false;
+  for (const element of expression.elements) {
+    if (ts.isOmittedExpression(element)) continue;
+    if (ts.isSpreadElement(element)) {
+      const nested = finiteAggregateRelevance(element.expression, bindings, substitutions, seen);
+      if (nested === undefined || nested.kind === 'tainted') tainted = true;
+      if (nested !== undefined) {
+        leaves.push(...nested.leaves);
+        identities.push(...nested.identities);
+      }
+      continue;
+    }
+    const nested = finiteAggregateRelevance(element, bindings, substitutions, seen);
+    if (nested === undefined) leaves.push(element);
+    else {
+      if (nested.kind === 'tainted') tainted = true;
+      leaves.push(...nested.leaves);
+      identities.push(...nested.identities);
+    }
+  }
+  return tainted ? { kind: 'tainted', leaves, identities } : { kind: 'exact', leaves, identities };
+}
+
 function resolveAliasProvenance(
   expression: ts.Expression,
   bindings: LexicalBindings,
@@ -3041,9 +3101,19 @@ function resolveAliasProvenance(
   const computedOrigin = computedKey?.kind === 'exact' && !ts.isMethodDeclaration(computedKey.origin)
     ? unwrap(computedKey.origin)
     : undefined;
-  const member = staticMember(expression) ?? (ts.isElementAccessExpression(expression) && computedOrigin !== undefined && (
+  const computedMemberKey = computedOrigin !== undefined && (
     ts.isStringLiteral(computedOrigin) || ts.isNumericLiteral(computedOrigin) || ts.isNoSubstitutionTemplateLiteral(computedOrigin)
-  ) ? { base: expression.expression, key: computedOrigin.text } : undefined);
+  ) ? computedOrigin.text : undefined;
+  if (ts.isElementAccessExpression(expression) && computedMemberKey === undefined) {
+    const aggregate = finiteAggregateRelevance(expression.expression, bindings, substitutions, seen);
+    if (aggregate?.kind === 'tainted') return { kind: 'tainted' };
+    if (aggregate?.kind === 'exact') {
+      return joinAliasProvenance(aggregate.leaves.map(leaf => resolveAliasProvenance(leaf, bindings, substitutions, seen)), bindings);
+    }
+  }
+  const member = staticMember(expression) ?? (ts.isElementAccessExpression(expression) && computedMemberKey !== undefined
+    ? { base: expression.expression, key: computedMemberKey }
+    : undefined);
   if (member === undefined) return { kind: 'exact', origin: expression };
   const memberCandidates = bindings.memberProvenanceCandidates(member.base, member.key, expression);
   if (memberCandidates !== undefined) {
@@ -3532,6 +3602,8 @@ function visitExecutableFunctionNodes(
         if (callbackTarget === undefined) {
           if (synchronousMethod && receiverPath?.startsWith('config.')) fail(argument, 'unsupported synchronous callback: dynamic callback may mutate configuration elements');
           if (synchronousMethod && calleeMember !== undefined) {
+            const aggregate = finiteAggregateRelevance(calleeMember.base, bindings, substitutions);
+            if (aggregate?.kind === 'tainted') fail(argument, 'unsupported synchronous callback: tainted finite receiver aggregate');
             const receiverProvenance = resolveAliasProvenance(calleeMember.base, bindings, substitutions);
             const receiver = receiverProvenance.kind === 'exact' && !ts.isMethodDeclaration(receiverProvenance.origin)
               ? unwrap(receiverProvenance.origin)
@@ -3539,7 +3611,7 @@ function visitExecutableFunctionNodes(
             const finiteElements = receiver !== undefined && ts.isArrayLiteralExpression(receiver)
               ? finiteInvocationArguments(receiver, bindings)
               : undefined;
-            const relevantElements = finiteElements ?? (receiver !== undefined && ts.isArrayLiteralExpression(receiver)
+            const relevantElements = aggregate?.leaves ?? finiteElements ?? (receiver !== undefined && ts.isArrayLiteralExpression(receiver)
               ? receiver.elements.filter(element => !ts.isOmittedExpression(element) && !ts.isSpreadElement(element)) as readonly ts.Expression[]
               : undefined);
             if (relevantElements?.some(element => {
@@ -3927,6 +3999,11 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
   const isAccumulatorAccess = (expression: ts.Expression, substitutions: InvocationSubstitutions = new Map()): boolean => {
     expression = unwrap(expression);
     if (ts.isIdentifier(expression)) return invocationIdentifierResolvesTo(expression, samplesDeclaration, bindings, substitutions);
+    if (ts.isElementAccessExpression(expression) && staticMember(expression) === undefined) {
+      const aggregate = finiteAggregateRelevance(expression.expression, bindings, substitutions);
+      if (aggregate?.kind === 'tainted') fail(expression, 'migrateJobConfig prompts behavior has tainted finite aggregate provenance');
+      if (aggregate?.identities.some(leaf => aliasOriginReachesBinding(leaf, samplesDeclaration, bindings, substitutions))) return true;
+    }
     const member = staticMember(expression);
     if (member !== undefined) return (unwrap(member.base).kind === ts.SyntaxKind.ThisKeyword
       && aliasOriginReachesBinding(expression, samplesDeclaration, bindings, substitutions))
@@ -3939,6 +4016,12 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
     if (ts.isIdentifier(expression)) {
       if (pushedItemBinding !== undefined && invocationIdentifierResolvesTo(expression, pushedItemBinding, bindings, substitutions)) return true;
       return invocationIdentifierResolvesTo(expression, samplesDeclaration, bindings, substitutions);
+    }
+    if (ts.isElementAccessExpression(expression) && staticMember(expression) === undefined) {
+      const aggregate = finiteAggregateRelevance(expression.expression, bindings, substitutions);
+      if (aggregate?.kind === 'tainted') fail(expression, 'migrateJobConfig prompts behavior has tainted finite aggregate provenance');
+      if (aggregate?.identities.some(leaf => (pushedItemBinding !== undefined && aliasOriginReachesBinding(leaf, pushedItemBinding, bindings, substitutions))
+        || aliasOriginReachesBinding(leaf, samplesDeclaration, bindings, substitutions))) return true;
     }
     const member = staticMember(expression);
     if (member !== undefined) return (unwrap(member.base).kind === ts.SyntaxKind.ThisKeyword
@@ -4091,7 +4174,12 @@ function scopedFunctionConfigPath(
     const key = staticComputedKey(expression.argumentExpression);
     if (key === 'tainted') {
       const base = scopedFunctionConfigPath(expression.expression, configParameter, bindings, seen, substitutions);
-      if (base !== undefined) fail(expression.argumentExpression, 'unsupported reachable mutation: tainted configuration index provenance');
+      const aggregate = finiteAggregateRelevance(expression.expression, bindings, substitutions, seen);
+      const relevantAggregate = aggregate?.kind === 'tainted' || aggregate?.identities.some(leaf => {
+        const path = scopedFunctionConfigPath(leaf, configParameter, bindings, seen, substitutions);
+        return path === '$job' || path?.startsWith('config.') === true;
+      });
+      if (base !== undefined || relevantAggregate) fail(expression.argumentExpression, 'unsupported reachable mutation: tainted configuration index provenance');
       return undefined;
     }
     member = { base: expression.expression, key };
@@ -4241,6 +4329,17 @@ function validateAnimaPathBehavior(sourceText: string, sourceName: string): void
     substitutions: InvocationSubstitutions,
   ): { root: AnimaMutation['root']; path: string } | undefined => {
     expression = unwrap(expression);
+    const hasDynamicAggregateAccess = (candidate: ts.Expression): boolean => {
+      candidate = unwrap(candidate);
+      if (ts.isElementAccessExpression(candidate) && staticMember(candidate) === undefined
+        && finiteAggregateRelevance(candidate.expression, bindings, substitutions) !== undefined) return true;
+      const member = staticMember(candidate);
+      return member !== undefined && hasDynamicAggregateAccess(member.base);
+    };
+    if (hasDynamicAggregateAccess(expression)) {
+      const projected = resolveAliasProvenance(expression, bindings, substitutions);
+      if (projected.kind === 'tainted') fail(expression, 'Anima path behavior has tainted finite aggregate provenance');
+    }
     let syntacticRoot = expression;
     for (let member = staticMember(syntacticRoot); member !== undefined; member = staticMember(syntacticRoot)) syntacticRoot = unwrap(member.base);
     if (syntacticRoot.kind === ts.SyntaxKind.ThisKeyword) {
