@@ -51,17 +51,17 @@ from scripts.training_book.discovery import (  # noqa: E402
 
 
 FULL_ARCHITECTURES = (
-    "anima", "flux", "flux_kontext", "flex1", "flex2", "chroma", "zeta_chroma",
-    "wan21:1b", "wan21_i2v:14b480p", "wan21_i2v:14b", "wan21:14b",
-    "wan22_14b:t2v", "wan22_14b_i2v", "wan22_5b", "lumina2", "qwen_image",
+    "ace_step_15", "ace_step_15_xl", "anima", "boogu_image", "boogu_image_edit",
+    "chroma", "ernie_image", "flex1", "flex2", "flux", "flux_kontext", "flux2",
+    "flux2_klein_4b", "flux2_klein_9b", "hidream", "hidream_e1", "hidream_o1",
+    "ideogram4", "krea2", "krea2:o_edit", "krea2:turbo", "krea2:o_edit_turbo",
+    "ltx2", "ltx2.3", "ltx2.5", "lumina2", "mageflow", "mageflow_edit",
+    "minimax_h3", "nucleus_image", "omnigen2", "prx_pixel", "qwen_image",
     "qwen_image:2512", "qwen_image_edit", "qwen_image_edit_plus",
-    "qwen_image_edit_plus:2511", "hidream", "hidream_e1", "sdxl", "sd15",
-    "omnigen2", "flux2", "zimage:turbo", "zimage", "zimage:deturbo",
-    "minimax_h3", "ltx2", "ltx2.3", "ltx2.5", "flux2_klein_4b", "ernie_image",
-    "flux2_klein_9b", "ace_step_15_xl", "ace_step_15", "nucleus_image",
-    "hidream_o1", "zimage_l2p", "ideogram4", "prx_pixel", "krea2",
-    "krea2:turbo", "krea2:o_edit", "krea2:o_edit_turbo", "mageflow",
-    "mageflow_edit", "boogu_image", "boogu_image_edit",
+    "qwen_image_edit_plus:2511", "sd15", "sdxl", "wan21:1b", "wan21:14b",
+    "wan21_i2v:14b480p", "wan21_i2v:14b", "wan22_14b:t2v", "wan22_14b_i2v",
+    "wan22_5b", "zimage", "zimage:deturbo", "zimage_l2p", "zimage:turbo",
+    "zeta_chroma",
 )
 
 BOOK_PAGES = (
@@ -2647,7 +2647,7 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         exclusions = load_ui_exclusions(
             REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
         )
-        self.assertEqual(len(catalog.ui_claims), 2212)
+        self.assertEqual(len(catalog.ui_claims), 2213)
         self.assertEqual(len(exclusions), 53)
         self.assertEqual(
             {exclusion.reason for exclusion in exclusions},

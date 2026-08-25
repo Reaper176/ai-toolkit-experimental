@@ -81,7 +81,7 @@ try {
   mkdirSync(reactStub, { recursive: true });
   writeFileSync(join(reactStub, 'package.json'), JSON.stringify({ type: 'commonjs', main: 'index.js' }));
   writeFileSync(join(reactStub, 'index.js'), [
-    "const createElement = (type, props, ...children) => ({ type, props: { ...(props || {}), children } });",
+    "const createElement = (type, props, ...children) => ({ type, props: { ...(props || {}), children: children.length > 0 ? children : props?.children } });",
     "const context = value => ({ value, Provider: props => props.children });",
     "module.exports = { createElement, createContext: context, useContext: item => item.value, useEffect: fn => fn(), useState: value => [value, () => {}], Fragment: Symbol.for('react.fragment') };",
     "module.exports.default = module.exports;",

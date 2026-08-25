@@ -466,12 +466,12 @@ class LexicalBindings {
     return lookup.found ? lookup.event?.initializer : undefined;
   }
 
-  isJobConfigPropParameter(identifier: ts.Identifier): boolean {
+  componentPropBinding(identifier: ts.Identifier, propName: string): { declaration: ts.Identifier; owner: ts.FunctionLikeDeclaration } | undefined {
     const lookup = this.lookup(identifier);
     const declaration = lookup.found && lookup.event?.parameter === true
       ? lookup.event.name
       : undefined;
-    if (declaration === undefined || declaration.text !== 'jobConfig') return false;
+    if (declaration === undefined || declaration.text !== propName) return undefined;
     const element = declaration.parent;
     if (
       !ts.isBindingElement(element)
@@ -481,7 +481,7 @@ class LexicalBindings {
       || element.initializer !== undefined
       || !ts.isObjectBindingPattern(element.parent)
       || !ts.isParameter(element.parent.parent)
-    ) return false;
+    ) return undefined;
     const parameter = element.parent.parent;
     const owner = parameter.parent;
     const isPascalCase = (name: string): boolean => /^[A-Z][A-Za-z0-9]*$/.test(name);
@@ -489,9 +489,11 @@ class LexicalBindings {
       return owner.name !== undefined
         && isPascalCase(owner.name.text)
         && owner.parameters[0] === parameter
-        && ts.isSourceFile(owner.parent);
+        && ts.isSourceFile(owner.parent)
+        ? { declaration, owner }
+        : undefined;
     }
-    if (!ts.isArrowFunction(owner) && !ts.isFunctionExpression(owner)) return false;
+    if (!ts.isArrowFunction(owner) && !ts.isFunctionExpression(owner)) return undefined;
     const variable = owner.parent;
     return ts.isVariableDeclaration(variable)
       && variable.initializer === owner
@@ -500,7 +502,26 @@ class LexicalBindings {
       && owner.parameters[0] === parameter
       && ts.isVariableDeclarationList(variable.parent)
       && ts.isVariableStatement(variable.parent.parent)
-      && ts.isSourceFile(variable.parent.parent.parent);
+      && ts.isSourceFile(variable.parent.parent.parent)
+      ? { declaration, owner }
+      : undefined;
+  }
+
+  isJobConfigPropParameter(identifier: ts.Identifier): boolean {
+    return this.componentPropBinding(identifier, 'jobConfig') !== undefined;
+  }
+
+  isExactNamedImport(identifier: ts.Identifier, importedName: string, moduleName: string): boolean {
+    if (identifier.text !== importedName || this.lookup(identifier).found) return false;
+    const matches = this.source.statements.filter(statement => {
+      if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || statement.moduleSpecifier.text !== moduleName) return false;
+      const importClause = statement.importClause;
+      if (importClause === undefined || importClause.isTypeOnly) return false;
+      const bindings = importClause.namedBindings;
+      return bindings !== undefined && ts.isNamedImports(bindings)
+        && bindings.elements.some(specifier => !specifier.isTypeOnly && specifier.propertyName === undefined && specifier.name.text === importedName);
+    });
+    return matches.length === 1;
   }
 
   private scopes(node: ts.Node): ts.Node[] {
@@ -814,6 +835,30 @@ function modalAdapterIndex(identifier: ts.Identifier, bindings: LexicalBindings)
   return mappedIndex !== undefined && ts.isIdentifier(mappedIndex) && bindings.isBinding(mappedIndex, mapperIndex);
 }
 
+function enclosingOnChangeCallback(node: ts.Node): ts.ArrowFunction | ts.FunctionExpression | undefined {
+  let current: ts.Node | undefined = node;
+  while (current !== undefined) {
+    if (
+      ts.isJsxExpression(current)
+      && current.expression !== undefined
+      && ts.isJsxAttribute(current.parent)
+      && ts.isIdentifier(current.parent.name)
+      && current.parent.name.text === 'onChange'
+    ) {
+      const expression = unwrap(current.expression);
+      return ts.isArrowFunction(expression) || ts.isFunctionExpression(expression) ? expression : undefined;
+    }
+    current = current.parent;
+  }
+  return undefined;
+}
+
+function requireComponentSetterBinding(identifier: ts.Identifier, bindings: LexicalBindings): ts.FunctionLikeDeclaration {
+  const binding = bindings.componentPropBinding(identifier, 'setJobConfig');
+  if (binding === undefined) fail(identifier, 'setting setter requires the exact component setJobConfig prop binding');
+  return binding.owner;
+}
+
 function canonicalSetterPathsFromAst(source: ts.SourceFile, root: ts.Node, bindings: LexicalBindings): string[] {
   const paths = new Set<string>();
   const expandPath = (expression: ts.Expression): string[] => {
@@ -845,8 +890,38 @@ function canonicalSetterPathsFromAst(source: ts.SourceFile, root: ts.Node, bindi
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
       const name = node.expression.text;
-      const pathIndex = name === 'setNestedValue' ? 2 : name === 'setJobConfig' ? 1 : -1;
-      if (pathIndex >= 0 && node.arguments[pathIndex] !== undefined) for (const path of expandPath(node.arguments[pathIndex])) paths.add(path);
+      if (name === 'setJobConfig') {
+        const setterPaths = node.arguments[1] === undefined ? [] : expandPath(node.arguments[1]);
+        requireComponentSetterBinding(node.expression, bindings);
+        for (const path of setterPaths) paths.add(path);
+      } else if (name === 'setNestedValue') {
+        fail(node.expression, 'setNestedValue setting setter provenance is unsupported');
+      } else if (name === 'handleModelArchChange') {
+        if (!bindings.isExactNamedImport(node.expression, 'handleModelArchChange', './utils')) {
+          fail(node.expression, 'architecture mediator requires the exact named import from ./utils');
+        }
+        if (node.arguments.length !== 4) fail(node, 'architecture mediator requires four exact arguments');
+        const currentPath = canonicalAccessPath(node.arguments[0], bindings);
+        const [nextArchitecture, config, setter] = node.arguments.slice(1).map(unwrap);
+        const configBinding = ts.isIdentifier(config) ? bindings.componentPropBinding(config, 'jobConfig') : undefined;
+        const setterBinding = ts.isIdentifier(setter) ? bindings.componentPropBinding(setter, 'setJobConfig') : undefined;
+        if (configBinding === undefined || setterBinding === undefined || configBinding.owner !== setterBinding.owner) {
+          fail(node, 'architecture mediator jobConfig and setJobConfig must bind the same component owner');
+        }
+        const callback = enclosingOnChangeCallback(node);
+        const valueDeclaration = callback === undefined ? undefined : exactCallbackIdentifier(callback.parameters[0]);
+        if (
+          !ts.isIdentifier(nextArchitecture)
+          || valueDeclaration === undefined
+          || !bindings.isBinding(nextArchitecture, valueDeclaration)
+        ) fail(nextArchitecture, 'architecture mediator requires the exact onChange value binding');
+        if (currentPath !== 'config.process[*].model.arch') fail(node.arguments[0], 'architecture mediator requires the exact model architecture read path');
+        let readBase = unwrap(node.arguments[0]);
+        while (ts.isPropertyAccessExpression(readBase) || ts.isElementAccessExpression(readBase)) readBase = unwrap(readBase.expression);
+        const readBinding = ts.isIdentifier(readBase) ? bindings.componentPropBinding(readBase, 'jobConfig') : undefined;
+        if (readBinding === undefined || readBinding.owner !== configBinding.owner) fail(node.arguments[0], 'architecture mediator read and arguments must bind the same component owner');
+        paths.add(currentPath);
+      }
     }
     ts.forEachChild(node, visit);
   };
@@ -1148,7 +1223,9 @@ export function collectVisibleControlClaimsFromSource(
         const setterPaths = onChange === undefined ? [] : canonicalSetterPathsFromAst(source, onChange, bindings);
         const boundExpression = jsxAttributeExpression(jsxAttributeNode(node, component === 'Checkbox' ? 'checked' : 'value'));
         const readPaths = semanticPrimaryReadPaths(boundExpression, bindings);
+        if (readPaths.length > 0 && onChange === undefined) fail(node, 'editable visible control bound to config requires onChange');
         const matchingReads = readPaths.filter(path => setterPaths.includes(path));
+        if (readPaths.length === 1 && !setterPaths.includes(readPaths[0])) fail(onChange ?? node, 'visible control primary bound read path requires an exact onChange setter');
         if (matchingReads.length > 1 || (matchingReads.length === 0 && readPaths.length > 1)) fail(boundExpression, 'visible control primary bound path is ambiguous');
         let path = matchingReads[0] ?? (readPaths.length === 1 ? readPaths[0] : undefined);
         if (path === undefined && setterPaths.length > 0) {
@@ -1158,6 +1235,7 @@ export function collectVisibleControlClaimsFromSource(
         // Controls with neither a bound config value nor a direct config setter are
         // server/transient/adaptor surfaces and are classified by their own slices.
         if (path !== undefined) {
+          if (onChange === undefined) fail(node, 'editable visible control bound to config requires onChange');
           const labelAttribute = jsxAttributeNode(node, 'label');
           const staticLabel = staticControlLabel(labelAttribute);
           const dynamicText = labelAttribute === undefined ? '<missing-label>' : normalizedDynamicLabel(labelAttribute);
@@ -1194,7 +1272,7 @@ export function collectVisibleControlClaimsFromSource(
               if (maximum !== undefined) claim.value_contract.maximum = maximum;
               const identity = `${claim.source_path}\0${claim.symbol}\0${claim.path}\0${claim.kind}`;
               const existing = claims.get(identity);
-              if (existing !== undefined && JSON.stringify(existing) !== JSON.stringify(claim)) fail(node, `conflicting duplicate visible control ${claim.symbol}`);
+              if (existing !== undefined) fail(node, `duplicate visible control ${claim.symbol}`);
               claims.set(identity, claim);
             }
           }
@@ -1218,15 +1296,61 @@ function jsxAttribute(element: ts.JsxOpeningLikeElement, name: string): string |
   fail(attribute, `dynamic JSX ${name} is unsupported`);
 }
 
-function jsxFact(node: ts.Expression | undefined, repo: AstRepository): StaticJsxFact {
+function jsxFact(node: ts.Expression | undefined, repo: AstRepository, context?: { docsTitlePath: string }): StaticJsxFact {
   if (node === undefined) return { present: false };
   node = unwrap(node);
   const text_literals: string[] = [];
   const code_literals: string[] = [];
   const link_hrefs: string[] = [];
+  const normalizeJsxText = (text: string): string => {
+    const lines = text.replace(/\r\n?/g, '\n').split('\n');
+    let lastNonEmptyLine = -1;
+    for (let index = 0; index < lines.length; index += 1) if (lines[index].replace(/\t/g, ' ').trim() !== '') lastNonEmptyLine = index;
+    let normalized = '';
+    for (let index = 0; index < lines.length; index += 1) {
+      let line = lines[index].replace(/\t/g, ' ');
+      if (index !== 0) line = line.trimStart();
+      if (index !== lines.length - 1) line = line.trimEnd();
+      if (line === '') continue;
+      normalized += line;
+      if (index !== lastNonEmptyLine) normalized += ' ';
+    }
+    return normalized;
+  };
+  const validateStaticAttributes = (element: ts.JsxOpeningLikeElement): void => {
+    for (const property of element.attributes.properties) {
+      if (!ts.isJsxAttribute(property)) fail(property, 'dynamic JSX attribute spread is unsupported');
+      if (property.initializer === undefined || ts.isStringLiteral(property.initializer)) continue;
+      if (!ts.isJsxExpression(property.initializer) || property.initializer.expression === undefined) fail(property, 'unsupported static JSX attribute');
+      const expression = unwrap(property.initializer.expression);
+      if (!ts.isStringLiteral(expression) && !ts.isNoSubstitutionTemplateLiteral(expression) && !ts.isNumericLiteral(expression) && expression.kind !== ts.SyntaxKind.TrueKeyword && expression.kind !== ts.SyntaxKind.FalseKeyword) {
+        fail(property, 'dynamic JSX attribute is unsupported');
+      }
+    }
+  };
+  const staticJsxTag = (element: ts.JsxOpeningLikeElement): string => {
+    if (!ts.isIdentifier(element.tagName)) fail(element.tagName, 'member or dynamic JSX tags are unsupported');
+    const tag = element.tagName.text;
+    if (tag === 'IoFlaskSharp') {
+      if (context?.docsTitlePath !== 'model.layer_offloading' || !ts.isJsxSelfClosingElement(element)) fail(element, 'IoFlaskSharp docs-title projection is allowed only for the exact layer-offloading icon');
+      const attributes = element.attributes.properties;
+      if (attributes.length !== 2 || attributes.some(property => !ts.isJsxAttribute(property))) fail(element, 'IoFlaskSharp docs-title projection requires exactly className and name');
+      const values = new Map<string, string>();
+      for (const property of attributes) {
+        if (!ts.isJsxAttribute(property) || !ts.isIdentifier(property.name)) fail(property, 'IoFlaskSharp docs-title projection requires exact static attributes');
+        const initializer = property.initializer;
+        if (initializer === undefined || !ts.isStringLiteral(initializer)) fail(property, 'IoFlaskSharp docs-title projection requires exact static attributes');
+        values.set(property.name.text, initializer.text);
+      }
+      if (values.size !== 2 || values.get('className') !== 'inline text-yellow-500' || values.get('name') !== 'Experimental') fail(element, 'IoFlaskSharp docs-title projection attributes changed');
+      return tag;
+    }
+    if (tag !== 'Link' && !/^[a-z][a-z0-9-]*$/.test(tag)) fail(element.tagName, `unprojected JSX component ${tag}`);
+    return tag;
+  };
   const walk = (child: ts.Node, insideCode = false): void => {
     if (ts.isJsxText(child)) {
-      const normalized = child.text.replace(/\s+/g, ' ');
+      const normalized = normalizeJsxText(child.text);
       if (normalized.trim() !== '') (insideCode ? code_literals : text_literals).push(normalized);
       return;
     }
@@ -1238,7 +1362,8 @@ function jsxFact(node: ts.Expression | undefined, repo: AstRepository): StaticJs
       return;
     }
     if (ts.isJsxElement(child)) {
-      const tag = child.openingElement.tagName.getText();
+      validateStaticAttributes(child.openingElement);
+      const tag = staticJsxTag(child.openingElement);
       if (tag === 'a' || tag === 'Link') {
         const href = jsxAttribute(child.openingElement, 'href');
         if (href === undefined) fail(child, 'link JSX requires a static href');
@@ -1249,7 +1374,8 @@ function jsxFact(node: ts.Expression | undefined, repo: AstRepository): StaticJs
       return;
     }
     if (ts.isJsxSelfClosingElement(child)) {
-      const tag = child.tagName.getText();
+      validateStaticAttributes(child);
+      const tag = staticJsxTag(child);
       if (tag === 'a' || tag === 'Link') {
         const href = jsxAttribute(child, 'href');
         if (href === undefined) fail(child, 'link JSX requires a static href');
@@ -1282,6 +1408,21 @@ function functionLike(node: ts.Expression): BlockFunction {
   if (!ts.isArrowFunction(node) && !ts.isFunctionExpression(node)) fail(node, 'custom option callback must be a local function expression');
   if (!ts.isBlock(node.body)) fail(node, 'custom option callback must use a block body');
   return node as BlockFunction;
+}
+
+function requireExactCallbackSignature(callback: BlockFunction, label: 'getValue' | 'onChange', expected: readonly string[]): void {
+  if (callback.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword) || callback.asteriskToken !== undefined) {
+    fail(callback, `custom option requires a synchronous non-generator ${label} callback`);
+  }
+  if (
+    callback.parameters.length !== expected.length
+    || callback.parameters.some((parameter, index) =>
+      !ts.isIdentifier(parameter.name)
+      || parameter.name.text !== expected[index]
+      || parameter.dotDotDotToken !== undefined
+      || parameter.initializer !== undefined
+      || parameter.questionToken !== undefined)
+  ) fail(callback, `exact ${label} callback signature is (${expected.join(', ')})`);
 }
 
 function pathAliasExpression(expression: ts.Expression, pathAliases: Map<string, string>): string | undefined {
@@ -1324,8 +1465,13 @@ function parsePredicate(expression: ts.Expression, pathAliases: Map<string, stri
 function callbackAliases(callback: BlockFunction): { paths: Map<string, string>; predicates: Map<string, ModelOptionPredicateFact> } {
   const paths = new Map<string, string>();
   const predicates = new Map<string, ModelOptionPredicateFact>();
+  let reachedBehavior = false;
   for (const statement of callback.body.statements) {
-    if (!ts.isVariableStatement(statement)) continue;
+    if (!ts.isVariableStatement(statement)) {
+      reachedBehavior = true;
+      continue;
+    }
+    if (reachedBehavior) fail(statement, 'custom option callback aliases must precede the complete callback body');
     for (const declaration of statement.declarationList.declarations) {
       if (!ts.isIdentifier(declaration.name) || declaration.initializer === undefined) fail(declaration, 'callback aliases must be initialized identifiers');
       const path = pathAliasExpression(declaration.initializer, paths);
@@ -1338,11 +1484,13 @@ function callbackAliases(callback: BlockFunction): { paths: Map<string, string>;
 
 function getValueCases(node: ts.Expression, repo: AstRepository): CustomModelSelectOptionFact['get_value_cases'] {
   const callback = functionLike(node);
+  requireExactCallbackSignature(callback, 'getValue', ['config']);
   const aliases = callbackAliases(callback);
   const result: CustomModelSelectOptionFact['get_value_cases'] = [];
-  for (const statement of callback.body.statements) {
-    if (ts.isVariableStatement(statement)) continue;
+  const behaviorStatements = callback.body.statements.filter(statement => !ts.isVariableStatement(statement));
+  for (const [index, statement] of behaviorStatements.entries()) {
     if (ts.isIfStatement(statement)) {
+      if (ts.isBlock(statement.thenStatement) && statement.thenStatement.statements.length !== 1) fail(statement.thenStatement, 'getValue if branch must contain exactly one return');
       const thenStatement = ts.isBlock(statement.thenStatement) ? statement.thenStatement.statements[0] : statement.thenStatement;
       if (thenStatement === undefined || !ts.isReturnStatement(thenStatement) || thenStatement.expression === undefined) fail(statement, 'getValue if branch must contain exactly one return');
       result.push({ condition: parsePredicate(statement.expression, aliases.paths, aliases.predicates), return_value: repo.value(thenStatement.expression) });
@@ -1350,6 +1498,7 @@ function getValueCases(node: ts.Expression, repo: AstRepository): CustomModelSel
       continue;
     }
     if (ts.isReturnStatement(statement) && statement.expression !== undefined) {
+      if (index !== behaviorStatements.length - 1) fail(statement, 'getValue final unconditional return must be the last statement');
       result.push({ condition: { kind: 'always' }, return_value: repo.value(statement.expression) });
       continue;
     }
@@ -1370,9 +1519,9 @@ function selectedBranch(expression: ts.Expression, valueParameter: string): stri
 
 function onChangeWrites(node: ts.Expression, repo: AstRepository): CustomModelSelectOptionFact['writes'] {
   const callback = functionLike(node);
-  if (callback.parameters.length < 3 || !ts.isIdentifier(callback.parameters[0].name) || !ts.isIdentifier(callback.parameters[2].name)) fail(callback, 'onChange requires value and setter parameters');
-  const valueParameter = callback.parameters[0].name.text;
-  const setter = callback.parameters[2].name.text;
+  requireExactCallbackSignature(callback, 'onChange', ['value', 'config', 'setJobConfig']);
+  const valueParameter = (callback.parameters[0].name as ts.Identifier).text;
+  const setter = (callback.parameters[2].name as ts.Identifier).text;
   const aliases = callbackAliases(callback);
   const result: CustomModelSelectOptionFact['writes'] = [];
   const walkStatements = (statements: readonly ts.Statement[], selected: string, guard: ModelOptionPredicateFact): void => {
@@ -1386,12 +1535,14 @@ function onChangeWrites(node: ts.Expression, repo: AstRepository): CustomModelSe
         const nestedStatements = ts.isBlock(statement.thenStatement) ? statement.thenStatement.statements : [statement.thenStatement];
         walkStatements(nestedStatements, selected, combined);
         if (statement.elseStatement !== undefined) fail(statement.elseStatement, 'nested onChange else is unsupported');
-      } else if (!ts.isVariableStatement(statement)) {
+      } else {
         fail(statement, 'unsupported onChange statement');
       }
     }
   };
-  let statement: ts.Statement | undefined = callback.body.statements.find((item: ts.Statement) => !ts.isVariableStatement(item));
+  const behaviorStatements = callback.body.statements.filter((item: ts.Statement) => !ts.isVariableStatement(item));
+  if (behaviorStatements.length !== 1) fail(callback.body, 'onChange callback must contain exactly one complete if/else-if branch chain');
+  let statement: ts.Statement | undefined = behaviorStatements[0];
   while (statement !== undefined) {
     if (!ts.isIfStatement(statement)) fail(statement, 'onChange requires an if/else-if branch chain');
     const selected = selectedBranch(statement.expression, valueParameter);
@@ -1472,23 +1623,57 @@ function customOptions(expression: ts.Expression | undefined, repo: AstRepositor
   return { present: true, value };
 }
 
+function architectureComparatorDirection(comparator: ts.Expression): 1 | -1 {
+  comparator = unwrap(comparator);
+  if (!ts.isArrowFunction(comparator) || comparator.parameters.length !== 2 || !ts.isBlock(comparator.body)) {
+    fail(comparator, 'modelArchs sort must use the known finite label comparator');
+  }
+  if (!comparator.parameters.every(parameter => ts.isIdentifier(parameter.name) && parameter.initializer === undefined && parameter.dotDotDotToken === undefined)) {
+    fail(comparator, 'modelArchs sort comparator parameters must be exact identifiers');
+  }
+  if (comparator.body.statements.length !== 1 || !ts.isReturnStatement(comparator.body.statements[0]) || comparator.body.statements[0].expression === undefined) {
+    fail(comparator.body, 'modelArchs sort comparator must contain exactly one return');
+  }
+  const expression = unwrap(comparator.body.statements[0].expression);
+  if (!ts.isCallExpression(expression) || !ts.isPropertyAccessExpression(expression.expression) || expression.expression.name.text !== 'localeCompare' || expression.arguments.length !== 3) {
+    fail(expression, 'modelArchs sort must compare exact architecture labels');
+  }
+  const receiver = unwrap(expression.expression.expression);
+  const argument = unwrap(expression.arguments[0]);
+  const undefinedArgument = unwrap(expression.arguments[1]);
+  const optionsArgument = unwrap(expression.arguments[2]);
+  if (
+    !ts.isPropertyAccessExpression(receiver) || receiver.name.text !== 'label' || !ts.isIdentifier(receiver.expression)
+    || !ts.isPropertyAccessExpression(argument) || argument.name.text !== 'label' || !ts.isIdentifier(argument.expression)
+    || !ts.isIdentifier(undefinedArgument) || undefinedArgument.text !== 'undefined'
+    || !ts.isObjectLiteralExpression(optionsArgument)
+  ) fail(expression, 'modelArchs sort must compare exact architecture labels');
+  const options = objectProperties(optionsArgument);
+  const sensitivity = options.get('sensitivity') === undefined ? undefined : unwrap(options.get('sensitivity')!);
+  if (options.size !== 1 || sensitivity === undefined || !ts.isStringLiteral(sensitivity) || sensitivity.text !== 'base') {
+    fail(optionsArgument, 'modelArchs sort must use base label sensitivity');
+  }
+  const [leftParameter, rightParameter] = comparator.parameters.map(parameter => (parameter.name as ts.Identifier).text);
+  if (receiver.expression.text === leftParameter && argument.expression.text === rightParameter) return 1;
+  if (receiver.expression.text === rightParameter && argument.expression.text === leftParameter) return -1;
+  fail(expression, 'modelArchs sort must compare its exact parameters');
+}
+
 function architectureFacts(repo: AstRepository): ModelArchitectureFact[] {
   let expression = unwrap(repo.expression('modelArchs'));
+  let comparatorDirection: 1 | -1 | undefined;
   if (
     ts.isCallExpression(expression)
     && ts.isPropertyAccessExpression(expression.expression)
     && expression.expression.name.text === 'sort'
     && expression.arguments.length === 1
   ) {
-    const comparator = unwrap(expression.arguments[0]);
-    if (!ts.isArrowFunction(comparator) || comparator.parameters.length !== 2 || !ts.isBlock(comparator.body)) {
-      fail(expression, 'modelArchs sort must use the known finite label comparator');
-    }
+    comparatorDirection = architectureComparatorDirection(expression.arguments[0]);
     expression = unwrap(expression.expression.expression);
   }
   if (!ts.isArrayLiteralExpression(expression)) fail(expression, 'modelArchs must be an array literal');
   const allowedFields = new Set(['name', 'label', 'group', 'controls', 'isVideoModel', 'hasMultiLinePrompts', 'defaults', 'disableSections', 'additionalSections', 'accuracyRecoveryAdapters', 'sampleTags', 'gateUrl', 'modelNotes', 'customModelSelectOptions']);
-  return expression.elements.map(element => {
+  const facts = expression.elements.map(element => {
     element = unwrap(element as ts.Expression);
     if (!ts.isObjectLiteralExpression(element)) fail(element, 'modelArchs entries must be object literals');
     const fields = objectProperties(element);
@@ -1536,6 +1721,10 @@ function architectureFacts(repo: AstRepository): ModelArchitectureFact[] {
       additional_sections: stringArray(fields.get('additionalSections'), repo),
     };
   });
+  if (comparatorDirection !== undefined) {
+    facts.sort((left, right) => comparatorDirection * left.label.localeCompare(right.label, undefined, { sensitivity: 'base' }));
+  }
+  return facts;
 }
 
 function flattenDefaults(repo: AstRepository, symbol: string, sourcePath: string, basePath: string): UiDefaultFact[] {
@@ -1613,7 +1802,7 @@ function docClaims(root: string, repo: AstRepository): UiSourceClaim[] {
       const resolved = unwrap(titleExpression);
       if (ts.isStringLiteral(resolved) || ts.isNoSubstitutionTemplateLiteral(resolved)) title = { kind: 'string', value: resolved.text };
       else {
-        const jsx = jsxFact(resolved, repo);
+        const jsx = jsxFact(resolved, repo, { docsTitlePath: rawPath });
         const joined = [...(jsx.text_literals ?? []), ...(jsx.code_literals ?? [])].join(' ').replace(/\s+/g, ' ').trim();
         if (joined === '') fail(resolved, `docs title ${rawPath} has no static text`);
         title = { kind: 'string', value: joined };

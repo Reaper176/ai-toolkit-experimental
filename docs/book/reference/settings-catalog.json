@@ -43130,57 +43130,57 @@
         "ui_optional": true,
         "ui_nullable": false,
         "ui_accepted_values": [
+          "ace_step_15",
+          "ace_step_15_xl",
           "anima",
-          "flux",
+          "boogu_image",
+          "chroma",
+          "ernie_image",
           "flex1",
           "flex2",
-          "chroma",
-          "lumina2",
-          "qwen_image",
-          "qwen_image:2512",
-          "hidream",
-          "sdxl",
-          "sd15",
-          "omnigen2",
+          "flux",
           "flux2",
-          "zimage:turbo",
-          "zimage",
-          "zimage:deturbo",
           "flux2_klein_4b",
-          "ernie_image",
           "flux2_klein_9b",
-          "nucleus_image",
+          "hidream",
           "hidream_o1",
-          "zimage_l2p",
-          "prx_pixel",
           "krea2",
           "krea2:turbo",
+          "lumina2",
           "mageflow",
-          "boogu_image",
+          "nucleus_image",
+          "omnigen2",
+          "prx_pixel",
+          "qwen_image",
+          "qwen_image:2512",
+          "sd15",
+          "sdxl",
+          "zimage",
+          "zimage:deturbo",
+          "zimage_l2p",
+          "zimage:turbo",
+          "boogu_image_edit",
           "flux_kontext",
+          "hidream_e1",
+          "mageflow_edit",
           "qwen_image_edit",
           "qwen_image_edit_plus",
           "qwen_image_edit_plus:2511",
-          "hidream_e1",
-          "mageflow_edit",
-          "boogu_image_edit",
-          "zeta_chroma",
           "ideogram4",
           "krea2:o_edit",
           "krea2:o_edit_turbo",
-          "wan21:1b",
-          "wan21_i2v:14b480p",
-          "wan21_i2v:14b",
-          "wan21:14b",
-          "wan22_14b:t2v",
-          "wan22_14b_i2v",
-          "wan22_5b",
-          "minimax_h3",
+          "zeta_chroma",
           "ltx2",
           "ltx2.3",
           "ltx2.5",
-          "ace_step_15_xl",
-          "ace_step_15"
+          "minimax_h3",
+          "wan21:1b",
+          "wan21:14b",
+          "wan21_i2v:14b480p",
+          "wan21_i2v:14b",
+          "wan22_14b:t2v",
+          "wan22_14b_i2v",
+          "wan22_5b"
         ],
         "ui_range": null
       },
@@ -73106,6 +73106,25 @@
       }
     },
     {
+      "setting_id": "model.arch",
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob",
+        "path": "config.process[*].model.arch",
+        "kind": "setter",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": null,
+          "widget_kind": null,
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      }
+    },
+    {
       "setting_id": "model.assistant_lora_path",
       "fact": {
         "fact_type": "architecture-default",
@@ -87054,7 +87073,7 @@
                   "present": true,
                   "text_literals": [
                     "MiniMax-H3 Distillation Handling",
-                    " MiniMax H3 is a guidance distilled model, so training on it directly will make the guidance distillation break down. There are two different ways to train on this model without breaking the guidance distillation: Contrastive Guidance and Training Adapter. Both have their pros and cons. The adapter is faster, but will still break down over a long run. Contrastive Guidance is slower, but is less likely to break down. "
+                    "MiniMax H3 is a guidance distilled model, so training on it directly will make the guidance distillation break down. There are two different ways to train on this model without breaking the guidance distillation: Contrastive Guidance and Training Adapter. Both have their pros and cons. The adapter is faster, but will still break down over a long run. Contrastive Guidance is slower, but is less likely to break down."
                   ],
                   "code_literals": [],
                   "link_hrefs": []
@@ -87240,16 +87259,16 @@
           "value": {
             "present": true,
             "text_literals": [
-              " Weights load from the",
+              "Weights load from the",
               " ",
-              " Models Folder Path ",
+              "Models Folder Path",
               " ",
-              " set in settings. Anything missing is downloaded there from ",
-              " on first load (~43GB total). Files used: ",
-              " The checkpoints are pre-quantized and load directly: int8 ConvRot DiT (~21GB) and nvfp4 Qwen3-VL text encoder (~16GB). The default qtypes (",
+              "set in settings. Anything missing is downloaded there from ",
+              " on first load (~43GB total). Files used:",
+              "The checkpoints are pre-quantized and load directly: int8 ConvRot DiT (~21GB) and nvfp4 Qwen3-VL text encoder (~16GB). The default qtypes (",
               " / ",
-              ") match the files exactly, so nothing is re-quantized on load. Picking a different quantization re-quantizes the pre-quantized layers into that format, one layer at a time. ",
-              " Supports t2v and first-frame i2v (ctrl img / i2v datasets) with joint audio. The model is guidance-distilled \u2014 keep guidance scale at 1. Video is fixed 24 fps and frame counts snap down to the 17n+5 grid (5, 22, 39, 56, ..., 107, 124 \u2248 5s). Image datasets (num_frames 1) train as single frames, and a sample with num_frames 1 renders a single image. "
+              ") match the files exactly, so nothing is re-quantized on load. Picking a different quantization re-quantizes the pre-quantized layers into that format, one layer at a time.",
+              "Supports t2v and first-frame i2v (ctrl img / i2v datasets) with joint audio. The model is guidance-distilled \u2014 keep guidance scale at 1. Video is fixed 24 fps and frame counts snap down to the 17n+5 grid (5, 22, 39, 56, ..., 107, 124 \u2248 5s). Image datasets (num_frames 1) train as single frames, and a sample with num_frames 1 renders a single image."
             ],
             "code_literals": [
               "Comfy-Org/MiniMax-H3",
@@ -108017,11 +108036,27 @@
           "accepted_values": [
             {
               "kind": "string",
+              "value": "ace_step_15"
+            },
+            {
+              "kind": "string",
+              "value": "ace_step_15_xl"
+            },
+            {
+              "kind": "string",
               "value": "anima"
             },
             {
               "kind": "string",
-              "value": "flux"
+              "value": "boogu_image"
+            },
+            {
+              "kind": "string",
+              "value": "chroma"
+            },
+            {
+              "kind": "string",
+              "value": "ernie_image"
             },
             {
               "kind": "string",
@@ -108033,35 +108068,7 @@
             },
             {
               "kind": "string",
-              "value": "chroma"
-            },
-            {
-              "kind": "string",
-              "value": "lumina2"
-            },
-            {
-              "kind": "string",
-              "value": "qwen_image"
-            },
-            {
-              "kind": "string",
-              "value": "qwen_image:2512"
-            },
-            {
-              "kind": "string",
-              "value": "hidream"
-            },
-            {
-              "kind": "string",
-              "value": "sdxl"
-            },
-            {
-              "kind": "string",
-              "value": "sd15"
-            },
-            {
-              "kind": "string",
-              "value": "omnigen2"
+              "value": "flux"
             },
             {
               "kind": "string",
@@ -108069,23 +108076,7 @@
             },
             {
               "kind": "string",
-              "value": "zimage:turbo"
-            },
-            {
-              "kind": "string",
-              "value": "zimage"
-            },
-            {
-              "kind": "string",
-              "value": "zimage:deturbo"
-            },
-            {
-              "kind": "string",
               "value": "flux2_klein_4b"
-            },
-            {
-              "kind": "string",
-              "value": "ernie_image"
             },
             {
               "kind": "string",
@@ -108093,19 +108084,11 @@
             },
             {
               "kind": "string",
-              "value": "nucleus_image"
+              "value": "hidream"
             },
             {
               "kind": "string",
               "value": "hidream_o1"
-            },
-            {
-              "kind": "string",
-              "value": "zimage_l2p"
-            },
-            {
-              "kind": "string",
-              "value": "prx_pixel"
             },
             {
               "kind": "string",
@@ -108117,15 +108100,71 @@
             },
             {
               "kind": "string",
+              "value": "lumina2"
+            },
+            {
+              "kind": "string",
               "value": "mageflow"
             },
             {
               "kind": "string",
-              "value": "boogu_image"
+              "value": "nucleus_image"
+            },
+            {
+              "kind": "string",
+              "value": "omnigen2"
+            },
+            {
+              "kind": "string",
+              "value": "prx_pixel"
+            },
+            {
+              "kind": "string",
+              "value": "qwen_image"
+            },
+            {
+              "kind": "string",
+              "value": "qwen_image:2512"
+            },
+            {
+              "kind": "string",
+              "value": "sd15"
+            },
+            {
+              "kind": "string",
+              "value": "sdxl"
+            },
+            {
+              "kind": "string",
+              "value": "zimage"
+            },
+            {
+              "kind": "string",
+              "value": "zimage:deturbo"
+            },
+            {
+              "kind": "string",
+              "value": "zimage_l2p"
+            },
+            {
+              "kind": "string",
+              "value": "zimage:turbo"
+            },
+            {
+              "kind": "string",
+              "value": "boogu_image_edit"
             },
             {
               "kind": "string",
               "value": "flux_kontext"
+            },
+            {
+              "kind": "string",
+              "value": "hidream_e1"
+            },
+            {
+              "kind": "string",
+              "value": "mageflow_edit"
             },
             {
               "kind": "string",
@@ -108141,22 +108180,6 @@
             },
             {
               "kind": "string",
-              "value": "hidream_e1"
-            },
-            {
-              "kind": "string",
-              "value": "mageflow_edit"
-            },
-            {
-              "kind": "string",
-              "value": "boogu_image_edit"
-            },
-            {
-              "kind": "string",
-              "value": "zeta_chroma"
-            },
-            {
-              "kind": "string",
               "value": "ideogram4"
             },
             {
@@ -108169,35 +108192,7 @@
             },
             {
               "kind": "string",
-              "value": "wan21:1b"
-            },
-            {
-              "kind": "string",
-              "value": "wan21_i2v:14b480p"
-            },
-            {
-              "kind": "string",
-              "value": "wan21_i2v:14b"
-            },
-            {
-              "kind": "string",
-              "value": "wan21:14b"
-            },
-            {
-              "kind": "string",
-              "value": "wan22_14b:t2v"
-            },
-            {
-              "kind": "string",
-              "value": "wan22_14b_i2v"
-            },
-            {
-              "kind": "string",
-              "value": "wan22_5b"
-            },
-            {
-              "kind": "string",
-              "value": "minimax_h3"
+              "value": "zeta_chroma"
             },
             {
               "kind": "string",
@@ -108213,11 +108208,35 @@
             },
             {
               "kind": "string",
-              "value": "ace_step_15_xl"
+              "value": "minimax_h3"
             },
             {
               "kind": "string",
-              "value": "ace_step_15"
+              "value": "wan21:1b"
+            },
+            {
+              "kind": "string",
+              "value": "wan21:14b"
+            },
+            {
+              "kind": "string",
+              "value": "wan21_i2v:14b480p"
+            },
+            {
+              "kind": "string",
+              "value": "wan21_i2v:14b"
+            },
+            {
+              "kind": "string",
+              "value": "wan22_14b:t2v"
+            },
+            {
+              "kind": "string",
+              "value": "wan22_14b_i2v"
+            },
+            {
+              "kind": "string",
+              "value": "wan22_5b"
             }
           ]
         },

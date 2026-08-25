@@ -3,19 +3,207 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { defaultAudioSampleConfig, defaultIdeogramSamplesConfig, defaultSampleConfig } from '@/helpers/defaultSamples';
+import { defaultDatasetConfig, defaultJobConfig } from '@/app/jobs/new/jobConfig';
+import { modelArchs as runtimeModelArchs } from '@/app/jobs/new/options';
+import type { ModelArch } from '@/app/jobs/new/options';
+import type { JobConfig } from '@/types';
+
 import {
   collectTrainingBookUiFacts,
   collectCanonicalSetterPathsFromSource,
   collectDeclaredServerGlobalClaimsFromSource,
   collectVisibleControlClaimsFromSource,
+  normalizeTrainingBookPath,
   validateTrainingBookUiFacts,
   validateArchitectureProjectedControlTemplates,
   writeTrainingBookUiFacts,
 } from './trainingBookFacts';
+import type { CustomModelSelectOptionFact, ModelOptionPredicateFact, StaticJsxFact, TrainingBookValueFact, UiDefaultFact } from './trainingBookFacts';
+
+const modelArchProjectionBoundary = {
+  name: true,
+  label: true,
+  group: true,
+  controls: true,
+  isVideoModel: true,
+  hasMultiLinePrompts: true,
+  defaults: true,
+  disableSections: true,
+  additionalSections: true,
+  accuracyRecoveryAdapters: true,
+  sampleTags: true,
+  gateUrl: true,
+  modelNotes: true,
+  customModelSelectOptions: true,
+} satisfies Record<keyof ModelArch, true>;
+assert.deepEqual(Object.keys(modelArchProjectionBoundary).sort(), [
+  'accuracyRecoveryAdapters',
+  'additionalSections',
+  'controls',
+  'customModelSelectOptions',
+  'defaults',
+  'disableSections',
+  'gateUrl',
+  'group',
+  'hasMultiLinePrompts',
+  'isVideoModel',
+  'label',
+  'modelNotes',
+  'name',
+  'sampleTags',
+]);
+
+const compareCodePoint = (left: string, right: string): number => {
+  const leftPoints = Array.from(left, character => character.codePointAt(0)!);
+  const rightPoints = Array.from(right, character => character.codePointAt(0)!);
+  for (let index = 0; index < Math.min(leftPoints.length, rightPoints.length); index += 1) {
+    if (leftPoints[index] !== rightPoints[index]) return leftPoints[index] < rightPoints[index] ? -1 : 1;
+  }
+  return leftPoints.length < rightPoints.length ? -1 : leftPoints.length > rightPoints.length ? 1 : 0;
+};
+
+function runtimeValue(value: unknown): TrainingBookValueFact {
+  if (value === undefined) return { kind: 'undefined' };
+  if (value === null) return { kind: 'null' };
+  if (typeof value === 'boolean') return { kind: 'boolean', value };
+  if (typeof value === 'number') {
+    assert.ok(Number.isFinite(value), 'runtime fact numbers must be finite');
+    return { kind: 'number', value };
+  }
+  if (typeof value === 'string') return { kind: 'string', value };
+  if (Array.isArray(value)) return { kind: 'array', items: value.map(runtimeValue) };
+  assert.equal(typeof value, 'object', 'runtime fact values must be JSON-safe data');
+  return {
+    kind: 'object',
+    entries: Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => compareCodePoint(left, right))
+      .map(([key, item]) => ({ key, value: runtimeValue(item) })),
+  };
+}
+
+function runtimePresence(container: object, key: PropertyKey): { present: boolean; value?: TrainingBookValueFact } {
+  return Object.prototype.hasOwnProperty.call(container, key)
+    ? { present: true, value: runtimeValue((container as Record<PropertyKey, unknown>)[key]) }
+    : { present: false };
+}
+
+function runtimeDefaultFacts(value: unknown, symbol: string, sourcePath: string, basePath: string): UiDefaultFact[] {
+  const result: UiDefaultFact[] = [];
+  const walk = (path: string, item: TrainingBookValueFact): void => {
+    if (item.kind === 'object') {
+      for (const entry of item.entries) walk(path === '' ? entry.key : `${path}.${entry.key}`, entry.value);
+    } else {
+      result.push({
+        path: normalizeTrainingBookPath(path),
+        value: { present: true, value: item },
+        source_path: sourcePath,
+        symbol,
+      });
+    }
+  };
+  walk(basePath, runtimeValue(value));
+  return result;
+}
+
+function runtimeJsxFact(node: unknown): StaticJsxFact {
+  const text_literals: string[] = [];
+  const code_literals: string[] = [];
+  const link_hrefs: string[] = [];
+  const walk = (child: unknown, insideCode = false): void => {
+    if (child === null || child === undefined || typeof child === 'boolean') return;
+    if (typeof child === 'string' || typeof child === 'number') {
+      const literal = String(child);
+      (insideCode ? code_literals : text_literals).push(literal);
+      return;
+    }
+    if (Array.isArray(child)) {
+      for (const item of child) walk(item, insideCode);
+      return;
+    }
+    assert.equal(typeof child, 'object', 'runtime JSX must remain a finite React node');
+    const element = child as { type?: unknown; props?: Record<string, unknown> };
+    const tag = typeof element.type === 'string'
+      ? element.type
+      : typeof element.type === 'function'
+        ? element.type.name
+        : String(element.type);
+    if (tag === 'a' || tag === 'Link') {
+      const href = element.props?.href;
+      assert.equal(typeof href, 'string', 'runtime JSX links require a string href');
+      link_hrefs.push(href as string);
+    }
+    walk(element.props?.children, insideCode || tag === 'code');
+  };
+  walk(node);
+  return { present: true, text_literals, code_literals, link_hrefs };
+}
+
+function runtimeArchitectureDefaults(defaults: ModelArch['defaults']): {
+  leaves: Array<{ declaration_path: string; path: string; selected: { present: boolean; value?: TrainingBookValueFact }; unselected: { present: boolean; value?: TrainingBookValueFact } }>;
+  containers: Array<{ path: string; selected_present: boolean; unselected_present: boolean }>;
+} {
+  const leaves: Array<{ declaration_path: string; path: string; selected: { present: boolean; value?: TrainingBookValueFact }; unselected: { present: boolean; value?: TrainingBookValueFact } }> = [];
+  const containers: Array<{ path: string; selected_present: boolean; unselected_present: boolean }> = [];
+  const objectEntry = (value: TrainingBookValueFact | undefined, key: string): TrainingBookValueFact | undefined =>
+    value?.kind === 'object' ? value.entries.find(entry => entry.key === key)?.value : undefined;
+  for (const [rawPath, rawPair] of Object.entries(defaults ?? {})) {
+    assert.ok(Array.isArray(rawPair) && rawPair.length === 2, `${rawPath} runtime default must remain a pair`);
+    const declarationPath = normalizeTrainingBookPath(rawPath.replace('[x]', '[*]'));
+    const walk = (path: string, selected: TrainingBookValueFact | undefined, unselected: TrainingBookValueFact | undefined): void => {
+      const selectedObject = selected?.kind === 'object' ? selected : undefined;
+      const unselectedObject = unselected?.kind === 'object' ? unselected : undefined;
+      if (selectedObject !== undefined || unselectedObject !== undefined) {
+        assert.ok(selected === undefined || selectedObject !== undefined, `${path} selected runtime container changed type`);
+        assert.ok(unselected === undefined || unselectedObject !== undefined, `${path} unselected runtime container changed type`);
+        containers.push({ path, selected_present: selectedObject !== undefined, unselected_present: unselectedObject !== undefined });
+        const keys = new Set([
+          ...(selectedObject?.entries.map(entry => entry.key) ?? []),
+          ...(unselectedObject?.entries.map(entry => entry.key) ?? []),
+        ]);
+        for (const key of [...keys].sort(compareCodePoint)) walk(`${path}.${key}`, objectEntry(selectedObject, key), objectEntry(unselectedObject, key));
+        return;
+      }
+      leaves.push({
+        declaration_path: declarationPath,
+        path,
+        selected: selected === undefined ? { present: false } : { present: true, value: selected },
+        unselected: unselected === undefined ? { present: false } : { present: true, value: unselected },
+      });
+    };
+    walk(declarationPath, runtimeValue(rawPair[0]), runtimeValue(rawPair[1]));
+  }
+  leaves.sort((left, right) => compareCodePoint(left.path, right.path));
+  containers.sort((left, right) => compareCodePoint(left.path, right.path));
+  return { leaves, containers };
+}
+
+function runtimePathValue(value: unknown, canonicalPath: string): unknown {
+  let current = value;
+  const concrete = canonicalPath.replaceAll('[*]', '[0]');
+  for (const match of concrete.matchAll(/(?:^|\.)([^.\[]+)|\[(\d+)\]/g)) {
+    const key: string | number = match[1] ?? Number.parseInt(match[2], 10);
+    if (current === null || current === undefined) return undefined;
+    current = (current as Record<string | number, unknown>)[key];
+  }
+  return current;
+}
+
+function runtimePredicate(predicate: ModelOptionPredicateFact, config: unknown): boolean {
+  if (predicate.kind === 'always') return true;
+  if (predicate.kind === 'truthy') return Boolean(runtimePathValue(config, predicate.path));
+  if (predicate.kind === 'nonblank-string') {
+    const value = runtimePathValue(config, predicate.path);
+    return typeof value === 'string' && value.trim() !== '';
+  }
+  if (predicate.kind === 'not') return !runtimePredicate(predicate.operand, config);
+  if (predicate.kind === 'and') return runtimePredicate(predicate.operands[0], config) && runtimePredicate(predicate.operands[1], config);
+  return runtimePredicate(predicate.operands[0], config) || runtimePredicate(predicate.operands[1], config);
+}
 
 assert.deepEqual(
   collectCanonicalSetterPathsFromSource(`
-    function SimpleJob({ jobConfig }) {
+    function SimpleJob({ jobConfig, setJobConfig }) {
       const validationConfig = jobConfig.config.process[0].train.validation_config;
       jobConfig.config.process[0].datasets.map((dataset, i) =>
         setJobConfig(24, \`config.process[0].datasets[\${i}].fps\`));
@@ -36,7 +224,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
   collectCanonicalSetterPathsFromSource(`
-    const CaptionSimpleJob: React.FC<Props> = ({ jobConfig }) => {
+    const CaptionSimpleJob: React.FC<Props> = ({ jobConfig, setJobConfig }) => {
       jobConfig.config.process[0].datasets.map((dataset, i) =>
         setJobConfig('', \`config.process[0].datasets[\${i}].caption_ext\`));
     };
@@ -46,7 +234,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
   collectCanonicalSetterPathsFromSource(`
-    function Fixture({ jobConfig }) {
+    function Fixture({ jobConfig, setJobConfig }) {
       function open() {
         const sampleCfg = jobConfig.config.process[0].sample;
         const items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt })).filter(item => item.prompt);
@@ -145,7 +333,7 @@ assert.throws(
 );
 assert.throws(
   () => collectCanonicalSetterPathsFromSource(`
-    function Fixture({ jobConfig }) {
+    function Fixture({ jobConfig, setJobConfig }) {
       function declareAlias() {
         const sampleCfg = jobConfig.config.process[0].sample;
         return sampleCfg;
@@ -161,7 +349,7 @@ assert.throws(
 );
 assert.throws(
   () => collectCanonicalSetterPathsFromSource(`
-    function Fixture({ jobConfig }) {
+    function Fixture({ jobConfig, setJobConfig }) {
       const sampleCfg = jobConfig.config.process[0].sample;
       function consumeAlias(sampleCfg) {
         sampleCfg.samples.map((sample, i) =>
@@ -174,7 +362,7 @@ assert.throws(
 );
 assert.throws(
   () => collectCanonicalSetterPathsFromSource(`
-    function Fixture({ jobConfig }) {
+    function Fixture({ jobConfig, setJobConfig }) {
       const sampleCfg = jobConfig.config.process[0].sample;
       function consumeAlias() {
         sampleCfg.samples.map((sample, i) =>
@@ -190,7 +378,7 @@ assert.throws(
 );
 assert.throws(
   () => collectCanonicalSetterPathsFromSource(`
-    function Fixture({ jobConfig }) {
+    function Fixture({ jobConfig, setJobConfig }) {
       let sampleCfg = jobConfig.config.process[0].sample;
       sampleCfg = unrelated.sample;
       sampleCfg.samples.map((sample, i) =>
@@ -203,7 +391,7 @@ assert.throws(
 for (const operator of ['&&=', '||=', '??=']) {
   assert.throws(
     () => collectCanonicalSetterPathsFromSource(`
-      function Fixture({ jobConfig }) {
+      function Fixture({ jobConfig, setJobConfig }) {
         let sampleCfg = jobConfig.config.process[0].sample;
         sampleCfg ${operator} unrelated.sample;
         sampleCfg.samples.map((sample, i) =>
@@ -220,7 +408,7 @@ for (const assignment of [
 ]) {
   assert.throws(
     () => collectCanonicalSetterPathsFromSource(`
-      function Fixture({ jobConfig }) {
+      function Fixture({ jobConfig, setJobConfig }) {
         let sampleCfg = jobConfig.config.process[0].sample;
         ${assignment}
         sampleCfg.samples.map((sample, i) =>
@@ -233,7 +421,7 @@ for (const assignment of [
 }
 assert.throws(
   () => collectCanonicalSetterPathsFromSource(`
-    function Fixture({ jobConfig }) {
+    function Fixture({ jobConfig, setJobConfig }) {
       let sampleCfg = jobConfig.config.process[0].sample;
       {
         sampleCfg = unrelated.sample;
@@ -248,7 +436,7 @@ assert.throws(
 for (const loopKind of ['of', 'in']) {
   assert.throws(
     () => collectCanonicalSetterPathsFromSource(`
-      function Fixture({ jobConfig }) {
+      function Fixture({ jobConfig, setJobConfig }) {
         let sampleCfg = jobConfig.config.process[0].sample;
         for (sampleCfg ${loopKind} sources) {
           sampleCfg.samples.map((sample, i) =>
@@ -262,7 +450,7 @@ for (const loopKind of ['of', 'in']) {
 }
 assert.deepEqual(
   collectCanonicalSetterPathsFromSource(`
-    function Fixture({ jobConfig }) {
+    function Fixture({ jobConfig, setJobConfig }) {
       let sampleCfg = jobConfig.config.process[0].sample;
       for (sampleCfg of sampleCfg.samples.map((sample, i) => {
         setJobConfig('', \`config.process[0].sample.samples[\${i}].prompt\`);
@@ -277,7 +465,7 @@ assert.deepEqual(
 );
 assert.throws(
   () => collectCanonicalSetterPathsFromSource(`
-    function Fixture({ jobConfig }) {
+    function Fixture({ jobConfig, setJobConfig }) {
       let sampleCfg = jobConfig.config.process[0].sample;
       {
         for (sampleCfg of sources) {
@@ -293,7 +481,7 @@ assert.throws(
 );
 assert.deepEqual(
   collectCanonicalSetterPathsFromSource(`
-    function Fixture({ jobConfig }) {
+    function Fixture({ jobConfig, setJobConfig }) {
       let sampleCfg = jobConfig.config.process[0].sample;
       {
         let sampleCfg = unrelated.sample;
@@ -308,7 +496,7 @@ assert.deepEqual(
 );
 assert.throws(
   () => collectCanonicalSetterPathsFromSource(`
-    function Fixture({ jobConfig }) {
+    function Fixture({ jobConfig, setJobConfig }) {
       jobConfig.config.process[0].datasets.map((dataset, i) => {
         {
           const i = 0;
@@ -322,7 +510,7 @@ assert.throws(
 );
 assert.throws(
   () => collectCanonicalSetterPathsFromSource(`
-    function Fixture({ jobConfig }) {
+    function Fixture({ jobConfig, setJobConfig }) {
       jobConfig.config.process[0].datasets.map(undefined, (dataset, i) =>
         setJobConfig('', \`config.process[0].datasets[\${i}].fps\`));
     }
@@ -333,7 +521,7 @@ assert.throws(
 for (const indexParameter of ['...i', 'i = 0']) {
   assert.throws(
     () => collectCanonicalSetterPathsFromSource(`
-      function Fixture({ jobConfig }) {
+      function Fixture({ jobConfig, setJobConfig }) {
         jobConfig.config.process[0].datasets.map((dataset, ${indexParameter}) =>
           setJobConfig('', \`config.process[0].datasets[\${i}].fps\`));
       }
@@ -345,7 +533,7 @@ for (const indexParameter of ['...i', 'i = 0']) {
 for (const mutation of ['i++', 'i &&= 0', '[i] = [0]']) {
   assert.throws(
     () => collectCanonicalSetterPathsFromSource(`
-      function Fixture({ jobConfig }) {
+      function Fixture({ jobConfig, setJobConfig }) {
         jobConfig.config.process[0].datasets.map((dataset, i) =>
           (${mutation}, setJobConfig('', \`config.process[0].datasets[\${i}].fps\`)));
       }
@@ -356,7 +544,7 @@ for (const mutation of ['i++', 'i &&= 0', '[i] = [0]']) {
 }
 assert.deepEqual(
   collectCanonicalSetterPathsFromSource(`
-    function Fixture({ jobConfig }) {
+    function Fixture({ jobConfig, setJobConfig }) {
       jobConfig.config.process[0].datasets.map((dataset, i) =>
         ((() => i++), setJobConfig('', \`config.process[0].datasets[\${i}].fps\`)));
     }
@@ -367,7 +555,7 @@ assert.deepEqual(
 for (const mutation of ['++i;', 'i &&= 0;', '[i] = [0];']) {
   assert.throws(
     () => collectCanonicalSetterPathsFromSource(`
-      function Fixture({ jobConfig }) {
+      function Fixture({ jobConfig, setJobConfig }) {
         jobConfig.config.process[0].datasets.map((dataset, i) => {
           ${mutation}
           setJobConfig('', \`config.process[0].datasets[\${i}].fps\`);
@@ -380,7 +568,7 @@ for (const mutation of ['++i;', 'i &&= 0;', '[i] = [0];']) {
 }
 assert.throws(
   () => collectCanonicalSetterPathsFromSource(`
-    function Fixture({ jobConfig }) {
+    function Fixture({ jobConfig, setJobConfig }) {
       jobConfig.config.process[0].datasets.map((dataset, i) =>
         setJobConfig('', \`config.process[0].sample.samples[\${i}].prompt\`));
     }
@@ -404,7 +592,7 @@ assert.throws(
 );
 assert.throws(
   () => collectCanonicalSetterPathsFromSource(`
-    function Fixture({ jobConfig }) {
+    function Fixture({ jobConfig, setJobConfig }) {
       function open() {
         const sampleCfg = jobConfig.config.process[0].sample;
         const items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt }));
@@ -421,7 +609,7 @@ assert.throws(
 for (const indexParameter of ['...index', 'index = 0']) {
   assert.throws(
     () => collectCanonicalSetterPathsFromSource(`
-      function Fixture({ jobConfig }) {
+      function Fixture({ jobConfig, setJobConfig }) {
         function open() {
           const sampleCfg = jobConfig.config.process[0].sample;
           const items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt }));
@@ -438,7 +626,7 @@ for (const indexParameter of ['...index', 'index = 0']) {
 for (const mapperIndexParameter of ['...i', 'i = 0']) {
   assert.throws(
     () => collectCanonicalSetterPathsFromSource(`
-      function Fixture({ jobConfig }) {
+      function Fixture({ jobConfig, setJobConfig }) {
         function open() {
           const sampleCfg = jobConfig.config.process[0].sample;
           const items = sampleCfg.samples.map((s, ${mapperIndexParameter}) => ({ index: i, prompt: s.prompt }));
@@ -455,7 +643,7 @@ for (const mapperIndexParameter of ['...i', 'i = 0']) {
 for (const mutation of ['index++', 'index ||= 0', '[index] = [0]']) {
   assert.throws(
     () => collectCanonicalSetterPathsFromSource(`
-      function Fixture({ jobConfig }) {
+      function Fixture({ jobConfig, setJobConfig }) {
         const sampleCfg = jobConfig.config.process[0].sample;
         const items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt }));
         openUpsamplePromptsModal(items, (index, prompt) =>
@@ -469,7 +657,7 @@ for (const mutation of ['index++', 'index ||= 0', '[index] = [0]']) {
 for (const mutation of ['items++;', 'items &&= [];', '[items] = [[]];']) {
   assert.throws(
     () => collectCanonicalSetterPathsFromSource(`
-      function Fixture({ jobConfig }) {
+      function Fixture({ jobConfig, setJobConfig }) {
         function open() {
           const sampleCfg = jobConfig.config.process[0].sample;
           let items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt }));
@@ -487,7 +675,7 @@ for (const mutation of ['items++;', 'items &&= [];', '[items] = [[]];']) {
 for (const loopKind of ['of', 'in']) {
   assert.throws(
     () => collectCanonicalSetterPathsFromSource(`
-      function Fixture({ jobConfig }) {
+      function Fixture({ jobConfig, setJobConfig }) {
         const sampleCfg = jobConfig.config.process[0].sample;
         let items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt }));
         for (items ${loopKind} groups) {
@@ -503,7 +691,7 @@ for (const loopKind of ['of', 'in']) {
 }
 assert.throws(
   () => collectCanonicalSetterPathsFromSource(`
-    function Fixture({ jobConfig }) {
+    function Fixture({ jobConfig, setJobConfig }) {
       function open() {
         const sampleCfg = jobConfig.config.process[0].sample;
         const items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt }));
@@ -522,7 +710,7 @@ assert.throws(
 for (const mutation of ['index ??= 0;', '[index] = [0];', 'for (index of [0]) break;']) {
   assert.throws(
     () => collectCanonicalSetterPathsFromSource(`
-      function Fixture({ jobConfig }) {
+      function Fixture({ jobConfig, setJobConfig }) {
         function open() {
           const sampleCfg = jobConfig.config.process[0].sample;
           const items = sampleCfg.samples.map((s, i) => ({ index: i, prompt: s.prompt }));
@@ -592,25 +780,191 @@ assert.deepEqual(visibleControlClaims, [
 ]);
 assert.throws(
   () => collectVisibleControlClaimsFromSource(`
-    <NumberInput
+    function Fixture({ jobConfig, setJobConfig }) { return <NumberInput
       label={dynamicLabel}
       value={jobConfig.config.process[0].train.steps}
       onChange={value => setJobConfig(value, 'config.process[0].train.steps')}
-    />
+    />; }
   `, 'fixture.tsx', 'Fixture'),
   /dynamic JSX label/,
 );
 assert.throws(
   () => collectVisibleControlClaimsFromSource(`
-    <SelectInput
+    function Fixture({ jobConfig, setJobConfig }) { return <SelectInput
       label="Mode"
       value={jobConfig.config.process[0].train.mode}
       onChange={value => setJobConfig(value, 'config.process[0].train.mode')}
       options={[{ value: dynamicValue, label: 'Dynamic' }]}
-    />
+    />; }
   `, 'fixture.tsx', 'Fixture'),
   /option value.*literal|accepted value/,
 );
+const singleDuplicateProbeSource = `
+  function Fixture({ jobConfig, setJobConfig }) {
+    return <>
+      <NumberInput
+        label="Steps"
+        value={jobConfig.config.process[0].train.steps}
+        onChange={value => setJobConfig(value, 'config.process[0].train.steps')}
+      />
+    </>;
+  }
+`;
+assert.equal(
+  collectVisibleControlClaimsFromSource(singleDuplicateProbeSource, 'fixture.tsx', 'Fixture').length,
+  1,
+  'one proven config-bound control emits exactly once',
+);
+assert.throws(
+  () => collectVisibleControlClaimsFromSource(singleDuplicateProbeSource.replace(
+    '    </>;',
+    `
+      <NumberInput
+        label="Steps"
+        value={jobConfig.config.process[0].train.steps}
+        onChange={value => setJobConfig(value, 'config.process[0].train.steps')}
+      />
+    </>;`,
+  ), 'fixture.tsx', 'Fixture'),
+  /duplicate visible control/,
+  'identical visible controls must not silently coalesce',
+);
+assert.throws(
+  () => collectVisibleControlClaimsFromSource(`
+    function Fixture({ jobConfig, setJobConfig }) {
+      return <NumberInput
+        label="Steps"
+        value={jobConfig.config.process[0].train.steps}
+      />;
+    }
+  `, 'fixture.tsx', 'Fixture'),
+  /editable visible control.*onChange/,
+  'a config-bound editable control requires an exact change binding',
+);
+for (const [label, onChange] of [
+  ['wrong setter path', "value => setJobConfig(value, 'config.process[0].sample.sample_every')"],
+  ['side-effect only', 'value => sideEffect(value)'],
+] as const) {
+  assert.throws(
+    () => collectVisibleControlClaimsFromSource(`
+      function Fixture({ jobConfig, setJobConfig }) {
+        return <NumberInput
+          label="Steps"
+          value={jobConfig.config.process[0].train.steps}
+          onChange={${onChange}}
+        />;
+      }
+    `, 'fixture.tsx', 'Fixture'),
+    /primary bound read path.*onChange setter/,
+    `${label} must not satisfy a config-bound editable control`,
+  );
+}
+assert.deepEqual(
+  collectVisibleControlClaimsFromSource(`
+    function Fixture({ jobConfig, setJobConfig }) {
+      return <NumberInput
+        label="Steps"
+        value={jobConfig.config.process[0].train.steps}
+        onChange={value => {
+          setJobConfig(value, 'config.process[0].train.steps');
+          setJobConfig(true, 'config.process[0].train.force_first_sample');
+        }}
+      />;
+    }
+  `, 'fixture.tsx', 'Fixture').map(item => item.path),
+  ['config.process[*].train.steps'],
+  'a primary setter may retain additional explicit writes',
+);
+const architectureMediatorControl = `
+  import { handleModelArchChange } from './utils';
+  function Fixture({ jobConfig, setJobConfig }) {
+    return <SelectInput
+      label="Model Architecture"
+      value={jobConfig.config.process[0].model.arch}
+      onChange={value => {
+        handleModelArchChange(jobConfig.config.process[0].model.arch, value, jobConfig, setJobConfig);
+      }}
+    />;
+  }
+`;
+assert.deepEqual(
+  collectVisibleControlClaimsFromSource(architectureMediatorControl, 'fixture.tsx', 'Fixture').map(item => item.path),
+  ['config.process[*].model.arch'],
+  'the exact architecture-change mediator projects its primary setter path',
+);
+for (const [label, mutated] of [
+  ['type-only import clause', architectureMediatorControl.replace('import { handleModelArchChange }', 'import type { handleModelArchChange }')],
+  ['type-only import specifier', architectureMediatorControl.replace('{ handleModelArchChange }', '{ type handleModelArchChange }')],
+] as const) {
+  assert.throws(
+    () => collectVisibleControlClaimsFromSource(mutated, 'fixture.tsx', 'Fixture'),
+    /exact named import from \.\/utils/,
+    `architecture mediator ${label} must fail`,
+  );
+}
+for (const [label, sourceText] of [
+  ['locally shadowed setter', `
+    function Fixture({ jobConfig, setJobConfig }) {
+      {
+        const setJobConfig = sideEffect;
+        return <NumberInput label="Steps" value={jobConfig.config.process[0].train.steps}
+          onChange={value => setJobConfig(value, 'config.process[0].train.steps')} />;
+      }
+    }
+  `],
+  ['setter from a different owner', `
+    function Fixture({ jobConfig, setJobConfig }) {
+      function adaptor({ setJobConfig }) {
+        return <NumberInput label="Steps" value={jobConfig.config.process[0].train.steps}
+          onChange={value => setJobConfig(value, 'config.process[0].train.steps')} />;
+      }
+    }
+  `],
+] as const) {
+  assert.throws(
+    () => collectVisibleControlClaimsFromSource(sourceText, 'fixture.tsx', 'Fixture'),
+    /exact component setJobConfig prop binding/,
+    `${label} must not emit a setting setter fact`,
+  );
+}
+for (const [label, sourceText] of [
+  ['locally shadowed mediator', architectureMediatorControl.replace(
+    'function Fixture({ jobConfig, setJobConfig }) {',
+    'function Fixture({ jobConfig, setJobConfig }) {\n    const handleModelArchChange = sideEffect;',
+  )],
+  ['shadowed callback arguments', architectureMediatorControl.replace(
+    'handleModelArchChange(jobConfig.config.process[0].model.arch, value, jobConfig, setJobConfig);',
+    '((value, jobConfig, setJobConfig) => handleModelArchChange(jobConfig.config.process[0].model.arch, value, jobConfig, setJobConfig))(value, jobConfig, setJobConfig);',
+  )],
+] as const) {
+  assert.throws(
+    () => collectVisibleControlClaimsFromSource(sourceText, 'fixture.tsx', 'Fixture'),
+    /exact named import|exact onChange value binding|same component owner/,
+    `${label} must not emit an architecture mediator setter fact`,
+  );
+}
+assert.throws(
+  () => collectCanonicalSetterPathsFromSource(`
+    function Fixture({ jobConfig, setJobConfig }) {
+      setNestedValue(jobConfig, 1, 'config.process[0].train.steps');
+    }
+  `),
+  /setNestedValue.*provenance|unsupported setting setter/,
+  'an unproven recognized setNestedValue call must fail closed',
+);
+for (const [label, mutated] of [
+  ['handler', architectureMediatorControl.replace('handleModelArchChange(', 'otherHandler(')],
+  ['current path', architectureMediatorControl.replaceAll('.model.arch', '.model.name_or_path')],
+  ['next value', architectureMediatorControl.replace(', value, jobConfig,', ', otherValue, jobConfig,')],
+  ['config argument', architectureMediatorControl.replace(', jobConfig, setJobConfig', ', otherConfig, setJobConfig')],
+  ['setter argument', architectureMediatorControl.replace(', setJobConfig);', ', otherSetter);')],
+] as const) {
+  assert.throws(
+    () => collectVisibleControlClaimsFromSource(mutated, 'fixture.tsx', 'Fixture'),
+    /primary bound read path.*onChange setter|architecture mediator/,
+    `architecture mediator ${label} mutation must fail`,
+  );
+}
 
 function write(root: string, path: string, contents: string): void {
   const destination = join(root, path);
@@ -636,7 +990,7 @@ function fixtureRoot(optionsSource: string): string {
   );
   write(root, 'ui/src/app/jobs/new/options.tsx', optionsSource);
   write(root, 'ui/src/docs.tsx', "const docs = { 'config.process[0].train.steps': { title: 'Steps', description: <div>Steps.</div> } }; export default docs;\n");
-  write(root, 'ui/src/app/jobs/new/SimpleJob.tsx', "setJobConfig(3000, 'config.process[0].train.steps');\n");
+  write(root, 'ui/src/app/jobs/new/SimpleJob.tsx', "export default function SimpleJob({ jobConfig, setJobConfig }) { setJobConfig(3000, 'config.process[0].train.steps'); return null; }\n");
   write(
     root,
     'ui/src/app/jobs/new/jobConfig.ts',
@@ -690,6 +1044,44 @@ export const modelArchs = [{
   modelNotes: <div>Load <code>model/repo</code> from <a href="https://example.test/model">the model page</a>.</div>,
 }];
 `;
+
+const exactDocsIconSource = `
+const docs = {
+  'model.layer_offloading': {
+    title: <><span>Layer Offloading ( <IoFlaskSharp className="inline text-yellow-500" name="Experimental" /> Experimental)</span></>,
+    description: <div>Layer offloading.</div>,
+  },
+};
+export default docs;
+`;
+const exactDocsIconRoot = fixtureRoot(source);
+write(exactDocsIconRoot, 'ui/src/docs.tsx', exactDocsIconSource);
+try {
+  const iconClaim = collectTrainingBookUiFacts(exactDocsIconRoot).config_claims.find(item => item.kind === 'doc' && item.path === 'config.process[*].model.layer_offloading');
+  assert.deepEqual(iconClaim?.ui_label, { present: true, value: { kind: 'string', value: 'Layer Offloading ( Experimental)' } });
+} finally {
+  rmSync(exactDocsIconRoot, { recursive: true });
+}
+for (const [label, mutated] of [
+  ['tag', exactDocsIconSource.replaceAll('IoFlaskSharp', 'OtherIcon')],
+  ['attribute name', exactDocsIconSource.replace('className=', 'class=')],
+  ['name value', exactDocsIconSource.replace('name="Experimental"', 'name="Other"')],
+  ['class value', exactDocsIconSource.replace('inline text-yellow-500', 'changed')],
+  ['additional attribute', exactDocsIconSource.replace('name="Experimental"', 'name="Experimental" data-extra="x"')],
+  ['children', exactDocsIconSource.replace('name="Experimental" />', 'name="Experimental">hidden</IoFlaskSharp>')],
+] as const) {
+  const mutationRoot = fixtureRoot(source);
+  write(mutationRoot, 'ui/src/docs.tsx', mutated);
+  try {
+    assert.throws(
+      () => collectTrainingBookUiFacts(mutationRoot),
+      /IoFlaskSharp docs-title projection|unprojected JSX component/,
+      `exact docs icon ${label} mutation must fail`,
+    );
+  } finally {
+    rmSync(mutationRoot, { recursive: true });
+  }
+}
 
 const root = fixtureRoot(source);
 let baselineArchitecture: ReturnType<typeof collectTrainingBookUiFacts>['model_architectures'][number];
@@ -805,6 +1197,30 @@ try {
   rmSync(root, { recursive: true });
 }
 
+const sortedArchitectureSource = `
+export const modelArchs = [
+  { name: 'z', label: 'Zulu', group: 'image', defaults: { 'config.process[0].model.name_or_path': ['z/model', ''] } },
+  { name: 'a', label: 'Alpha', group: 'image', defaults: { 'config.process[0].model.name_or_path': ['a/model', ''] } },
+].sort((a, b) => {
+  return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+}) as any;
+`;
+const sortedArchitectureRoot = fixtureRoot(sortedArchitectureSource);
+const reversedArchitectureRoot = fixtureRoot(sortedArchitectureSource.replace(
+  'a.label.localeCompare(b.label',
+  'b.label.localeCompare(a.label',
+));
+try {
+  const sortedFacts = collectTrainingBookUiFacts(sortedArchitectureRoot).model_architectures;
+  const reversedFacts = collectTrainingBookUiFacts(reversedArchitectureRoot).model_architectures;
+  assert.deepEqual(sortedFacts.map(item => item.name), ['a', 'z'], 'collector order must execute the live architecture comparator');
+  assert.deepEqual(reversedFacts.map(item => item.name), ['z', 'a'], 'reversing the live comparator must reverse emitted facts');
+  assert.notDeepEqual(reversedFacts, sortedFacts, 'reverse comparator mutation must not be byte-equivalent');
+} finally {
+  rmSync(sortedArchitectureRoot, { recursive: true });
+  rmSync(reversedArchitectureRoot, { recursive: true });
+}
+
 const invertedControlSource = `
 export function InvertedMaskPriorControl({ train, setTrain }) {
   return <>
@@ -867,10 +1283,16 @@ try {
 
 for (const [label, mutated] of [
   ['getter path', source.replaceAll('assistant_lora_path', 'unconditional_lora_path')],
+  ['getter return', source.replace("return 'b';", "return 'changed';")],
   ['predicate operator', source.replace('path && path.trim()', 'path || path.trim()')],
   ['setter path', source.replace('train.guidance_loss_target', 'train.audio_loss_multiplier')],
+  ['setter value', source.replace('setJobConfig(3.5,', 'setJobConfig(4.5,')],
+  ['setter guard', source.replace('if (!config?.config', 'if (config?.config')],
   ['option value', source.replace("value: 'b', label: 'Mode B'", "value: 'both', label: 'Mode B'")],
+  ['option label', source.replace("value: 'b', label: 'Mode B'", "value: 'b', label: 'Changed Mode'")],
   ['note href', source.replace('https://example.test/model', 'https://example.test/changed')],
+  ['note path', source.replaceAll('model/repo', 'changed/model')],
+  ['note text', source.replace('the model page', 'the changed model page')],
 ] as const) {
   const mutationRoot = fixtureRoot(mutated);
   try {
@@ -878,6 +1300,108 @@ for (const [label, mutated] of [
       collectTrainingBookUiFacts(mutationRoot).model_architectures[0],
       baselineArchitecture!,
       `${label} mutation must change an exact emitted fact`,
+    );
+  } finally {
+    rmSync(mutationRoot, { recursive: true });
+  }
+}
+
+for (const [label, mutated] of [
+  [
+    'trailing getValue branch statement',
+    source.replace("if (path && path.trim() !== '') return 'b';", "if (path && path.trim() !== '') { return 'b'; sideEffect(); }"),
+  ],
+  [
+    'trailing onChange statement',
+    source.replace("      }\n    },\n    doc:", "      }\n      sideEffect();\n    },\n    doc:"),
+  ],
+  [
+    'unsupported getValue loop',
+    source.replace("return 'a';\n    },", "while (condition) { break; }\n      return 'a';\n    },"),
+  ],
+] as const) {
+  const mutationRoot = fixtureRoot(mutated);
+  try {
+    assert.throws(
+      () => collectTrainingBookUiFacts(mutationRoot),
+      /unsupported|getValue if branch must contain exactly one return|complete if\/else-if branch chain/,
+      `${label} must fail closed instead of being ignored`,
+    );
+  } finally {
+    rmSync(mutationRoot, { recursive: true });
+  }
+}
+for (const declaration of [
+  'const hidden = sideEffect();',
+  'const hidden = 1;',
+  'const hidden = config?.config?.process?.[0]?.train?.guidance_loss_target;',
+]) {
+  const mutationRoot = fixtureRoot(source.replace(
+    "if (!config?.config?.process?.[0]?.train?.guidance_loss_target) {",
+    `if (!config?.config?.process?.[0]?.train?.guidance_loss_target) { ${declaration}`,
+  ));
+  try {
+    assert.throws(
+      () => collectTrainingBookUiFacts(mutationRoot),
+      /unsupported onChange statement/,
+      `nested onChange declaration must fail closed: ${declaration}`,
+    );
+  } finally {
+    rmSync(mutationRoot, { recursive: true });
+  }
+}
+for (const [label, mutated] of [
+  ['second unconditional return', source.replace("      return 'a';", "      return 'a';\n      return 'b';")],
+  ['conditional after final return', source.replace("      return 'a';", "      return 'a';\n      if (path) return 'b';")],
+] as const) {
+  const mutationRoot = fixtureRoot(mutated);
+  try {
+    assert.throws(
+      () => collectTrainingBookUiFacts(mutationRoot),
+      /final unconditional return.*last|getValue.*trailing control flow/,
+      `${label} must fail unreachable getValue control flow`,
+    );
+  } finally {
+    rmSync(mutationRoot, { recursive: true });
+  }
+}
+for (const [label, mutated] of [
+  ['renamed getValue parameter', source.replace('getValue: config =>', 'getValue: renamed =>')],
+  ['extra getValue parameter', source.replace('getValue: config =>', 'getValue: (config, extra) =>')],
+  ['rest getValue parameter', source.replace('getValue: config =>', 'getValue: (...config) =>')],
+  ['defaulted getValue parameter', source.replace('getValue: config =>', 'getValue: (config = fallback) =>')],
+  ['optional getValue parameter', source.replace('getValue: config =>', 'getValue: (config?: any) =>')],
+  ['destructured getValue parameter', source.replace('getValue: config =>', 'getValue: ({ config }) =>')],
+  ['renamed onChange parameter', source.replace('onChange: (value, config, setJobConfig) =>', 'onChange: (renamed, config, setJobConfig) =>')],
+  ['extra onChange parameter', source.replace('onChange: (value, config, setJobConfig) =>', 'onChange: (value, config, setJobConfig, extra) =>')],
+  ['rest onChange parameter', source.replace('onChange: (value, config, setJobConfig) =>', 'onChange: (value, config, ...setJobConfig) =>')],
+  ['defaulted onChange parameter', source.replace('onChange: (value, config, setJobConfig) =>', 'onChange: (value, config = fallback, setJobConfig) =>')],
+  ['optional onChange parameter', source.replace('onChange: (value, config, setJobConfig) =>', 'onChange: (value, config?: any, setJobConfig?: any) =>')],
+  ['destructured onChange parameter', source.replace('onChange: (value, config, setJobConfig) =>', 'onChange: ({ value }, config, setJobConfig) =>')],
+] as const) {
+  const mutationRoot = fixtureRoot(mutated);
+  try {
+    assert.throws(
+      () => collectTrainingBookUiFacts(mutationRoot),
+      /exact (?:getValue|onChange) callback signature/,
+      `${label} must fail the exact callback boundary`,
+    );
+  } finally {
+    rmSync(mutationRoot, { recursive: true });
+  }
+}
+for (const [label, mutated] of [
+  ['async getValue', source.replace('getValue: config =>', 'getValue: async config =>')],
+  ['generator getValue', source.replace('getValue: config => {', 'getValue: function* (config) {')],
+  ['async onChange', source.replace('onChange: (value, config, setJobConfig) =>', 'onChange: async (value, config, setJobConfig) =>')],
+  ['generator onChange', source.replace('onChange: (value, config, setJobConfig) => {', 'onChange: function* (value, config, setJobConfig) {')],
+] as const) {
+  const mutationRoot = fixtureRoot(mutated);
+  try {
+    assert.throws(
+      () => collectTrainingBookUiFacts(mutationRoot),
+      /synchronous non-generator (?:getValue|onChange) callback/,
+      `${label} must fail the synchronous callback boundary`,
     );
   } finally {
     rmSync(mutationRoot, { recursive: true });
@@ -892,6 +1416,24 @@ try {
   assert.throws(() => collectTrainingBookUiFacts(dynamicJsxRoot), /dynamic JSX|unsupported non-JSON-safe/);
 } finally {
   rmSync(dynamicJsxRoot, { recursive: true });
+}
+for (const [label, mutated] of [
+  ['dynamic element attribute', source.replace('<div>Load', '<div data-value={dynamicValue}>Load')],
+  ['dynamic self-closing component', source.replace('<div>Load', '<div><DynamicNote value={dynamicValue} />Load')],
+  ['unprojected self-closing component', source.replace('<div>Load', '<div><DynamicNote />Load')],
+  ['unprojected opening component', source.replace('<div>Load', '<div><DynamicNote>hidden</DynamicNote>Load')],
+  ['member component', source.replace('<div>Load', '<div><Dynamic.Note />Load')],
+] as const) {
+  const mutationRoot = fixtureRoot(mutated);
+  try {
+    assert.throws(
+      () => collectTrainingBookUiFacts(mutationRoot),
+      /dynamic JSX attribute|unsupported static JSX attribute|unprojected JSX component|member or dynamic JSX tags/,
+      `${label} must not be silently omitted from static JSX facts`,
+    );
+  } finally {
+    rmSync(mutationRoot, { recursive: true });
+  }
 }
 
 const liveRoot = process.env.TRAINING_BOOK_REPOSITORY_ROOT;
@@ -944,7 +1486,110 @@ if (liveRoot !== undefined) {
   );
   const manifest = JSON.parse(readFileSync(join(liveRoot, 'docs/book/book-manifest.json'), 'utf8'));
   const names = liveFacts.model_architectures.map(item => item.name);
+  assert.deepEqual(names, runtimeModelArchs.map(item => item.name), 'emitted architecture order must equal the executed live modelArchs export');
   assert.deepEqual(names, manifest.full_architectures, 'live modelArchs order must equal the 51-architecture edition manifest');
+  const knownModelArchKeys = new Set(Object.keys(modelArchProjectionBoundary));
+  for (const [index, runtimeArchitecture] of runtimeModelArchs.entries()) {
+    const emitted = liveFacts.model_architectures[index];
+    assert.deepEqual(
+      Object.keys(runtimeArchitecture).filter(key => !knownModelArchKeys.has(key)),
+      [],
+      `${runtimeArchitecture.name} runtime object has an unprojected ModelArch key`,
+    );
+    assert.equal(emitted.name, runtimeArchitecture.name);
+    assert.equal(emitted.label, runtimeArchitecture.label);
+    assert.equal(emitted.group, runtimeArchitecture.group);
+    assert.deepEqual(emitted.controls, runtimeArchitecture.controls ?? []);
+    assert.deepEqual(emitted.disable_sections, runtimeArchitecture.disableSections ?? []);
+    assert.deepEqual(emitted.additional_sections, runtimeArchitecture.additionalSections ?? []);
+    assert.deepEqual(emitted.gate_url, runtimePresence(runtimeArchitecture, 'gateUrl'));
+    assert.deepEqual(emitted.is_video_model, runtimePresence(runtimeArchitecture, 'isVideoModel'));
+    assert.deepEqual(emitted.has_multiline_prompts, runtimePresence(runtimeArchitecture, 'hasMultiLinePrompts'));
+    assert.deepEqual(emitted.accuracy_recovery_adapters, runtimePresence(runtimeArchitecture, 'accuracyRecoveryAdapters'));
+    assert.deepEqual(emitted.sample_tags, runtimePresence(runtimeArchitecture, 'sampleTags'));
+    const runtimeDefaults = runtimeArchitectureDefaults(runtimeArchitecture.defaults);
+    assert.deepEqual(emitted.defaults, runtimeDefaults.leaves, `${runtimeArchitecture.name} defaults must equal executed runtime data`);
+    assert.deepEqual(emitted.default_containers, runtimeDefaults.containers, `${runtimeArchitecture.name} containers must equal executed runtime data`);
+    const modelPathPair = runtimeArchitecture.defaults?.['config.process[0].model.name_or_path'];
+    assert.deepEqual(
+      emitted.model_path,
+      Array.isArray(modelPathPair) ? { present: true, value: runtimeValue(modelPathPair[0]) } : { present: false },
+    );
+    assert.deepEqual(
+      emitted.model_notes,
+      Object.prototype.hasOwnProperty.call(runtimeArchitecture, 'modelNotes')
+        ? runtimeJsxFact(runtimeArchitecture.modelNotes)
+        : { present: false },
+      `${runtimeArchitecture.name} notes must equal the executed React-node projection`,
+    );
+    assert.equal(emitted.custom_model_select_options.present, Object.prototype.hasOwnProperty.call(runtimeArchitecture, 'customModelSelectOptions'));
+    if (runtimeArchitecture.customModelSelectOptions !== undefined) {
+      assert.deepEqual(
+        emitted.custom_model_select_options.value?.map(option => ({ label: option.label, options: option.options })),
+        runtimeArchitecture.customModelSelectOptions.map(option => ({ label: option.label, options: option.options })),
+        `${runtimeArchitecture.name} custom option order and shape must equal executed runtime data`,
+      );
+      assert.ok(runtimeArchitecture.customModelSelectOptions.every(option => typeof option.getValue === 'function' && typeof option.onChange === 'function'));
+      for (const [optionIndex, runtimeOption] of runtimeArchitecture.customModelSelectOptions.entries()) {
+        const emittedOption: CustomModelSelectOptionFact | undefined = emitted.custom_model_select_options.value?.[optionIndex];
+        assert.ok(emittedOption !== undefined);
+        const runtimeDoc = runtimeOption.doc === undefined
+          ? { present: false as const }
+          : runtimeJsxFact(runtimeOption.doc.description);
+        if (runtimeOption.doc?.title !== undefined) {
+          assert.equal(typeof runtimeOption.doc.title, 'string', 'runtime custom option doc titles must remain strings');
+          runtimeDoc.text_literals = [runtimeOption.doc.title as string, ...(runtimeDoc.text_literals ?? [])];
+        }
+        assert.deepEqual(emittedOption!.doc, runtimeDoc, `${runtimeArchitecture.name}.${runtimeOption.label} doc must equal executed runtime JSX`);
+        for (const hasAssistantPath of [false, true]) {
+          for (const hasGuidance of [false, true]) {
+            for (const hasGuidanceTarget of [false, true]) {
+              const config = {
+                config: {
+                  process: [{
+                    model: { assistant_lora_path: hasAssistantPath ? 'adapter.safetensors' : undefined },
+                    train: {
+                      do_guidance_loss: hasGuidance || undefined,
+                      guidance_loss_target: hasGuidanceTarget ? 3.5 : undefined,
+                    },
+                  }],
+                },
+              };
+              const expectedCase: CustomModelSelectOptionFact['get_value_cases'][number] | undefined = emittedOption!.get_value_cases.find(item => runtimePredicate(item.condition, config));
+              assert.ok(expectedCase !== undefined, `${runtimeArchitecture.name}.${runtimeOption.label} getter facts must be exhaustive`);
+              assert.deepEqual(
+                runtimeValue(runtimeOption.getValue(config as unknown as JobConfig)),
+                expectedCase.return_value,
+                `${runtimeArchitecture.name}.${runtimeOption.label} getter runtime/fact mismatch`,
+              );
+              for (const selected of runtimeOption.options.map(item => String(item.value))) {
+                const writes: Array<{ selected_value: string; path: string; value: TrainingBookValueFact; guard: ModelOptionPredicateFact }> = [];
+                runtimeOption.onChange(selected, config as unknown as JobConfig, (value, path) => {
+                  writes.push({ selected_value: selected, path: normalizeTrainingBookPath(path), value: runtimeValue(value), guard: { kind: 'always' } });
+                });
+                const expectedWrites: Array<{ selected_value: string; path: string; value: TrainingBookValueFact; guard: { kind: 'always' } }> = emittedOption!.writes
+                  .filter(write => write.selected_value === selected && runtimePredicate(write.guard, config))
+                  .map(write => ({ ...write, guard: { kind: 'always' as const } }));
+                assert.deepEqual(
+                  writes,
+                  expectedWrites,
+                  `${runtimeArchitecture.name}.${runtimeOption.label}.${selected} setter runtime/fact mismatch`,
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  const runtimeDefaults = [
+    ...runtimeDefaultFacts(defaultJobConfig, 'defaultJobConfig', 'ui/src/app/jobs/new/jobConfig.ts', ''),
+    ...runtimeDefaultFacts(defaultDatasetConfig, 'defaultDatasetConfig', 'ui/src/app/jobs/new/jobConfig.ts', 'config.process[*].datasets[*]'),
+    ...runtimeDefaultFacts(defaultSampleConfig, 'defaultSampleConfig', 'ui/src/helpers/defaultSamples.ts', 'config.process[*].sample'),
+    ...runtimeDefaultFacts(defaultAudioSampleConfig, 'defaultAudioSampleConfig', 'ui/src/helpers/defaultSamples.ts', 'config.process[*].sample'),
+    ...runtimeDefaultFacts(defaultIdeogramSamplesConfig, 'defaultIdeogramSamplesConfig', 'ui/src/helpers/defaultSamples.ts', 'config.process[*].sample'),
+  ].sort((left, right) => compareCodePoint(`${left.path}\0${left.source_path}\0${left.symbol}`, `${right.path}\0${right.source_path}\0${right.symbol}`));
+  assert.deepEqual(liveFacts.defaults, runtimeDefaults, 'emitted defaults must equal all executed live default exports');
   assert.equal(new Set(names).size, 51);
   assert.deepEqual(manifest.preset_architectures.filter((name: string) => names.includes(name)), manifest.preset_architectures);
   assert.deepEqual(manifest.focused_architectures.filter((name: string) => names.includes(name)), manifest.focused_architectures);
