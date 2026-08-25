@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import ts from 'typescript';
 
@@ -461,6 +461,23 @@ class LexicalBindings {
     return lookup.found && lookup.event?.name === declaration;
   }
 
+  bindingDeclaration(identifier: ts.Identifier): ts.Identifier | undefined {
+    const lookup = this.lookup(identifier);
+    return lookup.found ? lookup.event?.name : undefined;
+  }
+
+  sameBinding(left: ts.Identifier, right: ts.Identifier): boolean {
+    const leftLookup = this.lookup(left);
+    const rightLookup = this.lookup(right);
+    if (leftLookup.found || rightLookup.found) {
+      return leftLookup.found
+        && rightLookup.found
+        && leftLookup.event?.name !== undefined
+        && leftLookup.event.name === rightLookup.event?.name;
+    }
+    return left.text === right.text;
+  }
+
   declarationInitializer(identifier: ts.Identifier): ts.Expression | undefined {
     const lookup = this.lookup(identifier);
     return lookup.found ? lookup.event?.initializer : undefined;
@@ -521,6 +538,19 @@ class LexicalBindings {
       return bindings !== undefined && ts.isNamedImports(bindings)
         && bindings.elements.some(specifier => !specifier.isTypeOnly && specifier.propertyName === undefined && specifier.name.text === importedName);
     });
+    return matches.length === 1;
+  }
+
+  isExactDefaultImport(identifier: ts.Identifier, moduleName: string): boolean {
+    if (this.lookup(identifier).found) return false;
+    const matches = this.source.statements.filter(statement => (
+      ts.isImportDeclaration(statement)
+      && ts.isStringLiteral(statement.moduleSpecifier)
+      && statement.moduleSpecifier.text === moduleName
+      && statement.importClause !== undefined
+      && !statement.importClause.isTypeOnly
+      && statement.importClause.name?.text === identifier.text
+    ));
     return matches.length === 1;
   }
 
@@ -1050,7 +1080,7 @@ function maximalConfigReadPaths(expression: ts.Expression | undefined, bindings:
   if (direct !== undefined) return [direct];
   const paths: string[] = [];
   const visit = (node: ts.Node): void => {
-    if (ts.isExpression(node)) {
+    if (ts.isExpression(node) && unwrap(node) === node) {
       const parent = node.parent;
       const isNestedAccess = (ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent)) && parent.expression === node;
       const isAccessName = ts.isIdentifier(node) && ts.isPropertyAccessExpression(parent) && parent.name === node;
@@ -2146,221 +2176,1492 @@ function visibleSettingClaims(root: string, architectures: ModelArchitectureFact
   ];
 }
 
-interface DeclaredServerFact {
-  source_path: string;
-  symbol: string;
-  path: string;
-  ui_type: UiSourceClaim['value_contract']['ui_type'];
-  required: string[];
-  accepted_values?: TrainingBookValueFact[];
-}
-
-const serverFact = (
-  source_path: string,
-  symbol: string,
-  path: string,
-  ui_type: DeclaredServerFact['ui_type'],
-  required: string[],
-  accepted_values?: TrainingBookValueFact[],
-): DeclaredServerFact => ({ source_path, symbol, path, ui_type, required, accepted_values });
-
-const stringValues = (...values: string[]): TrainingBookValueFact[] =>
-  values.map(value => ({ kind: 'string', value }));
-
-const SERVER_GLOBAL_FACTS: DeclaredServerFact[] = [
-  serverFact('ui/src/app/jobs/new/SimpleJob.tsx', 'SimpleJob::process.env.NODE_ENV', 'NODE_ENV', 'string', ["process.env.NODE_ENV === 'development'"]),
-  serverFact('ui/src/app/jobs/new/page.tsx', 'TrainingForm::process.env.NODE_ENV', 'NODE_ENV', 'string', ["process.env.NODE_ENV === 'development'"]),
-  serverFact('ui/src/app/jobs/new/page.tsx', 'TrainingForm::hydrate::gpuids', 'gpuids', 'string', ['setGpuIDs(data.gpu_ids)']),
-  serverFact('ui/src/app/jobs/new/page.tsx', 'TrainingForm::default::gpuids', 'gpuids', 'string', ['setGpuIDs(`${gpuList[0].index}`)']),
-  serverFact('ui/src/app/jobs/new/page.tsx', 'TrainingForm::import::config.process[*].sqlite_db_path', 'config.process[*].sqlite_db_path', 'path', ["parsed.config.process[0].sqlite_db_path = './aitk_db.db'"]),
-  serverFact('ui/src/app/jobs/new/page.tsx', 'TrainingForm::import::config.process[*].training_folder', 'config.process[*].training_folder', 'path', ['parsed.config.process[0].training_folder = settings.TRAINING_FOLDER']),
-  serverFact('ui/src/app/jobs/new/page.tsx', 'TrainingForm::import::config.process[*].device', 'config.process[*].device', 'string', ["parsed.config.process[0].device = 'cuda'"], stringValues('cuda')),
-  serverFact('ui/src/app/jobs/new/page.tsx', 'TrainingForm::import::config.process[*].performance_log_every', 'config.process[*].performance_log_every', 'number', ['parsed.config.process[0].performance_log_every = 10']),
-  serverFact('ui/src/app/jobs/new/page.tsx', 'TrainingForm::settings::config.process[*].training_folder', 'config.process[*].training_folder', 'path', ["setJobConfig(settings.TRAINING_FOLDER, 'config.process[0].training_folder')"]),
-
-  ...(['HF_TOKEN', 'TRAINING_FOLDER', 'DATASETS_FOLDER', 'MODELS_PATH'] as const).map(key =>
-    serverFact(
-      'ui/src/hooks/useSettings.tsx',
-      `useSettings::hydrate::settings.${key}`,
-      `settings.${key}`,
-      key.endsWith('FOLDER') || key === 'MODELS_PATH' ? 'path' : 'string',
-      [`${key}: data.${key} || ''`],
-    )),
-  ...(['HF_TOKEN', 'TRAINING_FOLDER', 'DATASETS_FOLDER', 'MODELS_PATH'] as const).map(key =>
-    serverFact(
-      'ui/src/app/api/settings/route.ts',
-      `Settings.POST::settings.${key}`,
-      `settings.${key}`,
-      key.endsWith('FOLDER') || key === 'MODELS_PATH' ? 'path' : 'string',
-      [`where: { key: '${key}' }`, `create: { key: '${key}', value: ${key} }`],
-    )),
-  serverFact('ui/src/app/api/settings/route.ts', 'Settings.GET::process.env.MODELS_PATH', 'MODELS_PATH', 'path', ['process.env.MODELS_PATH', 'settingsObject.MODELS_PATH = process.env.MODELS_PATH']),
-
-  serverFact('ui/src/server/settings.ts', 'getDatasetsRoot::settings.DATASETS_FOLDER', 'settings.DATASETS_FOLDER', 'path', ["const key = 'DATASETS_FOLDER'", 'datasetsPath = path.resolve(datasetsPath)']),
-  serverFact('ui/src/server/settings.ts', 'getTrainingFolder::settings.TRAINING_FOLDER', 'settings.TRAINING_FOLDER', 'path', ["const key = 'TRAINING_FOLDER'", 'trainingRoot = path.resolve(trainingRoot)']),
-  serverFact('ui/src/server/settings.ts', 'getHFToken::settings.HF_TOKEN', 'settings.HF_TOKEN', 'string', ["const key = 'HF_TOKEN'", "token = ''"]),
-  serverFact('ui/src/server/settings.ts', 'getDataRoot::settings.DATA_ROOT', 'settings.DATA_ROOT', 'path', ["const key = 'DATA_ROOT'", 'dataRoot = path.resolve(dataRoot)']),
-  serverFact('ui/cron/paths.ts', 'getTrainingFolder::settings.TRAINING_FOLDER', 'settings.TRAINING_FOLDER', 'path', ["const key = 'TRAINING_FOLDER'", 'trainingRoot = defaultTrainFolder']),
-  serverFact('ui/cron/paths.ts', 'getHFToken::settings.HF_TOKEN', 'settings.HF_TOKEN', 'string', ["const key = 'HF_TOKEN'", "let token = ''"]),
-  serverFact('ui/cron/paths.ts', 'getModelsPath::settings.MODELS_PATH', 'settings.MODELS_PATH', 'path', ["const key = 'MODELS_PATH'", "let modelsPath = ''"]),
-  serverFact('ui/cron/paths.ts', 'getDataRoot::settings.DATA_ROOT', 'settings.DATA_ROOT', 'path', ["key: 'DATA_ROOT'", 'defaultDataRoot']),
-  serverFact('ui/cron/paths.ts', '<module>::process.env.AI_TOOLKIT_QUIET_PATHS', 'AI_TOOLKIT_QUIET_PATHS', 'string', ['process.env.AI_TOOLKIT_QUIET_PATHS']),
-
-  serverFact('ui/src/app/layout.tsx', 'RootLayout::process.env.AI_TOOLKIT_AUTH', 'AI_TOOLKIT_AUTH', 'string', ['process.env.AI_TOOLKIT_AUTH ? true : false']),
-  serverFact('ui/src/app/layout.tsx', 'RootLayout::os.platform', 'server.platform', 'string', ['const platform = os.platform()', 'window.server_platform']),
-  serverFact('ui/src/app/layout.tsx', 'RootLayout::localStorage.getItem(theme)', 'browser.localStorage.theme', 'string', ["localStorage.getItem('theme') || 'dark'"], stringValues('dark', 'light')),
-  serverFact('ui/src/components/Sidebar.tsx', 'Sidebar::process.env.NEXT_PUBLIC_APP_VERSION', 'NEXT_PUBLIC_APP_VERSION', 'string', ['process.env.NEXT_PUBLIC_APP_VERSION']),
-  serverFact('ui/src/components/ThemeProvider.tsx', 'ThemeProvider::localStorage.getItem(theme)', 'browser.localStorage.theme', 'string', ["localStorage.getItem('theme') as Theme | null"]),
-  serverFact('ui/src/components/ThemeProvider.tsx', 'ThemeProvider::localStorage.setItem(theme)', 'browser.localStorage.theme', 'string', ["localStorage.setItem('theme', next)"], stringValues('dark', 'light')),
-  serverFact('ui/src/server/prisma.ts', '<module>::process.env.NODE_ENV', 'NODE_ENV', 'string', ["process.env.NODE_ENV !== 'production'"]),
-
-  serverFact('ui/src/middleware.ts', 'middleware::process.env.AI_TOOLKIT_AUTH', 'AI_TOOLKIT_AUTH', 'string', ['process.env.AI_TOOLKIT_AUTH || null']),
-  serverFact('ui/src/middleware.ts', 'middleware::Authorization.bearer', 'http.Authorization', 'string', ["request.headers.get('Authorization')?.split(' ')[1]", 'token !== tokenToUse']),
-  serverFact('ui/src/components/AuthWrapper.tsx', 'AuthWrapper::mount::localStorage.getItem(AI_TOOLKIT_AUTH)', 'browser.localStorage.AI_TOOLKIT_AUTH', 'string', ["localStorage.getItem('AI_TOOLKIT_AUTH') || ''", 'setToken(storedToken)']),
-  serverFact('ui/src/components/AuthWrapper.tsx', 'AuthWrapper::checkAuth::localStorage.getItem(AI_TOOLKIT_AUTH)', 'browser.localStorage.AI_TOOLKIT_AUTH', 'string', ["const currentToken = localStorage.getItem('AI_TOOLKIT_AUTH') || ''", "apiClient.get('/api/auth')"]),
-  serverFact('ui/src/components/AuthWrapper.tsx', 'AuthWrapper::handleSubmit::localStorage.setItem(AI_TOOLKIT_AUTH)', 'browser.localStorage.AI_TOOLKIT_AUTH', 'string', ["localStorage.setItem('AI_TOOLKIT_AUTH', token)"]),
-  serverFact('ui/src/utils/api.ts', 'apiClient.request::localStorage.getItem(AI_TOOLKIT_AUTH)', 'browser.localStorage.AI_TOOLKIT_AUTH', 'string', ["localStorage.getItem('AI_TOOLKIT_AUTH')"]),
-  serverFact('ui/src/utils/api.ts', 'apiClient.request::Authorization.bearer', 'http.Authorization', 'string', ["config.headers['Authorization'] = `Bearer ${token}`"]),
-  serverFact('ui/src/utils/api.ts', 'apiClient.response::status=401', 'auth.is_authorized', 'boolean', ['error.response.status === 401', 'isAuthorizedState.set(false)']),
-  serverFact('ui/src/utils/api.ts', 'apiClient.response::localStorage.removeItem(AI_TOOLKIT_AUTH)', 'browser.localStorage.AI_TOOLKIT_AUTH', 'string', ["localStorage.removeItem('AI_TOOLKIT_AUTH')"]),
-  serverFact('ui/src/utils/callScript.ts', 'callScriptStream::localStorage.getItem(AI_TOOLKIT_AUTH)', 'browser.localStorage.AI_TOOLKIT_AUTH', 'string', ["localStorage.getItem('AI_TOOLKIT_AUTH') : null"]),
-  serverFact('ui/src/utils/callScript.ts', 'callScriptStream::Authorization.bearer', 'http.Authorization', 'string', ["headers['Authorization'] = `Bearer ${token}`"]),
-
-  serverFact('ui/cron/worker.ts', 'ensureJournalMode::process.env.AI_TOOLKIT_DB_JOURNAL_MODE', 'AI_TOOLKIT_DB_JOURNAL_MODE', 'string', ['process.env.AI_TOOLKIT_DB_JOURNAL_MODE', 'VALID_JOURNAL_MODES.includes(targetMode)'], stringValues('DELETE', 'TRUNCATE', 'PERSIST', 'MEMORY', 'WAL', 'OFF')),
-  serverFact('ui/cron/fileServer.ts', '<module>::process.env.AI_TOOLKIT_FILE_SERVER_WORKERS', 'AI_TOOLKIT_FILE_SERVER_WORKERS', 'integer', ['process.env.AI_TOOLKIT_FILE_SERVER_WORKERS', 'env > 0']),
-  serverFact('ui/cron/fileServer.ts', '<module>::cli.port', 'ui.file_server.port', 'integer', ["argValue('--port', isDev ? 3000 : 8675)"]),
-  serverFact('ui/cron/fileServer.ts', '<module>::process.env.LD_LIBRARY_PATH', 'LD_LIBRARY_PATH', 'string', ['process.env.LD_LIBRARY_PATH']),
-  serverFact('ui/cron/fileServer.ts', 'cluster.worker::process.env.AI_TOOLKIT_QUIET_PATHS', 'AI_TOOLKIT_QUIET_PATHS', 'string', ["AI_TOOLKIT_QUIET_PATHS: '1'"]),
-  serverFact('ui/cron/fileServer.ts', 'cluster.worker::process.env.PUBLIC_PORT', 'PUBLIC_PORT', 'integer', ['process.env.PUBLIC_PORT!']),
-  serverFact('ui/cron/fileServer.ts', 'cluster.worker::process.env.UPSTREAM_PORT', 'UPSTREAM_PORT', 'integer', ['process.env.UPSTREAM_PORT!']),
-  serverFact('ui/cron/fileServer.ts', 'getRoots::settings.DATASETS_FOLDER', 'settings.DATASETS_FOLDER', 'path', ["key: { in: ['DATASETS_FOLDER', 'TRAINING_FOLDER', 'DATA_ROOT'] }", "datasets: fromRow('DATASETS_FOLDER'"]),
-  serverFact('ui/cron/fileServer.ts', 'getRoots::settings.TRAINING_FOLDER', 'settings.TRAINING_FOLDER', 'path', ["training: fromRow('TRAINING_FOLDER'"]),
-  serverFact('ui/cron/fileServer.ts', 'getRoots::settings.DATA_ROOT', 'settings.DATA_ROOT', 'path', ["data: fromRow('DATA_ROOT'"]),
-  serverFact('ui/cron/actions/startJob.ts', 'startJob::settings.HF_TOKEN', 'settings.HF_TOKEN', 'string', ['const hfToken = await getHFToken()', 'additionalEnv.HF_TOKEN = hfToken']),
-  serverFact('ui/cron/actions/startJob.ts', 'startJob::process.env.MODELS_PATH', 'MODELS_PATH', 'path', ['process.env.MODELS_PATH', 'additionalEnv.MODELS_PATH = modelsPath']),
-  serverFact('ui/cron/actions/startJob.ts', 'startJob::job.status', 'job.status', 'string', ["status: 'running'", "status: 'error'"], stringValues('error', 'running')),
-  serverFact('ui/cron/actions/startJob.ts', 'startJob::job.return_to_queue', 'job.return_to_queue', 'boolean', ['return_to_queue: false']),
-  serverFact('ui/cron/actions/startJob.ts', 'startJob::job.info', 'job.info', 'string', ["info: 'Starting job...'", 'Error launching job:']),
-  serverFact('ui/cron/actions/startJob.ts', 'startJob::job.pid', 'job.pid', 'integer', ['data: { pid }', 'pid: null']),
-
-  serverFact('ui/src/app/api/ostris_cloud/route.ts', 'GET::process.env.OSTRIS_CLOUD_APP_URL', 'OSTRIS_CLOUD_APP_URL', 'string', ['process.env.OSTRIS_CLOUD_APP_URL']),
-  serverFact('ui/src/app/api/ostris_cloud/route.ts', 'GET::process.env.OSTRIS_CLOUD_API_KEY', 'OSTRIS_CLOUD_API_KEY', 'string', ['process.env.OSTRIS_CLOUD_API_KEY', 'Authorization: `Bearer ${apiKey}`']),
-  serverFact('ui/src/app/api/jobs/route.ts', 'POST::gpuids', 'gpuids', 'string', ['resolveGpuIds(body.gpu_ids, isMac())', 'gpu_ids,']),
-  serverFact('ui/src/app/api/queue/[queueID]/start/route.ts', 'GET::queue.gpu_ids', 'queue.gpu_ids', 'string', ['data: { gpu_ids: queueID, is_running: true }']),
-  serverFact('ui/src/app/api/queue/[queueID]/start/route.ts', 'GET::queue.is_running', 'queue.is_running', 'boolean', ['is_running: true']),
-  serverFact('ui/src/app/api/queue/[queueID]/stop/route.ts', 'GET::queue.is_running', 'queue.is_running', 'boolean', ['is_running: false']),
-  serverFact('ui/cron/actions/processQueue.ts', 'processQueue::queue.is_running', 'queue.is_running', 'boolean', ['if (queue.is_running)', 'data: { is_running: false }']),
-  serverFact('ui/cron/actions/processQueue.ts', 'processQueue::job.return_to_queue', 'job.return_to_queue', 'boolean', ['return_to_queue: true']),
-  serverFact('ui/cron/actions/processQueue.ts', 'processQueue::job.info', 'job.info', 'string', ["info: 'Stopping job...'"]),
-  serverFact('ui/src/app/api/jobs/[jobID]/start/route.ts', 'GET::job.queue_position', 'job.queue_position', 'integer', ['queue_position: queuePosition']),
-  serverFact('ui/src/app/api/jobs/[jobID]/start/route.ts', 'GET::job.status', 'job.status', 'string', ["status: 'queued'"], stringValues('queued')),
-  serverFact('ui/src/app/api/jobs/[jobID]/start/route.ts', 'GET::job.stop', 'job.stop', 'boolean', ['stop: false']),
-  serverFact('ui/src/app/api/jobs/[jobID]/start/route.ts', 'GET::job.return_to_queue', 'job.return_to_queue', 'boolean', ['return_to_queue: false']),
-  serverFact('ui/src/app/api/jobs/[jobID]/start/route.ts', 'GET::job.info', 'job.info', 'string', ["info: 'Job queued'"]),
-  serverFact('ui/src/app/api/jobs/[jobID]/start/route.ts', 'GET::queue.is_running', 'queue.is_running', 'boolean', ['is_running: false']),
-  serverFact('ui/src/app/api/jobs/[jobID]/stop/route.ts', 'GET::job.stop', 'job.stop', 'boolean', ['stop: true']),
-  serverFact('ui/src/app/api/jobs/[jobID]/stop/route.ts', 'GET::job.status', 'job.status', 'string', ["status: 'stopped'"], stringValues('stopped')),
-  serverFact('ui/src/app/api/jobs/[jobID]/stop/route.ts', 'GET::job.info', 'job.info', 'string', ["info: 'Stopping job...'", "info: 'Job stopped'"]),
-  serverFact('ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts', 'GET::job.stop', 'job.stop', 'boolean', ['stop: true']),
-  serverFact('ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts', 'GET::job.status', 'job.status', 'string', ["status: 'stopped'"], stringValues('stopped')),
-  serverFact('ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts', 'GET::job.info', 'job.info', 'string', ["info: 'Job stopped'"]),
-  serverFact('ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts', 'GET::job.pid', 'job.pid', 'integer', ['pid: null']),
-  serverFact('ui/src/app/api/jobs/[jobID]/save_now/route.ts', 'GET::job.save_now', 'job.save_now', 'boolean', ['save_now: true']),
-  serverFact('ui/src/app/api/jobs/[jobID]/sample_now/route.ts', 'GET::job.sample_now', 'job.sample_now', 'boolean', ['sample_now: true']),
-];
-
-const SETTINGS_CONTROL_FACTS: Array<{
-  key: 'HF_TOKEN' | 'TRAINING_FOLDER' | 'DATASETS_FOLDER' | 'MODELS_PATH';
-  label: string;
-  ui_type: 'string' | 'path';
-  input_type: 'password' | 'text';
-}> = [
-  { key: 'HF_TOKEN', label: 'Hugging Face Token', ui_type: 'string', input_type: 'password' },
-  { key: 'TRAINING_FOLDER', label: 'Training Folder Path', ui_type: 'path', input_type: 'text' },
-  { key: 'DATASETS_FOLDER', label: 'Dataset Folder Path', ui_type: 'path', input_type: 'text' },
-  { key: 'MODELS_PATH', label: 'Models Folder Path', ui_type: 'path', input_type: 'text' },
-];
-
-export function collectDeclaredServerGlobalClaimsFromSource(
-  sourcePath: string,
-  source: string,
-): UiSourceClaim[] {
-  const specs = SERVER_GLOBAL_FACTS.filter(
-    spec => spec.source_path === sourcePath,
-  );
-  const claims: UiSourceClaim[] = specs.map(spec => {
-    for (const required of spec.required) {
-      if (!source.includes(required)) {
-        throw new FactsError(
-          `${spec.source_path} no longer satisfies ${spec.symbol}: missing ${required}`,
-        );
+function lexicalFactSymbol(node: ts.Node): string {
+  const frames: string[] = [];
+  let current: ts.Node | undefined = node;
+  while (current !== undefined) {
+    if ((ts.isFunctionDeclaration(current) || ts.isMethodDeclaration(current)) && current.name !== undefined) {
+      frames.push(current.name.getText(current.getSourceFile()));
+    }
+    if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) {
+      const parent = current.parent;
+      if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) frames.push(parent.name.text);
+      else if (ts.isPropertyAssignment(parent)) frames.push(propertyName(parent.name));
+      else if (ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+        const left = unwrap(parent.left);
+        if (ts.isPropertyAccessExpression(left)) frames.push(left.name.text);
       }
     }
-    return {
-      source_path: spec.source_path,
-      symbol: spec.symbol,
-      path: spec.path,
-      kind: 'server-state' as const,
-      ui_label: { present: false },
-      value_contract: {
-        ui_type: spec.ui_type,
-        widget_kind: 'read-only' as const,
-        optional: true,
-        nullable: true,
-        ...(spec.accepted_values === undefined ? {} : { accepted_values: spec.accepted_values }),
-      },
+    current = current.parent;
+  }
+  return frames.length === 0 ? '<module>' : frames.reverse().join('::');
+}
+
+function interceptorFactSymbol(node: ts.Node): string | undefined {
+  let current: ts.Node | undefined = node;
+  while (current !== undefined) {
+    if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) {
+      const parent = current.parent;
+      if (ts.isCallExpression(parent)) {
+        const parts = accessParts(parent.expression);
+        if (
+          parts !== undefined
+          && parts.length === 4
+          && parts[0] === 'apiClient'
+          && parts[1] === 'interceptors'
+          && (parts[2] === 'request' || parts[2] === 'response')
+          && parts[3] === 'use'
+        ) return `apiClient.${parts[2]}`;
+      }
+    }
+    current = current.parent;
+  }
+  return undefined;
+}
+
+function enclosingHookName(node: ts.Node): string | undefined {
+  let current: ts.Node | undefined = node;
+  while (current !== undefined) {
+    if ((ts.isArrowFunction(current) || ts.isFunctionExpression(current)) && ts.isCallExpression(current.parent)) {
+      const call = current.parent;
+      if (ts.isIdentifier(call.expression) && ['useEffect', 'useLayoutEffect'].includes(call.expression.text)) return 'mount';
+    }
+    current = current.parent;
+  }
+  return undefined;
+}
+
+function factSymbol(node: ts.Node, sourcePath: string): string {
+  const interceptor = interceptorFactSymbol(node);
+  if (interceptor !== undefined) return interceptor;
+  const lexical = lexicalFactSymbol(node);
+  const hook = enclosingHookName(node);
+  if (hook !== undefined && sourcePath === 'ui/src/components/AuthWrapper.tsx' && lexical === 'AuthWrapper') return `${lexical}::${hook}`;
+  if (sourcePath === 'ui/src/app/api/settings/route.ts' && (lexical === 'GET' || lexical === 'POST')) return `Settings.${lexical}`;
+  return lexical;
+}
+
+function isStaticallyDead(node: ts.Node): boolean {
+  const staticTruth = (expression: ts.Expression): boolean | undefined => {
+    const value = unwrap(expression);
+    if (value.kind === ts.SyntaxKind.FalseKeyword) return false;
+    if (value.kind === ts.SyntaxKind.TrueKeyword) return true;
+    if (ts.isNumericLiteral(value)) return Number(value.text) !== 0;
+    return undefined;
+  };
+  type AbruptKind = 'return' | 'throw' | 'break' | 'continue';
+  type AbruptAnalysis = { definite: boolean; kinds: Set<AbruptKind> };
+  const expressionDefinitelyNonThrowing = (candidate: ts.Expression): boolean => {
+    const expression = unwrap(candidate);
+    if (
+      ts.isStringLiteral(expression)
+      || ts.isNoSubstitutionTemplateLiteral(expression)
+      || ts.isNumericLiteral(expression)
+      || ts.isBigIntLiteral(expression)
+      || ts.isRegularExpressionLiteral(expression)
+      || expression.kind === ts.SyntaxKind.TrueKeyword
+      || expression.kind === ts.SyntaxKind.FalseKeyword
+      || expression.kind === ts.SyntaxKind.NullKeyword
+    ) return true;
+    if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) return true;
+    if (ts.isArrayLiteralExpression(expression)) {
+      return expression.elements.every(element => (
+        ts.isOmittedExpression(element)
+        || (!ts.isSpreadElement(element) && expressionDefinitelyNonThrowing(element))
+      ));
+    }
+    if (ts.isObjectLiteralExpression(expression)) {
+      return expression.properties.every(property => {
+        if (ts.isPropertyAssignment(property)) {
+          return !ts.isComputedPropertyName(property.name)
+            && expressionDefinitelyNonThrowing(property.initializer);
+        }
+        return (ts.isMethodDeclaration(property)
+          || ts.isGetAccessorDeclaration(property)
+          || ts.isSetAccessorDeclaration(property))
+          && !ts.isComputedPropertyName(property.name);
+      });
+    }
+    if (ts.isConditionalExpression(expression)) {
+      if (!expressionDefinitelyNonThrowing(expression.condition)) return false;
+      const truth = staticTruth(expression.condition);
+      return truth === true
+        ? expressionDefinitelyNonThrowing(expression.whenTrue)
+        : truth === false
+          ? expressionDefinitelyNonThrowing(expression.whenFalse)
+          : expressionDefinitelyNonThrowing(expression.whenTrue) && expressionDefinitelyNonThrowing(expression.whenFalse);
+    }
+    if (ts.isBinaryExpression(expression)) {
+      if (!expressionDefinitelyNonThrowing(expression.left)) return false;
+      const truth = staticTruth(expression.left);
+      if (expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && truth === false) return true;
+      if (expression.operatorToken.kind === ts.SyntaxKind.BarBarToken && truth === true) return true;
+      return false;
+    }
+    if (ts.isTypeOfExpression(expression)) {
+      const operand = unwrap(expression.expression);
+      return !ts.isIdentifier(operand) && expressionDefinitelyNonThrowing(operand);
+    }
+    if (ts.isVoidExpression(expression)) return expressionDefinitelyNonThrowing(expression.expression);
+    if (ts.isPrefixUnaryExpression(expression)) {
+      if (expression.operator === ts.SyntaxKind.ExclamationToken) return expressionDefinitelyNonThrowing(expression.operand);
+      return [ts.SyntaxKind.PlusToken, ts.SyntaxKind.MinusToken].includes(expression.operator)
+        && ts.isNumericLiteral(unwrap(expression.operand));
+    }
+    return false;
+  };
+  const hasPotentiallyThrowingEvaluation = (node: ts.Node): boolean => {
+    if (ts.isExpression(node)) return !expressionDefinitelyNonThrowing(node);
+    if (ts.isExpressionStatement(node)) return !expressionDefinitelyNonThrowing(node.expression);
+    if (ts.isVariableStatement(node)) {
+      // AwaitUsing includes the Using bit. Both forms execute acquisition and
+      // disposal protocol hooks even when their initializer syntax is literal.
+      if ((node.declarationList.flags & ts.NodeFlags.Using) !== 0) return true;
+      return node.declarationList.declarations.some(declaration => (
+        !ts.isIdentifier(declaration.name)
+        || (declaration.initializer !== undefined && !expressionDefinitelyNonThrowing(declaration.initializer))
+      ));
+    }
+    if (ts.isBlock(node)) return node.statements.some(hasPotentiallyThrowingEvaluation);
+    if (ts.isIfStatement(node)) {
+      if (!expressionDefinitelyNonThrowing(node.expression)) return true;
+      const truth = staticTruth(node.expression);
+      return (truth !== false && hasPotentiallyThrowingEvaluation(node.thenStatement))
+        || (truth !== true && node.elseStatement !== undefined && hasPotentiallyThrowingEvaluation(node.elseStatement));
+    }
+    if (
+      ts.isEmptyStatement(node)
+      || ts.isFunctionDeclaration(node)
+      || ts.isInterfaceDeclaration(node)
+      || ts.isTypeAliasDeclaration(node)
+      || ts.isImportDeclaration(node)
+      || ts.isBreakStatement(node)
+      || ts.isContinueStatement(node)
+    ) return false;
+    return true;
+  };
+  const abruptAnalysis = (statement: ts.Statement): AbruptAnalysis | undefined => {
+    if (ts.isReturnStatement(statement)) return {
+      definite: true,
+      kinds: new Set(statement.expression !== undefined && hasPotentiallyThrowingEvaluation(statement.expression) ? ['return', 'throw'] : ['return']),
     };
+    if (ts.isThrowStatement(statement)) return { definite: true, kinds: new Set(['throw']) };
+    if (ts.isBreakStatement(statement)) return { definite: true, kinds: new Set(['break']) };
+    if (ts.isContinueStatement(statement)) return { definite: true, kinds: new Set(['continue']) };
+    if (ts.isBlock(statement)) {
+      const kinds = new Set<AbruptKind>();
+      for (const child of statement.statements) {
+        const abrupt = abruptAnalysis(child);
+        if (abrupt === undefined) continue;
+        for (const kind of abrupt.kinds) kinds.add(kind);
+        if (abrupt.definite) return { definite: true, kinds };
+      }
+      return kinds.size === 0 ? undefined : { definite: false, kinds };
+    }
+    if (ts.isIfStatement(statement)) {
+      const truth = staticTruth(statement.expression);
+      if (truth === true) return abruptAnalysis(statement.thenStatement);
+      if (truth === false) return statement.elseStatement === undefined ? undefined : abruptAnalysis(statement.elseStatement);
+      const thenAbrupt = abruptAnalysis(statement.thenStatement);
+      const elseAbrupt = statement.elseStatement === undefined ? undefined : abruptAnalysis(statement.elseStatement);
+      const kinds = new Set<AbruptKind>();
+      for (const kind of thenAbrupt?.kinds ?? []) kinds.add(kind);
+      for (const kind of elseAbrupt?.kinds ?? []) kinds.add(kind);
+      if (hasPotentiallyThrowingEvaluation(statement.expression)) kinds.add('throw');
+      return kinds.size === 0
+        ? undefined
+        : { definite: thenAbrupt?.definite === true && elseAbrupt?.definite === true, kinds };
+    }
+    if (ts.isTryStatement(statement)) {
+      const finallyAbrupt = statement.finallyBlock === undefined ? undefined : abruptAnalysis(statement.finallyBlock);
+      if (finallyAbrupt?.definite === true) return finallyAbrupt;
+      const tryAbrupt = abruptAnalysis(statement.tryBlock);
+      const catchAbrupt = statement.catchClause === undefined ? undefined : abruptAnalysis(statement.catchClause.block);
+      const kinds = new Set<AbruptKind>();
+      for (const kind of finallyAbrupt?.kinds ?? []) kinds.add(kind);
+      if (statement.catchClause === undefined) {
+        for (const kind of tryAbrupt?.kinds ?? []) kinds.add(kind);
+        return kinds.size === 0 ? undefined : { definite: tryAbrupt?.definite === true, kinds };
+      }
+      const tryCanThrow = tryAbrupt?.kinds.has('throw') === true;
+      for (const kind of tryAbrupt?.kinds ?? []) if (kind !== 'throw') kinds.add(kind);
+      if (tryCanThrow) for (const kind of catchAbrupt?.kinds ?? []) kinds.add(kind);
+      const definite = tryAbrupt?.definite === true && (!tryCanThrow || catchAbrupt?.definite === true);
+      return kinds.size === 0 && !definite ? undefined : { definite, kinds };
+    }
+    return hasPotentiallyThrowingEvaluation(statement) ? { definite: false, kinds: new Set(['throw']) } : undefined;
+  };
+  const isDefinitelyAbrupt = (statement: ts.Statement): boolean => abruptAnalysis(statement)?.definite === true;
+  let current: ts.Node | undefined = node;
+  while (current?.parent !== undefined) {
+    const parent: ts.Node = current.parent;
+    if (ts.isIfStatement(parent)) {
+      const condition = staticTruth(parent.expression);
+      if (condition === false && current === parent.thenStatement) return true;
+      if (condition === true && current === parent.elseStatement) return true;
+    }
+    if (ts.isConditionalExpression(parent)) {
+      const condition = staticTruth(parent.condition);
+      if (condition === false && current === parent.whenTrue) return true;
+      if (condition === true && current === parent.whenFalse) return true;
+    }
+    if (ts.isBinaryExpression(parent) && current === parent.right) {
+      const left = staticTruth(parent.left);
+      if (parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && left === false) return true;
+      if (parent.operatorToken.kind === ts.SyntaxKind.BarBarToken && left === true) return true;
+    }
+    if (ts.isWhileStatement(parent) && staticTruth(parent.expression) === false) return true;
+    if (ts.isForStatement(parent) && parent.condition !== undefined && staticTruth(parent.condition) === false && current === parent.statement) return true;
+    if (ts.isBlock(parent) && ts.isStatement(current)) {
+      const index = parent.statements.indexOf(current);
+      if (index > 0 && parent.statements.slice(0, index).some(isDefinitelyAbrupt)) return true;
+    }
+    if ((ts.isCaseClause(parent) || ts.isDefaultClause(parent)) && ts.isStatement(current)) {
+      const index = parent.statements.indexOf(current);
+      if (index > 0 && parent.statements.slice(0, index).some(isDefinitelyAbrupt)) return true;
+    }
+    current = parent;
+  }
+  return false;
+}
+
+function serverStateClaim(
+  sourcePath: string,
+  symbol: string,
+  path: string,
+  uiType: UiSourceClaim['value_contract']['ui_type'],
+  acceptedValues?: TrainingBookValueFact[],
+): UiSourceClaim {
+  return {
+    source_path: sourcePath,
+    symbol,
+    path,
+    kind: 'server-state',
+    ui_label: { present: false },
+    value_contract: {
+      ui_type: uiType,
+      widget_kind: 'read-only',
+      optional: true,
+      nullable: true,
+      ...(acceptedValues === undefined ? {} : { accepted_values: acceptedValues }),
+    },
+  };
+}
+
+function isProcessEnvironment(expression: ts.Expression): boolean {
+  expression = unwrap(expression);
+  return ts.isPropertyAccessExpression(expression)
+    && ts.isIdentifier(expression.expression)
+    && expression.expression.text === 'process'
+    && expression.name.text === 'env';
+}
+
+function environmentKey(node: ts.Expression, bindings: LexicalBindings): string | undefined {
+  node = unwrap(node);
+  if (ts.isPropertyAccessExpression(node)) {
+    const env = unwrap(node.expression);
+    return isProcessEnvironment(env) ? node.name.text : undefined;
+  }
+  if (ts.isElementAccessExpression(node) && node.argumentExpression !== undefined) {
+    const env = unwrap(node.expression);
+    if (!isProcessEnvironment(env)) return undefined;
+    const keys = [...new Set(staticStringValues(node.argumentExpression, bindings))];
+    if (keys.length !== 1) throw new FactsError('dynamic environment key cannot be resolved to one finite string');
+    return keys[0];
+  }
+  return undefined;
+}
+
+function storageCall(
+  node: ts.CallExpression,
+  bindings: LexicalBindings,
+  allowSpecializedDynamicKey = false,
+): { storage: 'localStorage' | 'sessionStorage'; method: 'getItem' | 'setItem' | 'removeItem'; key: string } | undefined {
+  const expression = unwrap(node.expression);
+  if (!ts.isPropertyAccessExpression(expression) || !ts.isIdentifier(expression.expression)) return undefined;
+  const storage = expression.expression.text;
+  const method = expression.name.text;
+  if ((storage !== 'localStorage' && storage !== 'sessionStorage') || (method !== 'getItem' && method !== 'setItem' && method !== 'removeItem')) return undefined;
+  const keyExpression = node.arguments[0];
+  const keys = keyExpression === undefined ? [] : [...new Set(staticStringValues(keyExpression, bindings))];
+  if (keys.length !== 1) {
+    if (allowSpecializedDynamicKey) return undefined;
+    throw new FactsError(`dynamic storage key cannot be resolved to one finite string at ${node.getSourceFile().fileName}`);
+  }
+  return { storage, method, key: keys[0] };
+}
+
+function authorizationBoundary(node: ts.Node): boolean {
+  if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'get') {
+    const key = node.arguments[0] === undefined ? undefined : unwrap(node.arguments[0]);
+    return key !== undefined && ts.isStringLiteral(key) && key.text.toLowerCase() === 'authorization';
+  }
+  let key: string | undefined;
+  let value: ts.Expression | undefined;
+  if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) {
+    const left = unwrap(node.left);
+    if (ts.isElementAccessExpression(left) && left.argumentExpression !== undefined) {
+      const argument = unwrap(left.argumentExpression);
+      if (ts.isStringLiteral(argument)) key = argument.text;
+    } else if (ts.isPropertyAccessExpression(left)) key = left.name.text;
+    value = node.right;
+  } else if (ts.isPropertyAssignment(node)) {
+    if (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name) || ts.isNumericLiteral(node.name)) key = node.name.text;
+    value = node.initializer;
+  }
+  return key?.toLowerCase() === 'authorization'
+    && value !== undefined
+    && /\bBearer\b/.test(value.getText(value.getSourceFile()));
+}
+
+function isUnauthorizedStatusCheck(node: ts.Node): boolean {
+  if (!ts.isBinaryExpression(node) || ![
+    ts.SyntaxKind.EqualsEqualsToken,
+    ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ].includes(node.operatorToken.kind)) return false;
+  const left = unwrap(node.left);
+  const right = unwrap(node.right);
+  const status = (expression: ts.Expression): boolean => ts.isPropertyAccessExpression(expression) && expression.name.text === 'status';
+  return (status(left) && ts.isNumericLiteral(right) && right.text === '401')
+    || (status(right) && ts.isNumericLiteral(left) && left.text === '401');
+}
+
+function settingValueType(key: string): UiSourceClaim['value_contract']['ui_type'] {
+  return /(?:PATH|FOLDER|ROOT)$/.test(key) ? 'path' : 'string';
+}
+
+function staticStringValues(expression: ts.Expression, bindings: LexicalBindings): string[] {
+  expression = unwrap(expression);
+  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return [expression.text];
+  if (ts.isIdentifier(expression)) {
+    const initializer = bindings.declarationInitializer(expression);
+    return initializer === undefined ? [] : staticStringValues(initializer, bindings);
+  }
+  if (ts.isArrayLiteralExpression(expression)) return expression.elements.flatMap(element => staticStringValues(element as ts.Expression, bindings));
+  if (ts.isObjectLiteralExpression(expression)) {
+    const inside = objectProperties(expression).get('in');
+    return inside === undefined ? [] : staticStringValues(inside, bindings);
+  }
+  return [];
+}
+
+function settingsDatabaseKeys(node: ts.CallExpression, bindings: LexicalBindings): string[] {
+  const call = unwrap(node.expression);
+  if (!ts.isPropertyAccessExpression(call)) return [];
+  const receiver = unwrap(call.expression);
+  if (!ts.isPropertyAccessExpression(receiver) || receiver.name.text !== 'settings') return [];
+  const keys: string[] = [];
+  const visit = (child: ts.Node): void => {
+    if (ts.isPropertyAssignment(child) && propertyName(child.name) === 'key') {
+      keys.push(...staticStringValues(child.initializer, bindings));
+    } else if (ts.isShorthandPropertyAssignment(child) && child.name.text === 'key') {
+      keys.push(...staticStringValues(child.name, bindings));
+    }
+    ts.forEachChild(child, visit);
+  };
+  for (const argument of node.arguments) visit(argument);
+  return [...new Set(keys.filter(key => /^[A-Z][A-Z0-9_]+$/.test(key)))];
+}
+
+const SERVER_STATE_TYPES: Readonly<Record<string, NonNullable<UiSourceClaim['value_contract']['ui_type']>>> = {
+  gpu_ids: 'string',
+  info: 'string',
+  is_running: 'boolean',
+  pid: 'integer',
+  queue_position: 'integer',
+  return_to_queue: 'boolean',
+  sample_now: 'boolean',
+  save_now: 'boolean',
+  status: 'string',
+  stop: 'boolean',
+};
+
+function literalAcceptedValue(expression: ts.Expression): TrainingBookValueFact | undefined {
+  expression = unwrap(expression);
+  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return { kind: 'string', value: expression.text };
+  if (ts.isNumericLiteral(expression)) return { kind: 'number', value: Number(expression.text) };
+  if (expression.kind === ts.SyntaxKind.TrueKeyword || expression.kind === ts.SyntaxKind.FalseKeyword) return { kind: 'boolean', value: expression.kind === ts.SyntaxKind.TrueKeyword };
+  return undefined;
+}
+
+function stateWrites(node: ts.CallExpression): Array<{ entity: 'job' | 'queue'; method: string; key: string; value?: TrainingBookValueFact }> {
+  const call = unwrap(node.expression);
+  if (!ts.isPropertyAccessExpression(call) || !['create', 'update', 'updateMany', 'upsert'].includes(call.name.text)) return [];
+  const receiver = unwrap(call.expression);
+  if (!ts.isPropertyAccessExpression(receiver) || (receiver.name.text !== 'job' && receiver.name.text !== 'queue')) return [];
+  const argument = node.arguments[0] === undefined ? undefined : unwrap(node.arguments[0]);
+  if (argument === undefined || !ts.isObjectLiteralExpression(argument)) return [];
+  const data = objectProperties(argument).get('data');
+  const dataObject = data === undefined ? undefined : unwrap(data);
+  if (dataObject === undefined || !ts.isObjectLiteralExpression(dataObject)) return [];
+  const writes: Array<{ entity: 'job' | 'queue'; method: string; key: string; value?: TrainingBookValueFact }> = [];
+  for (const property of dataObject.properties) {
+    let key: string | undefined;
+    let value: ts.Expression | undefined;
+    if (ts.isPropertyAssignment(property)) {
+      key = propertyName(property.name);
+      value = property.initializer;
+    } else if (ts.isShorthandPropertyAssignment(property)) {
+      key = property.name.text;
+    }
+    if (key !== undefined && SERVER_STATE_TYPES[key] !== undefined) writes.push({ entity: receiver.name.text, method: call.name.text, key, value: value === undefined ? undefined : literalAcceptedValue(value) });
+  }
+  return writes;
+}
+
+function settingsPropertyKey(node: ts.Expression): string | undefined {
+  node = unwrap(node);
+  if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'settings' && /^[A-Z][A-Z0-9_]+$/.test(node.name.text)) return node.name.text;
+  if (ts.isElementAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'settings' && node.argumentExpression !== undefined) {
+    const key = unwrap(node.argumentExpression);
+    if (ts.isStringLiteral(key) && /^[A-Z][A-Z0-9_]+$/.test(key.text)) return key.text;
+  }
+  return undefined;
+}
+
+function parsedConfigAssignmentPath(node: ts.BinaryExpression): string | undefined {
+  if (node.operatorToken.kind !== ts.SyntaxKind.EqualsToken) return undefined;
+  const parts = accessParts(node.left);
+  if (parts === undefined || parts[0] !== 'parsed' || parts[1] !== 'config') return undefined;
+  return normalizePath(parts.slice(1).join('.'), {});
+}
+
+function settingsMediatedSetterPath(node: ts.CallExpression): string | undefined {
+  if (!ts.isIdentifier(node.expression) || node.expression.text !== 'setJobConfig' || node.arguments.length < 2) return undefined;
+  let readsSettings = false;
+  const find = (child: ts.Node): void => {
+    if (ts.isExpression(child) && settingsPropertyKey(child) !== undefined) readsSettings = true;
+    ts.forEachChild(child, find);
+  };
+  find(node.arguments[0]);
+  if (!readsSettings) return undefined;
+  const path = unwrap(node.arguments[1]);
+  return ts.isStringLiteral(path) || ts.isNoSubstitutionTemplateLiteral(path) ? normalizePath(path.text, {}) : undefined;
+}
+
+function interfacePropertyTypes(source: ts.SourceFile, name: string): Map<string, NonNullable<UiSourceClaim['value_contract']['ui_type']>> {
+  const result = new Map<string, NonNullable<UiSourceClaim['value_contract']['ui_type']>>();
+  for (const statement of source.statements) {
+    if (!ts.isInterfaceDeclaration(statement) || statement.name.text !== name) continue;
+    for (const member of statement.members) {
+      if (!ts.isPropertySignature(member) || member.type === undefined || member.name === undefined) continue;
+      const key = propertyName(member.name);
+      const kind = member.type.kind === ts.SyntaxKind.BooleanKeyword
+        ? 'boolean'
+        : member.type.kind === ts.SyntaxKind.NumberKeyword
+          ? 'number'
+          : member.type.kind === ts.SyntaxKind.StringKeyword
+            ? 'string'
+            : 'object';
+      result.set(key, kind);
+    }
+  }
+  return result;
+}
+
+function exactSsrWindowGuard(expression: ts.Expression): boolean {
+  expression = unwrap(expression);
+  if (!ts.isBinaryExpression(expression) || ![
+    ts.SyntaxKind.EqualsEqualsToken,
+    ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ].includes(expression.operatorToken.kind)) return false;
+  const isWindowTypeof = (candidate: ts.Expression): boolean => {
+    candidate = unwrap(candidate);
+    return ts.isTypeOfExpression(candidate)
+      && ts.isIdentifier(unwrap(candidate.expression))
+      && (unwrap(candidate.expression) as ts.Identifier).text === 'window';
+  };
+  const isUndefinedString = (candidate: ts.Expression): boolean => {
+    candidate = unwrap(candidate);
+    return (ts.isStringLiteral(candidate) || ts.isNoSubstitutionTemplateLiteral(candidate)) && candidate.text === 'undefined';
+  };
+  return (isWindowTypeof(expression.left) && isUndefinedString(expression.right))
+    || (isWindowTypeof(expression.right) && isUndefinedString(expression.left));
+}
+
+function exactGuardedNullReturn(node: ts.ReturnStatement, helper: ts.FunctionDeclaration): boolean {
+  if (node.expression === undefined || unwrap(node.expression).kind !== ts.SyntaxKind.NullKeyword) return false;
+  let current: ts.Node = node;
+  while (current.parent !== helper) {
+    const parent = current.parent;
+    if (parent === undefined) return false;
+    if (ts.isIfStatement(parent) && current === parent.thenStatement && exactSsrWindowGuard(parent.expression)) return true;
+    current = parent;
+  }
+  return false;
+}
+
+function exactJobLossUrlReturn(node: ts.ReturnStatement): boolean {
+  if (node.expression === undefined) return false;
+  const expression = unwrap(node.expression);
+  if (!ts.isTemplateExpression(expression) || expression.head.text !== 'jobLossGraph:' || expression.templateSpans.length !== 2) return false;
+  const [pathname, search] = expression.templateSpans;
+  return accessParts(pathname.expression)?.join('.') === 'window.location.pathname'
+    && pathname.literal.text === ''
+    && accessParts(search.expression)?.join('.') === 'window.location.search'
+    && search.literal.text === '';
+}
+
+function exhaustivelyReturns(block: ts.Block): boolean {
+  const staticTruth = (expression: ts.Expression): boolean | undefined => {
+    expression = unwrap(expression);
+    if (expression.kind === ts.SyntaxKind.TrueKeyword) return true;
+    if (expression.kind === ts.SyntaxKind.FalseKeyword) return false;
+    return ts.isNumericLiteral(expression) ? Number(expression.text) !== 0 : undefined;
+  };
+  const statementReturns = (statement: ts.Statement): boolean => {
+    if (ts.isReturnStatement(statement)) return true;
+    if (ts.isBlock(statement)) return exhaustivelyReturns(statement);
+    if (ts.isIfStatement(statement)) {
+      const truth = staticTruth(statement.expression);
+      if (truth === true) return statementReturns(statement.thenStatement);
+      if (truth === false) return statement.elseStatement !== undefined && statementReturns(statement.elseStatement);
+      return statement.elseStatement !== undefined
+        && statementReturns(statement.thenStatement)
+        && statementReturns(statement.elseStatement);
+    }
+    return false;
+  };
+  for (const statement of block.statements) {
+    if (isStaticallyDead(statement)) continue;
+    if (statementReturns(statement)) return true;
+  }
+  return false;
+}
+
+function isJobLossStorageKey(expression: ts.Expression, bindings: LexicalBindings, source: ts.SourceFile): boolean {
+  expression = unwrap(expression);
+  if (ts.isIdentifier(expression)) {
+    const initializer = bindings.declarationInitializer(expression);
+    return initializer !== undefined && isJobLossStorageKey(initializer, bindings, source);
+  }
+  if (!ts.isCallExpression(expression) || !ts.isIdentifier(expression.expression) || expression.arguments.length !== 0) return false;
+  const call = expression.expression;
+  const functions: ts.FunctionDeclaration[] = [];
+  for (const statement of source.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name !== undefined && bindings.isBinding(call, statement.name)) functions.push(statement);
+  }
+  if (functions.length !== 1) return false;
+  const helper = functions[0];
+  let sawGuardedNull = false;
+  let sawExactUrl = false;
+  let invalidReturn = false;
+  const visit = (node: ts.Node): void => {
+    if (isStaticallyDead(node)) return;
+    if (node !== helper && (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node))) return;
+    if (ts.isReturnStatement(node)) {
+      if (exactGuardedNullReturn(node, helper)) sawGuardedNull = true;
+      else if (exactJobLossUrlReturn(node)) sawExactUrl = true;
+      else invalidReturn = true;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(helper);
+  return sawGuardedNull && sawExactUrl && !invalidReturn && helper.body !== undefined && exhaustivelyReturns(helper.body);
+}
+
+function partialPersistedSettingsType(type: ts.TypeNode): boolean {
+  return ts.isTypeReferenceNode(type)
+    && ts.isIdentifier(type.typeName)
+    && type.typeName.text === 'Partial'
+    && type.typeArguments?.length === 1
+    && ts.isTypeReferenceNode(type.typeArguments[0])
+    && ts.isIdentifier(type.typeArguments[0].typeName)
+    && type.typeArguments[0].typeName.text === 'PersistedSettings';
+}
+
+function persistedObjectWrites(node: ts.CallExpression, bindings: LexicalBindings, source: ts.SourceFile): Array<{ key: string; uiType: NonNullable<UiSourceClaim['value_contract']['ui_type']> }> {
+  const storage = storageCall(node, bindings, true);
+  if (storage !== undefined || !ts.isPropertyAccessExpression(node.expression) || node.expression.name.text !== 'setItem') return [];
+  const receiver = unwrap(node.expression.expression);
+  if (
+    !ts.isIdentifier(receiver)
+    || receiver.text !== 'localStorage'
+    || node.arguments.length !== 2
+    || !isJobLossStorageKey(node.arguments[0], bindings, source)
+  ) return [];
+  const encoded = unwrap(node.arguments[1]);
+  if (!ts.isCallExpression(encoded) || !ts.isPropertyAccessExpression(encoded.expression) || !ts.isIdentifier(encoded.expression.expression) || encoded.expression.expression.text !== 'JSON' || encoded.expression.name.text !== 'stringify' || encoded.arguments.length !== 1) return [];
+  const payloadName = unwrap(encoded.arguments[0]);
+  if (!ts.isIdentifier(payloadName)) return [];
+  const initializer = bindings.declarationInitializer(payloadName);
+  const payload = initializer === undefined ? undefined : unwrap(initializer);
+  if (payload === undefined || !ts.isObjectLiteralExpression(payload)) return [];
+  let typeName: string | undefined;
+  const findDeclaration = (child: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(child)
+      && ts.isIdentifier(child.name)
+      && child.name.text === payloadName.text
+      && child.initializer === initializer
+      && child.type !== undefined
+      && ts.isTypeReferenceNode(child.type)
+      && ts.isIdentifier(child.type.typeName)
+    ) typeName = child.type.typeName.text;
+    ts.forEachChild(child, findDeclaration);
+  };
+  findDeclaration(source);
+  const types = typeName === undefined ? new Map<string, NonNullable<UiSourceClaim['value_contract']['ui_type']>>() : interfacePropertyTypes(source, typeName);
+  return [...objectProperties(payload).keys()].map(key => ({ key, uiType: types.get(key) ?? 'object' }));
+}
+
+function spawnEnvironmentWrites(node: ts.Node): Array<{ key: string; value?: TrainingBookValueFact }> {
+  if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === 'additionalEnv' && node.initializer !== undefined) {
+    const initializer = unwrap(node.initializer);
+    if (!ts.isObjectLiteralExpression(initializer)) return [];
+    return initializer.properties.flatMap(property => {
+      if (!ts.isPropertyAssignment(property)) return [];
+      const key = propertyName(property.name);
+      return /^[A-Z][A-Z0-9_]+$/.test(key) ? [{ key, value: literalAcceptedValue(property.initializer) }] : [];
+    });
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    const left = unwrap(node.left);
+    if (ts.isPropertyAccessExpression(left) && ts.isIdentifier(left.expression) && left.expression.text === 'additionalEnv' && /^[A-Z][A-Z0-9_]+$/.test(left.name.text)) {
+      return [{ key: left.name.text, value: literalAcceptedValue(node.right) }];
+    }
+  }
+  return [];
+}
+
+function settingsHydrationKeys(node: ts.CallExpression): string[] {
+  if (!ts.isIdentifier(node.expression) || node.expression.text !== 'setSettings' || node.arguments.length !== 1) return [];
+  const value = unwrap(node.arguments[0]);
+  if (!ts.isObjectLiteralExpression(value)) return [];
+  return value.properties.flatMap(property => {
+    if (!ts.isPropertyAssignment(property)) return [];
+    const key = propertyName(property.name);
+    if (!/^[A-Z][A-Z0-9_]+$/.test(key)) return [];
+    let matchingResponseRead = false;
+    const visit = (child: ts.Node): void => {
+      const expression = ts.isExpression(child) ? unwrap(child) : undefined;
+      if (
+        expression !== undefined
+        && ts.isPropertyAccessExpression(expression)
+        && ts.isIdentifier(expression.expression)
+        && expression.expression.text === 'data'
+        && expression.name.text === key
+      ) matchingResponseRead = true;
+      ts.forEachChild(child, visit);
+    };
+    visit(property.initializer);
+    return matchingResponseRead ? [key] : [];
   });
-  const settingsPath = 'ui/src/app/settings/page.tsx';
-  if (sourcePath === settingsPath) {
-    for (const control of SETTINGS_CONTROL_FACTS) {
-      for (const required of [
-        `htmlFor="${control.key}"`,
-        `type="${control.input_type}"`,
-        `name="${control.key}"`,
-        `value={settings.${control.key}}`,
-        'onChange={handleChange}',
-      ]) {
-        if (!source.includes(required)) {
-          throw new FactsError(`${settingsPath} no longer satisfies ${control.key} control: missing ${required}`);
+}
+
+function importedSettingGetterKeys(source: ts.SourceFile): Map<string, string> {
+  const known = new Map<string, string>([
+    ['getDataRoot', 'DATA_ROOT'],
+    ['getDatasetsRoot', 'DATASETS_FOLDER'],
+    ['getHFToken', 'HF_TOKEN'],
+    ['getModelsPath', 'MODELS_PATH'],
+    ['getTrainingFolder', 'TRAINING_FOLDER'],
+  ]);
+  const result = new Map<string, string>();
+  for (const statement of source.statements) {
+    if (
+      !ts.isImportDeclaration(statement)
+      || !ts.isStringLiteral(statement.moduleSpecifier)
+      || !/(?:^|\/)(?:paths|settings)$/u.test(statement.moduleSpecifier.text)
+      || statement.importClause?.namedBindings === undefined
+      || !ts.isNamedImports(statement.importClause.namedBindings)
+    ) continue;
+    for (const element of statement.importClause.namedBindings.elements) {
+      const imported = element.propertyName?.text ?? element.name.text;
+      const key = known.get(imported);
+      if (key !== undefined) result.set(element.name.text, key);
+    }
+  }
+  return result;
+}
+
+function importedSettingGetterKey(node: ts.CallExpression, getters: ReadonlyMap<string, string>): string | undefined {
+  return ts.isIdentifier(node.expression) ? getters.get(node.expression.text) : undefined;
+}
+
+function resolvedGpuSelection(node: ts.VariableDeclaration): boolean {
+  if (!ts.isIdentifier(node.name) || node.name.text !== 'gpu_ids' || node.initializer === undefined) return false;
+  const initializer = unwrap(node.initializer);
+  return ts.isCallExpression(initializer)
+    && ts.isIdentifier(initializer.expression)
+    && initializer.expression.text === 'resolveGpuIds';
+}
+
+function osPlatformCall(node: ts.CallExpression): boolean {
+  const expression = unwrap(node.expression);
+  return ts.isPropertyAccessExpression(expression)
+    && ts.isIdentifier(expression.expression)
+    && expression.expression.text === 'os'
+    && expression.name.text === 'platform'
+    && node.arguments.length === 0;
+}
+
+function cliPortDeclaration(node: ts.VariableDeclaration): boolean {
+  if (!ts.isIdentifier(node.name) || node.initializer === undefined) return false;
+  const initializer = unwrap(node.initializer);
+  if (!ts.isCallExpression(initializer) || !ts.isIdentifier(initializer.expression) || initializer.expression.text !== 'argValue') return false;
+  const key = initializer.arguments[0] === undefined ? undefined : unwrap(initializer.arguments[0]);
+  return key !== undefined && (ts.isStringLiteral(key) || ts.isNoSubstitutionTemplateLiteral(key)) && key.text === '--port';
+}
+
+function inheritedProcessEnvironment(node: ts.SpreadAssignment): boolean {
+  return isProcessEnvironment(node.expression)
+    && ts.isObjectLiteralExpression(node.parent)
+    && ts.isPropertyAssignment(node.parent.parent)
+    && propertyName(node.parent.parent.name) === 'env';
+}
+
+function clusterWorkerEnvironmentWrites(node: ts.VariableDeclaration, source: ts.SourceFile): Array<{ key: string; value?: TrainingBookValueFact }> {
+  if (!ts.isIdentifier(node.name) || node.initializer === undefined) return [];
+  const initializer = unwrap(node.initializer);
+  if (!ts.isObjectLiteralExpression(initializer)) return [];
+  let passedToClusterFork = false;
+  const visit = (child: ts.Node): void => {
+    if (ts.isCallExpression(child)) {
+      const parts = accessParts(child.expression);
+      if (
+        parts?.join('.') === 'cluster.fork'
+        && child.arguments.some(argument => ts.isIdentifier(unwrap(argument)) && (unwrap(argument) as ts.Identifier).text === node.name.getText(source))
+      ) passedToClusterFork = true;
+    }
+    ts.forEachChild(child, visit);
+  };
+  visit(source);
+  if (!passedToClusterFork) return [];
+  return initializer.properties.flatMap(property => {
+    if (!ts.isPropertyAssignment(property)) return [];
+    const key = propertyName(property.name);
+    return /^[A-Z][A-Z0-9_]+$/.test(key) ? [{ key, value: literalAcceptedValue(property.initializer) }] : [];
+  });
+}
+
+function persistedObjectReads(node: ts.CallExpression, bindings: LexicalBindings, source: ts.SourceFile): Array<{ key: string; uiType: NonNullable<UiSourceClaim['value_contract']['ui_type']> }> {
+  const expression = unwrap(node.expression);
+  if (
+    !ts.isPropertyAccessExpression(expression)
+    || !ts.isIdentifier(expression.expression)
+    || expression.expression.text !== 'localStorage'
+    || expression.name.text !== 'getItem'
+    || node.arguments[0] === undefined
+    || !isJobLossStorageKey(node.arguments[0], bindings, source)
+  ) return [];
+  if (!ts.isVariableDeclaration(node.parent) || node.parent.initializer !== node || !ts.isIdentifier(node.parent.name)) return [];
+  const rawBinding = node.parent.name;
+  const types = interfacePropertyTypes(source, 'PersistedSettings');
+  const reads = new Map<string, NonNullable<UiSourceClaim['value_contract']['ui_type']>>();
+  const visit = (child: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(child)
+      && ts.isIdentifier(child.name)
+      && child.initializer !== undefined
+      && ts.isAsExpression(child.initializer)
+      && partialPersistedSettingsType(child.initializer.type)
+    ) {
+      const parsed = unwrap(child.initializer.expression);
+      if (
+        ts.isCallExpression(parsed)
+        && ts.isPropertyAccessExpression(parsed.expression)
+        && ts.isIdentifier(parsed.expression.expression)
+        && parsed.expression.expression.text === 'JSON'
+        && parsed.expression.name.text === 'parse'
+        && parsed.arguments.length === 1
+      ) {
+        const argument = unwrap(parsed.arguments[0]);
+        if (ts.isIdentifier(argument) && bindings.isBinding(argument, rawBinding)) {
+          const parsedBinding = child.name;
+          const findReads = (candidate: ts.Node): void => {
+            if (
+              ts.isPropertyAccessExpression(candidate)
+              && ts.isIdentifier(candidate.expression)
+              && bindings.isBinding(candidate.expression, parsedBinding)
+            ) {
+              const uiType = types.get(candidate.name.text);
+              if (uiType !== undefined) reads.set(candidate.name.text, uiType);
+            }
+            ts.forEachChild(candidate, findReads);
+          };
+          findReads(source);
         }
       }
+    }
+    ts.forEachChild(child, visit);
+  };
+  visit(source);
+  return [...reads].map(([key, uiType]) => ({ key, uiType }));
+}
+
+function injectedScriptStorageClaims(node: ts.JsxAttribute, sourcePath: string): UiSourceClaim[] {
+  if (!ts.isIdentifier(node.name) || node.name.text !== 'dangerouslySetInnerHTML' || node.initializer === undefined || !ts.isJsxExpression(node.initializer)) return [];
+  const container = node.initializer.expression === undefined ? undefined : unwrap(node.initializer.expression);
+  if (container === undefined || !ts.isObjectLiteralExpression(container)) return [];
+  const html = objectProperties(container).get('__html');
+  const literal = html === undefined ? undefined : unwrap(html);
+  if (literal === undefined || (!ts.isStringLiteral(literal) && !ts.isNoSubstitutionTemplateLiteral(literal) && !ts.isTemplateExpression(literal))) return [];
+  const scriptText = ts.isTemplateExpression(literal)
+    ? literal.head.text + literal.templateSpans.map(span => `undefined${span.literal.text}`).join('')
+    : literal.text;
+  const injected = ts.createSourceFile(`${sourcePath}.injected.js`, scriptText, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const bindings = new LexicalBindings(injected);
+  const claims: UiSourceClaim[] = [];
+  const owner = factSymbol(node, sourcePath);
+  const visit = (child: ts.Node): void => {
+    if (isStaticallyDead(child)) return;
+    if (ts.isCallExpression(child)) {
+      const storage = storageCall(child, bindings);
+      if (storage !== undefined) claims.push(serverStateClaim(
+        sourcePath,
+        `${owner}::${storage.storage}.${storage.method}(${storage.key})`,
+        `browser.${storage.storage}.${storage.key}`,
+        'string',
+      ));
+    }
+    ts.forEachChild(child, visit);
+  };
+  visit(injected);
+  return claims;
+}
+
+function occurrenceRole(node: ts.Node, detector: string): string {
+  const roles = [detector];
+  let current: ts.Node | undefined = node;
+  while (current?.parent !== undefined) {
+    const parent: ts.Node = current.parent;
+    if (ts.isCallExpression(parent)) {
+      const argumentIndex = parent.arguments.indexOf(current as ts.Expression);
+      if (argumentIndex >= 0) {
+        const callee = accessParts(parent.expression)?.join('.')
+          ?? (ts.isIdentifier(parent.expression) ? parent.expression.text : 'call');
+        const event = parent.arguments[0] === undefined ? undefined : unwrap(parent.arguments[0]);
+        const eventName = event !== undefined && (ts.isStringLiteral(event) || ts.isNoSubstitutionTemplateLiteral(event)) ? `:${event.text}` : '';
+        roles.push(`arg:${callee}${eventName}[${argumentIndex}]`);
+      }
+    } else if (ts.isBinaryExpression(parent) && (current === parent.left || current === parent.right)) {
+      const side = current === parent.left ? 'lhs' : 'rhs';
+      const target = current === parent.right ? accessParts(parent.left)?.join('.') : undefined;
+      roles.push(`${side}:${target === undefined ? ts.tokenToString(parent.operatorToken.kind) ?? 'binary' : target.replace(/\[\d+\]/gu, '[*]')}`);
+    } else if (ts.isVariableDeclaration(parent) && current === parent.initializer) {
+      roles.push(`initializer:${parent.name.getText(parent.getSourceFile())}`);
+    } else if (ts.isPropertyAssignment(parent) && current === parent.initializer) {
+      roles.push(`property:${propertyName(parent.name)}`);
+    } else if (ts.isIfStatement(parent)) {
+      const condition = parent.expression.getText(parent.getSourceFile()).replace(/\s+/gu, '');
+      if (current === parent.thenStatement) roles.push(`guard:if-then:${condition}`);
+      else if (current === parent.elseStatement) roles.push(`guard:if-else:${condition}`);
+      else if (current === parent.expression) roles.push('guard:if-condition');
+    } else if (ts.isConditionalExpression(parent)) {
+      const condition = parent.condition.getText(parent.getSourceFile()).replace(/\s+/gu, '');
+      if (current === parent.whenTrue) roles.push(`guard:conditional-true:${condition}`);
+      else if (current === parent.whenFalse) roles.push(`guard:conditional-false:${condition}`);
+      else if (current === parent.condition) roles.push('guard:conditional-condition');
+    } else if (ts.isCatchClause(parent)) {
+      roles.push('guard:catch');
+    }
+    if ((ts.isArrowFunction(current) || ts.isFunctionExpression(current)) && ts.isCallExpression(parent)) {
+      const callee = accessParts(parent.expression)?.join('.')
+        ?? (ts.isIdentifier(parent.expression) ? parent.expression.text : 'callback');
+      const event = parent.arguments[0] === undefined ? undefined : unwrap(parent.arguments[0]);
+      const eventName = event !== undefined && (ts.isStringLiteral(event) || ts.isNoSubstitutionTemplateLiteral(event)) ? `:${event.text}` : '';
+      roles.push(`callback:${callee}${eventName}[${parent.arguments.indexOf(current as ts.Expression)}]`);
+    }
+    if (
+      (ts.isFunctionDeclaration(parent) || ts.isMethodDeclaration(parent))
+      || ((ts.isArrowFunction(parent) || ts.isFunctionExpression(parent))
+        && (ts.isVariableDeclaration(parent.parent) || ts.isPropertyAssignment(parent.parent)))
+    ) break;
+    current = parent;
+  }
+  return roles.join('/');
+}
+
+function defaultExportedFunctionName(source: ts.SourceFile): string | undefined {
+  for (const statement of source.statements) {
+    if (
+      ts.isFunctionDeclaration(statement)
+      && statement.name !== undefined
+      && statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.DefaultKeyword)
+    ) return statement.name.text;
+  }
+  return undefined;
+}
+
+function exportedFunctionAncestor(node: ts.Node): string | undefined {
+  let current: ts.Node | undefined = node;
+  let exported: string | undefined;
+  while (current !== undefined) {
+    if (
+      ts.isFunctionDeclaration(current)
+      && current.name !== undefined
+      && current.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    ) exported = current.name.text;
+    current = current.parent;
+  }
+  return exported;
+}
+
+function summaryOwners(node: ts.Node, sourcePath: string, source: ts.SourceFile, owner: string): string[] {
+  const owners = new Set<string>();
+  const exported = exportedFunctionAncestor(node);
+  if (exported !== undefined && owner.startsWith(`${exported}::`)) owners.add(exported);
+  const defaultOwner = defaultExportedFunctionName(source);
+  if (
+    defaultOwner !== undefined
+    && defaultOwner !== owner
+    && (owner === '<module>' || sourcePath.startsWith('ui/cron/actions/'))
+  ) owners.add(defaultOwner);
+  const outermost = owner.split('::')[0];
+  if (outermost.endsWith('Provider') && outermost !== owner) owners.add(outermost);
+  owners.delete(owner);
+  return [...owners];
+}
+
+function gpuSelectionTransition(node: ts.CallExpression): 'hydrate' | 'default' | undefined {
+  if (!ts.isIdentifier(node.expression) || node.expression.text !== 'setGpuIDs' || node.arguments.length !== 1) return undefined;
+  let readsHydratedGpu = false;
+  let readsDefaultGpu = false;
+  const visit = (child: ts.Node): void => {
+    const parts = ts.isExpression(child) ? accessParts(child) : undefined;
+    if (parts?.join('.') === 'data.gpu_ids') readsHydratedGpu = true;
+    if (parts?.join('.') === 'gpuList[0].index') readsDefaultGpu = true;
+    ts.forEachChild(child, visit);
+  };
+  visit(node.arguments[0]);
+  return readsHydratedGpu ? 'hydrate' : readsDefaultGpu ? 'default' : undefined;
+}
+
+function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: string): UiSourceClaim[] {
+  const source = ts.createSourceFile(
+    sourcePath,
+    sourceText,
+    ts.ScriptTarget.Latest,
+    true,
+    sourcePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const bindings = new LexicalBindings(source);
+  const settingGetters = importedSettingGetterKeys(source);
+  const events: Array<{ claim: UiSourceClaim; role: string }> = [];
+  const summaries = new Map<string, { claim: UiSourceClaim; occurrences: number }>();
+  const add = (claim: UiSourceClaim, node: ts.Node, detector: string): void => {
+    events.push({ claim, role: occurrenceRole(node, detector) });
+  };
+  const addOwned = (claim: UiSourceClaim, node: ts.Node, detector: string, owner: string): void => {
+    add(claim, node, detector);
+    for (const summaryOwner of summaryOwners(node, sourcePath, source, owner)) {
+      const prefix = `${owner}::`;
+      if (!claim.symbol.startsWith(prefix)) continue;
+      const summary = { ...claim, symbol: `${summaryOwner}::${claim.symbol.slice(prefix.length)}`, value_contract: { ...claim.value_contract } };
+      const identity = `${summary.source_path}\0${summary.symbol}\0${summary.path}\0${summary.kind}`;
+      const existing = summaries.get(identity);
+      if (existing === undefined) summaries.set(identity, { claim: summary, occurrences: 1 });
+      else {
+        existing.occurrences += 1;
+        const acceptedValues = uniqueValues([
+          ...(existing.claim.value_contract.accepted_values ?? []),
+          ...(summary.value_contract.accepted_values ?? []),
+        ]);
+        if (acceptedValues.length > 0) existing.claim.value_contract.accepted_values = acceptedValues;
+      }
+    }
+  };
+  const visit = (node: ts.Node): void => {
+    if (isStaticallyDead(node)) return;
+    if (ts.isExpression(node) && unwrap(node) === node) {
+      const key = environmentKey(node, bindings);
+      if (key !== undefined) {
+        const owner = factSymbol(node, sourcePath);
+        addOwned(serverStateClaim(sourcePath, `${owner}::process.env.${key}`, key, /(?:PORT|WORKERS)$/.test(key) ? 'integer' : key === 'LD_LIBRARY_PATH' ? 'string' : /(?:PATH|FOLDER|ROOT)$/.test(key) ? 'path' : 'string'), node, 'environment-read', owner);
+      }
+    }
+    if (ts.isCallExpression(node)) {
+      const persistedReads = persistedObjectReads(node, bindings, source);
+      const persistedWrites = persistedObjectWrites(node, bindings, source);
+      const storage = storageCall(node, bindings, persistedReads.length > 0 || persistedWrites.length > 0);
+      if (storage !== undefined) {
+        const owner = factSymbol(node, sourcePath);
+        addOwned(serverStateClaim(sourcePath, `${owner}::${storage.storage}.${storage.method}(${storage.key})`, `browser.${storage.storage}.${storage.key}`, 'string'), node, `storage-${storage.method}`, owner);
+      }
+      for (const persisted of persistedReads) {
+        const owner = factSymbol(node, sourcePath);
+        addOwned(serverStateClaim(sourcePath, `${owner}::hydrate::${persisted.key}`, `browser.localStorage.jobLossGraph.${persisted.key}`, persisted.uiType), node, `persisted-hydrate-${persisted.key}`, owner);
+      }
+      for (const persisted of persistedWrites) {
+        const owner = factSymbol(node, sourcePath);
+        addOwned(serverStateClaim(sourcePath, `${owner}::persist::${persisted.key}`, `browser.localStorage.jobLossGraph.${persisted.key}`, persisted.uiType), node, `persisted-write-${persisted.key}`, owner);
+      }
+      const owner = factSymbol(node, sourcePath);
+      const getterKey = importedSettingGetterKey(node, settingGetters);
+      if (getterKey !== undefined) {
+        const operationOwner = sourcePath.startsWith('ui/cron/actions/')
+          ? defaultExportedFunctionName(source) ?? owner
+          : owner;
+        addOwned(
+          serverStateClaim(sourcePath, `${operationOwner}::settings.${getterKey}`, `settings.${getterKey}`, settingValueType(getterKey)),
+          node,
+          `settings-getter-${getterKey}-${lexicalFactSymbol(node)}`,
+          operationOwner,
+        );
+      }
+      for (const key of settingsDatabaseKeys(node, bindings)) {
+        addOwned(serverStateClaim(sourcePath, `${owner}::settings.${key}`, `settings.${key}`, settingValueType(key)), node, `settings-${accessParts(node.expression)?.at(-1) ?? 'call'}`, owner);
+      }
+      for (const key of settingsHydrationKeys(node)) {
+        addOwned(serverStateClaim(sourcePath, `${owner}::hydrate::settings.${key}`, `settings.${key}`, settingValueType(key)), node, `settings-hydrate-${key}`, owner);
+      }
+      for (const write of stateWrites(node)) {
+        addOwned(serverStateClaim(
+          sourcePath,
+          `${owner}::${write.entity}.${write.key}`,
+          `${write.entity}.${write.key}`,
+          SERVER_STATE_TYPES[write.key],
+          write.value === undefined ? undefined : [write.value],
+        ), node, `${write.entity}-${write.method}-${write.key}-${write.value === undefined ? 'derived' : JSON.stringify(write.value)}`, owner);
+      }
+      const mediatedPath = settingsMediatedSetterPath(node);
+      if (mediatedPath !== undefined) addOwned(serverStateClaim(sourcePath, `${owner}::settings::${mediatedPath}`, mediatedPath, /(?:path|folder)$/.test(mediatedPath) ? 'path' : 'string'), node, 'settings-mediated-setter', owner);
+      const gpuTransition = gpuSelectionTransition(node);
+      if (gpuTransition !== undefined) {
+        const outerOwner = owner.split('::')[0];
+        addOwned(serverStateClaim(sourcePath, `${outerOwner}::${gpuTransition}::gpuids`, 'gpuids', 'string'), node, `gpu-selection-${gpuTransition}`, outerOwner);
+      }
+    }
+    if (ts.isExpression(node)) {
+      const settingKey = settingsPropertyKey(node);
+      if (settingKey !== undefined) {
+        const owner = factSymbol(node, sourcePath);
+        addOwned(serverStateClaim(sourcePath, `${owner}::settings.${settingKey}`, `settings.${settingKey}`, settingValueType(settingKey)), node, 'settings-property-read', owner);
+      }
+    }
+    if (ts.isBinaryExpression(node)) {
+      const configPath = parsedConfigAssignmentPath(node);
+      if (configPath !== undefined) {
+        const owner = factSymbol(node, sourcePath);
+        addOwned(serverStateClaim(sourcePath, `${owner}::import::${configPath}`, configPath, /(?:path|folder)$/.test(configPath) ? 'path' : literalAcceptedValue(node.right)?.kind === 'number' ? 'number' : 'string', literalAcceptedValue(node.right) === undefined ? undefined : [literalAcceptedValue(node.right)!]), node, 'config-import-assignment', owner);
+      }
+    }
+    if (ts.isVariableDeclaration(node)) {
+      if (resolvedGpuSelection(node)) {
+        const owner = factSymbol(node, sourcePath);
+        addOwned(serverStateClaim(sourcePath, `${owner}::gpuids`, 'gpuids', 'string'), node, 'resolved-gpu-selection', owner);
+      }
+      if (cliPortDeclaration(node)) {
+        const owner = factSymbol(node, sourcePath);
+        addOwned(serverStateClaim(sourcePath, `${owner}::cli.port`, 'ui.file_server.port', 'integer'), node, 'cli-port', owner);
+      }
+      for (const environment of clusterWorkerEnvironmentWrites(node, source)) {
+        add(serverStateClaim(sourcePath, `cluster.worker::process.env.${environment.key}`, environment.key, /PORT$/.test(environment.key) ? 'integer' : 'string', environment.value === undefined ? undefined : [environment.value]), node, `cluster-worker-environment-${environment.key}`);
+      }
+    }
+    if (ts.isCallExpression(node) && osPlatformCall(node)) {
+      const owner = factSymbol(node, sourcePath);
+      addOwned(serverStateClaim(sourcePath, `${owner}::os.platform`, 'server.platform', 'string'), node, 'server-platform', owner);
+    }
+    if (ts.isSpreadAssignment(node) && isProcessEnvironment(node.expression)) {
+      const owner = factSymbol(node, sourcePath);
+      if (inheritedProcessEnvironment(node)) {
+        addOwned(serverStateClaim(sourcePath, `${owner}::spawn.env.inherited`, 'spawn.env.inherited', 'object'), node, 'spawn-inherited-environment', owner);
+      } else {
+        addOwned(serverStateClaim(sourcePath, `${owner}::process.env.pass-through`, 'process.env.inherited', 'object'), node, 'process-environment-pass-through', owner);
+      }
+    }
+    if (ts.isJsxAttribute(node)) {
+      for (const injected of injectedScriptStorageClaims(node, sourcePath)) add(injected, node, 'injected-executable-script');
+    }
+    for (const environment of spawnEnvironmentWrites(node)) {
+      const owner = sourcePath === 'ui/cron/actions/startJob.ts' ? 'startJob' : lexicalFactSymbol(node);
+      addOwned(serverStateClaim(sourcePath, `${owner}::spawn.env.${environment.key}`, `spawn.env.${environment.key}`, 'string', environment.value === undefined ? undefined : [environment.value]), node, `spawn-environment-${environment.key}`, owner);
+    }
+    if (authorizationBoundary(node)) {
+      const owner = factSymbol(node, sourcePath);
+      addOwned(serverStateClaim(sourcePath, `${owner}::Authorization.bearer`, 'http.Authorization', 'string'), node, 'authorization-bearer', owner);
+    }
+    if (isUnauthorizedStatusCheck(node)) {
+      const owner = factSymbol(node, sourcePath);
+      addOwned(serverStateClaim(sourcePath, `${owner}::status=401`, 'auth.is_authorized', 'boolean'), node, 'authorization-401', owner);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  const grouped = new Map<string, Array<{ claim: UiSourceClaim; role: string }>>();
+  for (const event of events) {
+    const identity = `${event.claim.source_path}\0${event.claim.symbol}\0${event.claim.path}\0${event.claim.kind}`;
+    const group = grouped.get(identity) ?? [];
+    group.push(event);
+    grouped.set(identity, group);
+  }
+  const preciseClaims = [...grouped.values()].flatMap(group => {
+    if (group.length === 1) return [group[0].claim];
+    const roles = new Set(group.map(event => event.role));
+    if (roles.size !== group.length) {
+      const claim = group[0].claim;
+      throw new FactsError(`indistinguishable duplicate structural fact: ${sourcePath} ${claim.symbol} ${claim.path}`);
+    }
+    const aggregateValues = uniqueValues(group.flatMap(event => event.claim.value_contract.accepted_values ?? []));
+    const aggregate: UiSourceClaim = {
+      ...group[0].claim,
+      value_contract: {
+        ...group[0].claim.value_contract,
+        ...(aggregateValues.length === 0 ? {} : { accepted_values: aggregateValues }),
+      },
+    };
+    return [
+      aggregate,
+      ...group.map(event => ({ ...event.claim, symbol: `${event.claim.symbol}::role=${event.role}` })),
+    ];
+  });
+  const claims = new Map<string, UiSourceClaim>();
+  const aggregateSummaries = [...summaries.values()]
+    .filter(summary => summary.occurrences > 1)
+    .map(summary => summary.claim);
+  for (const claim of [...aggregateSummaries, ...preciseClaims]) {
+    const identity = `${claim.source_path}\0${claim.symbol}\0${claim.path}\0${claim.kind}`;
+    const existing = claims.get(identity);
+    if (existing === undefined) claims.set(identity, claim);
+    else {
+      const acceptedValues = uniqueValues([
+        ...(existing.value_contract.accepted_values ?? []),
+        ...(claim.value_contract.accepted_values ?? []),
+      ]);
+      if (acceptedValues.length > 0) existing.value_contract.accepted_values = acceptedValues;
+    }
+  }
+  return [...claims.values()].sort((left, right) => compareCodePoint(
+    `${left.source_path}\0${left.symbol}\0${left.path}\0${left.kind}`,
+    `${right.source_path}\0${right.symbol}\0${right.path}\0${right.kind}`,
+  ));
+}
+
+function matchesDeclaredTypeScriptGlob(sourcePath: string, pattern: string): boolean {
+  if (pattern.endsWith('/**/*.ts')) {
+    const prefix = pattern.slice(0, -'/**/*.ts'.length);
+    return sourcePath.startsWith(`${prefix}/`) && sourcePath.endsWith('.ts');
+  }
+  if (pattern.endsWith('/**/*')) {
+    const prefix = pattern.slice(0, -'/**/*'.length);
+    return sourcePath.startsWith(`${prefix}/`);
+  }
+  return sourcePath === pattern;
+}
+
+export function collectDeclaredTypeScriptSourcePaths(repositoryRoot: string): string[] {
+  const root = resolve(repositoryRoot);
+  const sourceCatalog = JSON.parse(readFileSync(join(root, 'docs/book/reference/settings-sources.json'), 'utf8')) as {
+    source_groups?: Array<{ owner?: string; globs?: string[] }>;
+  };
+  const patterns = (sourceCatalog.source_groups ?? [])
+    .filter(group => group.owner === 'typescript-test')
+    .flatMap(group => group.globs ?? []);
+  if (patterns.length === 0) throw new FactsError('settings sources declares no typescript-test globs');
+  const files: string[] = [];
+  const walk = (relativeDirectory: string): void => {
+    const absoluteDirectory = join(root, relativeDirectory);
+    for (const entry of readdirSync(absoluteDirectory, { withFileTypes: true })) {
+      const relativePath = `${relativeDirectory}/${entry.name}`;
+      if (entry.isDirectory()) walk(relativePath);
+      else if ((relativePath.endsWith('.ts') || relativePath.endsWith('.tsx')) && patterns.some(pattern => matchesDeclaredTypeScriptGlob(relativePath, pattern))) files.push(relativePath);
+    }
+  };
+  walk('ui');
+  return files.sort(compareCodePoint);
+}
+
+function jsxTagName(node: ts.JsxOpeningLikeElement): string | undefined {
+  return ts.isIdentifier(node.tagName) ? node.tagName.text : undefined;
+}
+
+function primaryLabelText(element: ts.JsxElement): string | undefined {
+  for (const child of element.children) {
+    if (ts.isJsxText(child)) {
+      const text = child.text.replace(/\s+/gu, ' ').trim();
+      if (text !== '') return text;
+    }
+    if (ts.isJsxExpression(child) && child.expression !== undefined) {
+      const expression = unwrap(child.expression);
+      if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
+        const text = expression.text.replace(/\s+/gu, ' ').trim();
+        if (text !== '') return text;
+      }
+    }
+  }
+  return undefined;
+}
+
+function stateBindingPair(
+  value: ts.Identifier,
+  source: ts.SourceFile,
+  bindings: LexicalBindings,
+): { value: ts.Identifier; setter: ts.Identifier } | undefined {
+  let pair: { value: ts.Identifier; setter: ts.Identifier } | undefined;
+  const visit = (node: ts.Node): void => {
+    if (
+      pair === undefined
+      && ts.isVariableDeclaration(node)
+      && ts.isArrayBindingPattern(node.name)
+      && node.name.elements.length >= 2
+      && node.initializer !== undefined
+    ) {
+      const initializer = unwrap(node.initializer);
+      const valueElement = node.name.elements[0];
+      const setterElement = node.name.elements[1];
+      if (
+        ts.isCallExpression(initializer)
+        && ts.isIdentifier(initializer.expression)
+        && bindings.isExactNamedImport(initializer.expression, 'useState', 'react')
+        && ts.isBindingElement(valueElement)
+        && ts.isIdentifier(valueElement.name)
+        && ts.isBindingElement(setterElement)
+        && ts.isIdentifier(setterElement.name)
+        && bindings.isBinding(value, valueElement.name)
+      ) pair = { value: valueElement.name, setter: setterElement.name };
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return pair;
+}
+
+function settingsStateSetter(
+  value: ts.Expression,
+  source: ts.SourceFile,
+  bindings: LexicalBindings,
+): ts.Identifier | undefined {
+  const root = rootIdentifier(value);
+  if (root === undefined) return undefined;
+  let setter: ts.Identifier | undefined;
+  const visit = (node: ts.Node): void => {
+    if (
+      setter === undefined
+      && ts.isVariableDeclaration(node)
+      && ts.isObjectBindingPattern(node.name)
+      && node.initializer !== undefined
+    ) {
+      const initializer = unwrap(node.initializer);
+      if (
+        ts.isCallExpression(initializer)
+        && ts.isIdentifier(initializer.expression)
+        && bindings.isExactDefaultImport(initializer.expression, '@/hooks/useSettings')
+      ) {
+        let settingsDeclaration: ts.Identifier | undefined;
+        let setterDeclaration: ts.Identifier | undefined;
+        for (const element of node.name.elements) {
+          const key = element.propertyName === undefined ? element.name.getText(element.getSourceFile()) : propertyName(element.propertyName);
+          if (key === 'settings' && ts.isIdentifier(element.name)) settingsDeclaration = element.name;
+          if (key === 'setSettings' && ts.isIdentifier(element.name)) setterDeclaration = element.name;
+        }
+        if (
+          settingsDeclaration !== undefined
+          && setterDeclaration !== undefined
+          && bindings.isBinding(root, settingsDeclaration)
+        ) setter = setterDeclaration;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return setter;
+}
+
+function rootIdentifier(expression: ts.Expression): ts.Identifier | undefined {
+  expression = unwrap(expression);
+  while (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) expression = unwrap(expression.expression);
+  return ts.isIdentifier(expression) ? expression : undefined;
+}
+
+function changesBoundState(
+  expression: ts.Expression | undefined,
+  setter: ts.Identifier,
+  bindings: LexicalBindings,
+): boolean {
+  expression = expression === undefined ? undefined : unwrap(expression);
+  if (expression === undefined || (!ts.isArrowFunction(expression) && !ts.isFunctionExpression(expression))) return false;
+  const parameter = expression.parameters[0]?.name;
+  if (parameter === undefined || !ts.isIdentifier(parameter)) return false;
+  let matches = false;
+  const visit = (node: ts.Node): void => {
+    if (isStaticallyDead(node)) return;
+    if (isLexicalFunction(node) || ts.isClassLike(node)) return;
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && bindings.isBinding(node.expression, setter)) {
+      const argument = node.arguments[0];
+      const parts = argument === undefined ? undefined : accessParts(argument);
+      const root = argument === undefined ? undefined : rootIdentifier(argument);
+      if (parts?.slice(-2).join('.') === 'target.value' && root !== undefined && bindings.isBinding(root, parameter)) matches = true;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(expression.body);
+  return matches;
+}
+
+function changesSettingsFromInput(
+  expression: ts.Expression | undefined,
+  setter: ts.Identifier,
+  bindings: LexicalBindings,
+): boolean {
+  expression = expression === undefined ? undefined : unwrap(expression);
+  if (expression === undefined || !ts.isIdentifier(expression)) return false;
+  const handler = bindings.declarationInitializer(expression);
+  const functionNode = handler === undefined ? undefined : unwrap(handler);
+  if (functionNode === undefined || (!ts.isArrowFunction(functionNode) && !ts.isFunctionExpression(functionNode))) return false;
+  const parameter = functionNode.parameters[0]?.name;
+  if (parameter === undefined || !ts.isIdentifier(parameter)) return false;
+  let nameBinding: ts.Identifier | undefined;
+  let valueBinding: ts.Identifier | undefined;
+  const findBindings = (node: ts.Node): void => {
+    if (isStaticallyDead(node)) return;
+    if (isLexicalFunction(node) || ts.isClassLike(node)) return;
+    if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name) && node.initializer !== undefined) {
+      const parts = accessParts(node.initializer);
+      const root = rootIdentifier(node.initializer);
+      if (parts?.slice(-1)[0] === 'target' && root !== undefined && bindings.isBinding(root, parameter)) {
+        for (const element of node.name.elements) {
+          const key = element.propertyName === undefined ? element.name.getText(element.getSourceFile()) : propertyName(element.propertyName);
+          if (key === 'name' && ts.isIdentifier(element.name)) nameBinding = element.name;
+          if (key === 'value' && ts.isIdentifier(element.name)) valueBinding = element.name;
+        }
+      }
+    }
+    ts.forEachChild(node, findBindings);
+  };
+  findBindings(functionNode.body);
+  if (nameBinding === undefined || valueBinding === undefined) return false;
+  let matches = false;
+  const findUpdate = (node: ts.Node): void => {
+    if (isStaticallyDead(node)) return;
+    if (isLexicalFunction(node) || ts.isClassLike(node)) return;
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && bindings.isBinding(node.expression, setter)) {
+      const visitArgument = (child: ts.Node, root: ts.Node): void => {
+        if (isStaticallyDead(child)) return;
+        if (child !== root && (isLexicalFunction(child) || ts.isClassLike(child))) return;
+        if (
+          ts.isPropertyAssignment(child)
+          && ts.isComputedPropertyName(child.name)
+          && ts.isIdentifier(unwrap(child.name.expression))
+          && bindings.isBinding(unwrap(child.name.expression) as ts.Identifier, nameBinding!)
+          && ts.isIdentifier(unwrap(child.initializer))
+          && bindings.isBinding(unwrap(child.initializer) as ts.Identifier, valueBinding!)
+        ) matches = true;
+        ts.forEachChild(child, descendant => visitArgument(descendant, root));
+      };
+      for (const argument of node.arguments) visitArgument(argument, argument);
+    }
+    ts.forEachChild(node, findUpdate);
+  };
+  findUpdate(functionNode.body);
+  return matches;
+}
+
+function structurallyBoundInputClaims(sourcePath: string, sourceText: string): UiSourceClaim[] {
+  const source = ts.createSourceFile(sourcePath, sourceText, ts.ScriptTarget.Latest, true, sourcePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const bindings = new LexicalBindings(source);
+  const labels = new Map<string, string>();
+  const inputs: ts.JsxOpeningLikeElement[] = [];
+  const visitControls = (node: ts.Node): void => {
+    if (isStaticallyDead(node)) return;
+    if (ts.isJsxElement(node) && jsxTagName(node.openingElement) === 'label') {
+      const target = staticControlLabel(jsxAttributeNode(node.openingElement, 'htmlFor'));
+      const label = primaryLabelText(node);
+      if (target !== undefined && label !== undefined) labels.set(target, label);
+    }
+    if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && jsxTagName(node) === 'input') inputs.push(node);
+    ts.forEachChild(node, visitControls);
+  };
+  visitControls(source);
+
+  const claims: UiSourceClaim[] = [];
+  for (const input of inputs) {
+    const value = jsxAttributeExpression(jsxAttributeNode(input, 'value'));
+    const settingKey = value === undefined ? undefined : settingsPropertyKey(value);
+    if (settingKey !== undefined) {
+      const setter = settingsStateSetter(value!, source, bindings);
+      const id = jsxAttribute(input, 'id');
+      const name = jsxAttribute(input, 'name');
+      const type = jsxAttribute(input, 'type');
+      if (name !== settingKey) throw new FactsError(`${settingKey} control: settings input name must match its bound key`);
+      if (id !== settingKey) throw new FactsError(`${settingKey} control: settings input id must match its bound key`);
+      if (type !== 'text' && type !== 'password') throw new FactsError(`${settingKey} control: settings input type must be text or password`);
+      const change = jsxAttributeExpression(jsxAttributeNode(input, 'onChange'));
+      if (setter === undefined || !changesSettingsFromInput(change, setter, bindings)) {
+        throw new FactsError(`${settingKey} control: settings input onChange must update settings from the bound input`);
+      }
+      const label = labels.get(id);
+      if (label === undefined) throw new FactsError(`${settingKey} control: settings input must have an associated static label`);
+      const owner = factSymbol(input, sourcePath);
       claims.push({
-        source_path: settingsPath,
-        symbol: `Settings::input::settings.${control.key}::${control.label}`,
-        path: `settings.${control.key}`,
+        source_path: sourcePath,
+        symbol: `${owner}::input::settings.${settingKey}::${label}`,
+        path: `settings.${settingKey}`,
         kind: 'setting',
-        ui_label: presence({ kind: 'string', value: control.label }),
+        ui_label: presence({ kind: 'string', value: label }),
         value_contract: {
-          ui_type: control.ui_type,
+          ui_type: settingValueType(settingKey),
           widget_kind: 'text',
           optional: true,
           nullable: false,
         },
       });
+      continue;
     }
-  }
-  const authPath = 'ui/src/components/AuthWrapper.tsx';
-  if (sourcePath === authPath) {
-    for (const required of ['htmlFor="token"', 'name="token"', 'type="password"', 'value={token}', 'onChange={e => setToken(e.target.value)}']) {
-      if (!source.includes(required)) throw new FactsError(`${authPath} no longer satisfies Password control: missing ${required}`);
+    const boundValue = value === undefined ? undefined : unwrap(value);
+    if (boundValue === undefined || !ts.isIdentifier(boundValue)) continue;
+    const state = stateBindingPair(boundValue, source, bindings);
+    if (state === undefined) continue;
+    const persistedKeys = new Set<string>();
+    const visitPersistence = (node: ts.Node): void => {
+      if (isStaticallyDead(node)) return;
+      if (ts.isCallExpression(node)) {
+        const expression = unwrap(node.expression);
+        if (
+          ts.isPropertyAccessExpression(expression)
+          && ts.isIdentifier(expression.expression)
+          && expression.expression.text === 'localStorage'
+          && expression.name.text === 'setItem'
+          && node.arguments[1] !== undefined
+        ) {
+          const persistedValue = unwrap(node.arguments[1]);
+          const keys = node.arguments[0] === undefined ? [] : [...new Set(staticStringValues(node.arguments[0], bindings))];
+          if (ts.isIdentifier(persistedValue) && bindings.isBinding(persistedValue, state.value) && keys.length === 1) persistedKeys.add(keys[0]);
+        }
+      }
+      ts.forEachChild(node, visitPersistence);
+    };
+    visitPersistence(source);
+    if (persistedKeys.size === 0) continue;
+    if (persistedKeys.size !== 1) throw new FactsError('persisted input binding maps to multiple storage keys');
+    const id = jsxAttribute(input, 'id');
+    const name = jsxAttribute(input, 'name');
+    const type = jsxAttribute(input, 'type');
+    if (id === undefined || name !== id) throw new FactsError('persisted input name must match its id');
+    if (type !== 'password' && type !== 'text') throw new FactsError('persisted input type must be text or password');
+    if (!changesBoundState(jsxAttributeExpression(jsxAttributeNode(input, 'onChange')), state.setter, bindings)) {
+      throw new FactsError('persisted input onChange must update its exact state binding');
     }
+    const label = labels.get(id);
+    if (label === undefined) throw new FactsError('persisted input must have an associated static label');
+    const key = [...persistedKeys][0];
+    const owner = factSymbol(input, sourcePath);
     claims.push({
-      source_path: authPath,
-      symbol: 'AuthWrapper::input::browser.localStorage.AI_TOOLKIT_AUTH::Password',
-      path: 'browser.localStorage.AI_TOOLKIT_AUTH',
+      source_path: sourcePath,
+      symbol: `${owner}::input::browser.localStorage.${key}::${label}`,
+      path: `browser.localStorage.${key}`,
       kind: 'setting',
-      ui_label: presence({ kind: 'string', value: 'Password' }),
+      ui_label: presence({ kind: 'string', value: label }),
       value_contract: {
-        ui_type: 'string', widget_kind: 'text', optional: false, nullable: false,
+        ui_type: 'string',
+        widget_kind: 'text',
+        optional: jsxAttributeNode(input, 'required') === undefined,
+        nullable: false,
       },
     });
   }
-  if (claims.length === 0) {
-    throw new FactsError(
-      `${sourcePath} is not a declared server/global source boundary`,
-    );
-  }
+  return claims;
+}
+
+export function collectDeclaredServerGlobalClaimsFromSource(
+  sourcePath: string,
+  source: string,
+): UiSourceClaim[] {
+  const claims = [
+    ...structurallyDeclaredServerGlobalClaims(sourcePath, source),
+    ...structurallyBoundInputClaims(sourcePath, source),
+  ];
   return claims.sort((left, right) => compareCodePoint(
     `${left.source_path}\0${left.symbol}\0${left.path}\0${left.kind}`,
     `${right.source_path}\0${right.symbol}\0${right.path}\0${right.kind}`,
@@ -2368,11 +3669,7 @@ export function collectDeclaredServerGlobalClaimsFromSource(
 }
 
 function declaredServerGlobalClaims(root: string): UiSourceClaim[] {
-  const sourcePaths = new Set(SERVER_GLOBAL_FACTS.map(spec => spec.source_path));
-  sourcePaths.add('ui/src/app/settings/page.tsx');
-  sourcePaths.add('ui/src/components/AuthWrapper.tsx');
-  return [...sourcePaths]
-    .sort(compareCodePoint)
+  return collectDeclaredTypeScriptSourcePaths(root)
     .flatMap(sourcePath => collectDeclaredServerGlobalClaimsFromSource(
       sourcePath,
       readFileSync(join(root, sourcePath), 'utf8'),

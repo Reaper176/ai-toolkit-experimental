@@ -13,6 +13,7 @@ import {
   collectTrainingBookUiFacts,
   collectCanonicalSetterPathsFromSource,
   collectDeclaredServerGlobalClaimsFromSource,
+  collectDeclaredTypeScriptSourcePaths,
   collectVisibleControlClaimsFromSource,
   normalizeTrainingBookPath,
   validateTrainingBookUiFacts,
@@ -20,6 +21,620 @@ import {
   writeTrainingBookUiFacts,
 } from './trainingBookFacts';
 import type { CustomModelSelectOptionFact, ModelOptionPredicateFact, StaticJsxFact, TrainingBookValueFact, UiDefaultFact } from './trainingBookFacts';
+
+const structuralServerFacts = collectDeclaredServerGlobalClaimsFromSource(
+  'ui/src/example.ts',
+  `
+    function Example() {
+      const first = process.env.EXAMPLE_DOT;
+      const second = process.env['EXAMPLE_BRACKET'];
+      const saved = localStorage.getItem('panel');
+      localStorage.setItem('panel', saved || 'open');
+      sessionStorage.removeItem('draft');
+      headers['Authorization'] = \`Bearer \${token}\`;
+      if (error.response.status === 401) isAuthorizedState.set(false);
+    }
+  `,
+);
+assert.deepEqual(
+  structuralServerFacts.map(item => [item.symbol, item.path, item.value_contract.ui_type]),
+  [
+    ['Example::Authorization.bearer', 'http.Authorization', 'string'],
+    ['Example::localStorage.getItem(panel)', 'browser.localStorage.panel', 'string'],
+    ['Example::localStorage.setItem(panel)', 'browser.localStorage.panel', 'string'],
+    ['Example::process.env.EXAMPLE_BRACKET', 'EXAMPLE_BRACKET', 'string'],
+    ['Example::process.env.EXAMPLE_DOT', 'EXAMPLE_DOT', 'string'],
+    ['Example::sessionStorage.removeItem(draft)', 'browser.sessionStorage.draft', 'string'],
+    ['Example::status=401', 'auth.is_authorized', 'boolean'],
+  ],
+  'executable environment, persistence, and authorization boundaries are discovered structurally',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/empty.ts', `
+    // process.env.COMMENT_ONLY
+    const inert = "localStorage.getItem('STRING_ONLY')";
+    if (false) {
+      process.env.DEAD_ENV;
+      localStorage.setItem('DEAD_STORAGE', 'x');
+    }
+    false && process.env.DEAD_AND;
+    true || process.env.DEAD_OR;
+    const selected = false ? process.env.DEAD_CONDITIONAL : 'live';
+    function afterReturn() {
+      return;
+      process.env.DEAD_AFTER_RETURN;
+    }
+    function afterThrow() {
+      throw new Error('stop');
+      sessionStorage.setItem('DEAD_AFTER_THROW', 'x');
+    }
+    if (0) process.env.DEAD_NUMERIC_IF;
+    while (0) process.env.DEAD_NUMERIC_WHILE;
+    0 && process.env.DEAD_NUMERIC_AND;
+    for (; false;) process.env.DEAD_FOR;
+    while (unknown) {
+      continue;
+      process.env.DEAD_AFTER_CONTINUE;
+    }
+    while (unknown) {
+      break;
+      process.env.DEAD_AFTER_BREAK;
+    }
+    switch (mode) {
+      case 'return':
+        return;
+        process.env.DEAD_SWITCH_RETURN;
+      case 'break':
+        break;
+        process.env.DEAD_SWITCH_BREAK;
+    }
+    function afterTryReturn() {
+      try { return; } finally {}
+      process.env.DEAD_AFTER_TRY_RETURN;
+    }
+    function afterFinallyReturn() {
+      try {} finally { return; }
+      process.env.DEAD_AFTER_FINALLY_RETURN;
+    }
+    function afterProvenNonThrowingReturn() {
+      try { 1; if (false) mayThrow(); return; } catch {}
+      process.env.DEAD_AFTER_PROVEN_NON_THROWING_RETURN;
+    }
+  `),
+  [],
+  'comments, inert strings, and statically dead branches cannot satisfy structural discovery',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource(
+    'ui/src/unknown.ts',
+    `if (unknownCondition) process.env.UNKNOWN_CONDITION_SETTING;`,
+  ).map(item => item.path),
+  ['UNKNOWN_CONDITION_SETTING'],
+  'unknown conditions remain conservatively discoverable',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/conservative-try.ts', `
+    function caughtThrow() {
+      try { throw new Error('caught'); } catch {}
+      process.env.LIVE_AFTER_CATCH;
+    }
+    function unknownTry(flag) {
+      try { if (flag) return; } finally {}
+      process.env.LIVE_AFTER_UNKNOWN_TRY;
+    }
+    function unknownFinally(flag) {
+      try {} finally { if (flag) return; }
+      process.env.LIVE_AFTER_UNKNOWN_FINALLY;
+    }
+    function maybeCaughtBeforeReturn(flag) {
+      try { if (flag) throw new Error('caught'); return; } catch {}
+      process.env.LIVE_AFTER_POSSIBLE_CATCH;
+    }
+    function caughtReturnCall() {
+      try { return mayThrow(); } catch {}
+      process.env.LIVE_AFTER_CAUGHT_RETURN_CALL;
+    }
+    function caughtCallBeforeReturn() {
+      try { mayThrow(); return; } catch {}
+      process.env.LIVE_AFTER_CAUGHT_CALL_BEFORE_RETURN;
+    }
+    function caughtGetter(object) {
+      try { return object.maybeGetter; } catch {}
+      process.env.LIVE_AFTER_CAUGHT_GETTER;
+    }
+    function caughtElementAccess(object, key) {
+      try { return object[key]; } catch {}
+      process.env.LIVE_AFTER_CAUGHT_ELEMENT_ACCESS;
+    }
+    function caughtNullDereference() {
+      try { return null.missing; } catch {}
+      process.env.LIVE_AFTER_CAUGHT_NULL_DEREFERENCE;
+    }
+    function caughtObjectDestructureNull() {
+      try { const { x } = null; return; } catch {}
+      process.env.LIVE_AFTER_CAUGHT_OBJECT_DESTRUCTURE_NULL;
+    }
+    function caughtArrayDestructureNull() {
+      try { const [x] = null; return; } catch {}
+      process.env.LIVE_AFTER_CAUGHT_ARRAY_DESTRUCTURE_NULL;
+    }
+    function caughtDefaultDestructure() {
+      try { const { x = mayThrow() } = {}; return; } catch {}
+      process.env.LIVE_AFTER_CAUGHT_DEFAULT_DESTRUCTURE;
+    }
+    function caughtGetterDestructure() {
+      try { const { x } = { get x() { throw new Error('getter'); } }; return; } catch {}
+      process.env.LIVE_AFTER_CAUGHT_GETTER_DESTRUCTURE;
+    }
+    function caughtUsing() {
+      try { using x = {}; return; } catch {}
+      process.env.LIVE_AFTER_CAUGHT_USING;
+    }
+    async function caughtAwaitUsing() {
+      try { await using x = {}; return; } catch {}
+      process.env.LIVE_AFTER_CAUGHT_AWAIT_USING;
+    }
+  `).map(item => item.path),
+  [
+    'LIVE_AFTER_CAUGHT_ARRAY_DESTRUCTURE_NULL',
+    'LIVE_AFTER_CAUGHT_AWAIT_USING',
+    'LIVE_AFTER_CAUGHT_CALL_BEFORE_RETURN',
+    'LIVE_AFTER_CAUGHT_DEFAULT_DESTRUCTURE',
+    'LIVE_AFTER_CAUGHT_ELEMENT_ACCESS',
+    'LIVE_AFTER_CAUGHT_GETTER',
+    'LIVE_AFTER_CAUGHT_GETTER_DESTRUCTURE',
+    'LIVE_AFTER_CAUGHT_NULL_DEREFERENCE',
+    'LIVE_AFTER_CAUGHT_OBJECT_DESTRUCTURE_NULL',
+    'LIVE_AFTER_CAUGHT_RETURN_CALL',
+    'LIVE_AFTER_CATCH',
+    'LIVE_AFTER_CAUGHT_USING',
+    'LIVE_AFTER_POSSIBLE_CATCH',
+    'LIVE_AFTER_UNKNOWN_FINALLY',
+    'LIVE_AFTER_UNKNOWN_TRY',
+  ],
+  'catch and unknown try/finally paths remain conservatively discoverable',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/finite-keys.ts', `
+    const ENV_KEY = 'FINITE_ENV';
+    const STORAGE_KEY = 'finite-storage';
+    process.env[ENV_KEY];
+    localStorage.getItem(STORAGE_KEY);
+  `).map(item => item.path),
+  ['browser.localStorage.finite-storage', 'FINITE_ENV'],
+  'finite lexical environment and storage keys resolve exactly',
+);
+for (const [label, source] of [
+  ['environment', `function dynamic(key: string) { return process.env[key]; }`],
+  ['local storage', `function dynamic(key: string) { return localStorage.getItem(key); }`],
+  ['session storage', `function dynamic(key: string) { sessionStorage.removeItem(key); }`],
+] as const) {
+  assert.throws(
+    () => collectDeclaredServerGlobalClaimsFromSource('ui/src/dynamic-key.ts', source),
+    /dynamic .* key cannot be resolved to one finite string/,
+    `${label} dynamic keys fail closed`,
+  );
+}
+const persistedDynamicSource = `
+  interface PersistedSettings { alpha: boolean; beta: number; }
+  function settingsStorageKey() {
+    if (typeof window === 'undefined') return null;
+    return \`jobLossGraph:\${window.location.pathname}\${window.location.search}\`;
+  }
+  function load() {
+    const key = settingsStorageKey();
+    const raw = localStorage.getItem(key);
+    const saved = JSON.parse(raw) as Partial<PersistedSettings>;
+    saved.alpha;
+    saved.beta;
+  }
+`;
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/persisted.ts', persistedDynamicSource)
+    .map(item => [item.symbol, item.path]),
+  [
+    ['load::hydrate::alpha', 'browser.localStorage.jobLossGraph.alpha'],
+    ['load::hydrate::beta', 'browser.localStorage.jobLossGraph.beta'],
+  ],
+  'a specialized runtime URL storage key is admitted only through its exact parsed persisted-settings structure',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource(
+    'ui/src/persisted.ts',
+    persistedDynamicSource.replace('    saved.beta;\n', ''),
+  ).map(item => item.path),
+  ['browser.localStorage.jobLossGraph.alpha'],
+  'removing one persisted field read removes that exact hydrate fact',
+);
+assert.throws(
+  () => collectDeclaredServerGlobalClaimsFromSource('ui/src/fake-persisted.ts', `
+    interface PersistedSettings { alpha: boolean; }
+    function load(key: string) {
+      const raw = localStorage.getItem(key);
+      const saved = JSON.parse(raw) as Partial<PersistedSettings>;
+      saved.alpha;
+    }
+  `),
+  /dynamic storage key cannot be resolved to one finite string/,
+  'a matching interface cannot bypass dynamic storage-key rejection',
+);
+for (const [label, mutation] of [
+  [
+    'shadowed helper',
+    persistedDynamicSource.replace(
+      '  function load() {',
+      "  function load() { function settingsStorageKey() { return 'arbitrary'; }",
+    ),
+  ],
+  [
+    'rebound helper',
+    persistedDynamicSource.replace(
+      '    const key = settingsStorageKey();',
+      "    settingsStorageKey = () => 'arbitrary';\n    const key = settingsStorageKey();",
+    ),
+  ],
+  [
+    'mixed helper return',
+    persistedDynamicSource.replace(
+      "    if (typeof window === 'undefined') return null;",
+      "    if (typeof window === 'undefined') return null;\n    if (unknown) return 'arbitrary';",
+    ),
+  ],
+] as const) {
+  assert.throws(
+    () => collectDeclaredServerGlobalClaimsFromSource('ui/src/persisted-review.ts', mutation),
+    /dynamic storage key cannot be resolved to one finite string/,
+    `${label} cannot authorize the specialized runtime storage key`,
+  );
+}
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/persisted-sibling.ts', persistedDynamicSource.replace(
+    '  function load() {',
+    "  function unrelated() { return 'arbitrary'; }\n  function load() { if (false) { function settingsStorageKey() { return 'arbitrary'; } }",
+  )).filter(item => item.path.includes('jobLossGraph')).map(item => item.path),
+  ['browser.localStorage.jobLossGraph.alpha', 'browser.localStorage.jobLossGraph.beta'],
+  'an unrelated sibling and dead shadow branch do not leak into exact helper binding',
+);
+assert.throws(
+  () => collectDeclaredServerGlobalClaimsFromSource('ui/src/persisted-unknown-branch.ts', persistedDynamicSource.replace(
+    "    if (typeof window === 'undefined') return null;",
+    "    if (typeof window === 'undefined') return null;\n    if (unknown) return 'arbitrary';",
+  )),
+  /dynamic storage key cannot be resolved to one finite string/,
+  'an arbitrary return behind an unknown branch is conservatively rejected',
+);
+assert.throws(
+  () => collectDeclaredServerGlobalClaimsFromSource('ui/src/persisted-fallthrough.ts', persistedDynamicSource.replace(
+    '    return `jobLossGraph:${window.location.pathname}${window.location.search}`;',
+    '    if (unknown) return `jobLossGraph:${window.location.pathname}${window.location.search}`;',
+  )),
+  /dynamic storage key cannot be resolved to one finite string/,
+  'an exact URL return on only one branch cannot authorize implicit helper fallthrough',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/environment-spread.ts', `
+    function copyEnvironment() { return { ...process.env }; }
+  `).map(item => [item.symbol, item.path, item.value_contract.ui_type]),
+  [['copyEnvironment::process.env.pass-through', 'process.env.inherited', 'object']],
+  'a general process environment spread emits an exact pass-through effect',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/spawn-spread.ts', `
+    function launch() { spawn('tool', [], { env: { ...process.env } }); }
+  `).map(item => item.path),
+  ['spawn.env.inherited'],
+  'a spawn environment spread emits only its distinct spawn pass-through contract',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource(
+    'ui/src/example.ts',
+    'function Example() { return process.env.NEW_SETTING_KEY; }',
+  ).map(item => item.path),
+  ['NEW_SETTING_KEY'],
+  'a new executable environment key becomes a distinct emitted fact',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/example.ts', `
+    async function loadCustomSetting() {
+      const key = 'CUSTOM_ROOT';
+      return prisma.settings.findFirst({ where: { key } });
+    }
+  `).map(item => [item.symbol, item.path, item.value_contract.ui_type]),
+  [['loadCustomSetting::settings.CUSTOM_ROOT', 'settings.CUSTOM_ROOT', 'path']],
+  'a new executable database settings key is discovered from its lexical binding',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/cron/actions/startJob.ts', `
+    import { getHFToken } from '../paths';
+    async function launch() { return getHFToken(); }
+    export default async function startJob() { return launch(); }
+  `).map(item => [item.symbol, item.path]),
+  [['startJob::settings.HF_TOKEN', 'settings.HF_TOKEN']],
+  'an imported settings getter is attributed to the public cron operation',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/example.ts', `
+    async function mutateState() {
+      await prisma.job.update({ data: { status: 'queued', stop: false, pid: null } });
+      await transaction.queue.update({ data: { is_running: true } });
+    }
+  `).map(item => [item.symbol, item.path, item.value_contract.ui_type, item.value_contract.accepted_values]),
+  [
+    ['mutateState::job.pid', 'job.pid', 'integer', undefined],
+    ['mutateState::job.status', 'job.status', 'string', [{ kind: 'string', value: 'queued' }]],
+    ['mutateState::job.stop', 'job.stop', 'boolean', [{ kind: 'boolean', value: false }]],
+    ['mutateState::queue.is_running', 'queue.is_running', 'boolean', [{ kind: 'boolean', value: true }]],
+  ],
+  'server-owned job and queue writes emit exact typed state facts',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/app/jobs/new/example.ts', `
+    function importConfig(parsed, settings, setJobConfig) {
+      parsed.config.process[0].training_folder = settings.TRAINING_FOLDER;
+      setJobConfig(settings.TRAINING_FOLDER, 'config.process[0].training_folder');
+    }
+  `).map(item => [item.symbol, item.path, item.value_contract.ui_type]),
+  [
+    ['importConfig::import::config.process[*].training_folder', 'config.process[*].training_folder', 'path'],
+    ['importConfig::settings.TRAINING_FOLDER', 'settings.TRAINING_FOLDER', 'path'],
+    ['importConfig::settings.TRAINING_FOLDER::role=settings-property-read/arg:setJobConfig[0]', 'settings.TRAINING_FOLDER', 'path'],
+    ['importConfig::settings.TRAINING_FOLDER::role=settings-property-read/rhs:parsed.config.process[*].training_folder', 'settings.TRAINING_FOLDER', 'path'],
+    ['importConfig::settings::config.process[*].training_folder', 'config.process[*].training_folder', 'path'],
+  ],
+  'config import overrides and settings-mediated setters are structural facts',
+);
+const settingsInputSource = `
+  import useSettings from '@/hooks/useSettings';
+  function Settings() {
+    const { settings, setSettings } = useSettings();
+    const setOther = value => value;
+    const handleChange = event => {
+      const { name, value } = event.target;
+      setSettings(previous => ({ ...previous, [name]: value }));
+    };
+    const handleSubmit = event => event.preventDefault();
+    return <form>
+      <label htmlFor="HF_TOKEN">Hugging Face Token</label>
+      <input id="HF_TOKEN" name="HF_TOKEN" type="password" value={settings.HF_TOKEN} onChange={handleChange} />
+    </form>;
+  }
+`;
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/app/settings/page.tsx', settingsInputSource)
+    .filter(item => item.kind === 'setting')
+    .map(item => [item.symbol, item.path, item.ui_label.value]),
+  [[
+    'Settings::input::settings.HF_TOKEN::Hugging Face Token',
+    'settings.HF_TOKEN',
+    { kind: 'string', value: 'Hugging Face Token' },
+  ]],
+  'settings inputs are discovered from exact JSX bindings and their associated label',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/app/settings/page.tsx', `
+    // <input name="HF_TOKEN" value={settings.HF_TOKEN} onChange={handleChange} />
+    const inert = '<label htmlFor="HF_TOKEN">Hugging Face Token</label>';
+  `),
+  [],
+  'comments and strings cannot masquerade as settings JSX controls',
+);
+assert.throws(
+  () => collectDeclaredServerGlobalClaimsFromSource(
+    'ui/src/app/settings/page.tsx',
+    settingsInputSource.replace('name="HF_TOKEN"', 'name="OTHER_TOKEN"'),
+  ),
+  /settings input name must match its bound key/,
+  'a partially matching settings control fails closed',
+);
+assert.throws(
+  () => collectDeclaredServerGlobalClaimsFromSource(
+    'ui/src/app/settings/page.tsx',
+    settingsInputSource.replace('onChange={handleChange}', 'onChange={handleSubmit}'),
+  ),
+  /settings input onChange must update settings from the bound input/,
+  'a settings input cannot bind an unrelated declared handler',
+);
+for (const [label, source] of [
+  ['sibling setter', settingsInputSource.replace('setSettings(previous =>', 'setOther(previous =>')],
+  ['shadowed setter', settingsInputSource.replace('      const { name, value } = event.target;', '      const { name, value } = event.target;\n      const setSettings = setOther;')],
+  ['rebound setter', settingsInputSource.replace('      const { name, value } = event.target;', '      const { name, value } = event.target;\n      setSettings = setOther;')],
+] as const) {
+  assert.throws(
+    () => collectDeclaredServerGlobalClaimsFromSource('ui/src/app/settings/page.tsx', source),
+    /settings input onChange must update settings from the bound input/,
+    `a ${label} cannot satisfy the settings state owner`,
+  );
+}
+for (const [label, handlerBody] of [
+  [
+    'statically dead exact setter',
+    `
+      const { name, value } = event.target;
+      if (false) setSettings(previous => ({ ...previous, [name]: value }));
+      setOther(previous => ({ ...previous, [name]: value }));
+    `,
+  ],
+  [
+    'nested uninvoked exact setter',
+    `
+      const { name, value } = event.target;
+      function neverCalled() { setSettings(previous => ({ ...previous, [name]: value })); }
+      setOther(previous => ({ ...previous, [name]: value }));
+    `,
+  ],
+] as const) {
+  assert.throws(
+    () => collectDeclaredServerGlobalClaimsFromSource(
+      'ui/src/app/settings/page.tsx',
+      settingsInputSource.replace(
+        `
+      const { name, value } = event.target;
+      setSettings(previous => ({ ...previous, [name]: value }));
+    `,
+        handlerBody,
+      ),
+    ),
+    /settings input onChange must update settings from the bound input/,
+    `a ${label} cannot mask the live wrong settings setter`,
+  );
+}
+const authInputSource = `
+  import { useState } from 'react';
+  function AuthWrapper() {
+    const [token, setToken] = useState('');
+    function handleSubmit() { localStorage.setItem('AI_TOOLKIT_AUTH', token); }
+    return <form><label htmlFor="token">Password</label><input id="token" name="token" type="password"
+      value={token} onChange={event => setToken(event.target.value)} /></form>;
+  }
+`;
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/components/AuthWrapper.tsx', authInputSource)
+    .filter(item => item.kind === 'setting')
+    .map(item => [item.symbol, item.path]),
+  [['AuthWrapper::input::browser.localStorage.AI_TOOLKIT_AUTH::Password', 'browser.localStorage.AI_TOOLKIT_AUTH']],
+  'the authentication input is joined structurally to its persisted token binding',
+);
+assert.throws(
+  () => collectDeclaredServerGlobalClaimsFromSource(
+    'ui/src/components/AuthWrapper.tsx',
+    authInputSource.replace('setToken(event.target.value)', 'setOtherToken(event.target.value)'),
+  ),
+  /persisted input onChange must update its exact state binding/,
+  'a persisted input cannot update a different state setter',
+);
+assert.throws(
+  () => collectDeclaredServerGlobalClaimsFromSource(
+    'ui/src/components/AuthWrapper.tsx',
+    authInputSource.replace(
+      'onChange={event => setToken(event.target.value)}',
+      'onChange={event => { const setToken = setOtherToken; setToken(event.target.value); }}',
+    ),
+  ),
+  /persisted input onChange must update its exact state binding/,
+  'a shadowed authentication setter cannot satisfy the React state owner',
+);
+for (const [label, replacement] of [
+  [
+    'statically dead exact authentication setter',
+    'onChange={event => { if (false) setToken(event.target.value); setOtherToken(event.target.value); }}',
+  ],
+  [
+    'nested uninvoked exact authentication setter',
+    'onChange={event => { function neverCalled() { setToken(event.target.value); } setOtherToken(event.target.value); }}',
+  ],
+] as const) {
+  assert.throws(
+    () => collectDeclaredServerGlobalClaimsFromSource(
+      'ui/src/components/AuthWrapper.tsx',
+      authInputSource.replace('onChange={event => setToken(event.target.value)}', replacement),
+    ),
+    /persisted input onChange must update its exact state binding/,
+    `${label} cannot mask the live wrong authentication setter`,
+  );
+}
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/components/AuthWrapper.tsx', `
+    // localStorage.setItem('AI_TOOLKIT_AUTH', token)
+    const inert = '<input name="token" type="password" value={token} />';
+  `),
+  [],
+  'comments and strings cannot masquerade as the authentication control',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/hooks/useSettings.tsx', `
+    export default function useSettings() {
+      useEffect(() => apiClient.get('/api/settings').then(res => res.data).then(data => {
+        setSettings({
+          HF_TOKEN: data.HF_TOKEN || '',
+          MODELS_PATH: data.MODELS_PATH || '',
+        });
+      }), []);
+    }
+  `).map(item => [item.symbol, item.path, item.value_contract.ui_type]),
+  [
+    ['useSettings::hydrate::settings.HF_TOKEN', 'settings.HF_TOKEN', 'string'],
+    ['useSettings::hydrate::settings.MODELS_PATH', 'settings.MODELS_PATH', 'path'],
+  ],
+  'settings hydration is derived from the executable response-to-state object',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/app/api/jobs/route.ts', `
+    export async function POST(request: Request) {
+      const body = await request.json();
+      const gpu_ids = resolveGpuIds(body.gpu_ids, isMac());
+      return saveJob({ gpu_ids });
+    }
+  `).map(item => [item.symbol, item.path, item.value_contract.ui_type]),
+  [['POST::gpuids', 'gpuids', 'string']],
+  'a resolved GPU selection passed into the job save operation emits structurally',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/app/api/jobs/[jobID]/start/route.ts', `
+    export async function GET() {
+      const mutateQueue = async () => {
+        await prisma.job.update({ data: { status: 'queued', stop: false } });
+      };
+      await mutateQueue();
+    }
+  `).map(item => item.symbol),
+  ['GET::mutateQueue::job.status', 'GET::mutateQueue::job.stop'],
+  'nested route helpers retain their lexical operation beneath the exported route',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/utils/api.ts', `
+    apiClient.interceptors.request.use(config => {
+      const token = localStorage.getItem('AI_TOOLKIT_AUTH');
+      config.headers.Authorization = \`Bearer \${token}\`;
+      return config;
+    });
+    apiClient.interceptors.response.use(response => response, error => {
+      if (error.response.status === 401) localStorage.removeItem('AI_TOOLKIT_AUTH');
+    });
+  `).map(item => item.symbol),
+  [
+    'apiClient.request::Authorization.bearer',
+    'apiClient.request::localStorage.getItem(AI_TOOLKIT_AUTH)',
+    'apiClient.response::localStorage.removeItem(AI_TOOLKIT_AUTH)',
+    'apiClient.response::status=401',
+  ],
+  'interceptor callbacks are named from their executable request/response registration',
+);
+for (const [category, source, removed] of [
+  ['environment', `function duplicate() { function primary() { process.env.SAME_KEY; } function fallback() { process.env.SAME_KEY; } }`, `function duplicate() { function primary() { process.env.SAME_KEY; } }`],
+  ['storage', `function duplicate() { function hydrate() { localStorage.getItem('same'); } function refresh() { localStorage.getItem('same'); } }`, `function duplicate() { function hydrate() { localStorage.getItem('same'); } }`],
+  ['authorization', `function duplicate() { function primary() { headers.Authorization = \`Bearer \${one}\`; } function retry() { headers.Authorization = \`Bearer \${two}\`; } }`, `function duplicate() { function primary() { headers.Authorization = \`Bearer \${one}\`; } }`],
+  ['settings', `async function duplicate() { async function primary() { await prisma.settings.findFirst({ where: { key: 'SAME_KEY' } }); } async function fallback() { await prisma.settings.findFirst({ where: { key: 'SAME_KEY' } }); } }`, `async function duplicate() { async function primary() { await prisma.settings.findFirst({ where: { key: 'SAME_KEY' } }); } }`],
+  ['job state', `async function duplicate() { async function claim() { await prisma.job.update({ data: { status: 'queued' } }); } async function retry() { await prisma.job.update({ data: { status: 'queued' } }); } }`, `async function duplicate() { async function claim() { await prisma.job.update({ data: { status: 'queued' } }); } }`],
+] as const) {
+  assert.notDeepEqual(
+    collectDeclaredServerGlobalClaimsFromSource('ui/src/duplicate.ts', source),
+    collectDeclaredServerGlobalClaimsFromSource('ui/src/duplicate.ts', removed),
+    `removing one executable duplicate ${category} occurrence must change emitted facts`,
+  );
+}
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/reordered.ts', `
+    function owner() {
+      function first() { process.env.SAME_KEY; }
+      function second() { process.env.SAME_KEY; }
+    }
+  `),
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/reordered.ts', `
+    function owner() {
+      function second() { process.env.SAME_KEY; }
+      function first() { process.env.SAME_KEY; }
+    }
+  `),
+  'semantic sibling identities do not leak across nested functions or depend on source order',
+);
+assert.throws(
+  () => collectDeclaredServerGlobalClaimsFromSource(
+    'ui/src/ambiguous.ts',
+    `function ambiguous() { process.env.SAME_KEY; process.env.SAME_KEY; }`,
+  ),
+  /indistinguishable duplicate structural fact/,
+  'same-role duplicate occurrences fail closed instead of being silently collapsed or numbered',
+);
 
 const modelArchProjectionBoundary = {
   name: true,
@@ -1438,6 +2053,18 @@ for (const [label, mutated] of [
 
 const liveRoot = process.env.TRAINING_BOOK_REPOSITORY_ROOT;
 if (liveRoot !== undefined) {
+  const declaredTypeScriptSources = collectDeclaredTypeScriptSourcePaths(liveRoot);
+  assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
+  assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));
+  assert.ok(declaredTypeScriptSources.includes('ui/src/components/Card.tsx'), 'declared files with no relevant facts remain part of source coverage');
+  assert.deepEqual(
+    collectDeclaredServerGlobalClaimsFromSource(
+      'ui/src/components/Card.tsx',
+      `${readFileSync(join(liveRoot, 'ui/src/components/Card.tsx'), 'utf8')}\nconst added = process.env.PREVIOUSLY_ZERO_SETTING;`,
+    ).map(item => item.path),
+    ['PREVIOUSLY_ZERO_SETTING'],
+    'a relevant occurrence added to a previously-zero declared file becomes emitted',
+  );
   const liveFacts = collectTrainingBookUiFacts(liveRoot);
   const liveSimpleJobSource = readFileSync(join(liveRoot, 'ui/src/app/jobs/new/SimpleJob.tsx'), 'utf8');
   validateArchitectureProjectedControlTemplates(liveSimpleJobSource, 'ui/src/app/jobs/new/SimpleJob.tsx', true, true);
@@ -1629,10 +2256,28 @@ if (liveRoot !== undefined) {
     ['1024', '1280', '1328', '1536', '2048', '256', '512', '768'],
     'finite nested resolution maps must expand to exact labels',
   );
-  assert.equal(liveFacts.global_settings.length, 91);
+  assert.ok(liveFacts.global_settings.length > 91, 'structural discovery includes the formerly omitted persisted and derived settings');
+  for (const [symbol, path, uiType] of [
+    ['JobLossGraph::persist::useLogScale', 'browser.localStorage.jobLossGraph.useLogScale', 'boolean'],
+    ['JobLossGraph::persist::showTrend', 'browser.localStorage.jobLossGraph.showTrend', 'boolean'],
+    ['JobLossGraph::persist::smoothing', 'browser.localStorage.jobLossGraph.smoothing', 'number'],
+    ['JobLossGraph::persist::plotStride', 'browser.localStorage.jobLossGraph.plotStride', 'number'],
+    ['JobLossGraph::persist::clipOutliers', 'browser.localStorage.jobLossGraph.clipOutliers', 'boolean'],
+    ['JobLossGraph::persist::enabled', 'browser.localStorage.jobLossGraph.enabled', 'object'],
+    ['startJob::spawn.env.AITK_JOB_ID', 'spawn.env.AITK_JOB_ID', 'string'],
+    ['startJob::spawn.env.CUDA_DEVICE_ORDER', 'spawn.env.CUDA_DEVICE_ORDER', 'string'],
+    ['startJob::spawn.env.CUDA_VISIBLE_DEVICES', 'spawn.env.CUDA_VISIBLE_DEVICES', 'string'],
+    ['startJob::spawn.env.IS_AI_TOOLKIT_UI', 'spawn.env.IS_AI_TOOLKIT_UI', 'string'],
+    ['startJob::spawn.env.PYTHONUNBUFFERED', 'spawn.env.PYTHONUNBUFFERED', 'string'],
+  ] as const) {
+    assert.ok(
+      liveFacts.global_settings.some(item => item.symbol === symbol && item.path === path && item.value_contract.ui_type === uiType),
+      `missing formerly omitted structural setting ${symbol}`,
+    );
+  }
   assert.deepEqual(
     liveFacts.global_settings
-      .filter(item => item.source_path === 'ui/src/app/settings/page.tsx')
+      .filter(item => item.source_path === 'ui/src/app/settings/page.tsx' && item.kind === 'setting')
       .map(item => [item.path, item.value_contract.ui_type, item.value_contract.widget_kind]),
     [
       ['settings.DATASETS_FOLDER', 'path', 'text'],
@@ -1675,13 +2320,18 @@ if (liveRoot !== undefined) {
     ],
   ] as const) {
     const sourceText = readFileSync(join(liveRoot, path), 'utf8');
-    assert.throws(
-      () => collectDeclaredServerGlobalClaimsFromSource(
-        path,
-        sourceText.replace(before, after),
-      ),
-      message,
-    );
+    if (path === 'ui/src/app/settings/page.tsx') {
+      assert.throws(
+        () => collectDeclaredServerGlobalClaimsFromSource(path, sourceText.replace(before, after)),
+        message,
+      );
+    } else {
+      assert.notDeepEqual(
+        collectDeclaredServerGlobalClaimsFromSource(path, sourceText.replace(before, after)),
+        collectDeclaredServerGlobalClaimsFromSource(path, sourceText),
+        `${path} mutation must change a structural fact`,
+      );
+    }
   }
   assert.deepEqual(
     settingClaims
@@ -1701,8 +2351,29 @@ if (liveRoot !== undefined) {
       'ui/cron/fileServer.ts',
       'ui/cron/paths.ts',
       'ui/cron/worker.ts',
+      'ui/src/app/api/audio/art/[...audioPath]/route.ts',
+      'ui/src/app/api/caption/get/route.ts',
+      'ui/src/app/api/caption/getBatch/route.ts',
+      'ui/src/app/api/cpu/route.ts',
+      'ui/src/app/api/datasets/[datasetName]/masks/route.ts',
+      'ui/src/app/api/datasets/list/route.ts',
+      'ui/src/app/api/datasets/listImages/route.ts',
+      'ui/src/app/api/datasets/upload/route.ts',
+      'ui/src/app/api/files/[...filePath]/route.ts',
+      'ui/src/app/api/files/delete/route.ts',
+      'ui/src/app/api/gpu/route.ts',
+      'ui/src/app/api/img/[...imagePath]/route.ts',
+      'ui/src/app/api/img/caption/route.ts',
+      'ui/src/app/api/img/delete/route.ts',
+      'ui/src/app/api/img/upload/route.ts',
+      'ui/src/app/api/jobs/[jobID]/delete/route.ts',
+      'ui/src/app/api/jobs/[jobID]/files/route.ts',
+      'ui/src/app/api/jobs/[jobID]/log/route.ts',
+      'ui/src/app/api/jobs/[jobID]/loss/route.ts',
       'ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts',
+      'ui/src/app/api/jobs/[jobID]/plugin/route.ts',
       'ui/src/app/api/jobs/[jobID]/sample_now/route.ts',
+      'ui/src/app/api/jobs/[jobID]/samples/route.ts',
       'ui/src/app/api/jobs/[jobID]/save_now/route.ts',
       'ui/src/app/api/jobs/[jobID]/start/route.ts',
       'ui/src/app/api/jobs/[jobID]/stop/route.ts',
@@ -1710,16 +2381,23 @@ if (liveRoot !== undefined) {
       'ui/src/app/api/ostris_cloud/route.ts',
       'ui/src/app/api/queue/[queueID]/start/route.ts',
       'ui/src/app/api/queue/[queueID]/stop/route.ts',
+      'ui/src/app/api/scripts/route.ts',
       'ui/src/app/api/settings/route.ts',
+      'ui/src/app/api/zip/route.ts',
       'ui/src/app/jobs/new/SimpleJob.tsx',
       'ui/src/app/jobs/new/page.tsx',
       'ui/src/app/layout.tsx',
       'ui/src/app/settings/page.tsx',
       'ui/src/components/AuthWrapper.tsx',
+      'ui/src/components/CaptionDatasetModal.tsx',
+      'ui/src/components/JobLossGraph.tsx',
       'ui/src/components/Sidebar.tsx',
       'ui/src/components/ThemeProvider.tsx',
       'ui/src/hooks/useSettings.tsx',
       'ui/src/middleware.ts',
+      'ui/src/server/datasetPresetRouteHandlers.ts',
+      'ui/src/server/jobDatasetPresetPrismaStore.ts',
+      'ui/src/server/macstats.ts',
       'ui/src/server/prisma.ts',
       'ui/src/server/settings.ts',
       'ui/src/utils/api.ts',
