@@ -2325,6 +2325,10 @@ if (liveRoot !== undefined) {
     ['platform helper alias before declaration', migrateJobConfigSource
       .replace('  if (isMac()) {', '  if (platformCheck()) {')
       .replace('  return jobConfig;', '  const platformCheck = isMac;\n  return jobConfig;')],
+    ['dynamic destructure helper rebind', migrateJobConfigSource.replace(
+      '  if (isMac()) {',
+      '  let platformCheck = isMac;\n  ({ [runtimeKey]: platformCheck } = runtimeObject);\n  if (platformCheck()) {',
+    )],
     ['local helper call invocation', migrateJobConfigSource.replace(
       '  return jobConfig;',
       '  function mutate(config) { config.config.process[0].train.steps = 99; }\n  mutate.call(null, jobConfig);\n  return jobConfig;',
@@ -2365,6 +2369,26 @@ if (liveRoot !== undefined) {
       '  return jobConfig;',
       '  const assignConfig = Object.assign;\n  const trainConfig = jobConfig.config.process[0].train;\n  assignConfig(trainConfig, { steps: 99 });\n  return jobConfig;',
     )],
+    ['destructured Object.assign config mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  const { assign: assignConfig } = Object;\n  assignConfig(jobConfig.config.process[0].train, { steps: 99 });\n  return jobConfig;',
+    )],
+    ['computed Object.assign config mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      "  Object['assign'](jobConfig.config.process[0].train, { steps: 99 });\n  return jobConfig;",
+    )],
+    ['assigned destructured Object.assign config mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  let assignConfig;\n  ({ assign: assignConfig } = Object);\n  assignConfig(jobConfig.config.process[0].train, { steps: 99 });\n  return jobConfig;',
+    )],
+    ['assigned config alias mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  let trainConfig;\n  trainConfig = jobConfig.config.process[0].train;\n  trainConfig.steps = 99;\n  return jobConfig;',
+    )],
+    ['destructured config alias mutation', migrateJobConfigSource.replace(
+      '  return jobConfig;',
+      '  const { config: migratedConfig } = jobConfig;\n  migratedConfig.process[0].train.steps = 99;\n  return jobConfig;',
+    )],
     ['Object.assign call config mutation', migrateJobConfigSource.replace(
       '  return jobConfig;',
       '  Object.assign.call(null, jobConfig.config.process[0].train, { steps: 99 });\n  return jobConfig;',
@@ -2385,6 +2409,14 @@ if (liveRoot !== undefined) {
       '    jobConfig.config.process[0].sample.samples = newSamples;',
       "    const firstSample = newSamples[0];\n    firstSample.seed = 1;\n    jobConfig.config.process[0].sample.samples = newSamples;",
     )],
+    ['prompt destructured element mutation', migrateJobConfigSource.replace(
+      '    jobConfig.config.process[0].sample.samples = newSamples;',
+      "    const [firstSample] = newSamples;\n    firstSample.seed = 1;\n    jobConfig.config.process[0].sample.samples = newSamples;",
+    )],
+    ['prompt assigned destructured element mutation', migrateJobConfigSource.replace(
+      '    jobConfig.config.process[0].sample.samples = newSamples;',
+      "    let firstSample;\n    [firstSample] = newSamples;\n    firstSample.seed = 1;\n    jobConfig.config.process[0].sample.samples = newSamples;",
+    )],
     ['prompt item alias extra field', migrateJobConfigSource.replace(
       `      newSamples.push({
         prompt: prompt,
@@ -2403,7 +2435,7 @@ if (liveRoot !== undefined) {
         mutated,
         'ui/src/app/jobs/new/jobConfig.ts',
       ),
-      /migrateJobConfig.*behavior|unsupported reachable mutation|unsupported local invocation/,
+      /migrateJobConfig.*behavior|unsupported reachable mutation|unsupported local invocation|computed property names are unsupported/,
       `migrateJobConfig rejects changed ${label}`,
     );
   }
@@ -2469,6 +2501,23 @@ if (liveRoot !== undefined) {
     migrateClaims,
     'source-ordered aliases of the exact isMac import preserve platform behavior',
   );
+  for (const [label, replacement] of [
+    ['later assignment', '  let platformCheck;\n  platformCheck = isMac;\n  if (platformCheck()) {'],
+    ['array destructure', '  const [platformCheck] = [isMac];\n  if (platformCheck()) {'],
+    ['object destructure', '  const { isMac: platformCheck } = { isMac };\n  if (platformCheck()) {'],
+    ['array assignment destructure', '  let platformCheck;\n  [platformCheck] = [isMac];\n  if (platformCheck()) {'],
+    ['object assignment destructure', '  let platformCheck;\n  ({ isMac: platformCheck } = { isMac });\n  if (platformCheck()) {'],
+    ['statically live assignment', '  let platformCheck;\n  if (true) platformCheck = isMac;\n  if (platformCheck()) {'],
+  ] as const) {
+    assert.deepEqual(
+      collectMigrateJobConfigBehaviorClaimsFromSource(
+        migrateJobConfigSource.replace('  if (isMac()) {', replacement),
+        'ui/src/app/jobs/new/jobConfig.ts',
+      ),
+      migrateClaims,
+      `source-ordered ${label} helper origin preserves platform behavior`,
+    );
+  }
   const aliasedPromptMapping = migrateJobConfigSource.replace(
     `      newSamples.push({
         prompt: prompt,
@@ -2738,6 +2787,10 @@ if (liveRoot !== undefined) {
       "    setJobConfig(false, 'config.process[0].model.low_vram');",
       "    commit(false, 'config.process[0].model.low_vram');\n    const commit = setJobConfig;",
     )],
+    ['setter alias unknown-branch rebind', modelArchChangeSource.replace(
+      "    setJobConfig(false, 'config.process[0].model.low_vram');",
+      "    let commit = setJobConfig;\n    if (runtimeCondition) commit = otherSetter;\n    commit(false, 'config.process[0].model.low_vram');",
+    )],
     ['setter call invocation', modelArchChangeSource.replace(
       '  // update samples',
       "  setJobConfig.call(null, 99, 'config.process[0].train.steps');\n\n  // update samples",
@@ -2761,6 +2814,14 @@ if (liveRoot !== undefined) {
     ['Reflect.set architecture config mutation', modelArchChangeSource.replace(
       '  // update samples',
       "  Reflect.set(jobConfig.config.process[0].train, 'steps', 99);\n\n  // update samples",
+    )],
+    ['destructured Reflect.set architecture config mutation', modelArchChangeSource.replace(
+      '  // update samples',
+      "  const { set: reflectSet } = Reflect;\n  reflectSet(jobConfig.config.process[0].train, 'steps', 99);\n\n  // update samples",
+    )],
+    ['computed Reflect.set architecture config mutation', modelArchChangeSource.replace(
+      '  // update samples',
+      "  Reflect['set'](jobConfig.config.process[0].train, 'steps', 99);\n\n  // update samples",
     )],
     ['arrow IIFE setter', modelArchChangeSource.replace(
       '  // update samples',
@@ -2814,6 +2875,10 @@ if (liveRoot !== undefined) {
     ['helper model alias mutation', modelArchChangeSource, animaPathSource.replace(
       '  const cleaned = { ...model };',
       "  const sourceModel = model;\n  sourceModel.other_path = 'changed';\n  const cleaned = { ...model };",
+    )],
+    ['helper destructured model alias mutation', modelArchChangeSource, animaPathSource.replace(
+      '  const cleaned = { ...model };',
+      "  const { sourceModel } = { sourceModel: model };\n  sourceModel.other_path = 'changed';\n  const cleaned = { ...model };",
     )],
     ['helper cleaned API mutation', modelArchChangeSource, animaPathSource.replace(
       '  return cleaned;',
@@ -2949,6 +3014,22 @@ if (liveRoot !== undefined) {
     ['immediate bind', modelArchChangeSource.replace(
       "setJobConfig(false, 'config.process[0].model.low_vram');",
       "setJobConfig.bind(null, false)('config.process[0].model.low_vram');",
+    )],
+    ['later assignment', modelArchChangeSource.replace(
+      "setJobConfig(false, 'config.process[0].model.low_vram');",
+      "let commit;\n    commit = setJobConfig;\n    commit(false, 'config.process[0].model.low_vram');",
+    )],
+    ['array destructure', modelArchChangeSource.replace(
+      "setJobConfig(false, 'config.process[0].model.low_vram');",
+      "const [commit] = [setJobConfig];\n    commit(false, 'config.process[0].model.low_vram');",
+    )],
+    ['array assignment destructure', modelArchChangeSource.replace(
+      "setJobConfig(false, 'config.process[0].model.low_vram');",
+      "let commit;\n    [commit] = [setJobConfig];\n    commit(false, 'config.process[0].model.low_vram');",
+    )],
+    ['statically dead rebind', modelArchChangeSource.replace(
+      "setJobConfig(false, 'config.process[0].model.low_vram');",
+      "let commit = setJobConfig;\n    if (false) commit = otherSetter;\n    commit(false, 'config.process[0].model.low_vram');",
     )],
   ] as const) {
     assert.deepEqual(
