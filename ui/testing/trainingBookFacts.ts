@@ -508,6 +508,14 @@ function staticNullishValue(expression: ts.Expression, bindings?: LexicalBinding
 
 class LexicalBindings {
   private readonly events = new Map<ts.Node, Map<string, LexicalBindingEvent[]>>();
+  private readonly memberTimelines = new Map<ts.FunctionLikeDeclaration, Array<{
+    node: ts.Node;
+    substitutions: InvocationSubstitutions;
+    execution: 'known' | 'unmodeled-callback';
+    sequence: number;
+    current: ts.FunctionLikeDeclaration;
+  }>>();
+  private activeMemberTimelineBuildDepth = 0;
 
   constructor(private readonly source: ts.SourceFile) {}
 
@@ -566,26 +574,32 @@ class LexicalBindings {
   }
 
   memberProvenanceCandidates(base: ts.Expression, key: string, at: ts.Node): AliasCandidate[] | undefined {
-    const root = (expression: ts.Expression, seen = new Set<ts.Identifier>()): ts.Node | string | undefined => {
+    const root = (
+      expression: ts.Expression,
+      substitutions: InvocationSubstitutions = new Map(),
+      seen = new Set<ts.Identifier>(),
+    ): ts.Node | string | undefined => {
       expression = unwrap(expression);
       if (!ts.isIdentifier(expression)) return expression;
       const declaration = this.bindingDeclaration(expression);
       if (declaration === undefined) return `global:${expression.text}`;
       if (seen.has(declaration)) return undefined;
+      const substitution = substitutions.get(declaration);
+      if (substitution !== undefined) return root(substitution, substitutions, new Set(seen).add(declaration));
       const initializer = this.declarationInitializer(expression);
-      return initializer === undefined ? declaration : root(initializer, new Set(seen).add(declaration));
+      return initializer === undefined ? declaration : root(initializer, substitutions, new Set(seen).add(declaration));
     };
     const expectedRoot = root(base);
     if (expectedRoot === undefined) return ['tainted'];
     let owner: ts.Node | undefined = at;
     while (owner !== undefined && !isLexicalFunction(owner) && !ts.isSourceFile(owner)) owner = owner.parent;
     if (owner === undefined) return undefined;
-    type MemberEvent = { initializer?: ts.Expression; invalid: boolean; position: number; rawPosition: number; branch?: NonNullable<LexicalBindingEvent['branch']> };
+    type MemberEvent = { initializer?: ts.Expression; invalid: boolean; position: number; branch?: NonNullable<LexicalBindingEvent['branch']> };
     const events: MemberEvent[] = [];
-    const branchAt = (node: ts.Node): MemberEvent['branch'] | 'invalid' | undefined => {
+    const branchAt = (node: ts.Node, scope: ts.Node): MemberEvent['branch'] | 'invalid' | undefined => {
       let current: ts.Node | undefined = node;
       let result: MemberEvent['branch'] | undefined;
-      while (current?.parent !== undefined && current.parent !== owner) {
+      while (current?.parent !== undefined && current.parent !== scope) {
         const parent: ts.Node = current.parent;
         if (ts.isIfStatement(parent)) {
           const truth = staticTruthValue(parent.expression);
@@ -613,50 +627,61 @@ class LexicalBindings {
       }
       return result;
     };
-    const visit = (node: ts.Node): void => {
-      if (node !== owner && ts.isFunctionLike(node)) return;
-      if (isStaticallyDead(node)) return;
+    let atPosition: number | undefined;
+    const recordNode = (
+      node: ts.Node,
+      substitutions: InvocationSubstitutions,
+      execution: 'known' | 'unmodeled-callback',
+      position: number,
+      scope: ts.Node,
+    ): void => {
       const record = (target: ts.Expression, initializer: ts.Expression | undefined, invalid: boolean): void => {
         const member = staticMember(target);
-        if (member === undefined || member.key !== key || root(member.base) !== expectedRoot) return;
-        const branch = branchAt(node);
-        events.push({ initializer, invalid: invalid || branch === 'invalid', branch: branch === 'invalid' ? undefined : branch, position: branch !== undefined && branch !== 'invalid' ? branch.owner.end : node.end, rawPosition: node.end });
+        if (member === undefined || member.key !== key || root(member.base, substitutions) !== expectedRoot) return;
+        const branch = branchAt(node, scope);
+        events.push({ initializer, invalid: invalid || execution !== 'known' || branch === 'invalid', branch: branch === 'invalid' ? undefined : branch, position });
       };
       if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) record(node.left, node.operatorToken.kind === ts.SyntaxKind.EqualsToken ? node.right : undefined, node.operatorToken.kind !== ts.SyntaxKind.EqualsToken);
       else if (ts.isDeleteExpression(node)) record(node.expression, undefined, true);
       else if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)) record(node.operand, undefined, true);
-      ts.forEachChild(node, visit);
     };
-    ts.forEachChild(owner, visit);
-    const atPosition = at.getStart(this.source);
-    const preceding = events.filter(event => {
-      if (event.rawPosition > atPosition) return false;
-      if (event.position <= atPosition || event.branch === undefined) return true;
-      const owner = event.branch.owner;
-      if (ts.isIfStatement(owner)) {
-        const arm = event.branch.arm === 'then' ? owner.thenStatement : owner.elseStatement;
-        return arm !== undefined && arm.getStart(this.source) <= atPosition && atPosition <= arm.end;
+    const lexicalVisit = (node: ts.Node): void => {
+      if (node !== owner && ts.isFunctionLike(node)) return;
+      if (isStaticallyDead(node)) return;
+      if (node === at) atPosition = node.getStart(this.source);
+      recordNode(node, new Map(), 'known', node.end, owner!);
+      ts.forEachChild(node, lexicalVisit);
+    };
+    const replayOwner = isLexicalFunction(owner) ? owner : undefined;
+    if (replayOwner !== undefined && this.activeMemberTimelineBuildDepth === 0) {
+      let timeline = this.memberTimelines.get(replayOwner);
+      if (timeline === undefined) {
+        timeline = [];
+        this.activeMemberTimelineBuildDepth += 1;
+        try {
+          visitExecutableFunctionNodes(replayOwner, this, (node, substitutions, execution, sequence, current) => {
+            timeline!.push({ node, substitutions, execution, sequence, current });
+          }, true);
+        } finally {
+          this.activeMemberTimelineBuildDepth -= 1;
+        }
+        this.memberTimelines.set(replayOwner, timeline);
       }
-      if (ts.isConditionalExpression(owner)) {
-        const arm = event.branch.arm === 'true' ? owner.whenTrue : owner.whenFalse;
-        return arm.getStart(this.source) <= atPosition && atPosition <= arm.end;
+      for (const item of timeline) {
+        if (item.node === at) atPosition = item.sequence;
+        recordNode(item.node, item.substitutions, item.execution, item.sequence, item.current);
       }
-      if (ts.isSwitchStatement(owner)) {
-        const arm = owner.caseBlock.clauses[Number(event.branch.arm)];
-        return arm !== undefined && arm.getStart(this.source) <= atPosition && atPosition <= arm.end;
-      }
-      return false;
-    }).sort((left, right) => left.position - right.position);
+    } else {
+      ts.forEachChild(owner, lexicalVisit);
+      atPosition ??= at.getStart(this.source);
+    }
+    if (atPosition === undefined) return ['tainted'];
+    const preceding = events.filter(event => event.position < atPosition!).sort((left, right) => left.position - right.position);
     if (preceding.length === 0) return undefined;
     let candidates: AliasCandidate[] = ['absent'];
     for (let index = 0; index < preceding.length;) {
       const event = preceding[index];
       if (event.branch === undefined) {
-        candidates = [event.invalid || event.initializer === undefined ? 'tainted' : event.initializer];
-        index += 1;
-        continue;
-      }
-      if (event.position > atPosition) {
         candidates = [event.invalid || event.initializer === undefined ? 'tainted' : event.initializer];
         index += 1;
         continue;
@@ -2864,9 +2889,11 @@ function staticMember(
 
 type AliasOriginNode = ts.Expression | ts.MethodDeclaration;
 type AliasProvenance =
-  | { kind: 'exact'; origin: AliasOriginNode }
+  | { kind: 'exact'; origin: AliasOriginNode; lineage?: ReadonlySet<ts.Identifier> }
   | { kind: 'tainted' }
   | { kind: 'absent' };
+
+const activeInvocationSummaries = new Set<ts.FunctionLikeDeclaration>();
 
 function sameAliasOrigin(left: AliasOriginNode, right: AliasOriginNode, bindings: LexicalBindings): boolean {
   if (left === right) return true;
@@ -2892,10 +2919,13 @@ function joinAliasProvenance(values: readonly AliasProvenance[], bindings: Lexic
   if (values.length === 0 || values.some(value => value.kind === 'tainted')) return { kind: 'tainted' };
   if (values.every(value => value.kind === 'absent')) return { kind: 'absent' };
   if (values.some(value => value.kind === 'absent')) return { kind: 'tainted' };
-  const exact = values as Array<{ kind: 'exact'; origin: AliasOriginNode }>;
-  return exact.every(value => sameAliasOrigin(value.origin, exact[0].origin, bindings))
-    ? exact[0]
-    : { kind: 'tainted' };
+  const exact = values as Array<{ kind: 'exact'; origin: AliasOriginNode; lineage?: ReadonlySet<ts.Identifier> }>;
+  if (!exact.every(value => sameAliasOrigin(value.origin, exact[0].origin, bindings))) return { kind: 'tainted' };
+  const lineage = new Set(exact[0].lineage ?? []);
+  for (const value of exact.slice(1)) {
+    for (const declaration of lineage) if (!value.lineage?.has(declaration)) lineage.delete(declaration);
+  }
+  return lineage.size === 0 ? { kind: 'exact', origin: exact[0].origin } : { kind: 'exact', origin: exact[0].origin, lineage };
 }
 
 function resolveAliasProvenance(
@@ -2905,6 +2935,9 @@ function resolveAliasProvenance(
   seen = new Set<ts.Identifier>(),
 ): AliasProvenance {
   expression = unwrap(expression);
+  if (ts.isCallExpression(expression)) {
+    return summarizeInvocationReturnProvenance(expression, bindings, substitutions) ?? { kind: 'exact', origin: expression };
+  }
   if (ts.isConditionalExpression(expression)) {
     const truth = staticTruthValue(expression.condition, bindings);
     if (truth !== undefined) return resolveAliasProvenance(truth ? expression.whenTrue : expression.whenFalse, bindings, substitutions, seen);
@@ -2945,13 +2978,15 @@ function resolveAliasProvenance(
     if (!lookup.found) return { kind: 'exact', origin: expression };
     if (declaration !== undefined && seen.has(declaration)) return { kind: 'tainted' };
     const nextSeen = declaration === undefined ? seen : new Set(seen).add(declaration);
-    return joinAliasProvenance(lookup.candidates.map(candidate => candidate === 'tainted'
+    const resolved = joinAliasProvenance(lookup.candidates.map(candidate => candidate === 'tainted'
       ? { kind: 'tainted' as const }
       : candidate === 'absent'
         ? { kind: 'absent' as const }
         : candidate === declaration
           ? { kind: 'exact' as const, origin: candidate }
         : resolveAliasProvenance(candidate, bindings, substitutions, nextSeen)), bindings);
+    if (resolved.kind !== 'exact' || declaration === undefined) return resolved;
+    return { ...resolved, lineage: new Set([...(resolved.lineage ?? []), declaration]) };
   }
   const member = staticMember(expression);
   if (member === undefined) return { kind: 'exact', origin: expression };
@@ -3024,7 +3059,10 @@ function aliasOriginReachesBinding(
   if (member !== undefined && aliasOriginReachesBinding(member.base, target, bindings, substitutions, seen)) return true;
   const provenance = resolveAliasProvenance(expression, bindings, substitutions, seen);
   if (provenance.kind === 'tainted') fail(expression, 'unsupported local invocation: tainted alias provenance');
-  return provenance.kind === 'exact' && ts.isIdentifier(provenance.origin) && bindings.isBinding(provenance.origin, target);
+  return provenance.kind === 'exact' && (
+    (ts.isIdentifier(provenance.origin) && bindings.isBinding(provenance.origin, target))
+    || provenance.lineage?.has(target) === true
+  );
 }
 
 type NormalizedInvocation = {
@@ -3133,14 +3171,110 @@ function localFunctionFromExpression(
   return undefined;
 }
 
+function statementDefinitelyReturns(statement: ts.Statement): boolean {
+  if (isStaticallyDead(statement)) return false;
+  if (ts.isReturnStatement(statement) || ts.isThrowStatement(statement)) return true;
+  if (ts.isBlock(statement)) return statement.statements.some(statementDefinitelyReturns);
+  if (ts.isIfStatement(statement)) {
+    const truth = staticTruthValue(statement.expression);
+    if (truth === true) return statementDefinitelyReturns(statement.thenStatement);
+    if (truth === false) return statement.elseStatement !== undefined && statementDefinitelyReturns(statement.elseStatement);
+    return statement.elseStatement !== undefined
+      && statementDefinitelyReturns(statement.thenStatement)
+      && statementDefinitelyReturns(statement.elseStatement);
+  }
+  if (ts.isSwitchStatement(statement)) {
+    return statement.caseBlock.clauses.some(ts.isDefaultClause)
+      && statement.caseBlock.clauses.every(clause => clause.statements.some(statementDefinitelyReturns));
+  }
+  if (ts.isTryStatement(statement)) {
+    if (statement.finallyBlock !== undefined && statementDefinitelyReturns(statement.finallyBlock)) return true;
+    return statementDefinitelyReturns(statement.tryBlock)
+      && (statement.catchClause === undefined || statementDefinitelyReturns(statement.catchClause.block));
+  }
+  return false;
+}
+
+function summarizeInvocationReturnProvenance(
+  call: ts.CallExpression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+): AliasProvenance | undefined {
+  const invocation = normalizeInvocation(call, bindings);
+  const target = localFunctionFromExpression(invocation.target, bindings, substitutions);
+  if (target === undefined) return undefined;
+  if (invocation.unsupported !== undefined || invocation.arguments === undefined) return { kind: 'tainted' };
+  if (activeInvocationSummaries.has(target)) return { kind: 'tainted' };
+  const next = new Map(substitutions);
+  target.parameters.forEach((parameter, index) => {
+    if (ts.isIdentifier(parameter.name) && invocation.arguments?.[index] !== undefined) next.set(parameter.name, invocation.arguments[index]);
+  });
+  activeInvocationSummaries.add(target);
+  try {
+    if (ts.isArrowFunction(target) && !ts.isBlock(target.body)) {
+      return resolveAliasProvenance(target.body, bindings, next);
+    }
+    if (target.body === undefined) return { kind: 'absent' };
+    const block = target.body;
+    if (!ts.isBlock(block)) return { kind: 'tainted' };
+    const returns: AliasProvenance[] = [];
+    const visit = (node: ts.Node): void => {
+      if (isStaticallyDead(node)) return;
+      if (node !== target && ts.isFunctionLike(node)) return;
+      if (ts.isReturnStatement(node)) {
+        returns.push(node.expression === undefined ? { kind: 'absent' } : resolveAliasProvenance(node.expression, bindings, next));
+        return;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(block);
+    if (!statementDefinitelyReturns(block)) returns.push({ kind: 'absent' });
+    return joinAliasProvenance(returns, bindings);
+  } finally {
+    activeInvocationSummaries.delete(target);
+  }
+}
+
 function visitExecutableFunctionNodes(
   owner: ts.FunctionLikeDeclaration,
   bindings: LexicalBindings,
-  visitor: (node: ts.Node, substitutions: InvocationSubstitutions, execution: 'known' | 'unmodeled-callback') => void,
+  visitor: (
+    node: ts.Node,
+    substitutions: InvocationSubstitutions,
+    execution: 'known' | 'unmodeled-callback',
+    sequence: number,
+    current: ts.FunctionLikeDeclaration,
+  ) => void,
   invokeMapCallbacks = false,
 ): void {
   const active = new Set<ts.FunctionLikeDeclaration>([owner]);
   const synchronousArrayCallbacks = new Set(['map', 'forEach']);
+  let sequence = 0;
+  const hasPotentialEffect = (target: ts.FunctionLikeDeclaration): boolean => {
+    if (target.body === undefined) return false;
+    let found = false;
+    const inspect = (node: ts.Node): void => {
+      if (found || isStaticallyDead(node) || (node !== target && ts.isFunctionLike(node))) return;
+      if (
+        ts.isDeleteExpression(node)
+        || (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind))
+        || ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator))
+      ) {
+        found = true;
+        return;
+      }
+      if (ts.isCallExpression(node)) {
+        const recursiveIdentifier = ts.isIdentifier(unwrap(node.expression)) ? unwrap(node.expression) as ts.Identifier : undefined;
+        if (recursiveIdentifier === undefined || target.name === undefined || !ts.isIdentifier(target.name) || !bindings.isBinding(recursiveIdentifier, target.name)) {
+          found = true;
+          return;
+        }
+      }
+      ts.forEachChild(node, inspect);
+    };
+    inspect(target.body);
+    return found;
+  };
   const visit = (
     node: ts.Node,
     substitutions: InvocationSubstitutions,
@@ -3149,14 +3283,18 @@ function visitExecutableFunctionNodes(
   ): void => {
     if (isStaticallyDead(node)) return;
     if (node !== current && ts.isFunctionLike(node)) return;
-    visitor(node, substitutions, execution);
+    visitor(node, substitutions, execution, sequence++, current);
     if (ts.isCallExpression(node)) {
       const invoke = (
         target: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration | ts.MethodDeclaration,
         argumentsToBind: readonly ts.Expression[] | undefined,
         targetExecution: 'known' | 'unmodeled-callback',
       ): void => {
-        if (target.body === undefined || active.has(target)) return;
+        if (target.body === undefined) return;
+        if (active.has(target)) {
+          if (hasPotentialEffect(target)) fail(node, `unsupported recursive local invocation: tainted effect provenance cycle for ${target.name?.getText() ?? '<anonymous>'}`);
+          return;
+        }
         const next = new Map(substitutions);
         target.parameters.forEach((parameter, index) => {
           if (ts.isIdentifier(parameter.name) && argumentsToBind?.[index] !== undefined) {
@@ -3512,7 +3650,7 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
     if (ts.isIdentifier(expression)) return invocationIdentifierResolvesTo(expression, samplesDeclaration, bindings, new Map());
     const member = staticMember(expression);
     if (member !== undefined) return isAccumulatorAccess(member.base);
-    return false;
+    return aliasOriginReachesBinding(expression, samplesDeclaration, bindings);
   };
   const pushedItemBinding = ts.isIdentifier(pushedArgument) ? bindings.bindingDeclaration(pushedArgument) : undefined;
   const isPromptItemAccess = (expression: ts.Expression): boolean => {
@@ -3523,7 +3661,8 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
     }
     const member = staticMember(expression);
     if (member !== undefined) return isPromptItemAccess(member.base);
-    return false;
+    return (pushedItemBinding !== undefined && aliasOriginReachesBinding(expression, pushedItemBinding, bindings))
+      || aliasOriginReachesBinding(expression, samplesDeclaration, bindings);
   };
   const isTrackedPromptMutationTarget = (expression: ts.Expression): boolean => isAccumulatorAccess(expression) || isPromptItemAccess(expression);
   const unsupportedAccumulatorEffects: ts.Node[] = [];
@@ -3783,10 +3922,9 @@ function validateAnimaPathBehavior(sourceText: string, sourceName: string): void
       }
       expression = unwrap(expression.expression);
     }
-    if (!ts.isIdentifier(expression)) return undefined;
-    const root = invocationIdentifierResolvesTo(expression, cleanedBinding!, bindings, substitutions)
+    const root = aliasOriginReachesBinding(expression, cleanedBinding!, bindings, substitutions)
       ? 'cleaned'
-      : invocationIdentifierResolvesTo(expression, modelParameter, bindings, substitutions)
+      : aliasOriginReachesBinding(expression, modelParameter, bindings, substitutions)
         ? 'model'
         : undefined;
     return root === undefined ? undefined : { root, path: parts.join('.') };
@@ -3945,6 +4083,12 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     if (ts.isCallExpression(node)) {
       const invocation = normalizeInvocation(node, bindings);
       const target = unwrap(invocation.target);
+      const rawTarget = unwrap(node.expression);
+      const objectCopyCall = (ts.isIdentifier(rawTarget) && rawTarget.text === 'objectCopy')
+        || (ts.isIdentifier(target) && identifierResolvesToExactImport(target, 'objectCopy', '@/utils/basic', bindings));
+      if (objectCopyCall && (!ts.isIdentifier(target) || !identifierResolvesToExactImport(target, 'objectCopy', '@/utils/basic', bindings))) {
+        fail(node, 'handleModelArchChange behavior requires exact objectCopy import provenance');
+      }
       if (ts.isIdentifier(target) && invocationIdentifierResolvesTo(target, setterParameter, bindings, substitutions)) {
         if (invocation.unsupported !== undefined || invocation.arguments?.length !== 2) fail(node, `handleModelArchChange behavior setter requires finite two-argument invocation${invocation.unsupported === undefined ? '' : `: ${invocation.unsupported}`}`);
         const setterArguments = invocation.arguments.map(argument => {

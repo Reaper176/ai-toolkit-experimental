@@ -2109,6 +2109,102 @@ for (const [label, mutated] of [
 const liveRoot = process.env.TRAINING_BOOK_REPOSITORY_ROOT;
 if (liveRoot !== undefined) {
   const declaredTypeScriptSources = collectDeclaredTypeScriptSourcePaths(liveRoot);
+  const summaryMigrateSource = readFileSync(join(liveRoot, 'ui/src/app/jobs/new/jobConfig.ts'), 'utf8');
+  const summaryArchSource = readFileSync(join(liveRoot, 'ui/src/app/jobs/new/utils.ts'), 'utf8');
+  const summaryAnimaSource = readFileSync(join(liveRoot, 'ui/src/helpers/animaModelPaths.ts'), 'utf8');
+  const summaryMigrateFacts = collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource);
+  const summaryArchFacts = collectHandleModelArchChangeBehaviorClaimsFromSource(summaryArchSource, summaryAnimaSource);
+  const recursiveEffectSource = summaryMigrateSource.replace(
+    '  if (isMac()) {',
+    '  const helpers = {};\n  function install() { helpers.platformCheck = isMac; install(); }\n  install();\n  if (helpers.platformCheck()) {',
+  );
+  const recursiveEffectStart = Date.now();
+  assert.throws(
+    () => collectMigrateJobConfigBehaviorClaimsFromSource(recursiveEffectSource),
+    /recursive|cycle|tainted|unsupported local invocation/,
+    'recursive finite member-effect invocation must fail closed',
+  );
+  assert.ok(Date.now() - recursiveEffectStart < 2_000, 'recursive finite member-effect rejection must terminate within two seconds');
+  const invocationSummaryMissingRejects = [
+    ['local config return', summaryMigrateSource.replace('  return jobConfig;', '  function selectConfig() { return jobConfig; }\n  const targetConfig = selectConfig();\n  targetConfig.config.process[0].train.steps = 99;\n  return jobConfig;')],
+    ['IIFE config return', summaryMigrateSource.replace('  return jobConfig;', '  const targetConfig = (() => jobConfig)();\n  targetConfig.config.process[0].train.steps = 99;\n  return jobConfig;')],
+    ['conditional config return', summaryMigrateSource.replace('  return jobConfig;', '  function selectConfig() { return runtimeCondition ? jobConfig : otherConfig; }\n  const targetConfig = selectConfig();\n  targetConfig.config.process[0].train.steps = 99;\n  return jobConfig;')],
+    ['multiple exact config returns', summaryMigrateSource.replace('  return jobConfig;', '  function selectConfig() { if (runtimeCondition) return jobConfig; return jobConfig; }\n  const targetConfig = selectConfig();\n  targetConfig.config.process[0].train.steps = 99;\n  return jobConfig;')],
+    ['recursive config return', summaryMigrateSource.replace('  return jobConfig;', '  function selectConfig() { return selectConfig(); }\n  const targetConfig = selectConfig();\n  targetConfig.config.process[0].train.steps = 99;\n  return jobConfig;')],
+    ['returned Object.assign', summaryMigrateSource.replace('  return jobConfig;', '  function selectAssign() { return Object.assign; }\n  selectAssign()(jobConfig.config.process[0].train, { steps: 99 });\n  return jobConfig;')],
+    ['returned prompt accumulator', summaryMigrateSource.replace('    jobConfig.config.process[0].sample.samples = newSamples;', '    function getSamples() { return newSamples; }\n    getSamples().reverse();\n    jobConfig.config.process[0].sample.samples = newSamples;')],
+  ].flatMap(([label, source]) => {
+    try { collectMigrateJobConfigBehaviorClaimsFromSource(source); return [label]; } catch { return []; }
+  });
+  try {
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', "  function getSetter() { return setJobConfig; }\n  getSetter()(99, 'config.process[0].train.steps');\n\n  // update samples"),
+      summaryAnimaSource,
+    );
+    invocationSummaryMissingRejects.push('returned setter');
+  } catch {}
+  try {
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', "  function getCleaned() { return cleaned; }\n  getCleaned().other_path = 'changed';\n  return cleaned;"),
+    );
+    invocationSummaryMissingRejects.push('returned cleaned model');
+  } catch {}
+  const invocationSummaryPositiveFailures = [
+    ['local helper return', '  function getPlatform() { return isMac; }\n  const platformCheck = getPlatform();\n  if (platformCheck()) {'],
+    ['IIFE helper return', '  const platformCheck = (() => isMac)();\n  if (platformCheck()) {'],
+    ['multiple exact helper returns', '  function getPlatform() { if (runtimeCondition) return isMac; return isMac; }\n  const platformCheck = getPlatform();\n  if (platformCheck()) {'],
+    ['invoked member writer', '  const helpers = {};\n  function install() { helpers.platformCheck = isMac; }\n  install();\n  if (helpers.platformCheck()) {'],
+    ['IIFE member writer', '  const helpers = {};\n  (() => { helpers.platformCheck = isMac; })();\n  if (helpers.platformCheck()) {'],
+    ['forEach member writer', '  const helpers = {};\n  [1].forEach(() => { helpers.platformCheck = isMac; });\n  if (helpers.platformCheck()) {'],
+    ['nested member writer', '  const helpers = {};\n  function installInner() { helpers.platformCheck = isMac; }\n  function install() { installInner(); }\n  install();\n  if (helpers.platformCheck()) {'],
+  ].flatMap(([label, replacement]) => {
+    try {
+      assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts);
+      return [];
+    } catch { return [label]; }
+  });
+  assert.deepEqual(
+    { missingRejects: invocationSummaryMissingRejects, positiveFailures: invocationSummaryPositiveFailures },
+    { missingRejects: [], positiveFailures: [] },
+    'finite invocation return summaries and ordered member-effect replay',
+  );
+  for (const [label, source] of [
+    ['member write after use', summaryMigrateSource
+      .replace('  if (isMac()) {', '  const helpers = {};\n  if (helpers.platformCheck()) {')
+      .replace('  return jobConfig;', '  function install() { helpers.platformCheck = isMac; }\n  install();\n  return jobConfig;')],
+    ['member rebind before use', summaryMigrateSource.replace(
+      '  if (isMac()) {',
+      '  const helpers = {};\n  helpers.platformCheck = isMac;\n  helpers.platformCheck = otherCheck;\n  if (helpers.platformCheck()) {',
+    )],
+    ['conditional member effect', summaryMigrateSource.replace(
+      '  if (isMac()) {',
+      '  const helpers = {};\n  function install() { if (runtimeCondition) helpers.platformCheck = isMac; }\n  install();\n  if (helpers.platformCheck()) {',
+    )],
+    ['return helper implicit fallthrough', summaryMigrateSource.replace(
+      '  return jobConfig;',
+      '  function selectConfig() { if (runtimeCondition) return jobConfig; }\n  const targetConfig = selectConfig();\n  targetConfig.config.process[0].train.steps = 99;\n  return jobConfig;',
+    )],
+  ] as const) {
+    assert.throws(
+      () => collectMigrateJobConfigBehaviorClaimsFromSource(source),
+      /tainted|unsupported|requires exact|requires one write|device behavior/,
+      `${label} must fail closed`,
+    );
+  }
+  for (const [label, replacement] of [
+    ['map member writer', '  const helpers = {};\n  [1].map(() => { helpers.platformCheck = isMac; });\n  if (helpers.platformCheck()) {'],
+    ['parameter-bound member writer', '  const helpers = {};\n  function install(target) { target.platformCheck = isMac; }\n  install(helpers);\n  if (helpers.platformCheck()) {'],
+    ['same exact conditional effects', '  const helpers = {};\n  function install() { if (runtimeCondition) helpers.platformCheck = isMac; else helpers.platformCheck = isMac; }\n  install();\n  if (helpers.platformCheck()) {'],
+    ['uninvoked member writer ignored', '  const helpers = {};\n  function dormant() { helpers.platformCheck = otherCheck; }\n  if (isMac()) {'],
+  ] as const) {
+    assert.deepEqual(
+      collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)),
+      summaryMigrateFacts,
+      `${label} preserves exact migration facts`,
+    );
+  }
+  assert.equal(summaryArchFacts.length, 30);
   assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/Card.tsx'), 'declared files with no relevant facts remain part of source coverage');
