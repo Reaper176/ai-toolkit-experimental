@@ -184,9 +184,10 @@ const compareCodePoint = (left: string, right: string): number => {
 };
 
 function fail(node: ts.Node | undefined, message: string): never {
-  const location = node === undefined
+  const source = node?.getSourceFile();
+  const location = node === undefined || source === undefined || source.fileName === undefined
     ? ''
-    : ` at ${node.getSourceFile().fileName}:${node.getSourceFile().getLineAndCharacterOfPosition(node.getStart()).line + 1}`;
+    : ` at ${source.fileName}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`;
   throw new FactsError(`${message}${location}`);
 }
 
@@ -2898,6 +2899,7 @@ type ConfigMutation = {
   path: string;
   syntax: 'assign' | 'delete' | 'compound' | 'update' | 'destructure' | 'api' | 'unmodeled-api';
   execution: 'known' | 'unmodeled-callback';
+  substitutions: InvocationSubstitutions;
 };
 
 type InvocationValue = ts.Expression | 'tainted' | 'absent';
@@ -3462,26 +3464,35 @@ function visitExecutableFunctionNodes(
       const callee = unwrap(node.expression);
       const calleeMember = staticMember(callee);
       const synchronousMethod = invokeMapCallbacks && calleeMember !== undefined && synchronousArrayCallbacks.has(calleeMember.key);
-      for (const argument of direct === undefined ? node.arguments : []) {
+      const rawReceiverParts = calleeMember === undefined ? undefined : accessParts(calleeMember.base);
+      const configIndex = rawReceiverParts?.indexOf('config') ?? -1;
+      const rawReceiverPath = rawReceiverParts !== undefined && configIndex >= 0
+        ? normalizePath(rawReceiverParts.slice(configIndex).join('.'), { allowCanonicalWildcards: true })
+        : undefined;
+      const receiverPath = calleeMember === undefined
+        ? undefined
+        : canonicalAccessPath(calleeMember.base, bindings) ?? rawReceiverPath;
+      const callbackArguments = direct === undefined
+        ? synchronousMethod
+          ? node.arguments.slice(0, 1)
+          : node.arguments
+        : [];
+      for (const argument of callbackArguments) {
         const callback = unwrap(argument);
-        const callbackTarget = ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)
-          ? callback
-          : ts.isIdentifier(callback) && callableAliasOrigin(callback, bindings)
-            ? localFunctionFromExpression(callback, bindings, substitutions)
-            : undefined;
-        if (callbackTarget === undefined || callbackTarget === direct) continue;
+        const callbackTarget = localFunctionFromExpression(callback, bindings, substitutions);
+        if (callbackTarget === undefined) {
+          if (synchronousMethod && receiverPath?.startsWith('config.')) fail(argument, 'unsupported synchronous callback: dynamic callback may mutate configuration elements');
+          continue;
+        }
+        if (callbackTarget === direct) continue;
         if (!synchronousMethod || calleeMember === undefined) {
           invoke(callbackTarget, undefined, 'unmodeled-callback');
           continue;
         }
-        const rawReceiverParts = accessParts(calleeMember.base);
-        const configIndex = rawReceiverParts?.indexOf('config') ?? -1;
-        const rawReceiverPath = rawReceiverParts !== undefined && configIndex >= 0
-          ? normalizePath(rawReceiverParts.slice(configIndex).join('.'), { allowCanonicalWildcards: true })
-          : undefined;
-        const receiverPath = canonicalAccessPath(calleeMember.base, bindings) ?? rawReceiverPath;
-        if (receiverPath !== undefined && ['config.process[*].datasets', 'config.process[*].train.validation_config.validation_items', 'config.process[*].sample.samples'].includes(receiverPath)) {
-          invoke(callbackTarget, undefined, execution);
+        if (receiverPath !== undefined && receiverPath.startsWith('config.')) {
+          const wildcard = ts.factory.createStringLiteral('*');
+          const element = ts.factory.createElementAccessExpression(calleeMember.base, wildcard);
+          invoke(callbackTarget, [element, wildcard, calleeMember.base], execution);
           continue;
         }
         const receiverProvenance = resolveAliasProvenance(calleeMember.base, bindings, substitutions);
@@ -3493,11 +3504,14 @@ function visitExecutableFunctionNodes(
           if (finiteElements !== undefined) {
             finiteElements.forEach((element, index) => {
               const elementProvenance = resolveAliasProvenance(element, bindings, substitutions);
-              const value: InvocationValue = elementProvenance.kind !== 'exact'
+              const exactUndefined = ts.isIdentifier(element)
+                && element.text === 'undefined'
+                && !bindings.lookup(element).found;
+              const value: InvocationValue = !exactUndefined && (elementProvenance.kind !== 'exact'
                 || ts.isMethodDeclaration(elementProvenance.origin)
                 || (ts.isIdentifier(elementProvenance.origin)
                   && !bindings.lookup(elementProvenance.origin).found
-                  && !bindings.isExactImportBinding(elementProvenance.origin))
+                  && !bindings.isExactImportBinding(elementProvenance.origin)))
                 ? 'tainted'
                 : element;
               invoke(callbackTarget, [value, ts.factory.createNumericLiteral(index), calleeMember.base], execution);
@@ -3573,7 +3587,7 @@ function boundedMutationApi(
       ? undefined
       : scopedFunctionConfigPath(invocation.arguments[0], parameter, bindings, new Set(), substitutions);
     return overriddenGlobalApi && target !== undefined
-      ? [{ node, operation: 'write', path: target, syntax: 'unmodeled-api', execution }]
+      ? [{ node, operation: 'write', path: target, syntax: 'unmodeled-api', execution, substitutions }]
       : [];
   }
   if (invocation.unsupported !== undefined || invocation.arguments === undefined) fail(node, `unsupported mutation API invocation: ${invocation.unsupported ?? 'unknown arguments'}`);
@@ -3587,6 +3601,7 @@ function boundedMutationApi(
     path,
     syntax: 'api',
     execution,
+    substitutions,
   });
   const keyedPath = (keyExpression: ts.Expression | undefined): string | undefined => {
     if (keyExpression === undefined) return undefined;
@@ -3630,7 +3645,7 @@ function configMutationsAtNode(
   if (ts.isCallExpression(node)) return boundedMutationApi(node, parameter, bindings, substitutions, execution);
   if (ts.isDeleteExpression(node)) {
     const path = scopedFunctionConfigPath(node.expression, parameter, bindings, new Set(), substitutions);
-    return path === undefined ? [] : [{ node, operation: 'delete', path, syntax: 'delete', execution }];
+    return path === undefined ? [] : [{ node, operation: 'delete', path, syntax: 'delete', execution, substitutions }];
   }
   if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) {
     const targets = assignmentTargetExpressions(node.left);
@@ -3640,7 +3655,7 @@ function configMutationsAtNode(
       : node.operatorToken.kind === ts.SyntaxKind.EqualsToken ? 'assign' : 'compound';
     return targets.flatMap(target => {
       const path = scopedFunctionConfigPath(target, parameter, bindings, new Set(), substitutions);
-      return path === undefined ? [] : [{ node, operation: 'write' as const, path, syntax, execution }];
+      return path === undefined ? [] : [{ node, operation: 'write' as const, path, syntax, execution, substitutions }];
     });
   }
   if (
@@ -3648,7 +3663,7 @@ function configMutationsAtNode(
     && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)
   ) {
     const path = scopedFunctionConfigPath(node.operand, parameter, bindings, new Set(), substitutions);
-    return path === undefined ? [] : [{ node, operation: 'write', path, syntax: 'update', execution }];
+    return path === undefined ? [] : [{ node, operation: 'write', path, syntax: 'update', execution, substitutions }];
   }
   return [];
 }
@@ -3954,13 +3969,6 @@ function scopedFunctionConfigPath(
         ? undefined
         : scopedFunctionConfigPath(resolved.origin, configParameter, bindings, nextSeen, substitutions);
     }
-    if (ts.isParameter(declaration.parent)) {
-      const callback = declaration.parent.parent;
-      if ((ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) && callback.parameters[0] === declaration.parent && ts.isCallExpression(callback.parent) && callback.parent.arguments[0] === callback && ts.isPropertyAccessExpression(callback.parent.expression) && callback.parent.expression.name.text === 'map') {
-        const receiver = scopedFunctionConfigPath(callback.parent.expression.expression, configParameter, bindings, nextSeen, substitutions);
-        return receiver === undefined ? undefined : `${receiver}[*]`;
-      }
-    }
     const resolved = resolveAliasProvenance(expression, bindings, substitutions, seen);
     if (resolved.kind === 'tainted') fail(expression, 'unsupported reachable mutation: tainted configuration provenance');
     return resolved.kind !== 'exact' || ts.isMethodDeclaration(resolved.origin) || resolved.origin === expression
@@ -3975,11 +3983,35 @@ function scopedFunctionConfigPath(
       || identifierResolvesToExactImport(callName, 'clearUnsupportedAnimaPaths', '@/helpers/animaModelPaths', bindings)
     ) && invocation.arguments?.[0] !== undefined) return scopedFunctionConfigPath(invocation.arguments[0], configParameter, bindings, seen, substitutions);
   }
-  const member = staticMember(expression);
+  let member = staticMember(expression);
+  if (member === undefined && ts.isElementAccessExpression(expression) && expression.argumentExpression !== undefined) {
+    const keyProvenance = resolveAliasProvenance(expression.argumentExpression, bindings, substitutions);
+    if (keyProvenance.kind === 'tainted') fail(expression.argumentExpression, 'unsupported reachable mutation: tainted configuration index provenance');
+    const key = keyProvenance.kind === 'exact' && !ts.isMethodDeclaration(keyProvenance.origin)
+      ? unwrap(keyProvenance.origin)
+      : undefined;
+    if (key !== undefined && (ts.isStringLiteral(key) || ts.isNumericLiteral(key) || ts.isNoSubstitutionTemplateLiteral(key))) {
+      member = { base: expression.expression, key: key.text };
+    }
+  }
   if (member !== undefined) {
+    const baseExpression = unwrap(member.base);
+    const baseProvenance = resolveAliasProvenance(baseExpression, bindings, substitutions);
+    const resolvedBase = baseProvenance.kind === 'exact' && !ts.isMethodDeclaration(baseProvenance.origin)
+      ? unwrap(baseProvenance.origin)
+      : baseExpression;
+    if (ts.isArrayLiteralExpression(resolvedBase) && /^\d+$/.test(member.key)) {
+      const element = resolvedBase.elements[Number(member.key)];
+      if (element === undefined || ts.isOmittedExpression(element)) fail(expression, 'unsupported reachable mutation: sparse configuration receiver provenance');
+      return scopedFunctionConfigPath(element as ts.Expression, configParameter, bindings, seen, substitutions);
+    }
     const base = scopedFunctionConfigPath(member.base, configParameter, bindings, seen, substitutions);
     if (base === undefined) return undefined;
-    return normalizeScopedPath(/^\d+$/.test(member.key) ? `${base}[${member.key}]` : `${base}.${member.key}`);
+    return normalizeScopedPath(member.key === '*'
+      ? `${base}[*]`
+      : /^\d+$/.test(member.key)
+        ? `${base}[${member.key}]`
+        : `${base}.${member.key}`);
   }
   return undefined;
 }
@@ -4038,6 +4070,7 @@ function exactMembershipGuard(
   configParameter: ts.Identifier,
   bindings: LexicalBindings,
   negated = false,
+  substitutions: InvocationSubstitutions = new Map(),
 ): boolean {
   expression = unwrap(expression);
   if (negated) {
@@ -4047,7 +4080,7 @@ function exactMembershipGuard(
   return ts.isBinaryExpression(expression)
     && expression.operatorToken.kind === ts.SyntaxKind.InKeyword
     && exactString(expression.left, key)
-    && scopedFunctionConfigPath(expression.right, configParameter, bindings) === objectPath;
+    && scopedFunctionConfigPath(expression.right, configParameter, bindings, new Set(), substitutions) === objectPath;
 }
 
 function validateAnimaPathBehavior(sourceText: string, sourceName: string): void {
@@ -4333,11 +4366,17 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
   const takeMutation = (operation: ConfigMutation['operation'], path: string, predicate: (mutation: ConfigMutation) => boolean): ConfigMutation => {
     const expectedSyntax = operation === 'write' ? 'assign' : 'delete';
     const matches = directMutations.filter(mutation => mutation.execution === 'known' && mutation.operation === operation && mutation.path === path && mutation.syntax === expectedSyntax && predicate(mutation));
-    if (matches.length !== 1) fail(owner, `handleModelArchChange behavior requires one ${operation} for ${path}`);
+    if (matches.length !== 1) {
+      const candidates = directMutations.map(mutation => `${mutation.operation}:${mutation.path}:${mutation.syntax}:${mutation.execution}`).join(', ');
+      fail(owner, `handleModelArchChange behavior requires one ${operation} for ${path}, found ${matches.length}; all candidates ${candidates || '<none>'}`);
+    }
     consumedMutations.add(matches[0]);
     return matches[0];
   };
-  const valuePath = (expression: ts.Expression): string | undefined => scopedFunctionConfigPath(expression, configParameter, bindings);
+  const valuePath = (
+    expression: ts.Expression,
+    substitutions: InvocationSubstitutions = new Map(),
+  ): string | undefined => scopedFunctionConfigPath(expression, configParameter, bindings, new Set(), substitutions);
   const isNextArchitectureAccess = (expression: ts.Expression, field: string): boolean => {
     expression = unwrap(expression);
     if (!ts.isPropertyAccessExpression(expression) || expression.name.text !== field) return false;
@@ -4429,25 +4468,25 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
   const branchRole = (node: ts.Node): 'multi' | 'single' | 'none' | undefined => branchContains(multiIf.thenStatement, node) ? 'multi' : branchContains(singleIf.thenStatement, node) ? 'single' : branchContains(noControlBranch, node) ? 'none' : undefined;
   const copyOrNull = (mutation: ConfigMutation, sourcePath: string): boolean => {
     const right = unwrap((mutation.node as ts.BinaryExpression).right);
-    return ts.isBinaryExpression(right) && right.operatorToken.kind === ts.SyntaxKind.BarBarToken && valuePath(right.left) === sourcePath && unwrap(right.right).kind === ts.SyntaxKind.NullKeyword;
+    return ts.isBinaryExpression(right) && right.operatorToken.kind === ts.SyntaxKind.BarBarToken && valuePath(right.left, mutation.substitutions) === sourcePath && unwrap(right.right).kind === ts.SyntaxKind.NullKeyword;
   };
   for (const suffix of ['control_path_1', 'control_path_2', 'control_path_3'] as const) {
     const path = `config.process[*].datasets[*].${suffix}`;
     const init = takeMutation('write', path, mutation => branchRole(mutation.node) === 'multi' && copyOrNull(mutation, path));
     if (init === undefined) fail(multiIf, `handleModelArchChange behavior requires ${suffix} initialization`);
   }
-  const multiCopy = takeMutation('write', 'config.process[*].datasets[*].control_path_1', mutation => branchRole(mutation.node) === 'multi' && valuePath((mutation.node as ts.BinaryExpression).right) === 'config.process[*].datasets[*].control_path');
+  const multiCopy = takeMutation('write', 'config.process[*].datasets[*].control_path_1', mutation => branchRole(mutation.node) === 'multi' && valuePath((mutation.node as ts.BinaryExpression).right, mutation.substitutions) === 'config.process[*].datasets[*].control_path');
   const multiCopyGuards: ts.IfStatement[] = [];
   let multiAncestor: ts.Node | undefined = multiCopy.node.parent;
   while (multiAncestor !== undefined && multiAncestor !== multiIf) { if (ts.isIfStatement(multiAncestor)) multiCopyGuards.push(multiAncestor); multiAncestor = multiAncestor.parent; }
   const multiGuardPaths = multiCopyGuards.map(item => item.expression);
   const hasMultiSourceGuard = multiGuardPaths.some(expression => flattenAnd(expression).some(part => {
     const condition = unwrap(part);
-    return valuePath(ts.isBinaryExpression(condition) ? condition.left : condition) === 'config.process[*].datasets[*].control_path';
+    return valuePath(ts.isBinaryExpression(condition) ? condition.left : condition, multiCopy.substitutions) === 'config.process[*].datasets[*].control_path';
   }));
   const hasMultiTargetGuard = multiGuardPaths.some(expression => {
     const condition = unwrap(expression);
-    return ts.isPrefixUnaryExpression(condition) && valuePath(condition.operand) === 'config.process[*].datasets[*].control_path_1';
+    return ts.isPrefixUnaryExpression(condition) && valuePath(condition.operand, multiCopy.substitutions) === 'config.process[*].datasets[*].control_path_1';
   });
   if (!hasMultiSourceGuard || !hasMultiTargetGuard) fail(multiCopy.node, 'handleModelArchChange behavior requires source-nonempty target-empty multi copy guards');
   const multiSourceDelete = takeMutation('delete', 'config.process[*].datasets[*].control_path', mutation => branchRole(mutation.node) === 'multi');
@@ -4455,12 +4494,12 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
 
   const singleInit = takeMutation('write', 'config.process[*].datasets[*].control_path', mutation => branchRole(mutation.node) === 'single' && copyOrNull(mutation, 'config.process[*].datasets[*].control_path'));
   if (singleInit === undefined) fail(multiIf, 'handleModelArchChange behavior requires single control initialization');
-  const singleCopy = takeMutation('write', 'config.process[*].datasets[*].control_path', mutation => branchRole(mutation.node) === 'single' && valuePath((mutation.node as ts.BinaryExpression).right) === 'config.process[*].datasets[*].control_path_1');
+  const singleCopy = takeMutation('write', 'config.process[*].datasets[*].control_path', mutation => branchRole(mutation.node) === 'single' && valuePath((mutation.node as ts.BinaryExpression).right, mutation.substitutions) === 'config.process[*].datasets[*].control_path_1');
   const singleCopyIf = enclosingIfWithin(singleCopy.node, owner);
   if (singleCopyIf === undefined || !flattenAnd(singleCopyIf.expression).every(part => {
     const value = unwrap(part);
-    if (valuePath(value) === 'config.process[*].datasets[*].control_path_1') return true;
-    return ts.isBinaryExpression(value) && value.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken && valuePath(value.left) === 'config.process[*].datasets[*].control_path_1' && exactString(value.right, '');
+    if (valuePath(value, singleCopy.substitutions) === 'config.process[*].datasets[*].control_path_1') return true;
+    return ts.isBinaryExpression(value) && value.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken && valuePath(value.left, singleCopy.substitutions) === 'config.process[*].datasets[*].control_path_1' && exactString(value.right, '');
   })) fail(singleCopy.node, 'handleModelArchChange behavior requires nonempty single-control copy guard');
   const singleDeletions: ConfigMutation[] = [];
   for (const suffix of ['control_path_1', 'control_path_2', 'control_path_3'] as const) {
@@ -4468,14 +4507,14 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     const deletion = takeMutation('delete', path, mutation => branchRole(mutation.node) === 'single');
     singleDeletions.push(deletion);
     const guard = enclosingIfWithin(deletion.node, owner);
-    if (guard === undefined || !exactMembershipGuard(guard.expression, suffix, 'config.process[*].datasets[*]', configParameter, bindings)) fail(deletion.node, `handleModelArchChange behavior requires ${suffix} single-control membership guard`);
+    if (guard === undefined || !exactMembershipGuard(guard.expression, suffix, 'config.process[*].datasets[*]', configParameter, bindings, false, deletion.substitutions)) fail(deletion.node, `handleModelArchChange behavior requires ${suffix} single-control membership guard`);
   }
   if (singleDeletions.some(deletion => singleCopy.node.getStart() >= deletion.node.getStart())) fail(singleCopy.node, 'handleModelArchChange behavior requires single-control copy before source deletions');
   for (const suffix of ['control_path', 'control_path_1', 'control_path_2', 'control_path_3'] as const) {
     const path = `config.process[*].datasets[*].${suffix}`;
     const deletion = takeMutation('delete', path, mutation => branchRole(mutation.node) === 'none');
     const guard = enclosingIfWithin(deletion.node, owner);
-    if (guard === undefined || !exactMembershipGuard(guard.expression, suffix, 'config.process[*].datasets[*]', configParameter, bindings)) fail(deletion.node, `handleModelArchChange behavior requires ${suffix} no-control membership guard`);
+    if (guard === undefined || !exactMembershipGuard(guard.expression, suffix, 'config.process[*].datasets[*]', configParameter, bindings, false, deletion.substitutions)) fail(deletion.node, `handleModelArchChange behavior requires ${suffix} no-control membership guard`);
   }
   const numFrames = takeMutation('write', 'config.process[*].datasets[*].num_frames', () => true);
   const numFramesIf = enclosingIfWithin(numFrames.node, owner);

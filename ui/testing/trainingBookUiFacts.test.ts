@@ -2301,6 +2301,65 @@ if (liveRoot !== undefined) {
       `${label} preserves exact migration facts`,
     );
   }
+  const callbackProjectionMissingRejects = [
+    ['property callback config mutation', summaryMigrateSource.replace('  return jobConfig;', "  const callbacks = { mutate: target => { target.config.process[0].train.steps = 99; } };\n  [jobConfig].forEach(callbacks.mutate);\n  return jobConfig;")],
+    ['method callback config mutation', summaryMigrateSource.replace('  return jobConfig;', "  const callbacks = { mutate(target) { target.config.process[0].train.steps = 99; } };\n  [jobConfig].map(callbacks.mutate);\n  return jobConfig;")],
+    ['assigned-member callback config mutation', summaryMigrateSource.replace('  return jobConfig;', "  const callbacks = {};\n  callbacks.mutate = target => { target.config.process[0].train.steps = 99; };\n  [jobConfig].forEach(callbacks.mutate);\n  return jobConfig;")],
+    ['datasets inline element mutation', summaryMigrateSource.replace('  return jobConfig;', "  jobConfig.config.process[0].datasets.forEach(dataset => { dataset.extra = 99; });\n  return jobConfig;")],
+    ['datasets identifier element mutation', summaryMigrateSource.replace('  return jobConfig;', "  const mutate = dataset => { dataset.extra = 99; };\n  jobConfig.config.process[0].datasets.map(mutate);\n  return jobConfig;")],
+    ['datasets member element mutation', summaryMigrateSource.replace('  return jobConfig;', "  const callbacks = { mutate: dataset => { dataset.extra = 99; } };\n  jobConfig.config.process[0].datasets.map(callbacks.mutate);\n  return jobConfig;")],
+    ['datasets const receiver mutation', summaryMigrateSource.replace('  return jobConfig;', "  const datasetRows = jobConfig.config.process[0].datasets;\n  datasetRows.forEach(dataset => { dataset.extra = 99; });\n  return jobConfig;")],
+    ['datasets rebound member mutation', summaryMigrateSource.replace('  return jobConfig;', "  const callbacks = { mutate: dataset => 42 };\n  callbacks.mutate = dataset => { dataset.extra = 99; };\n  jobConfig.config.process[0].datasets.map(callbacks.mutate);\n  return jobConfig;")],
+    ['datasets dynamic callback', summaryMigrateSource.replace('  return jobConfig;', "  jobConfig.config.process[0].datasets.forEach(dynamicCallback);\n  return jobConfig;")],
+    ['validation items inline element mutation', summaryMigrateSource.replace('  return jobConfig;', "  jobConfig.config.process[0].train.validation_config.validation_items.forEach(item => { item.extra = 99; });\n  return jobConfig;")],
+    ['sample items inline element mutation', summaryMigrateSource.replace('  return jobConfig;', "  jobConfig.config.process[0].sample.samples.forEach(sample => { sample.extra = 99; });\n  return jobConfig;")],
+    ['symbolic process index mutation', summaryMigrateSource.replace('  return jobConfig;', "  jobConfig.config.process.forEach((process, index, target) => { target[index].train.steps = 99; });\n  return jobConfig;")],
+    ['finite receiver index mutation', summaryMigrateSource.replace('  return jobConfig;', "  [jobConfig].forEach((value, index, receiver) => { receiver[index].config.process[0].train.steps = 99; });\n  return jobConfig;")],
+    ['finite receiver zero mutation', summaryMigrateSource.replace('  return jobConfig;', "  [jobConfig].forEach((value, index, receiver) => { receiver[0].config.process[0].train.steps = 99; });\n  return jobConfig;")],
+    ['target process index mutation', summaryMigrateSource.replace('  return jobConfig;', "  [jobConfig.config.process].forEach((target, index) => { target[index].train.steps = 99; });\n  return jobConfig;")],
+    ['explicit undefined mutation default', summaryMigrateSource.replace('  return jobConfig;', "  [undefined].forEach((target = jobConfig) => { target.config.process[0].train.steps = 99; });\n  return jobConfig;")],
+    ['hole callback helper', summaryMigrateSource.replace('  if (isMac()) {', "  const helpers = {};\n  [, isMac].forEach(fn => { helpers.platformCheck = fn; });\n  if (helpers.platformCheck()) {")],
+    ['unknown callback element helper', summaryMigrateSource.replace('  if (isMac()) {', "  const helpers = {};\n  [dynamicCallback].forEach(fn => { helpers.platformCheck = fn; });\n  if (helpers.platformCheck()) {")],
+    ['this-bound callback helper', summaryMigrateSource.replace('  if (isMac()) {', "  const helpers = {};\n  [isMac].forEach(function (fn) { this.platformCheck = fn; }, helpers);\n  if (helpers.platformCheck()) {")],
+  ].flatMap(([label, source]) => {
+    try { collectMigrateJobConfigBehaviorClaimsFromSource(source); return [label]; } catch { return []; }
+  });
+  try {
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource.replace('  // update samples', "  const callbacks = { mutate: commit => commit(99, 'config.process[0].train.steps') };\n  [setJobConfig].forEach(callbacks.mutate);\n\n  // update samples"),
+      summaryAnimaSource,
+    );
+    callbackProjectionMissingRejects.push('property callback setter mutation');
+  } catch {}
+  try {
+    collectHandleModelArchChangeBehaviorClaimsFromSource(
+      summaryArchSource,
+      summaryAnimaSource.replace('  return cleaned;', "  const callbacks = { mutate(target) { target.other_path = 'changed'; } };\n  [cleaned].forEach(callbacks.mutate);\n  return cleaned;"),
+    );
+    callbackProjectionMissingRejects.push('method callback cleaned-model mutation');
+  } catch {}
+  const callbackProjectionPositiveFailures = [
+    ['identifier forEach callback', "  const helpers = {};\n  const install = fn => { helpers.platformCheck = fn; };\n  [isMac].forEach(install);\n  if (helpers.platformCheck()) {"],
+    ['property map callback', "  const helpers = {};\n  const callbacks = { install: fn => { helpers.platformCheck = fn; } };\n  [isMac].map(callbacks.install);\n  if (helpers.platformCheck()) {"],
+    ['method forEach callback', "  const helpers = {};\n  const callbacks = { install(fn) { helpers.platformCheck = fn; } };\n  [isMac].forEach(callbacks.install);\n  if (helpers.platformCheck()) {"],
+    ['assigned-member callback', "  const helpers = {};\n  const callbacks = {};\n  callbacks.install = fn => { helpers.platformCheck = fn; };\n  [isMac].forEach(callbacks.install);\n  if (helpers.platformCheck()) {"],
+    ['explicit undefined callback default', "  const helpers = {};\n  [undefined].forEach((fn = isMac) => { helpers.platformCheck = fn; });\n  if (helpers.platformCheck()) {"],
+    ['callback direct zero access', "  const helpers = {};\n  [isMac].forEach((fn, index, target) => { helpers.platformCheck = target[0]; });\n  if (helpers.platformCheck()) {"],
+    ['callback identifier index receiver', "  const helpers = {};\n  function install(fn, index, target) { helpers.platformCheck = target[index]; }\n  [isMac].map(install);\n  if (helpers.platformCheck()) {"],
+    ['harmless dynamic thisArg', "  [isMac].forEach(() => 42, dynamicThis);\n  if (isMac()) {"],
+    ['callback member rebound harmlessly', "  const callbacks = { mutate: target => { target.config.process[0].train.steps = 99; } };\n  callbacks.mutate = () => 42;\n  [jobConfig].forEach(callbacks.mutate);\n  if (isMac()) {"],
+    ['callback passed only as thisArg', "  const mutate = target => { target.config.process[0].train.steps = 99; };\n  [jobConfig].forEach(() => 42, mutate);\n  if (isMac()) {"],
+  ].flatMap(([label, replacement]) => {
+    try {
+      assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts);
+      return [];
+    } catch { return [label]; }
+  });
+  assert.deepEqual(
+    { missingRejects: callbackProjectionMissingRejects, positiveFailures: callbackProjectionPositiveFailures },
+    { missingRejects: [], positiveFailures: [] },
+    'general finite map and forEach callback projection',
+  );
   assert.equal(summaryArchFacts.length, 30);
   assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));
