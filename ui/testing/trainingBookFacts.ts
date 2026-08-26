@@ -3349,6 +3349,47 @@ function quantizationSelectedOrAcceptedValue(
   });
 }
 
+function exactDirectSelectedParameterPayloadAtUse(
+  expression: ts.Expression,
+  parameter: ts.Identifier,
+  owner: ts.ArrowFunction | ts.FunctionExpression,
+  bindings: LexicalBindings,
+  acceptedStrings: ReadonlySet<string> | undefined,
+): boolean {
+  expression = unwrap(expression);
+  if (!ts.isIdentifier(expression) || !bindings.hasLexicalDeclaration(expression, parameter)) return false;
+  const timeline = bindings.executableFunctionTimeline(owner);
+  if (timeline === undefined) return false;
+  const useIndex = timeline.findIndex(item => item.node === expression);
+  if (useIndex < 0) return false;
+  for (const item of timeline.slice(0, useIndex)) {
+    const node = item.node;
+    if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) {
+      const targets = assignmentTargetExpressions(node.left);
+      if (!targets.some(target => ts.isIdentifier(target) && bindings.hasLexicalDeclaration(target, parameter))) continue;
+      if (
+        item.execution !== 'known'
+        || node.operatorToken.kind !== ts.SyntaxKind.EqualsToken
+        || !ts.isIdentifier(unwrap(node.left))
+        || !quantizationStringValue(node.right, parameter, bindings)
+        || !quantizationSelectedOrAcceptedValue(node.right, parameter, bindings, acceptedStrings)
+      ) return false;
+      continue;
+    }
+    if (
+      (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node))
+      && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)
+      && ts.isIdentifier(unwrap(node.operand))
+      && bindings.hasLexicalDeclaration(unwrap(node.operand) as ts.Identifier, parameter)
+    ) return false;
+    if ((ts.isForInStatement(node) || ts.isForOfStatement(node)) && !ts.isVariableDeclarationList(node.initializer)) {
+      const targets = assignmentTargetExpressions(node.initializer);
+      if (targets.some(target => ts.isIdentifier(target) && bindings.hasLexicalDeclaration(target, parameter))) return false;
+    }
+  }
+  return true;
+}
+
 function booleanSetterValuesForPath(
   root: ts.Node,
   path: string,
@@ -3509,41 +3550,18 @@ function validateQuantizationCallbackDataflow(
     fail(callback, `${label} quantization control requires one exact qtype payload write`);
   }
   const payloadExpression = unwrap(primaryWrites[0].arguments[0]);
-  const payloadIsString = quantizationStringValue(payloadExpression, parameter, bindings);
   const acceptedStrings = acceptedValues !== undefined && acceptedValues.every(value => value.kind === 'string')
     ? new Set(acceptedValues.map(value => (value as Extract<TrainingBookValueFact, { kind: 'string' }>).value))
     : undefined;
-  let selectedCarrierAssignmentsAreStrings = true;
-  visitExecutableFunctionNodes(callback, bindings, (node, _substitutions, execution, _sequence, current) => {
-    if (
-      execution !== 'known'
-      || current !== callback
-      || !ts.isBinaryExpression(node)
-      || !isAssignmentOperator(node.operatorToken.kind)
-      || node.getStart() >= primaryWrites[0].getStart()
-    ) return;
-    const target = unwrap(node.left);
-    if (!ts.isIdentifier(target) || !bindings.hasLexicalDeclaration(target, parameter)) return;
-    if (node.operatorToken.kind !== ts.SyntaxKind.EqualsToken) {
-      selectedCarrierAssignmentsAreStrings = false;
-      return;
-    }
-    if (
-      !quantizationStringValue(node.right, parameter, bindings)
-      || !quantizationSelectedOrAcceptedValue(node.right, parameter, bindings, acceptedStrings)
-    ) {
-      selectedCarrierAssignmentsAreStrings = false;
-    }
-  });
-  const directSelectedCarrier = ts.isIdentifier(payloadExpression)
-    && bindings.hasLexicalDeclaration(payloadExpression, parameter);
   const selectedAtPayload = selectedValueAtUse(payloadExpression, parameter, bindings);
-  const selectedCarrier = selectedAtPayload
-    || directSelectedCarrier;
-  const stringPayload = selectedAtPayload
-    || payloadIsString
-    || (directSelectedCarrier && selectedCarrierAssignmentsAreStrings);
-  if (!stringPayload || !selectedCarrier) {
+  const acceptedDirectParameterAtPayload = exactDirectSelectedParameterPayloadAtUse(
+    payloadExpression,
+    parameter,
+    callback,
+    bindings,
+    acceptedStrings,
+  );
+  if (!selectedAtPayload && !acceptedDirectParameterAtPayload) {
     fail(primaryWrites[0], `${label} quantization qtype payload must remain a string derived from the selected value`);
   }
   if (JSON.stringify(secondaryBooleanSetterPaths(callback, primaryPath, bindings)) !== JSON.stringify([secondaryPath])) {
@@ -3897,7 +3915,11 @@ function validateQuantizationVisibilityGuards(source: ts.SourceFile, sourceName:
     if (JSON.stringify(setterPaths) !== JSON.stringify(expectedSetterPaths)) {
       fail(onChange, `${label} quantization control must write only its exact qtype and Boolean setter paths`);
     }
-    validateQuantizationCallbackDataflow(onChange, primaryPath, secondaryPath, bindings, label);
+    const optionValues = literalSelectValues(
+      jsxAttributeExpression(jsxAttributeNode(control, 'options')),
+      bindings,
+    );
+    validateQuantizationCallbackDataflow(onChange, primaryPath, secondaryPath, bindings, label, optionValues);
     const owners = new Set<ts.FunctionLikeDeclaration>();
     for (const setter of directSetters) owners.add(requireComponentSetterBinding(setter.expression as ts.Identifier, bindings));
     if (owners.size !== 1) fail(onChange, `${label} quantization setters require one exact component owner`);

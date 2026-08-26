@@ -2808,6 +2808,99 @@ for (const [label, callback] of [
   }
 }
 
+for (const [label, original, callback] of [
+  [
+    'Transformer aliased helper direct-parameter false overwrite fails closed',
+    exactTransformerQuantizationCallback,
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              const corrupt = () => { value = false; };
+              const corruptAlias = corrupt;
+              corruptAlias();
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'Text Encoder nested helper direct-parameter garbage overwrite fails closed',
+    exactTextEncoderQuantizationCallback,
+    `onChange={value => {
+                if (value === '') setJobConfig(false, 'config.process[0].model.quantize_te');
+                else setJobConfig(true, 'config.process[0].model.quantize_te');
+                const inner = () => { value = 'garbage'; };
+                const outer = () => inner();
+                outer();
+                setJobConfig(value, 'config.process[0].model.qtype_te');
+              }}`,
+  ],
+  [
+    'Transformer array-destructured direct-parameter overwrite fails closed',
+    exactTransformerQuantizationCallback,
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              [value] = ['garbage'];
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'Text Encoder object-destructured direct-parameter overwrite fails closed',
+    exactTextEncoderQuantizationCallback,
+    `onChange={value => {
+                if (value === '') setJobConfig(false, 'config.process[0].model.quantize_te');
+                else setJobConfig(true, 'config.process[0].model.quantize_te');
+                ({ replacement: value } = { replacement: 'garbage' });
+                setJobConfig(value, 'config.process[0].model.qtype_te');
+              }}`,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(original, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /quantiz|qtype|selection|payload|provenance/i, `${label} must validate every reachable parameter write`);
+  }
+}
+for (const [label, callback] of [
+  [
+    'unchanged direct selected parameter remains valid',
+    exactTransformerQuantizationCallback,
+  ],
+  [
+    'accepted invoked direct-parameter fallback remains valid',
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              const selectFallback = () => { value = 'qfloat8'; };
+              selectFallback();
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'uninvoked direct-parameter corruption remains harmless',
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              const uninvoked = () => { value = false; };
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+  } catch {
+    factualUiContractFailures.push(label);
+  }
+}
+
 const layerReadHelperSource = (helper: string, invocation: string): string => `
   function Fixture({ jobConfig, setJobConfig }) {
     let shown = jobConfig.config.process[0].model.layer_offloading_transformer_percent;
