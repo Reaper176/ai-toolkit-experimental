@@ -5227,6 +5227,9 @@ if (liveRoot !== undefined) {
   const currentDefaultsLoop = `  for (const key in currentDefaults) {
     setJobConfig(currentDefaults[key][1], key);
   }`;
+  const newDefaultsLoop = `  for (const key in newDefaults) {
+    setJobConfig(newDefaults[key][0], key);
+  }`;
 
   expectAcceptanceArchitectureRejection(
     'architecture commit follows conditional return in enclosing block',
@@ -5377,6 +5380,49 @@ ${architectureCommit}
         currentDefaultsLoop,
         `  for (const key in currentDefaults) {\n${body}\n  }`,
       ),
+    );
+  }
+  for (const [label, loop, replacement] of [
+    [
+      'current-default invoked throw before setter',
+      currentDefaultsLoop,
+      `  function stopCurrent() { throw new Error('stop'); }
+  for (const key in currentDefaults) {
+    stopCurrent();
+    setJobConfig(currentDefaults[key][1], key);
+  }`,
+    ],
+    [
+      'current-default invoked throw after setter',
+      currentDefaultsLoop,
+      `  function stopCurrent() { throw new Error('stop'); }
+  for (const key in currentDefaults) {
+    setJobConfig(currentDefaults[key][1], key);
+    stopCurrent();
+  }`,
+    ],
+    [
+      'next-default invoked throw before setter',
+      newDefaultsLoop,
+      `  function stopNext() { throw new Error('stop'); }
+  for (const key in newDefaults) {
+    stopNext();
+    setJobConfig(newDefaults[key][0], key);
+  }`,
+    ],
+    [
+      'next-default invoked throw after setter',
+      newDefaultsLoop,
+      `  function stopNext() { throw new Error('stop'); }
+  for (const key in newDefaults) {
+    setJobConfig(newDefaults[key][0], key);
+    stopNext();
+  }`,
+    ],
+  ] as const) {
+    expectAcceptanceArchitectureRejection(
+      `${label} prevents exhaustive commits`,
+      replaceBehaviorFixture(modelArchChangeSource, loop, replacement),
     );
   }
 
@@ -5611,6 +5657,31 @@ ${architectureCommit}
       }`,
     ),
   );
+  expectAcceptanceArchitectureRejection(
+    'architecture tagged-template callable prefix may throw before required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      [
+        '  try {} finally {',
+        "    JSON.parse(newArchName)`${setJobConfig(newArchName, 'config.process[0].model.arch')}`;",
+        '  }',
+      ].join('\n'),
+    ),
+  );
+  expectAcceptanceArchitectureRejection(
+    'architecture tagged-template getter prefix may throw before required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      [
+        "  const tags = { get selected() { throw new Error('stop'); } };",
+        '  try {} finally {',
+        "    tags.selected`${setJobConfig(newArchName, 'config.process[0].model.arch')}`;",
+        '  }',
+      ].join('\n'),
+    ),
+  );
   expectAcceptanceArchitecturePositive(
     'statically selected nested switch break in finally preserves required commit',
     replaceBehaviorFixture(
@@ -5680,6 +5751,72 @@ ${architectureCommit}`,
       currentDefaultsLoop,
       `  for (const defaultKey in currentDefaults) {
     setJobConfig(currentDefaults[defaultKey][1], defaultKey);
+      }`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'preceding caught throw with exact catch break completes finitely',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  while (true) {
+    try { throw new Error('stop'); } catch { break; } finally {}
+  }
+${architectureCommit}`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'selected switch enclosing-label break in finally preserves required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    outer: {
+      switch (1) {
+        case 1: break outer;
+        default: JSON.parse(newArchName);
+      }
+    }
+    setJobConfig(newArchName, 'config.process[0].model.arch');
+  }`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'selected switch try-finally break in finally preserves required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    switch (1) {
+      case 1: try { break; } finally {}
+      default: JSON.parse(newArchName);
+    }
+    setJobConfig(newArchName, 'config.process[0].model.arch');
+  }`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'nonthrowing tagged-template helper preserves required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      [
+        '  const tag = (_strings, ...values) => values;',
+        '  try {} finally {',
+        "    tag`${setJobConfig(newArchName, 'config.process[0].model.arch')}`;",
+        '  }',
+      ].join('\n'),
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'nonthrowing default-loop helper preserves exhaustive commits',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      currentDefaultsLoop,
+      `  function observeCurrent() { 1; }
+  for (const key in currentDefaults) {
+    observeCurrent();
+    setJobConfig(currentDefaults[key][1], key);
   }`,
     ),
   );

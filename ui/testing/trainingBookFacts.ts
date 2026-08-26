@@ -6672,9 +6672,38 @@ function visitExecutableFunctionNodes(
     !ts.isIdentifier(declaration.name)
     || (declaration.initializer !== undefined && !obviouslyNonThrowingExpression(declaration.initializer))
   ));
+  const statementDefinitelyThrowsBeforeCompletion = (statement: ts.Statement): boolean => {
+    if (isStaticallyDead(statement, bindings)) return false;
+    if (ts.isThrowStatement(statement)) return true;
+    if (ts.isBlock(statement)) {
+      for (const child of statement.statements) {
+        if (isStaticallyDead(child, bindings)) continue;
+        if (statementDefinitelyThrowsBeforeCompletion(child)) return true;
+        if (ts.isReturnStatement(child) || ts.isBreakStatement(child) || ts.isContinueStatement(child)) return false;
+      }
+      return false;
+    }
+    if (ts.isIfStatement(statement)) {
+      const truth = staticTruthValue(statement.expression, bindings);
+      if (truth === true) return statementDefinitelyThrowsBeforeCompletion(statement.thenStatement);
+      if (truth === false) return statement.elseStatement !== undefined
+        && statementDefinitelyThrowsBeforeCompletion(statement.elseStatement);
+      return statement.elseStatement !== undefined
+        && statementDefinitelyThrowsBeforeCompletion(statement.thenStatement)
+        && statementDefinitelyThrowsBeforeCompletion(statement.elseStatement);
+    }
+    if (ts.isLabeledStatement(statement)) return statementDefinitelyThrowsBeforeCompletion(statement.statement);
+    if (ts.isTryStatement(statement)) {
+      if (statement.finallyBlock !== undefined && statementDefinitelyThrowsBeforeCompletion(statement.finallyBlock)) return true;
+      if (!statementDefinitelyThrowsBeforeCompletion(statement.tryBlock)) return false;
+      return statement.catchClause === undefined
+        || statementDefinitelyThrowsBeforeCompletion(statement.catchClause.block);
+    }
+    return false;
+  };
   const statementDefinitelyBreaksSwitch = (statement: ts.Statement): boolean => {
     if (isStaticallyDead(statement, bindings)) return false;
-    if (ts.isBreakStatement(statement)) return statement.label === undefined;
+    if (ts.isBreakStatement(statement)) return true;
     if (ts.isBlock(statement)) {
       for (const child of statement.statements) {
         if (isStaticallyDead(child, bindings)) continue;
@@ -6693,6 +6722,17 @@ function visitExecutableFunctionNodes(
         && statementDefinitelyBreaksSwitch(statement.elseStatement);
     }
     if (ts.isLabeledStatement(statement)) return statementDefinitelyBreaksSwitch(statement.statement);
+    if (ts.isTryStatement(statement)) {
+      if (statement.finallyBlock !== undefined && statementDefinitelyBreaksSwitch(statement.finallyBlock)) return true;
+      if (statement.finallyBlock !== undefined && statementMayThrow(statement.finallyBlock)) return false;
+      const tryBreaks = statementDefinitelyBreaksSwitch(statement.tryBlock);
+      if (tryBreaks) return statement.catchClause === undefined
+        || !statementMayThrow(statement.tryBlock)
+        || statementDefinitelyBreaksSwitch(statement.catchClause.block);
+      return statement.catchClause !== undefined
+        && statementDefinitelyThrowsBeforeCompletion(statement.tryBlock)
+        && statementDefinitelyBreaksSwitch(statement.catchClause.block);
+    }
     return false;
   };
   const statementMayThrow = (statement: ts.Statement): boolean => {
@@ -6832,10 +6872,13 @@ function visitExecutableFunctionNodes(
         statement.finallyBlock !== undefined
         && (statementMayPreventFollowing(statement.finallyBlock) || statementMayThrow(statement.finallyBlock))
       ) return false;
-      if (!bodyDefinitelyBreaksLoop(statement.tryBlock, loop)) return false;
-      return statement.catchClause === undefined
+      const tryBreaks = bodyDefinitelyBreaksLoop(statement.tryBlock, loop);
+      if (tryBreaks) return statement.catchClause === undefined
         || !statementMayThrow(statement.tryBlock)
         || bodyDefinitelyBreaksLoop(statement.catchClause.block, loop);
+      return statement.catchClause !== undefined
+        && statementDefinitelyThrowsBeforeCompletion(statement.tryBlock)
+        && bodyDefinitelyBreaksLoop(statement.catchClause.block, loop);
     }
     return false;
   };
@@ -7029,6 +7072,8 @@ function visitExecutableFunctionNodes(
         if (index > 0 && parent.parent.templateSpans.slice(0, index).some(span => (
           !obviouslyNonThrowingExpression(span.expression)
         ))) return true;
+      } else if (ts.isTaggedTemplateExpression(parent) && child === parent.template) {
+        if (!obviouslyNonThrowingExpression(parent.tag)) return true;
       } else if (ts.isElementAccessExpression(parent) && child === parent.argumentExpression) {
         if (!obviouslyNonThrowingExpression(parent.expression)) return true;
       }
@@ -9590,6 +9635,57 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
   const currentDefaults = defaultInfo.find(item => item.index === 1);
   const newDefaults = defaultInfo.find(item => item.index === 0);
   if (currentDefaults === undefined || newDefaults === undefined || currentDefaults.call.node.getStart() >= newDefaults.call.node.getStart()) fail(owner, 'handleModelArchChange behavior requires current-default revert before next-default apply');
+  const abruptEscapesBoundary = (node: ts.Node, boundary: ts.Node): boolean => {
+    let child = node;
+    while (child !== boundary && child.parent !== undefined) {
+      const parent = child.parent;
+      if (ts.isTryStatement(parent) && parent.tryBlock === child && parent.catchClause !== undefined) return false;
+      child = parent;
+    }
+    return child === boundary;
+  };
+  const localFunctionMayThrowUncaught = (
+    target: ts.FunctionLikeDeclaration,
+    seen = new Set<ts.FunctionLikeDeclaration>(),
+  ): boolean => {
+    if (target.body === undefined) return false;
+    if (seen.has(target)) return true;
+    const nextSeen = new Set(seen).add(target);
+    let found = false;
+    const inspect = (node: ts.Node): void => {
+      if (
+        found
+        || isStaticallyDead(node, bindings)
+        || (node !== target.body && ts.isFunctionLike(node))
+      ) return;
+      if (ts.isThrowStatement(node) && abruptEscapesBoundary(node, target.body!)) {
+        found = true;
+        return;
+      }
+      if (ts.isCallExpression(node)) {
+        const invocation = normalizeInvocation(node, bindings);
+        const nested = localFunctionFromExpression(invocation.target, bindings, new Map(), false);
+        if (
+          nested !== undefined
+          && localFunctionMayThrowUncaught(nested, nextSeen)
+          && abruptEscapesBoundary(node, target.body!)
+        ) {
+          found = true;
+          return;
+        }
+      }
+      ts.forEachChild(node, inspect);
+    };
+    inspect(target.body);
+    return found;
+  };
+  const localInvocationMayThrowUncaught = (call: ts.CallExpression, boundary: ts.Node): boolean => {
+    const invocation = normalizeInvocation(call, bindings);
+    const target = localFunctionFromExpression(invocation.target, bindings, new Map(), false);
+    return target !== undefined
+      && localFunctionMayThrowUncaught(target)
+      && abruptEscapesBoundary(call, boundary);
+  };
   const requireExactDefaultLoop = (item: typeof currentDefaults, label: string): void => {
     if (item === undefined || item.call.conditions.length !== 1) fail(owner, `handleModelArchChange ${label} behavior has an unsupported enclosing runtime guard`);
     const condition = item.call.conditions[0];
@@ -9610,6 +9706,10 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     const inspect = (node: ts.Node): void => {
       if (abrupt !== undefined || isStaticallyDead(node, bindings) || (node !== loop.statement && ts.isFunctionLike(node))) return;
       if (ts.isBreakStatement(node) || ts.isContinueStatement(node) || ts.isReturnStatement(node) || ts.isThrowStatement(node)) {
+        abrupt = node;
+        return;
+      }
+      if (ts.isCallExpression(node) && localInvocationMayThrowUncaught(node, loop.statement)) {
         abrupt = node;
         return;
       }
