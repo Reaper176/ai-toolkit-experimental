@@ -8224,7 +8224,88 @@ function localClassesFromExpression(
     : localClassesFromExpression(origin, bindings, substitutions, seen);
 }
 
-const activeExecutableClassConstructions = new Set<ts.ClassDeclaration | ts.ClassExpression>();
+type ExecutableClassDeclaration = ts.ClassDeclaration | ts.ClassExpression;
+
+const activeExecutableClassConstructions = new Map<ExecutableClassDeclaration, Array<string | undefined>>();
+const executableConstructionStateNodeIds = new WeakMap<ts.Node, number>();
+let nextExecutableConstructionStateNodeId = 0;
+let activeExecutableClassConstructionDepth = 0;
+const MAX_EXECUTABLE_CLASS_CONSTRUCTION_DEPTH = 32;
+
+function executableConstructionStateNodeKey(node: ts.Node): string {
+  let id = executableConstructionStateNodeIds.get(node);
+  if (id === undefined) {
+    id = nextExecutableConstructionStateNodeId++;
+    executableConstructionStateNodeIds.set(node, id);
+  }
+  return `node:${id}`;
+}
+
+function canonicalExecutableConstructionValue(
+  value: InvocationValue,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  seen = new Set<ts.Node>(),
+): string | undefined {
+  if (value === 'tainted') return undefined;
+  if (value === 'absent') return 'absent';
+  const expression = unwrap(value);
+  if (seen.has(expression)) return undefined;
+  const nextSeen = new Set(seen).add(expression);
+  const direct = substitutions.get(expression);
+  if (direct !== undefined) return canonicalExecutableConstructionValue(direct, bindings, substitutions, nextSeen);
+  if (ts.isIdentifier(expression)) {
+    const declaration = bindings.uniqueLexicalDeclaration(expression)
+      ?? bindings.bindingDeclaration(expression);
+    const projected = declaration === undefined ? undefined : substitutions.get(declaration);
+    if (projected !== undefined) return canonicalExecutableConstructionValue(projected, bindings, substitutions, nextSeen);
+    if (declaration !== undefined && (
+      (ts.isClassDeclaration(declaration.parent) && declaration.parent.name === declaration)
+      || (ts.isFunctionDeclaration(declaration.parent) && declaration.parent.name === declaration)
+    )) return executableConstructionStateNodeKey(declaration.parent);
+  }
+  const classes = localClassesFromExpression(expression, bindings, substitutions);
+  if (classes?.complete === true) {
+    return `classes:${classes.declarations.map(executableConstructionStateNodeKey).sort().join(',')}`;
+  }
+  const target = localFunctionFromExpression(expression, bindings, substitutions, false);
+  if (target !== undefined) return executableConstructionStateNodeKey(target);
+  const provenance = resolveAliasProvenance(expression, bindings, substitutions);
+  if (provenance.kind === 'tainted') return undefined;
+  if (provenance.kind === 'absent') return 'absent';
+  const origin = ts.isMethodDeclaration(provenance.origin) ? provenance.origin : unwrap(provenance.origin);
+  if (origin.kind === ts.SyntaxKind.TrueKeyword) return 'boolean:true';
+  if (origin.kind === ts.SyntaxKind.FalseKeyword) return 'boolean:false';
+  if (origin.kind === ts.SyntaxKind.NullKeyword) return 'null';
+  if (ts.isStringLiteral(origin) || ts.isNoSubstitutionTemplateLiteral(origin)) return `string:${JSON.stringify(origin.text)}`;
+  if (ts.isNumericLiteral(origin)) return `number:${Number(origin.text)}`;
+  if (ts.isBigIntLiteral(origin)) return `bigint:${origin.text.replace(/_/gu, '')}`;
+  if (
+    ts.isMethodDeclaration(origin)
+    || ts.isFunctionExpression(origin)
+    || ts.isArrowFunction(origin)
+    || ts.isClassExpression(origin)
+    || ts.isObjectLiteralExpression(origin)
+    || ts.isArrayLiteralExpression(origin)
+    || ts.isRegularExpressionLiteral(origin)
+  ) return executableConstructionStateNodeKey(origin);
+  if (ts.isIdentifier(origin)) return undefined;
+  const truth = staticTruthValue(origin, bindings, substitutions);
+  const nullish = staticNullishValue(origin, bindings, substitutions);
+  return truth === undefined || nullish === undefined
+    ? undefined
+    : `semantic:${truth ? 'truthy' : nullish ? 'nullish' : 'falsey'}`;
+}
+
+function canonicalExecutableConstructionState(
+  argumentsToBind: readonly InvocationValue[] | undefined,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+): string | undefined {
+  if (argumentsToBind === undefined) return undefined;
+  const values = argumentsToBind.map(value => canonicalExecutableConstructionValue(value, bindings, substitutions));
+  return values.some(value => value === undefined) ? undefined : JSON.stringify(values);
+}
 
 type ExecutableNodeVisitor = (
   node: ts.Node,
@@ -8274,17 +8355,27 @@ function visitExecutableClassConstructionNodes(
   substitutions: InvocationSubstitutions,
   execution: 'known' | 'unmodeled-callback',
   visitor: ExecutableNodeVisitor,
-  runtimeClass?: ts.ClassDeclaration | ts.ClassExpression,
+  runtimeClass?: ExecutableClassDeclaration,
 ): boolean {
   const resolution = localClassesFromExpression(expression, bindings, substitutions);
   if (resolution === undefined) return false;
   if (!resolution.complete) fail(expression, 'unsupported class construction: incomplete local constructor provenance');
   const declarations = resolution.declarations;
   const constructionExecution = declarations.length === 1 ? execution : 'unmodeled-callback';
+  const constructionState = canonicalExecutableConstructionState(argumentsToBind, bindings, substitutions);
   for (const declaration of declarations) {
     const receiverClass = runtimeClass ?? declaration;
-    if (activeExecutableClassConstructions.has(declaration)) continue;
-    activeExecutableClassConstructions.add(declaration);
+    const activeStates = activeExecutableClassConstructions.get(declaration) ?? [];
+    if (activeStates.length > 0 && (
+      constructionState === undefined
+      || activeStates.some(state => state === undefined || state === constructionState)
+    )) fail(expression, 'unsupported recursive class construction: identical or unknown invocation state');
+    if (activeExecutableClassConstructionDepth >= MAX_EXECUTABLE_CLASS_CONSTRUCTION_DEPTH) {
+      fail(expression, 'unsupported recursive class construction: bounded invocation-state depth exceeded');
+    }
+    activeStates.push(constructionState);
+    activeExecutableClassConstructions.set(declaration, activeStates);
+    activeExecutableClassConstructionDepth += 1;
     try {
       const base = declaration.heritageClauses
         ?.find(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)
@@ -8326,7 +8417,9 @@ function visitExecutableClassConstructionNodes(
         );
       }
     } finally {
-      activeExecutableClassConstructions.delete(declaration);
+      activeExecutableClassConstructionDepth -= 1;
+      activeStates.pop();
+      if (activeStates.length === 0) activeExecutableClassConstructions.delete(declaration);
     }
   }
   return true;

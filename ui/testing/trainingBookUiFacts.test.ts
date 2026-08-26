@@ -3424,16 +3424,6 @@ for (const [label, callback] of [
               setJobConfig(value, 'config.process[0].model.qtype');
             }}`,
   ],
-  [
-    'safe recursive constructor cycle terminates',
-    `onChange={value => {
-              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
-              else setJobConfig(true, 'config.process[0].model.quantize');
-              class Loop { constructor() { new Loop(); } }
-              new Loop();
-              setJobConfig(value, 'config.process[0].model.qtype');
-            }}`,
-  ],
 ] as const) {
   try {
     collectVisibleControlClaimsFromSource(
@@ -3718,17 +3708,6 @@ for (const [label, callback] of [
               else setJobConfig(true, 'config.process[0].model.quantize');
               class Base { constructor(kind) { void kind; } }
               new Base('safe');
-              setJobConfig(value, 'config.process[0].model.qtype');
-            }}`,
-  ],
-  [
-    'recursive constructor parameter class terminates',
-    `onChange={value => {
-              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
-              else setJobConfig(true, 'config.process[0].model.quantize');
-              class Loop { constructor() { new Loop(); } }
-              class Base { constructor(Ctor) { new Ctor(); } }
-              new Base(Loop);
               setJobConfig(value, 'config.process[0].model.qtype');
             }}`,
   ],
@@ -4243,6 +4222,152 @@ for (const [label, sourceText, symbol, projected, shouldAccept] of [
   } catch (error) {
     if (shouldAccept) factualUiContractFailures.push(label);
     else assert.match(String(error), /class|constructor|new|select.*options|accepted values|projected|provenance|target|condition/i, `${label} must honor exact conditional provenance`);
+  }
+}
+
+const recursiveConstructionQuantizationCallback = (
+  declarations: string,
+  construction: string,
+): string => `onChange={value => {
+            if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+            else setJobConfig(true, 'config.process[0].model.quantize');
+            ${declarations}
+            ${construction}
+            setJobConfig(value, 'config.process[0].model.qtype');
+          }}`;
+
+for (const [label, callback] of [
+  [
+    'changed-state recursive construction reaches corrupt quantization base case',
+    recursiveConstructionQuantizationCallback(
+      'class Loop { constructor(recurse) { if (recurse) new Loop(false); else value = false; } }',
+      'new Loop(true);',
+    ),
+  ],
+  [
+    'derived changed-state recursive construction reaches corrupt base case',
+    recursiveConstructionQuantizationCallback(
+      `class Base { constructor(recurse) { if (recurse) new Derived(false); else value = false; } }
+       class Derived extends Base { constructor(recurse) { super(recurse); } }`,
+      'new Derived(true);',
+    ),
+  ],
+  [
+    'same-state recursive construction fails closed',
+    recursiveConstructionQuantizationCallback(
+      'class Loop { constructor(recurse) { if (recurse) new Loop(true); } }',
+      'new Loop(true);',
+    ),
+  ],
+  [
+    'same-state mutual construction cycle fails closed',
+    recursiveConstructionQuantizationCallback(
+      `class First { constructor(recurse) { if (recurse) new Second(true); } }
+       class Second { constructor(recurse) { if (recurse) new First(true); } }`,
+      'new First(true);',
+    ),
+  ],
+  [
+    'unknown recursive constructor argument state fails closed',
+    recursiveConstructionQuantizationCallback(
+      'class Loop { constructor(recurse) { if (recurse) new Loop(false); } }',
+      'new Loop(externalFlag);',
+    ),
+  ],
+  [
+    'no-argument recursive construction fails closed',
+    recursiveConstructionQuantizationCallback(
+      'class Loop { constructor() { new Loop(); } }',
+      'new Loop();',
+    ),
+  ],
+  [
+    'constructor-parameter recursive construction fails closed',
+    recursiveConstructionQuantizationCallback(
+      `class Loop { constructor() { new Loop(); } }
+       class Base { constructor(Ctor) { new Ctor(); } }`,
+      'new Base(Loop);',
+    ),
+  ],
+] as const) {
+  const started = Date.now();
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /class|constructor|construction|recursive|cycle|qtype|selection|payload|provenance|tainted|unsupported/i, `${label} must replay a distinct finite state or fail closed`);
+  }
+  assert.ok(Date.now() - started < 2_000, `${label} must terminate within two seconds`);
+}
+
+for (const [label, sourceText, symbol, projected] of [
+  [
+    'changed-state recursive construction reaches ordinary options mutation',
+    ordinaryClassEffectControl(
+      `class Loop {
+         constructor(recurse) {
+           if (recurse) new Loop(false);
+           else modeOptions.push({ value: 'b', label: 'B' });
+         }
+       }`,
+      'new Loop(true);',
+    ),
+    'Fixture',
+    false,
+  ],
+  [
+    'changed-state recursive construction reaches projected options mutation',
+    projectedOptionsControl(
+      `class Loop {
+         constructor(recurse) {
+           if (recurse) new Loop(false);
+           else groupedModelOptions.push({ value: 'stale', label: 'Stale' });
+         }
+       }
+       new Loop(true);`,
+      '',
+      '',
+    ),
+    'SimpleJob',
+    true,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(sourceText, 'fixture.tsx', symbol, false, projected);
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /class|constructor|construction|recursive|cycle|select.*options|accepted values|projected|provenance|tainted|unsupported/i, `${label} must replay the reachable base state`);
+  }
+}
+
+for (const [label, callback] of [
+  [
+    'changed-state recursive construction with safe base case remains harmless',
+    recursiveConstructionQuantizationCallback(
+      'class Loop { constructor(recurse) { if (recurse) new Loop(false); else void recurse; } }',
+      'new Loop(true);',
+    ),
+  ],
+  [
+    'repeated non-nested constructions remain independent',
+    recursiveConstructionQuantizationCallback(
+      'class Safe { constructor(flag) { void flag; } }',
+      'new Safe(true); new Safe(false);',
+    ),
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+  } catch {
+    factualUiContractFailures.push(label);
   }
 }
 assert.deepEqual(factualUiContractFailures, [], 'shared factual UI contracts must remain exact');
