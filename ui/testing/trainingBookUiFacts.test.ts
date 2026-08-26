@@ -3757,6 +3757,54 @@ if (liveRoot !== undefined) {
     },
     'acceptance review covers defineProperties access order and Object.assign getter return provenance',
   );
+  const aliasAbruptConstructionFailures = [
+    ['defineProperties const alias preserves harmful spread before throw', "  const defineProperties = Object.defineProperties;\n  const source = { get value() { jobConfig.config.process[0].train.steps = 99; return { get enumerable() { throw new Error('stop'); } }; } };\n  defineProperties({}, { ...source });\n  if (isMac()) {"],
+    ['defineProperties destructured alias preserves harmful spread before throw', "  const { defineProperties } = Object;\n  const source = { get value() { jobConfig.config.process[0].train.steps = 99; return { get enumerable() { throw new Error('stop'); } }; } };\n  defineProperties({}, { ...source });\n  if (isMac()) {"],
+    ['defineProperties call preserves harmful spread before throw', "  const source = { get value() { jobConfig.config.process[0].train.steps = 99; return { get enumerable() { throw new Error('stop'); } }; } };\n  Object.defineProperties.call(null, {}, { ...source });\n  if (isMac()) {"],
+    ['defineProperties apply preserves harmful spread before throw', "  const source = { get value() { jobConfig.config.process[0].train.steps = 99; return { get enumerable() { throw new Error('stop'); } }; } };\n  Object.defineProperties.apply(null, [{}, { ...source }]);\n  if (isMac()) {"],
+    ['defineProperties bind preserves harmful spread before throw', "  const source = { get value() { jobConfig.config.process[0].train.steps = 99; return { get enumerable() { throw new Error('stop'); } }; } };\n  Object.defineProperties.bind(null, {}, { ...source })();\n  if (isMac()) {"],
+    ['helper own call rebind before invocation remains tainted', "  function applyDescriptors(descriptor) { Object.defineProperties.call(null, {}, { value: descriptor }); }\n  Object.defineProperties.call = dynamicConsumer;\n  applyDescriptors({ value: jobConfig });\n  if (isMac()) {"],
+    ['IIFE own apply rebind before invocation remains tainted', "  Object.defineProperties.apply = dynamicConsumer;\n  (() => Object.defineProperties.apply(null, [{}, { value: { value: jobConfig } }]))();\n  if (isMac()) {"],
+    ['nested helper own bind rebind before invocation remains tainted', "  function inner(descriptor) { Object.defineProperties.bind(null, {}, { value: descriptor })(); }\n  function outer(descriptor) { inner(descriptor); }\n  Object.defineProperties.bind = dynamicConsumer;\n  outer({ value: jobConfig });\n  if (isMac()) {"],
+    ['helper prototype call rebind before invocation remains tainted', "  function applyDescriptors(descriptor) { Object.defineProperties.call(null, {}, { value: descriptor }); }\n  Function.prototype.call = dynamicConsumer;\n  applyDescriptors({ value: jobConfig });\n  if (isMac()) {"],
+    ['IIFE prototype apply rebind before invocation remains tainted', "  Function.prototype.apply = dynamicConsumer;\n  (() => Object.defineProperties.apply(null, [{}, { value: { value: jobConfig } }]))();\n  if (isMac()) {"],
+    ['nested helper prototype bind rebind before invocation remains tainted', "  function inner(descriptor) { Object.defineProperties.bind(null, {}, { value: descriptor })(); }\n  function outer(descriptor) { inner(descriptor); }\n  Function.prototype.bind = dynamicConsumer;\n  outer({ value: jobConfig });\n  if (isMac()) {"],
+    ['warmed helper observes later own call rebind', "  function applyDescriptors(descriptor) { Object.defineProperties.call(null, {}, { value: descriptor }); }\n  applyDescriptors({ value: otherConfig });\n  Object.defineProperties.call = dynamicConsumer;\n  applyDescriptors({ value: jobConfig });\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const aliasAbruptConstructionPositiveFailures: string[] = [];
+  for (const [label, replacement] of [
+    ['defineProperties const alias spread throw stops harmful field getter', "  const defineProperties = Object.defineProperties;\n  const fields = { get enumerable() { throw new Error('stop'); } };\n  const descriptor = { ...fields, get value() { jobConfig.config.process[0].train.steps = 99; return 1; } };\n  defineProperties({}, { value: descriptor });\n  if (isMac()) {"],
+    ['defineProperties destructured alias spread throw stops harmful field getter', "  const { defineProperties } = Object;\n  const fields = { get enumerable() { throw new Error('stop'); } };\n  const descriptor = { ...fields, get value() { jobConfig.config.process[0].train.steps = 99; return 1; } };\n  defineProperties({}, { value: descriptor });\n  if (isMac()) {"],
+    ['defineProperties call spread throw stops harmful field getter', "  const fields = { get enumerable() { throw new Error('stop'); } };\n  const descriptor = { ...fields, get value() { jobConfig.config.process[0].train.steps = 99; return 1; } };\n  Object.defineProperties.call(null, {}, { value: descriptor });\n  if (isMac()) {"],
+    ['defineProperties apply spread throw stops harmful field getter', "  const fields = { get enumerable() { throw new Error('stop'); } };\n  const descriptor = { ...fields, get value() { jobConfig.config.process[0].train.steps = 99; return 1; } };\n  Object.defineProperties.apply(null, [{}, { value: descriptor }]);\n  if (isMac()) {"],
+    ['defineProperties bind spread throw stops harmful field getter', "  const fields = { get enumerable() { throw new Error('stop'); } };\n  const descriptor = { ...fields, get value() { jobConfig.config.process[0].train.steps = 99; return 1; } };\n  Object.defineProperties.bind(null, {}, { value: descriptor })();\n  if (isMac()) {"],
+    ['repeated defineProperties wrapper normalization remains bounded', "  function applyDescriptors(descriptor) { Object.defineProperties.call(null, {}, { value: descriptor }); }\n  const fields = { get enumerable() { throw new Error('stop'); } };\n  const descriptor = { ...fields, get value() { jobConfig.config.process[0].train.steps = 99; return 1; } };\n  applyDescriptors(descriptor);\n  applyDescriptors(descriptor);\n  if (isMac()) {"],
+    ['helper own call rebind after invocation does not retroactively taint', "  function applyDescriptors(descriptor) { Object.defineProperties.call(null, {}, { value: descriptor }); }\n  applyDescriptors({ value: jobConfig });\n  Object.defineProperties.call = dynamicConsumer;\n  if (isMac()) {"],
+    ['IIFE own apply rebind after invocation does not retroactively taint', "  (() => Object.defineProperties.apply(null, [{}, { value: { value: jobConfig } }]))();\n  Object.defineProperties.apply = dynamicConsumer;\n  if (isMac()) {"],
+    ['nested helper prototype bind rebind after invocation does not retroactively taint', "  function inner(descriptor) { Object.defineProperties.bind(null, {}, { value: descriptor })(); }\n  function outer(descriptor) { inner(descriptor); }\n  outer({ value: jobConfig });\n  Function.prototype.bind = dynamicConsumer;\n  if (isMac()) {"],
+    ['helper own call delete restores inherited native before invocation', "  function applyDescriptors(descriptor) { Object.defineProperties.call(null, {}, { value: descriptor }); }\n  Object.defineProperties.call = dynamicConsumer;\n  delete Object.defineProperties.call;\n  applyDescriptors({ value: jobConfig });\n  if (isMac()) {"],
+    ['IIFE prototype apply restoration is observed before invocation', "  const nativeApply = Function.prototype.apply;\n  Function.prototype.apply = dynamicConsumer;\n  Function.prototype.apply = nativeApply;\n  (() => Object.defineProperties.apply(null, [{}, { value: { value: jobConfig } }]))();\n  if (isMac()) {"],
+    ['nested helper prototype bind delete throws before native invocation', "  function inner(descriptor) { Object.defineProperties.bind(null, {}, { value: descriptor })(); }\n  function outer(descriptor) { inner(descriptor); }\n  delete Function.prototype.bind;\n  outer({ value: jobConfig });\n  if (isMac()) {"],
+    ['shadowed Object defineProperties does not replay descriptor fields', "  const Object = { defineProperties(target, descriptors) { otherObject.value = descriptors; return target; } };\n  Object.defineProperties({}, { value: { get value() { jobConfig.config.process[0].train.steps = 99; return 1; } } });\n  if (isMac()) {"],
+    ['rebound defineProperties alias does not replay descriptor fields', "  let defineProperties = Object.defineProperties;\n  defineProperties = (target, descriptors) => target;\n  defineProperties({}, { value: { get value() { jobConfig.config.process[0].train.steps = 99; return 1; } } });\n  if (isMac()) {"],
+  ] as const) {
+    const started = Date.now();
+    try {
+      assert.deepEqual(
+        collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)),
+        summaryMigrateFacts,
+      );
+      const elapsed = Date.now() - started;
+      if (elapsed > 2_000) aliasAbruptConstructionPositiveFailures.push(`${label}: completed in ${elapsed}ms`);
+    } catch {
+      aliasAbruptConstructionPositiveFailures.push(label);
+    }
+  }
+  assert.deepEqual(
+    { aliasAbruptConstructionFailures, aliasAbruptConstructionPositiveFailures },
+    { aliasAbruptConstructionFailures: [], aliasAbruptConstructionPositiveFailures: [] },
+    'defineProperties abrupt construction prepass uses normalized exact invocation identity',
+  );
   assert.equal(summaryArchFacts.length, 30);
   assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));

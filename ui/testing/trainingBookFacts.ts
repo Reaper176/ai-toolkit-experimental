@@ -419,6 +419,10 @@ type ProjectedAliasCandidate = {
   at: ts.Node;
 };
 type AliasCandidate = ts.Expression | 'absent' | 'tainted' | 'ambiguous-identity' | DefaultAliasCandidate | ProjectedAliasCandidate;
+type InvocationQueryContext = {
+  owner: ts.FunctionLikeDeclaration | ts.SourceFile;
+  site: ts.Node;
+};
 
 function isDefaultAliasCandidate(candidate: AliasCandidate): candidate is DefaultAliasCandidate {
   return typeof candidate !== 'string' && (candidate as { kind: unknown }).kind === 'default';
@@ -604,6 +608,7 @@ class LexicalBindings {
   private readonly arrayAppendQueries = new WeakMap<object, WeakMap<ts.Node, WeakMap<ts.Expression, { values: readonly ts.Expression[]; tainted: boolean } | null>>>();
   private readonly descriptorQueries = new WeakMap<object, WeakMap<ts.Node, WeakMap<ts.Node, FiniteOwnDescriptorResult>>>();
   private readonly activeDescriptorQueries = new WeakMap<object, WeakMap<ts.Node, WeakSet<ts.Node>>>();
+  private readonly invocationQueryContexts = new WeakMap<object, InvocationQueryContext>();
   private readonly exactGlobalMemberExpressions = new Map<string, ts.Expression | null>();
   private moduleExecutableTimeline?: readonly {
     node: ts.Node;
@@ -623,6 +628,27 @@ class LexicalBindings {
 
   isBuildingMemberTimeline(): boolean {
     return this.activeMemberTimelineBuildDepth > 0;
+  }
+
+  registerInvocationQueryContext(
+    projected: InvocationSubstitutions,
+    parent: InvocationSubstitutions,
+    site: ts.Node,
+  ): void {
+    const inherited = this.invocationQueryContexts.get(parent as object);
+    if (inherited !== undefined) {
+      this.invocationQueryContexts.set(projected as object, inherited);
+      return;
+    }
+    let owner: ts.Node | undefined = site;
+    while (owner !== undefined && !isLexicalFunction(owner) && !ts.isSourceFile(owner)) owner = owner.parent;
+    if (owner !== undefined && (isLexicalFunction(owner) || ts.isSourceFile(owner))) {
+      this.invocationQueryContexts.set(projected as object, { owner, site });
+    }
+  }
+
+  invocationQueryContext(substitutions: InvocationSubstitutions): InvocationQueryContext | undefined {
+    return this.invocationQueryContexts.get(substitutions as object);
   }
 
   finiteDescriptorQuery(
@@ -863,8 +889,16 @@ class LexicalBindings {
     return { found: false };
   }
 
-  memberProvenanceCandidates(base: ts.Expression, key: string, at: ts.Node): AliasCandidate[] | undefined {
+  memberProvenanceCandidates(
+    base: ts.Expression,
+    key: string,
+    at: ts.Node,
+    substitutions?: InvocationSubstitutions,
+  ): AliasCandidate[] | undefined {
     base = unwrap(base);
+    const queryKey = substitutions === undefined
+      ? key
+      : `${key}|${normalizedInvocationSubstitutionKey(substitutions, this)}`;
     let activeByBase = this.activeMemberCandidateQueries.get(at);
     if (activeByBase === undefined) {
       activeByBase = new WeakMap();
@@ -875,13 +909,13 @@ class LexicalBindings {
       activeKeys = new Set();
       activeByBase.set(base, activeKeys);
     }
-    if (activeKeys.has(key)) return ['tainted'];
-    activeKeys.add(key);
+    if (activeKeys.has(queryKey)) return ['tainted'];
+    activeKeys.add(queryKey);
     try {
       const cacheable = this.activeMemberTimelineBuildDepth === 0
         && this.activeMemberApiResolution.size === 0
         && this.activeMemberValueResolution.size === 0;
-      if (!cacheable) return this.computeMemberProvenanceCandidates(base, key, at);
+      if (!cacheable) return this.computeMemberProvenanceCandidates(base, key, at, substitutions);
       let byBase = this.memberCandidateQueries.get(at);
       if (byBase === undefined) {
         byBase = new WeakMap();
@@ -892,16 +926,21 @@ class LexicalBindings {
         byKey = new Map();
         byBase.set(base, byKey);
       }
-      if (byKey.has(key)) return byKey.get(key) ?? undefined;
-      const result = this.computeMemberProvenanceCandidates(base, key, at);
-      byKey.set(key, result ?? null);
+      if (byKey.has(queryKey)) return byKey.get(queryKey) ?? undefined;
+      const result = this.computeMemberProvenanceCandidates(base, key, at, substitutions);
+      byKey.set(queryKey, result ?? null);
       return result;
     } finally {
-      activeKeys.delete(key);
+      activeKeys.delete(queryKey);
     }
   }
 
-  private computeMemberProvenanceCandidates(base: ts.Expression, key: string, at: ts.Node): AliasCandidate[] | undefined {
+  private computeMemberProvenanceCandidates(
+    base: ts.Expression,
+    key: string,
+    at: ts.Node,
+    querySubstitutions?: InvocationSubstitutions,
+  ): AliasCandidate[] | undefined {
     const root = (
       expression: ts.Expression,
       substitutions: InvocationSubstitutions = new Map(),
@@ -940,7 +979,7 @@ class LexicalBindings {
       const initializer = this.declarationInitializer(expression);
       return initializer === undefined ? declaration : root(initializer, substitutions, new Set(seen).add(declaration));
     };
-    const expectedRoot = root(base);
+    const expectedRoot = root(base, querySubstitutions);
     if (expectedRoot === undefined) return ['tainted'];
     let owner: ts.Node | undefined = at;
     while (owner !== undefined && !isLexicalFunction(owner) && !ts.isSourceFile(owner)) owner = owner.parent;
@@ -1733,14 +1772,54 @@ class LexicalBindings {
       recordNode(node, new Map(), 'known', node.end, owner!);
       ts.forEachChild(node, lexicalVisit);
     };
-    const replayOwner = isLexicalFunction(owner) ? owner : undefined;
-    if (replayOwner !== undefined) {
+    const queryContext = querySubstitutions === undefined
+      ? undefined
+      : this.invocationQueryContext(querySubstitutions);
+    const replayOwner = queryContext?.owner ?? (isLexicalFunction(owner) ? owner : undefined);
+    if (replayOwner !== undefined && !ts.isSourceFile(replayOwner)) {
       let moduleSequence = -1_000_000;
       for (const item of this.executableModuleNodes()) {
         recordNode(item.node, item.substitutions, item.execution, moduleSequence++, item.current);
       }
     }
-    if (replayOwner !== undefined && this.activeMemberTimelineBuildDepth === 0) {
+    if (queryContext !== undefined && replayOwner !== undefined && isLexicalFunction(replayOwner)) {
+      const timeline = this.executableFunctionTimeline(replayOwner);
+      if (timeline === undefined) return ['tainted'];
+      const querySubstitutionKey = normalizedInvocationSubstitutionKey(querySubstitutions!, this);
+      const contextMatches = timeline.filter(item => {
+        if (item.node !== at) return false;
+        const itemContext = this.invocationQueryContext(item.substitutions);
+        return itemContext?.owner === queryContext.owner && itemContext.site === queryContext.site;
+      });
+      const exactMatches = contextMatches.filter(item => (
+        normalizedInvocationSubstitutionKey(item.substitutions, this) === querySubstitutionKey
+      ));
+      const selected = exactMatches.length > 0 ? exactMatches : contextMatches;
+      if (selected.length === 0) return ['tainted'];
+      atPosition = selected[selected.length - 1].sequence;
+      for (const item of timeline) {
+        recordNode(item.node, item.substitutions, item.execution, item.sequence, item.current);
+      }
+    } else if (queryContext !== undefined && replayOwner !== undefined && ts.isSourceFile(replayOwner)) {
+      const timeline = this.executableModuleNodes();
+      const querySubstitutionKey = normalizedInvocationSubstitutionKey(querySubstitutions!, this);
+      const contextMatches = timeline.flatMap((item, sequence) => {
+        if (item.node !== at) return [];
+        const itemContext = this.invocationQueryContext(item.substitutions);
+        return itemContext?.owner === queryContext.owner && itemContext.site === queryContext.site
+          ? [{ ...item, sequence }]
+          : [];
+      });
+      const exactMatches = contextMatches.filter(item => (
+        normalizedInvocationSubstitutionKey(item.substitutions, this) === querySubstitutionKey
+      ));
+      const selected = exactMatches.length > 0 ? exactMatches : contextMatches;
+      if (selected.length === 0) return ['tainted'];
+      atPosition = selected[selected.length - 1].sequence;
+      timeline.forEach((item, sequence) => {
+        recordNode(item.node, item.substitutions, item.execution, sequence, item.current);
+      });
+    } else if (replayOwner !== undefined && isLexicalFunction(replayOwner) && this.activeMemberTimelineBuildDepth === 0) {
       let timeline = this.memberTimelines.get(replayOwner);
       if (timeline === undefined) {
         timeline = [];
@@ -5027,7 +5106,10 @@ function exactNativeFunctionPrototypeMethod(
 ): boolean {
   const prototype = bindings.exactGlobalMemberExpression('Function', 'prototype');
   if (prototype === undefined) return true;
-  const candidates = bindings.memberProvenanceCandidates(prototype, method, at);
+  const contextualSubstitutions = bindings.invocationQueryContext(substitutions) === undefined
+    ? undefined
+    : substitutions;
+  const candidates = bindings.memberProvenanceCandidates(prototype, method, at, contextualSubstitutions);
   if (candidates === undefined) return true;
   if (seen.has(at)) return false;
   const nextSeen = new Set(seen).add(at);
@@ -5058,8 +5140,17 @@ function exactNativeFunctionMethod(
   seen = new Set<ts.Node>(),
 ): boolean {
   const member = staticMember(expression);
-  if (member?.key !== method || !callableAliasOrigin(member.base, bindings)) return false;
-  const candidates = bindings.memberProvenanceCandidates(member.base, method, expression);
+  const exactMutationTarget = member === undefined
+    ? undefined
+    : resolveMutationApiIdentity(member.base, bindings, substitutions);
+  if (
+    member?.key !== method
+    || (!callableAliasOrigin(member.base, bindings) && exactMutationTarget?.exactGlobal !== true)
+  ) return false;
+  const contextualSubstitutions = bindings.invocationQueryContext(substitutions) === undefined
+    ? undefined
+    : substitutions;
+  const candidates = bindings.memberProvenanceCandidates(member.base, method, expression, contextualSubstitutions);
   if (candidates === undefined) {
     return exactNativeFunctionPrototypeMethod(method, expression, bindings, substitutions, seen);
   }
@@ -5073,6 +5164,42 @@ function exactNativeFunctionMethod(
   });
 }
 
+function exactDeletedFunctionWrapper(
+  expression: ts.Expression,
+  method: 'call' | 'apply' | 'bind',
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+): boolean {
+  const member = staticMember(expression);
+  if (member?.key !== method) return false;
+  const contextualSubstitutions = bindings.invocationQueryContext(substitutions) === undefined
+    ? undefined
+    : substitutions;
+  const candidateIsAbsent = (candidate: AliasCandidate): boolean => (
+    resolveAliasCandidate(candidate, bindings, substitutions, new Set()).kind === 'absent'
+  );
+  const ownCandidates = bindings.memberProvenanceCandidates(
+    member.base,
+    method,
+    expression,
+    contextualSubstitutions,
+  );
+  if (ownCandidates !== undefined && (
+    ownCandidates.length === 0 || !ownCandidates.every(candidateIsAbsent)
+  )) return false;
+  const prototype = bindings.exactGlobalMemberExpression('Function', 'prototype');
+  if (prototype === undefined) return false;
+  const prototypeCandidates = bindings.memberProvenanceCandidates(
+    prototype,
+    method,
+    expression,
+    contextualSubstitutions,
+  );
+  return prototypeCandidates !== undefined
+    && prototypeCandidates.length > 0
+    && prototypeCandidates.every(candidateIsAbsent);
+}
+
 function unmodeledCallConsumesRelevantIdentity(
   call: ts.CallExpression,
   relevantBindings: readonly ts.Identifier[],
@@ -5080,6 +5207,7 @@ function unmodeledCallConsumesRelevantIdentity(
   substitutions: InvocationSubstitutions,
 ): boolean {
   const invocation = normalizeInvocation(call, bindings, substitutions);
+  if (invocation.abrupt !== undefined) return false;
   if (localFunctionFromExpression(invocation.target, bindings, substitutions, false) !== undefined) return false;
   const mutationApi = resolveMutationApiIdentity(invocation.target, bindings, substitutions);
   if (mutationApi?.exactGlobal === true && (
@@ -5113,7 +5241,105 @@ type NormalizedInvocation = {
   target: ts.Expression;
   arguments?: readonly ts.Expression[];
   unsupported?: string;
+  abrupt?: string;
 };
+
+type NormalizedInvocationIdentity = {
+  invocation: NormalizedInvocation;
+  mutationApi?: MutationApiIdentity;
+};
+
+type NormalizedInvocationQueryScope = {
+  completed: WeakMap<ts.CallExpression, Map<string, NormalizedInvocationIdentity>>;
+  active: WeakMap<ts.CallExpression, Set<string>>;
+};
+
+const normalizedInvocationQueryScopes = new WeakMap<
+  LexicalBindings,
+  Map<string, NormalizedInvocationQueryScope>
+>();
+const normalizedInvocationNodeIdentities = new WeakMap<ts.Node, number>();
+let normalizedInvocationNodeIdentitySequence = 0;
+
+function normalizedInvocationNodeIdentity(node: ts.Node): number {
+  let identity = normalizedInvocationNodeIdentities.get(node);
+  if (identity === undefined) {
+    identity = ++normalizedInvocationNodeIdentitySequence;
+    normalizedInvocationNodeIdentities.set(node, identity);
+  }
+  return identity;
+}
+
+function normalizedInvocationSubstitutionKey(
+  substitutions: InvocationSubstitutions,
+  bindings?: LexicalBindings,
+): string {
+  const context = bindings?.invocationQueryContext(substitutions);
+  const contextKey = context === undefined
+    ? 'root'
+    : `${normalizedInvocationNodeIdentity(context.owner)}@${normalizedInvocationNodeIdentity(context.site)}`;
+  const substitutionsKey = [...substitutions.entries()]
+    .map(([node, value]) => [
+      normalizedInvocationNodeIdentity(node),
+      typeof value === 'string' ? `value:${value}` : `node:${normalizedInvocationNodeIdentity(value)}`,
+    ] as const)
+    .sort(([left], [right]) => left - right)
+    .map(([node, value]) => `${node}=${value}`)
+    .join(',');
+  return `${contextKey}|${substitutionsKey}`;
+}
+
+function completedNormalizedInvocationIdentity(
+  call: ts.CallExpression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  key: string,
+  compute: () => NormalizedInvocationIdentity,
+): NormalizedInvocationIdentity {
+  let bySubstitutions = normalizedInvocationQueryScopes.get(bindings);
+  if (bySubstitutions === undefined) {
+    bySubstitutions = new Map();
+    normalizedInvocationQueryScopes.set(bindings, bySubstitutions);
+  }
+  const substitutionKey = normalizedInvocationSubstitutionKey(substitutions, bindings);
+  let scope = bySubstitutions.get(substitutionKey);
+  if (scope === undefined) {
+    scope = { completed: new WeakMap(), active: new WeakMap() };
+    bySubstitutions.set(substitutionKey, scope);
+  }
+  let completedByKey = scope.completed.get(call);
+  if (completedByKey === undefined) {
+    completedByKey = new Map();
+    scope.completed.set(call, completedByKey);
+  }
+  const completed = completedByKey.get(key);
+  if (completed !== undefined) return completed;
+  const cacheable = bindings.invocationQueryContext(substitutions) === undefined
+    || !bindings.isBuildingMemberTimeline();
+
+  let activeKeys = scope.active.get(call);
+  if (activeKeys === undefined) {
+    activeKeys = new Set();
+    scope.active.set(call, activeKeys);
+  }
+  if (activeKeys.has(key)) {
+    return {
+      invocation: {
+        target: call.expression,
+        arguments: finiteInvocationArgumentList(call.arguments, bindings),
+        unsupported: 'active normalized invocation provenance cycle',
+      },
+    };
+  }
+  activeKeys.add(key);
+  try {
+    const result = compute();
+    if (cacheable) completedByKey.set(key, result);
+    return result;
+  } finally {
+    activeKeys.delete(key);
+  }
+}
 
 function finiteInvocationArguments(
   expression: ts.Expression,
@@ -5187,7 +5413,7 @@ function ownStaticMember(expression: ts.Expression, bindings: LexicalBindings): 
   return base.origin.properties.some(property => !ts.isSpreadAssignment(property) && propertyName(property.name) === member.key);
 }
 
-function normalizeInvocation(
+function computeNormalizedInvocation(
   call: ts.CallExpression,
   bindings: LexicalBindings,
   substitutions: InvocationSubstitutions = new Map(),
@@ -5202,8 +5428,25 @@ function normalizeInvocation(
         ? { target: unwrap(bindCallee.base), arguments: [...bound.slice(1), ...later] }
         : { target: unwrap(bindCallee.base), unsupported: 'bind requires an exact null/undefined this argument' };
     }
+    if (bindCallee?.key === 'bind' && exactDeletedFunctionWrapper(callee.expression, 'bind', bindings, substitutions)) {
+      return {
+        target: unwrap(bindCallee.base),
+        arguments: finiteInvocationArgumentList(callee.arguments, bindings),
+        abrupt: 'deleted Function.prototype.bind is non-callable',
+      };
+    }
   }
   const member = staticMember(callee);
+  if (
+    member?.key === 'bind'
+    && exactDeletedFunctionWrapper(callee, 'bind', bindings, substitutions)
+  ) {
+    return {
+      target: unwrap(member.base),
+      arguments: finiteInvocationArgumentList(call.arguments, bindings),
+      abrupt: 'deleted Function.prototype.bind is non-callable',
+    };
+  }
   if (
     member !== undefined
     && (member.key === 'call' || member.key === 'apply')
@@ -5218,14 +5461,63 @@ function normalizeInvocation(
       ? { target, unsupported: 'apply requires one exact finite array/tuple argument' }
       : { target, arguments: applied };
   }
+  if (
+    member !== undefined
+    && (member.key === 'call' || member.key === 'apply')
+    && exactDeletedFunctionWrapper(callee, member.key, bindings, substitutions)
+  ) {
+    return {
+      target: unwrap(member.base),
+      arguments: finiteInvocationArgumentList(call.arguments, bindings),
+      abrupt: `deleted Function.prototype.${member.key} is non-callable`,
+    };
+  }
   const direct = resolveAliasProvenance(call.expression, bindings, substitutions);
-  if (direct.kind === 'tainted') return { target: call.expression, unsupported: 'tainted call target provenance' };
   const directArguments = finiteInvocationArgumentList(call.arguments, bindings);
+  if (direct.kind === 'tainted') return {
+    target: call.expression,
+    arguments: directArguments,
+    unsupported: 'tainted call target provenance',
+  };
   return {
     target: direct.kind === 'exact' && !ts.isMethodDeclaration(direct.origin) ? direct.origin : call.expression,
     arguments: directArguments,
     ...(directArguments === undefined ? { unsupported: 'dynamic or ambiguous argument spread' } : {}),
   };
+}
+
+function normalizedMutationInvocationIdentity(
+  call: ts.CallExpression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  candidate: MutationApiIdentity,
+): NormalizedInvocationIdentity {
+  return completedNormalizedInvocationIdentity(
+    call,
+    bindings,
+    substitutions,
+    normalizedMutationInvocationQueryKey(call, candidate),
+    () => {
+      const invocation = computeNormalizedInvocation(call, bindings, substitutions);
+      return {
+        invocation,
+        mutationApi: invocation.abrupt === undefined
+          ? resolveMutationApiIdentity(invocation.target, bindings, substitutions)
+          : undefined,
+      };
+    },
+  );
+}
+
+function normalizeInvocation(
+  call: ts.CallExpression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions = new Map(),
+): NormalizedInvocation {
+  const candidate = preflightMutationApiCandidate(call, bindings, substitutions);
+  return candidate === undefined
+    ? computeNormalizedInvocation(call, bindings, substitutions)
+    : normalizedMutationInvocationIdentity(call, bindings, substitutions, candidate).invocation;
 }
 
 function bindingIdentifiers(name: ts.BindingName): ts.Identifier[] {
@@ -6358,6 +6650,7 @@ function visitExecutableFunctionNodes(
       accessEffects,
       site,
     );
+    bindings.registerInvocationQueryContext(next, substitutions, site);
     if (ts.isGetAccessorDeclaration(target) || ts.isSetAccessorDeclaration(target)) {
       const parameterValues = new Map<string, InvocationValue>();
       for (const parameter of target.parameters) {
@@ -6418,14 +6711,40 @@ function visitExecutableFunctionNodes(
   ): void => {
     if (isStaticallyDead(node, bindings)) return;
     if (node !== current && ts.isFunctionLike(node)) return;
+    let normalizedCall: {
+      invocation: NormalizedInvocation;
+      activeForwardTarget?: ts.FunctionLikeDeclaration;
+      mutationApi?: MutationApiIdentity;
+    } | undefined;
+    let computeNormalizedCall: (() => {
+      invocation: NormalizedInvocation;
+      activeForwardTarget?: ts.FunctionLikeDeclaration;
+      mutationApi?: MutationApiIdentity;
+    }) | undefined;
     if (ts.isCallExpression(node)) {
-      const directApi = staticMember(node.expression);
-      const receiver = directApi === undefined ? undefined : unwrap(directApi.base);
-      const exactGlobalApi = receiver !== undefined
-        && ts.isIdentifier(receiver)
-        && !bindings.lookup(receiver).found
-        && ((receiver.text === 'Reflect' && directApi?.key === 'set')
-          || (receiver.text === 'Object' && (directApi?.key === 'defineProperty' || directApi?.key === 'defineProperties')));
+      computeNormalizedCall = () => {
+        const rawIdentifier = ts.isIdentifier(unwrap(node.expression)) ? unwrap(node.expression) as ts.Identifier : undefined;
+        const forwardInitializer = rawIdentifier === undefined
+          ? undefined
+          : bindings.declarationInitializer(rawIdentifier)
+            ?? bindings.uniqueLexicalInitializer(rawIdentifier);
+        const forwardTarget = forwardInitializer === undefined
+          ? undefined
+          : localFunctionFromExpression(forwardInitializer, bindings, substitutions, false);
+        const activeForwardTarget = forwardTarget !== undefined && active.has(forwardTarget) ? forwardTarget : undefined;
+        const forwardArguments = activeForwardTarget === undefined ? undefined : finiteInvocationArgumentList(node.arguments, bindings);
+        const invocation: NormalizedInvocation = activeForwardTarget === undefined
+          ? normalizeInvocation(node, bindings, substitutions)
+          : forwardArguments === undefined
+            ? { target: forwardInitializer!, unsupported: 'dynamic or ambiguous argument spread' }
+            : { target: forwardInitializer!, arguments: forwardArguments };
+        const mutationApi = resolveMutationApiIdentity(invocation.target, bindings, substitutions);
+        return { invocation, activeForwardTarget, mutationApi };
+      };
+      const preflightCandidate = preflightMutationApiCandidate(node, bindings, substitutions);
+      if (preflightCandidate !== undefined) {
+        normalizedCall = normalizedMutationInvocationIdentity(node, bindings, substitutions, preflightCandidate);
+      }
       const exactOwnCallable = (expression: ts.Expression | undefined, key: string): ts.FunctionLikeDeclaration | undefined => {
         if (expression === undefined) return undefined;
         const root = syntacticExactAliasOrigin(expression, bindings, substitutions);
@@ -6449,24 +6768,40 @@ function visitExecutableFunctionNodes(
           ? selected.origin
           : localFunctionFromExpression(selected.origin, bindings, substitutions, false);
       };
-      if (exactGlobalApi && node.arguments[0] !== undefined && !definitelyPrimitiveExpression(node.arguments[0], bindings, substitutions)) {
-        const keyCoercion = exactOwnCallable(node.arguments[1], 'toString');
-        if (keyCoercion !== undefined && functionDefinitelyThrows(keyCoercion)) {
-          invoke(node, keyCoercion, [], execution, substitutions, node.arguments[1]);
-          return;
+      const mutationApi = normalizedCall?.mutationApi;
+      const preflightArguments = normalizedCall?.invocation.arguments;
+      const exactPreflightApi = mutationApi?.exactGlobal === true && (
+        (mutationApi.receiver === 'Reflect' && mutationApi.method === 'set')
+        || (mutationApi.receiver === 'Object' && (mutationApi.method === 'defineProperty' || mutationApi.method === 'defineProperties'))
+      );
+      if (
+        exactPreflightApi
+        && preflightArguments !== undefined
+        && preflightArguments[0] !== undefined
+        && !definitelyPrimitiveExpression(preflightArguments[0], bindings, substitutions)
+      ) {
+        if (
+          (mutationApi.receiver === 'Reflect' && mutationApi.method === 'set')
+          || (mutationApi.receiver === 'Object' && mutationApi.method === 'defineProperty')
+        ) {
+          const keyCoercion = exactOwnCallable(preflightArguments[1], 'toString');
+          if (keyCoercion !== undefined && functionDefinitelyThrows(keyCoercion)) {
+            invoke(node, keyCoercion, [], execution, substitutions, preflightArguments[1]);
+            return;
+          }
         }
-        if (receiver.text === 'Object' && directApi?.key === 'defineProperty') {
+        if (mutationApi.receiver === 'Object' && mutationApi.method === 'defineProperty') {
           for (const field of ['enumerable', 'configurable', 'value', 'writable', 'get', 'set'] as const) {
-            const fieldGetter = exactOwnCallable(node.arguments[2], field);
+            const fieldGetter = exactOwnCallable(preflightArguments[2], field);
             if (fieldGetter === undefined) continue;
             if (functionDefinitelyThrows(fieldGetter)) {
-              invoke(node, fieldGetter, [], execution, substitutions, node.arguments[2]);
+              invoke(node, fieldGetter, [], execution, substitutions, preflightArguments[2]);
               return;
             }
             break;
           }
         }
-        if (receiver.text === 'Object' && directApi?.key === 'defineProperties' && node.arguments[1] !== undefined) {
+        if (mutationApi.receiver === 'Object' && mutationApi.method === 'defineProperties' && preflightArguments[1] !== undefined) {
           type ConstructionEffect = {
             target: ts.FunctionLikeDeclaration;
             receiver: ts.Expression;
@@ -6504,19 +6839,19 @@ function visitExecutableFunctionNodes(
             }
             return { effects, abrupt: false };
           };
-          const mapConstruction = constructionPlan(node.arguments[1]);
-          if (ts.isObjectLiteralExpression(unwrap(node.arguments[1]))) {
+          const mapConstruction = constructionPlan(preflightArguments[1]);
+          if (ts.isObjectLiteralExpression(unwrap(preflightArguments[1]))) {
             for (const effect of mapConstruction.effects) {
               replayedObjectSpreads.add(effect.spread);
               invoke(node, effect.target, [], execution, substitutions, effect.receiver);
             }
           }
           if (mapConstruction.abrupt) return;
-          const copied = finiteObjectCopyEntries(node.arguments[1], bindings, substitutions, node);
+          const copied = finiteObjectCopyEntries(preflightArguments[1], bindings, substitutions, node);
           const pending: Array<{ target: ts.FunctionLikeDeclaration; receiver: ts.Expression }> = [];
           for (const entry of copied.entries) {
             if (entry.getter !== undefined && entry.getter !== 'unknown') {
-              pending.push({ target: entry.getter, receiver: node.arguments[1] });
+              pending.push({ target: entry.getter, receiver: preflightArguments[1] });
               if (functionDefinitelyThrows(entry.getter)) {
                 for (const effect of pending) invoke(node, effect.target, [], execution, substitutions, effect.receiver);
                 return;
@@ -6624,28 +6959,14 @@ function visitExecutableFunctionNodes(
       } else if (iterator !== undefined) invoke(node, iterator, [], execution, substitutions, node.expression);
     }
     if (ts.isCallExpression(node)) {
-      const rawIdentifier = ts.isIdentifier(unwrap(node.expression)) ? unwrap(node.expression) as ts.Identifier : undefined;
-      const forwardInitializer = rawIdentifier === undefined
-        ? undefined
-        : bindings.declarationInitializer(rawIdentifier)
-          ?? bindings.uniqueLexicalInitializer(rawIdentifier);
-      const forwardTarget = forwardInitializer === undefined
-        ? undefined
-        : localFunctionFromExpression(forwardInitializer, bindings, substitutions, false);
-      const activeForwardTarget = forwardTarget !== undefined && active.has(forwardTarget) ? forwardTarget : undefined;
-      const forwardArguments = activeForwardTarget === undefined ? undefined : finiteInvocationArgumentList(node.arguments, bindings);
-      const invocation: NormalizedInvocation = activeForwardTarget === undefined
-        ? normalizeInvocation(node, bindings, substitutions)
-        : forwardArguments === undefined
-          ? { target: forwardInitializer!, unsupported: 'dynamic or ambiguous argument spread' }
-          : { target: forwardInitializer!, arguments: forwardArguments };
+      normalizedCall ??= computeNormalizedCall!();
+      const { invocation, activeForwardTarget, mutationApi } = normalizedCall!;
       let direct = activeForwardTarget ?? localFunctionFromExpression(invocation.target, bindings, substitutions, false);
       if (direct === undefined) direct = localFunctionFromExpression(invocation.target, bindings, substitutions);
       if (direct !== undefined) {
         if (invocation.arguments !== undefined) invoke(node, direct, invocation.arguments, execution, substitutions);
         else if (invocation.unsupported !== undefined) invoke(node, direct, undefined, 'unmodeled-callback', substitutions);
       }
-      const mutationApi = resolveMutationApiIdentity(invocation.target, bindings, substitutions);
       const relevantExpression = (expression: ts.Expression | undefined): boolean => expression !== undefined
         && relevantBindings.some(binding => (
           expressionBindingReachability(expression, binding, bindings, substitutions) !== 'unrelated'
@@ -7050,6 +7371,54 @@ function resolveMutationApiIdentity(
   return ts.isIdentifier(receiver) && (receiver.text === 'Object' || receiver.text === 'Reflect')
     ? { receiver: receiver.text, method: member.key, exactGlobal: !bindings.lookup(receiver).found }
     : undefined;
+}
+
+function preflightMutationApiCandidate(
+  call: ts.CallExpression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+): MutationApiIdentity | undefined {
+  const callee = unwrap(call.expression);
+  let target = callee;
+  if (ts.isCallExpression(callee)) {
+    const bound = staticMember(callee.expression);
+    if (bound?.key !== 'bind') return undefined;
+    target = unwrap(bound.base);
+  } else {
+    const wrapper = staticMember(callee);
+    if (wrapper?.key === 'call' || wrapper?.key === 'apply') target = unwrap(wrapper.base);
+  }
+  const origin = syntacticExactAliasOrigin(target, bindings, substitutions);
+  const member = origin === undefined ? undefined : staticMember(origin);
+  const receiverOrigin = member === undefined
+    ? undefined
+    : syntacticExactAliasOrigin(member.base, bindings, substitutions);
+  const api: MutationApiIdentity | undefined = receiverOrigin !== undefined
+    && ts.isIdentifier(receiverOrigin)
+    && (receiverOrigin.text === 'Object' || receiverOrigin.text === 'Reflect')
+    && !bindings.lookup(receiverOrigin).found
+    ? { receiver: receiverOrigin.text, method: member!.key, exactGlobal: true }
+    : undefined;
+  return api !== undefined && (
+    (api.receiver === 'Reflect' && api.method === 'set')
+    || (api.receiver === 'Object' && (api.method === 'defineProperty' || api.method === 'defineProperties'))
+  ) ? api : undefined;
+}
+
+function normalizedMutationInvocationQueryKey(
+  call: ts.CallExpression,
+  api: MutationApiIdentity,
+): string {
+  const callee = unwrap(call.expression);
+  const wrapper = ts.isCallExpression(callee)
+    ? staticMember(callee.expression)?.key ?? 'nested'
+    : (() => {
+      const key = staticMember(callee)?.key;
+      return key === 'call' || key === 'apply' ? key : 'direct';
+    })();
+  // The call position and affected API/member key keep completed results from
+  // crossing source-ordered own/prototype mutation states.
+  return `${call.getStart()}:${call.end}:${api.receiver}.${api.method}:${wrapper}`;
 }
 
 function boundedMutationApi(
