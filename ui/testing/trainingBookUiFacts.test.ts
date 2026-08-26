@@ -5482,6 +5482,40 @@ ${architectureCommit}
       }`,
     ),
   );
+  expectAcceptanceArchitectureRejection(
+    'architecture same-expression finally prefix may throw before required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    (JSON.parse(newArchName), setJobConfig(newArchName, 'config.process[0].model.arch'));
+  }`,
+    ),
+  );
+  expectAcceptanceArchitectureRejection(
+    'architecture same-declaration finally prefix may throw before required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    const parsed = JSON.parse(newArchName), committed = setJobConfig(newArchName, 'config.process[0].model.arch');
+  }`,
+    ),
+  );
+  expectAcceptanceArchitectureRejection(
+    'architecture invoked-helper finally prefix may throw before required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  function commitArchitecture() {
+    JSON.parse(newArchName);
+    setJobConfig(newArchName, 'config.process[0].model.arch');
+  }
+  try {} finally {
+    commitArchitecture();
+  }`,
+    ),
+  );
   expectAcceptanceArchitecturePositive(
     'statically selected nonthrowing finally prefix preserves required commit',
     replaceBehaviorFixture(
@@ -5514,7 +5548,129 @@ ${architectureCommit}
       const harmless = 1;
       setJobConfig(newArchName, 'config.process[0].model.arch');
     }
+      }`,
+    ),
+  );
+  expectAcceptanceArchitectureRejection(
+    'architecture object-literal finally prefix may throw before required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    ({ first: JSON.parse(newArchName), commit: setJobConfig(newArchName, 'config.process[0].model.arch') });
   }`,
+    ),
+  );
+  expectAcceptanceArchitectureRejection(
+    'architecture template finally prefix may throw before required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      [
+        '  try {} finally {',
+        "    `${JSON.parse(newArchName)}${setJobConfig(newArchName, 'config.process[0].model.arch')}`;",
+        '  }',
+      ].join('\n'),
+    ),
+  );
+  expectAcceptanceArchitectureRejection(
+    'architecture TDZ identifier finally prefix may throw before required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    value;
+    const value = 1;
+    setJobConfig(newArchName, 'config.process[0].model.arch');
+  }`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'statically dead loop prefixes in finally preserve required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    while (false) JSON.parse(newArchName);
+    for (; false;) JSON.parse(newArchName);
+    setJobConfig(newArchName, 'config.process[0].model.arch');
+  }`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'statically selected nonthrowing switch in finally preserves required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    switch (1) {
+      case 1: 1; break;
+      default: JSON.parse(newArchName);
+    }
+    setJobConfig(newArchName, 'config.process[0].model.arch');
+      }`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'statically selected nested switch break in finally preserves required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    switch (1) {
+      case 1: { 1; break; }
+      default: JSON.parse(newArchName);
+    }
+    setJobConfig(newArchName, 'config.process[0].model.arch');
+  }`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'statically selected switch fallthrough in finally preserves required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    switch (1) {
+      case 1: 1;
+      case 2: 2; break;
+      default: JSON.parse(newArchName);
+    }
+    setJobConfig(newArchName, 'config.process[0].model.arch');
+  }`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'preceding labeled block with exact break completes finitely',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  outer: {
+    while (true) { break outer; }
+  }
+${architectureCommit}`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'preceding loop break through nonthrowing finally completes finitely',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  while (true) {
+    try { break; } finally {}
+  }
+${architectureCommit}`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'preceding loop break through try-catch-finally completes finitely',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  while (true) {
+    try { break; } catch {} finally {}
+  }
+${architectureCommit}`,
     ),
   );
   expectAcceptanceArchitecturePositive(

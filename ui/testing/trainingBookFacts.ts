@@ -6620,6 +6620,7 @@ function visitExecutableFunctionNodes(
 ): void {
   const active = new Set<ts.FunctionLikeDeclaration>([owner]);
   const invocationConditions = new Map<ts.FunctionLikeDeclaration, readonly ConditionalExecutionContext[]>();
+  const invocationFinallyOwners = new Map<ts.FunctionLikeDeclaration, ts.TryStatement>();
   const nodeConditions = new WeakMap<ts.Node, readonly ConditionalExecutionContext[]>();
   const synchronousArrayCallbacks = new Set(['map', 'forEach']);
   const obviouslyNonThrowingExpression = (candidate: ts.Expression): boolean => {
@@ -6636,6 +6637,11 @@ function visitExecutableFunctionNodes(
       || ts.isArrowFunction(expression)
       || ts.isFunctionExpression(expression)
     ) return true;
+    if (ts.isIdentifier(expression)) {
+      const lookup = bindings.lookup(expression);
+      return (lookup.found && lookup.event !== undefined)
+        || (expression.text === 'undefined' && !lookup.found);
+    }
     if (ts.isArrayLiteralExpression(expression)) return expression.elements.every(element => (
       ts.isOmittedExpression(element)
       || (!ts.isSpreadElement(element) && obviouslyNonThrowingExpression(element))
@@ -6650,14 +6656,54 @@ function visitExecutableFunctionNodes(
     if (ts.isVoidExpression(expression)) return obviouslyNonThrowingExpression(expression.expression);
     return false;
   };
+  const staticSwitchValue = (candidate: ts.Expression): string | undefined => {
+    const provenance = resolveAliasProvenance(candidate, bindings);
+    if (provenance.kind !== 'exact' || ts.isMethodDeclaration(provenance.origin)) return undefined;
+    const expression = unwrap(provenance.origin);
+    if (expression.kind === ts.SyntaxKind.NullKeyword) return 'null';
+    if (expression.kind === ts.SyntaxKind.TrueKeyword) return 'boolean:true';
+    if (expression.kind === ts.SyntaxKind.FalseKeyword) return 'boolean:false';
+    if (ts.isNumericLiteral(expression)) return `number:${Number(expression.text)}`;
+    if (ts.isBigIntLiteral(expression)) return `bigint:${BigInt(expression.text.slice(0, -1).replace(/_/gu, ''))}`;
+    if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return `string:${expression.text}`;
+    return undefined;
+  };
+  const declarationListMayThrow = (list: ts.VariableDeclarationList): boolean => list.declarations.some(declaration => (
+    !ts.isIdentifier(declaration.name)
+    || (declaration.initializer !== undefined && !obviouslyNonThrowingExpression(declaration.initializer))
+  ));
+  const statementDefinitelyBreaksSwitch = (statement: ts.Statement): boolean => {
+    if (isStaticallyDead(statement, bindings)) return false;
+    if (ts.isBreakStatement(statement)) return statement.label === undefined;
+    if (ts.isBlock(statement)) {
+      for (const child of statement.statements) {
+        if (isStaticallyDead(child, bindings)) continue;
+        if (statementDefinitelyBreaksSwitch(child)) return true;
+        if (ts.isReturnStatement(child) || ts.isThrowStatement(child) || ts.isContinueStatement(child)) return false;
+      }
+      return false;
+    }
+    if (ts.isIfStatement(statement)) {
+      const truth = staticTruthValue(statement.expression, bindings);
+      if (truth === true) return statementDefinitelyBreaksSwitch(statement.thenStatement);
+      if (truth === false) return statement.elseStatement !== undefined
+        && statementDefinitelyBreaksSwitch(statement.elseStatement);
+      return statement.elseStatement !== undefined
+        && statementDefinitelyBreaksSwitch(statement.thenStatement)
+        && statementDefinitelyBreaksSwitch(statement.elseStatement);
+    }
+    if (ts.isLabeledStatement(statement)) return statementDefinitelyBreaksSwitch(statement.statement);
+    return false;
+  };
   const statementMayThrow = (statement: ts.Statement): boolean => {
     if (isStaticallyDead(statement, bindings)) return false;
     if (ts.isEmptyStatement(statement) || ts.isFunctionDeclaration(statement) || ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) return false;
+    if (ts.isBreakStatement(statement) || ts.isContinueStatement(statement) || ts.isDebuggerStatement(statement)) return false;
+    if (ts.isThrowStatement(statement)) return true;
+    if (ts.isReturnStatement(statement)) return statement.expression !== undefined
+      && !obviouslyNonThrowingExpression(statement.expression);
     if (ts.isExpressionStatement(statement)) return !obviouslyNonThrowingExpression(statement.expression);
-    if (ts.isVariableStatement(statement)) return statement.declarationList.declarations.some(declaration => (
-      !ts.isIdentifier(declaration.name)
-      || (declaration.initializer !== undefined && !obviouslyNonThrowingExpression(declaration.initializer))
-    ));
+    if (ts.isVariableStatement(statement)) return declarationListMayThrow(statement.declarationList);
     if (ts.isBlock(statement)) return statement.statements.some(statementMayThrow);
     if (ts.isIfStatement(statement)) {
       if (!obviouslyNonThrowingExpression(statement.expression)) return true;
@@ -6668,6 +6714,61 @@ function visitExecutableFunctionNodes(
         || (statement.elseStatement !== undefined && statementMayThrow(statement.elseStatement));
     }
     if (ts.isLabeledStatement(statement)) return statementMayThrow(statement.statement);
+    if (ts.isWhileStatement(statement)) {
+      if (!obviouslyNonThrowingExpression(statement.expression)) return true;
+      return staticTruthValue(statement.expression, bindings) === false
+        ? false
+        : statementMayThrow(statement.statement);
+    }
+    if (ts.isDoStatement(statement)) return statementMayThrow(statement.statement)
+      || !obviouslyNonThrowingExpression(statement.expression);
+    if (ts.isForStatement(statement)) {
+      const initializerMayThrow = statement.initializer !== undefined && (
+        ts.isVariableDeclarationList(statement.initializer)
+          ? declarationListMayThrow(statement.initializer)
+          : !obviouslyNonThrowingExpression(statement.initializer)
+      );
+      if (initializerMayThrow || (statement.condition !== undefined && !obviouslyNonThrowingExpression(statement.condition))) return true;
+      if (statement.condition !== undefined && staticTruthValue(statement.condition, bindings) === false) return false;
+      return statementMayThrow(statement.statement)
+        || (statement.incrementor !== undefined && !obviouslyNonThrowingExpression(statement.incrementor));
+    }
+    if (ts.isSwitchStatement(statement)) {
+      if (!obviouslyNonThrowingExpression(statement.expression)) return true;
+      const selected = staticSwitchValue(statement.expression);
+      if (selected === undefined) return true;
+      let selectedIndex = -1;
+      let defaultIndex = -1;
+      for (let index = 0; index < statement.caseBlock.clauses.length; index += 1) {
+        const clause = statement.caseBlock.clauses[index];
+        if (ts.isDefaultClause(clause)) {
+          defaultIndex = index;
+          continue;
+        }
+        if (!obviouslyNonThrowingExpression(clause.expression)) return true;
+        const caseValue = staticSwitchValue(clause.expression);
+        if (caseValue === undefined) return true;
+        if (caseValue === selected) {
+          selectedIndex = index;
+          break;
+        }
+      }
+      if (selectedIndex === -1) selectedIndex = defaultIndex;
+      if (selectedIndex === -1) return false;
+      for (let index = selectedIndex; index < statement.caseBlock.clauses.length; index += 1) {
+        for (const child of statement.caseBlock.clauses[index].statements) {
+          if (statementMayThrow(child)) return true;
+          if (statementDefinitelyBreaksSwitch(child)) return false;
+          if (ts.isReturnStatement(child) || ts.isThrowStatement(child)) return false;
+        }
+      }
+      return false;
+    }
+    if (ts.isTryStatement(statement)) {
+      if (statement.finallyBlock !== undefined && statementMayThrow(statement.finallyBlock)) return true;
+      if (!statementMayThrow(statement.tryBlock)) return false;
+      return statement.catchClause === undefined || statementMayThrow(statement.catchClause.block);
+    }
     return true;
   };
   const bodyHasReachableContinue = (statement: ts.Statement): boolean => {
@@ -6697,9 +6798,10 @@ function visitExecutableFunctionNodes(
   const loopLabels = (loop: ts.IterationStatement): ReadonlySet<string> => {
     const labels = new Set<string>();
     let child: ts.Node = loop;
-    while (ts.isLabeledStatement(child.parent) && child.parent.statement === child) {
-      labels.add(child.parent.label.text);
-      child = child.parent;
+    while (child.parent !== undefined && !ts.isFunctionLike(child.parent)) {
+      const parent = child.parent;
+      if (ts.isLabeledStatement(parent) && parent.statement === child) labels.add(parent.label.text);
+      child = parent;
     }
     return labels;
   };
@@ -6722,6 +6824,18 @@ function visitExecutableFunctionNodes(
       return statement.elseStatement !== undefined
         && bodyDefinitelyBreaksLoop(statement.thenStatement, loop)
         && bodyDefinitelyBreaksLoop(statement.elseStatement, loop);
+    }
+    if (ts.isLabeledStatement(statement)) return bodyDefinitelyBreaksLoop(statement.statement, loop);
+    if (ts.isTryStatement(statement)) {
+      if (statement.finallyBlock !== undefined && bodyDefinitelyBreaksLoop(statement.finallyBlock, loop)) return true;
+      if (
+        statement.finallyBlock !== undefined
+        && (statementMayPreventFollowing(statement.finallyBlock) || statementMayThrow(statement.finallyBlock))
+      ) return false;
+      if (!bodyDefinitelyBreaksLoop(statement.tryBlock, loop)) return false;
+      return statement.catchClause === undefined
+        || !statementMayThrow(statement.tryBlock)
+        || bodyDefinitelyBreaksLoop(statement.catchClause.block, loop);
     }
     return false;
   };
@@ -6821,10 +6935,10 @@ function visitExecutableFunctionNodes(
       && bodyDefinitelyBreaksLoop(statement.statement, statement);
   };
   const enclosingTryRegion = (
-    block: ts.Block,
+    node: ts.Node,
     current: ts.FunctionLikeDeclaration,
   ): { owner: ts.TryStatement; arm: 'try-after-possibly-throwing' | 'finally-after-possibly-throwing' } | undefined => {
-    let child: ts.Node = block;
+    let child: ts.Node = node;
     while (child !== current && child.parent !== undefined) {
       const parent = child.parent;
       if (ts.isTryStatement(parent)) {
@@ -6836,12 +6950,102 @@ function visitExecutableFunctionNodes(
     }
     return undefined;
   };
+  const enclosingFinallyOwner = (
+    node: ts.Node,
+    current: ts.FunctionLikeDeclaration,
+  ): ts.TryStatement | undefined => {
+    let child = node;
+    while (child !== current && child.parent !== undefined) {
+      const parent = child.parent;
+      if (ts.isTryStatement(parent) && parent.finallyBlock === child) return parent;
+      if (ts.isFunctionLike(parent)) return undefined;
+      child = parent;
+    }
+    return undefined;
+  };
+  const objectPropertyMayThrow = (property: ts.ObjectLiteralElementLike): boolean => {
+    if (ts.isSpreadAssignment(property)) return true;
+    if (ts.isPropertyAssignment(property)) return (
+      ts.isComputedPropertyName(property.name) && !obviouslyNonThrowingExpression(property.name.expression)
+    ) || !obviouslyNonThrowingExpression(property.initializer);
+    if (ts.isShorthandPropertyAssignment(property)) return !obviouslyNonThrowingExpression(property.name)
+      || (property.objectAssignmentInitializer !== undefined
+        && !obviouslyNonThrowingExpression(property.objectAssignmentInitializer));
+    return ts.isComputedPropertyName(property.name)
+      && !obviouslyNonThrowingExpression(property.name.expression);
+  };
+  const evaluationPrefixMayThrow = (
+    node: ts.Node,
+    current: ts.FunctionLikeDeclaration,
+  ): boolean => {
+    let child = node;
+    while (child !== current && child.parent !== undefined) {
+      if (ts.isStatement(child)) return false;
+      const parent = child.parent;
+      if (ts.isBinaryExpression(parent) && child === parent.right) {
+        if (!obviouslyNonThrowingExpression(parent.left)) return true;
+      } else if (ts.isConditionalExpression(parent) && (child === parent.whenTrue || child === parent.whenFalse)) {
+        if (!obviouslyNonThrowingExpression(parent.condition)) return true;
+      } else if (ts.isVariableDeclarationList(parent) && ts.isVariableDeclaration(child)) {
+        const index = parent.declarations.indexOf(child);
+        if (index > 0 && parent.declarations.slice(0, index).some(declaration => (
+          !ts.isIdentifier(declaration.name)
+          || (declaration.initializer !== undefined && !obviouslyNonThrowingExpression(declaration.initializer))
+        ))) return true;
+      } else if (ts.isCallExpression(parent)) {
+        const index = parent.arguments.indexOf(child as ts.Expression);
+        if (index >= 0 && (
+          !obviouslyNonThrowingExpression(parent.expression)
+          || parent.arguments.slice(0, index).some(argument => (
+            ts.isSpreadElement(argument) || !obviouslyNonThrowingExpression(argument)
+          ))
+        )) return true;
+      } else if (ts.isNewExpression(parent)) {
+        const argumentsList: readonly ts.Expression[] = parent.arguments ?? [];
+        const index = argumentsList.indexOf(child as ts.Expression);
+        if (index >= 0 && (
+          !obviouslyNonThrowingExpression(parent.expression)
+          || argumentsList.slice(0, index).some(argument => (
+            ts.isSpreadElement(argument) || !obviouslyNonThrowingExpression(argument)
+          ))
+        )) return true;
+      } else if (ts.isArrayLiteralExpression(parent)) {
+        const index = parent.elements.indexOf(child as ts.Expression);
+        if (index > 0 && parent.elements.slice(0, index).some(element => (
+          ts.isSpreadElement(element) || (!ts.isOmittedExpression(element) && !obviouslyNonThrowingExpression(element))
+        ))) return true;
+      } else if (ts.isObjectLiteralExpression(parent)) {
+        const index = parent.properties.findIndex(property => property === child);
+        if (index >= 0) {
+          const property = parent.properties[index];
+          const name = ts.isSpreadAssignment(property) ? undefined : property.name;
+          if (
+            (name !== undefined && ts.isComputedPropertyName(name) && !obviouslyNonThrowingExpression(name.expression))
+            || parent.properties.slice(0, index).some(objectPropertyMayThrow)
+          ) return true;
+        }
+      } else if (ts.isTemplateSpan(parent) && child === parent.expression && ts.isTemplateExpression(parent.parent)) {
+        const index = parent.parent.templateSpans.indexOf(parent);
+        if (index > 0 && parent.parent.templateSpans.slice(0, index).some(span => (
+          !obviouslyNonThrowingExpression(span.expression)
+        ))) return true;
+      } else if (ts.isElementAccessExpression(parent) && child === parent.argumentExpression) {
+        if (!obviouslyNonThrowingExpression(parent.expression)) return true;
+      }
+      child = parent;
+    }
+    return false;
+  };
   const lexicalConditions = (
     node: ts.Node,
     current: ts.FunctionLikeDeclaration,
     substitutions: InvocationSubstitutions,
   ): ConditionalExecutionContext[] => {
     const conditions: ConditionalExecutionContext[] = [];
+    const finallyOwner = enclosingFinallyOwner(node, current) ?? invocationFinallyOwners.get(current);
+    if (finallyOwner !== undefined && evaluationPrefixMayThrow(node, current)) {
+      conditions.push({ owner: finallyOwner, arm: 'finally-after-possibly-throwing', substitutions });
+    }
     let child: ts.Node = node;
     while (child !== current && child.parent !== undefined) {
       const parent = child.parent;
@@ -6895,7 +7099,14 @@ function visitExecutableFunctionNodes(
           && statementMayPreventFollowing(statement)
         ));
         if (bypass !== undefined) conditions.push({ owner: bypass, arm: 'after-possibly-abrupt', substitutions });
-        const tryRegion = index > 0 ? enclosingTryRegion(parent, current) : undefined;
+        const inheritedFinally = invocationFinallyOwners.get(current);
+        const tryRegion = index > 0
+          ? enclosingTryRegion(parent, current)
+            ?? (inheritedFinally === undefined ? undefined : {
+              owner: inheritedFinally,
+              arm: 'finally-after-possibly-throwing' as const,
+            })
+          : undefined;
         if (tryRegion !== undefined && preceding.some(statementMayThrow)) {
           conditions.push({
             owner: tryRegion.owner,
@@ -7051,6 +7262,24 @@ function visitExecutableFunctionNodes(
     }
     const priorConditions = invocationConditions.get(target);
     invocationConditions.set(target, nodeConditions.get(site) ?? []);
+    let siteOwner: ts.Node | undefined = site;
+    while (siteOwner !== undefined && !(
+      isLexicalFunction(siteOwner)
+      || ts.isGetAccessorDeclaration(siteOwner)
+      || ts.isSetAccessorDeclaration(siteOwner)
+      || ts.isConstructorDeclaration(siteOwner)
+    )) siteOwner = siteOwner.parent;
+    const inheritedFinallyOwner = siteOwner !== undefined && (
+      isLexicalFunction(siteOwner)
+      || ts.isGetAccessorDeclaration(siteOwner)
+      || ts.isSetAccessorDeclaration(siteOwner)
+      || ts.isConstructorDeclaration(siteOwner)
+    )
+      ? enclosingFinallyOwner(site, siteOwner) ?? invocationFinallyOwners.get(siteOwner)
+      : undefined;
+    const priorFinallyOwner = invocationFinallyOwners.get(target);
+    if (inheritedFinallyOwner === undefined) invocationFinallyOwners.delete(target);
+    else invocationFinallyOwners.set(target, inheritedFinallyOwner);
     active.add(target);
     try {
       for (const effect of accessEffects) invoke(site, effect.target, [], targetExecution, substitutions, effect.receiver);
@@ -7067,6 +7296,8 @@ function visitExecutableFunctionNodes(
       active.delete(target);
       if (priorConditions === undefined) invocationConditions.delete(target);
       else invocationConditions.set(target, priorConditions);
+      if (priorFinallyOwner === undefined) invocationFinallyOwners.delete(target);
+      else invocationFinallyOwners.set(target, priorFinallyOwner);
     }
   };
   visit = (
