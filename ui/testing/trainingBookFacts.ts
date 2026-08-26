@@ -8049,6 +8049,10 @@ function localClassesFromExpression(
   seen = new Set<ts.Identifier>(),
 ): LocalClassResolution | undefined {
   expression = unwrap(expression);
+  const directSubstitution = substitutions.get(expression);
+  if (directSubstitution !== undefined) return typeof directSubstitution === 'string'
+    ? undefined
+    : localClassesFromExpression(directSubstitution, bindings, substitutions, seen);
   if (ts.isClassExpression(expression)) return { declarations: [expression], complete: true };
   if (ts.isConditionalExpression(expression)) {
     const truth = staticTruthValue(expression.condition, bindings);
@@ -8070,6 +8074,15 @@ function localClassesFromExpression(
       if (ts.isClassDeclaration(declaration.parent) && declaration.parent.name === declaration) {
         return { declarations: [declaration.parent], complete: true };
       }
+      const substitution = substitutions.get(declaration);
+      if (substitution !== undefined) return typeof substitution === 'string'
+        ? undefined
+        : localClassesFromExpression(
+          substitution,
+          bindings,
+          substitutions,
+          new Set(seen).add(declaration),
+        );
       const initializer = bindings.declarationInitializer(expression);
       if (initializer !== undefined) {
         const resolved = localClassesFromExpression(
@@ -8141,9 +8154,9 @@ function visitExecutableClassConstructionNodes(
   execution: 'known' | 'unmodeled-callback',
   visitor: ExecutableNodeVisitor,
   runtimeClass?: ts.ClassDeclaration | ts.ClassExpression,
-): void {
+): boolean {
   const resolution = localClassesFromExpression(expression, bindings, substitutions);
-  if (resolution === undefined) return;
+  if (resolution === undefined) return false;
   if (!resolution.complete) fail(expression, 'unsupported class construction: incomplete local constructor provenance');
   const declarations = resolution.declarations;
   const constructionExecution = declarations.length === 1 ? execution : 'unmodeled-callback';
@@ -8195,6 +8208,7 @@ function visitExecutableClassConstructionNodes(
       activeExecutableClassConstructions.delete(declaration);
     }
   }
+  return true;
 }
 
 function visitExecutableFunctionNodes(
@@ -9165,7 +9179,7 @@ function visitExecutableFunctionNodes(
     }
     visitor(node, substitutions, execution, sequence++, current, conditions);
     if (ts.isNewExpression(node)) {
-      visitExecutableClassConstructionNodes(
+      const resolved = visitExecutableClassConstructionNodes(
         node.expression,
         node.arguments === undefined ? [] : finiteInvocationArgumentList(node.arguments, bindings),
         bindings,
@@ -9182,6 +9196,9 @@ function visitExecutableFunctionNodes(
           );
         },
       );
+      if (!resolved && invocationCalleeDependsOnConstructorParameter(node.expression, bindings, substitutions)) {
+        fail(node, 'unsupported class construction: unresolved constructor parameter provenance');
+      }
     }
     if (ts.isCallExpression(node) && unwrap(node.expression).kind === ts.SyntaxKind.SuperKeyword) {
       for (const argument of node.arguments) visit(argument, substitutions, current, execution);
