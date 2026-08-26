@@ -4372,6 +4372,34 @@ function accessPathContainsOptionalSegment(expression: ts.Expression): boolean {
   return true;
 }
 
+function resolvedAccessPathContainsOptionalSegment(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions = new Map(),
+  seen = new Set<ts.Node>(),
+): boolean {
+  expression = unwrap(expression);
+  if (seen.has(expression)) return true;
+  const nextSeen = new Set(seen).add(expression);
+  if (accessPathContainsOptionalSegment(expression)) return true;
+  if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+    if (resolvedAccessPathContainsOptionalSegment(expression.expression, bindings, substitutions, nextSeen)) return true;
+  } else if (ts.isCallExpression(expression)) {
+    if (resolvedAccessPathContainsOptionalSegment(expression.expression, bindings, substitutions, nextSeen)) return true;
+  }
+  const syntacticOrigin = syntacticExactAliasOrigin(expression, bindings, substitutions, seen);
+  if (
+    syntacticOrigin !== undefined
+    && syntacticOrigin !== expression
+    && resolvedAccessPathContainsOptionalSegment(syntacticOrigin, bindings, substitutions, nextSeen)
+  ) return true;
+  const provenance = resolveAliasProvenance(expression, bindings, substitutions);
+  if (provenance.kind !== 'exact' || ts.isMethodDeclaration(provenance.origin)) return false;
+  const origin = unwrap(provenance.origin);
+  return origin !== expression
+    && resolvedAccessPathContainsOptionalSegment(origin, bindings, substitutions, nextSeen);
+}
+
 type AliasOriginNode = ts.Expression | ts.MethodDeclaration;
 type AliasProvenance =
   | { kind: 'exact'; origin: AliasOriginNode; lineage?: ReadonlySet<ts.Identifier> }
@@ -5543,7 +5571,8 @@ function normalizeInvocation(
   const invocation = candidate === undefined
     ? computeNormalizedInvocation(call, bindings, substitutions)
     : normalizedMutationInvocationIdentity(call, bindings, substitutions, candidate).invocation;
-  return call.questionDotToken === undefined && !accessPathContainsOptionalSegment(call.expression)
+  return call.questionDotToken === undefined
+    && !resolvedAccessPathContainsOptionalSegment(call.expression, bindings, substitutions)
     ? invocation
     : { ...invocation, unsupported: invocation.unsupported ?? 'optional invocation callee path is conditionally executed' };
 }
@@ -6622,6 +6651,7 @@ function visitExecutableFunctionNodes(
     return false;
   };
   const statementMayThrow = (statement: ts.Statement): boolean => {
+    if (isStaticallyDead(statement, bindings)) return false;
     if (ts.isEmptyStatement(statement) || ts.isFunctionDeclaration(statement) || ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) return false;
     if (ts.isExpressionStatement(statement)) return !obviouslyNonThrowingExpression(statement.expression);
     if (ts.isVariableStatement(statement)) return statement.declarationList.declarations.some(declaration => (
@@ -6629,6 +6659,15 @@ function visitExecutableFunctionNodes(
       || (declaration.initializer !== undefined && !obviouslyNonThrowingExpression(declaration.initializer))
     ));
     if (ts.isBlock(statement)) return statement.statements.some(statementMayThrow);
+    if (ts.isIfStatement(statement)) {
+      if (!obviouslyNonThrowingExpression(statement.expression)) return true;
+      const truth = staticTruthValue(statement.expression, bindings);
+      if (truth === true) return statementMayThrow(statement.thenStatement);
+      if (truth === false) return statement.elseStatement !== undefined && statementMayThrow(statement.elseStatement);
+      return statementMayThrow(statement.thenStatement)
+        || (statement.elseStatement !== undefined && statementMayThrow(statement.elseStatement));
+    }
+    if (ts.isLabeledStatement(statement)) return statementMayThrow(statement.statement);
     return true;
   };
   const bodyHasReachableContinue = (statement: ts.Statement): boolean => {
@@ -6655,31 +6694,40 @@ function visitExecutableFunctionNodes(
     inspect(statement);
     return found;
   };
-  const bodyDefinitelyBreaksLoop = (statement: ts.Statement): boolean => {
+  const loopLabels = (loop: ts.IterationStatement): ReadonlySet<string> => {
+    const labels = new Set<string>();
+    let child: ts.Node = loop;
+    while (ts.isLabeledStatement(child.parent) && child.parent.statement === child) {
+      labels.add(child.parent.label.text);
+      child = child.parent;
+    }
+    return labels;
+  };
+  const bodyDefinitelyBreaksLoop = (statement: ts.Statement, loop: ts.IterationStatement): boolean => {
     if (isStaticallyDead(statement, bindings)) return false;
     if (bodyHasReachableContinue(statement)) return false;
-    if (ts.isBreakStatement(statement)) return statement.label === undefined;
+    if (ts.isBreakStatement(statement)) return statement.label === undefined || loopLabels(loop).has(statement.label.text);
     if (ts.isBlock(statement)) {
       for (const child of statement.statements) {
         if (isStaticallyDead(child, bindings)) continue;
-        if (bodyDefinitelyBreaksLoop(child)) return true;
+        if (bodyDefinitelyBreaksLoop(child, loop)) return true;
         if (ts.isReturnStatement(child) || ts.isThrowStatement(child) || ts.isContinueStatement(child)) return false;
       }
       return false;
     }
     if (ts.isIfStatement(statement)) {
       const truth = staticTruthValue(statement.expression, bindings);
-      if (truth === true) return bodyDefinitelyBreaksLoop(statement.thenStatement);
-      if (truth === false) return statement.elseStatement !== undefined && bodyDefinitelyBreaksLoop(statement.elseStatement);
+      if (truth === true) return bodyDefinitelyBreaksLoop(statement.thenStatement, loop);
+      if (truth === false) return statement.elseStatement !== undefined && bodyDefinitelyBreaksLoop(statement.elseStatement, loop);
       return statement.elseStatement !== undefined
-        && bodyDefinitelyBreaksLoop(statement.thenStatement)
-        && bodyDefinitelyBreaksLoop(statement.elseStatement);
+        && bodyDefinitelyBreaksLoop(statement.thenStatement, loop)
+        && bodyDefinitelyBreaksLoop(statement.elseStatement, loop);
     }
     return false;
   };
   const loopMayPreventFollowing = (statement: ts.IterationStatement): boolean => {
     if (ts.isForInStatement(statement) || ts.isForOfStatement(statement)) return false;
-    if (bodyDefinitelyBreaksLoop(statement.statement)) return false;
+    if (bodyDefinitelyBreaksLoop(statement.statement, statement)) return false;
     if (ts.isDoStatement(statement)) return staticTruthValue(statement.expression, bindings) !== false;
     const condition = ts.isForStatement(statement)
       ? statement.condition
@@ -6694,6 +6742,43 @@ function visitExecutableFunctionNodes(
       if (ts.isReturnStatement(node)) {
         found = true;
         return;
+      }
+      if (ts.isBreakStatement(node) || ts.isContinueStatement(node)) {
+        let child: ts.Node = node;
+        let handledWithinStatement = false;
+        while (child !== statement && child.parent !== undefined) {
+          const parent = child.parent;
+          if (node.label !== undefined) {
+            if (ts.isLabeledStatement(parent) && parent.label.text === node.label.text) {
+              handledWithinStatement = true;
+              break;
+            }
+          } else if (
+            (ts.isBreakStatement(node) && (
+              ts.isForStatement(parent)
+              || ts.isForInStatement(parent)
+              || ts.isForOfStatement(parent)
+              || ts.isWhileStatement(parent)
+              || ts.isDoStatement(parent)
+              || ts.isSwitchStatement(parent)
+            ))
+            || (ts.isContinueStatement(node) && (
+              ts.isForStatement(parent)
+              || ts.isForInStatement(parent)
+              || ts.isForOfStatement(parent)
+              || ts.isWhileStatement(parent)
+              || ts.isDoStatement(parent)
+            ))
+          ) {
+            handledWithinStatement = true;
+            break;
+          }
+          child = parent;
+        }
+        if (!handledWithinStatement) {
+          found = true;
+          return;
+        }
       }
       if (ts.isThrowStatement(node)) {
         let child: ts.Node = node;
@@ -6726,14 +6811,30 @@ function visitExecutableFunctionNodes(
   const loopBodyExecutesExactlyOnce = (statement: ts.IterationStatement): boolean => {
     if (ts.isForInStatement(statement) || ts.isForOfStatement(statement)) return false;
     if (ts.isDoStatement(statement)) {
-      return bodyDefinitelyBreaksLoop(statement.statement)
+      return bodyDefinitelyBreaksLoop(statement.statement, statement)
         || staticTruthValue(statement.expression, bindings) === false;
     }
     const condition = ts.isForStatement(statement)
       ? statement.condition
       : ts.isWhileStatement(statement) ? statement.expression : undefined;
     return staticTruthValue(condition ?? ts.factory.createTrue(), bindings) === true
-      && bodyDefinitelyBreaksLoop(statement.statement);
+      && bodyDefinitelyBreaksLoop(statement.statement, statement);
+  };
+  const enclosingTryRegion = (
+    block: ts.Block,
+    current: ts.FunctionLikeDeclaration,
+  ): { owner: ts.TryStatement; arm: 'try-after-possibly-throwing' | 'finally-after-possibly-throwing' } | undefined => {
+    let child: ts.Node = block;
+    while (child !== current && child.parent !== undefined) {
+      const parent = child.parent;
+      if (ts.isTryStatement(parent)) {
+        if (parent.tryBlock === child) return { owner: parent, arm: 'try-after-possibly-throwing' };
+        if (parent.finallyBlock === child) return { owner: parent, arm: 'finally-after-possibly-throwing' };
+      }
+      if (ts.isFunctionLike(parent)) return undefined;
+      child = parent;
+    }
+    return undefined;
   };
   const lexicalConditions = (
     node: ts.Node,
@@ -6794,17 +6895,11 @@ function visitExecutableFunctionNodes(
           && statementMayPreventFollowing(statement)
         ));
         if (bypass !== undefined) conditions.push({ owner: bypass, arm: 'after-possibly-abrupt', substitutions });
-        if (
-          index > 0
-          && ts.isTryStatement(parent.parent)
-          && (parent.parent.tryBlock === parent || parent.parent.finallyBlock === parent)
-          && preceding.some(statementMayThrow)
-        ) {
+        const tryRegion = index > 0 ? enclosingTryRegion(parent, current) : undefined;
+        if (tryRegion !== undefined && preceding.some(statementMayThrow)) {
           conditions.push({
-            owner: parent.parent,
-            arm: parent.parent.tryBlock === parent
-              ? 'try-after-possibly-throwing'
-              : 'finally-after-possibly-throwing',
+            owner: tryRegion.owner,
+            arm: tryRegion.arm,
             substitutions,
           });
         }
@@ -7787,7 +7882,7 @@ function configMutationsAtNode(
   if (ts.isCallExpression(node)) return boundedMutationApi(node, parameter, bindings, substitutions, execution);
   if (ts.isDeleteExpression(node)) {
     const path = scopedFunctionConfigPath(node.expression, parameter, bindings, new Set(), substitutions);
-    if (path !== undefined && accessPathContainsOptionalSegment(node.expression)) {
+    if (path !== undefined && resolvedAccessPathContainsOptionalSegment(node.expression, bindings, substitutions)) {
       fail(node, 'unsupported reachable mutation: optional delete receiver');
     }
     return path === undefined ? [] : [{ node, operation: 'delete', path, syntax: 'delete', execution, substitutions }];
@@ -7800,7 +7895,7 @@ function configMutationsAtNode(
       : node.operatorToken.kind === ts.SyntaxKind.EqualsToken ? 'assign' : 'compound';
     return targets.flatMap(target => {
       const path = scopedFunctionConfigPath(target, parameter, bindings, new Set(), substitutions, false);
-      if (path !== undefined && accessPathContainsOptionalSegment(target)) {
+      if (path !== undefined && resolvedAccessPathContainsOptionalSegment(target, bindings, substitutions)) {
         fail(target, 'unsupported reachable mutation: optional assignment receiver');
       }
       return path === undefined ? [] : [{ node, operation: 'write' as const, path, syntax, execution, substitutions }];

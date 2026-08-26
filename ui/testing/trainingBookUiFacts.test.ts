@@ -5277,6 +5277,31 @@ ${architectureCommit}`,
       replaceBehaviorFixture(modelArchChangeSource, architectureCommit, wrapped),
     );
   }
+  for (const [label, wrapped] of [
+    ['while conditional break', `  while (true) {
+    if (runtimeCondition) break;
+${architectureCommit}
+    break;
+  }`],
+    ['do-while-false conditional break', `  do {
+    if (runtimeCondition) break;
+${architectureCommit}
+  } while (false);`],
+    ['do-while-false conditional continue', `  do {
+    if (runtimeCondition) continue;
+${architectureCommit}
+  } while (false);`],
+    ['for-ever conditional break', `  for (;;) {
+    if (runtimeCondition) break;
+${architectureCommit}
+    break;
+  }`],
+  ] as const) {
+    expectAcceptanceArchitectureRejection(
+      `architecture commit is bypassed by ${label}`,
+      replaceBehaviorFixture(modelArchChangeSource, architectureCommit, wrapped),
+    );
+  }
 
   expectAcceptanceArchitectureRejection(
     'architecture finally prefix may throw before required commit',
@@ -5298,6 +5323,19 @@ ${architectureCommit}`,
     JSON.parse('runtime');
     if (jobConfig?.config?.process && jobConfig.config.process[0]?.type === 'ui_trainer') {
       jobConfig.config.process[0].type = 'diffusion_trainer';
+    }
+      }`,
+    ),
+  );
+  expectAcceptanceArchitectureRejection(
+    'architecture nested finally prefix may throw before required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    {
+      JSON.parse(newArchName);
+      setJobConfig(newArchName, 'config.process[0].model.arch');
     }
   }`,
     ),
@@ -5382,6 +5420,24 @@ ${architectureCommit}`,
     'layer delete has optional copied-model receiver',
     replaceBehaviorFixture(modelArchChangeSource, 'delete newModel.layer_offloading;', 'delete newModel?.layer_offloading;'),
   );
+  expectAcceptanceMigrateRejection(
+    'type assignment has aliased optional config receiver',
+    replaceBehaviorFixture(
+      migrateJobConfigSource,
+      "    jobConfig.config.process[0].type = 'diffusion_trainer';",
+      `    const typeTarget = jobConfig?.config.process[0];
+    typeTarget.type = 'diffusion_trainer';`,
+    ),
+  );
+  expectAcceptanceMigrateRejection(
+    'prompt delete has aliased optional config receiver',
+    replaceBehaviorFixture(
+      migrateJobConfigSource,
+      '    delete jobConfig.config.process[0].sample.prompts;',
+      `    const sampleTarget = jobConfig?.config.process[0].sample;
+    delete sampleTarget.prompts;`,
+    ),
+  );
 
   expectAcceptanceArchitecturePositive(
     'statically dead preceding conditional exit is harmless',
@@ -5402,6 +5458,10 @@ ${architectureCommit}`,
     replaceBehaviorFixture(modelArchChangeSource, architectureCommit, `  while (true) { break; }\n${architectureCommit}`),
   );
   expectAcceptanceArchitecturePositive(
+    'preceding labeled loop with exact break completes finitely',
+    replaceBehaviorFixture(modelArchChangeSource, architectureCommit, `  outer: while (true) { break outer; }\n${architectureCommit}`),
+  );
+  expectAcceptanceArchitecturePositive(
     'do-while-false required commit executes exactly once',
     replaceBehaviorFixture(
       modelArchChangeSource,
@@ -5419,6 +5479,41 @@ ${architectureCommit}
       `  try {} finally {
     const harmless = 1;
     setJobConfig(newArchName, 'config.process[0].model.arch');
+      }`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'statically selected nonthrowing finally prefix preserves required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    if (true) { 1; }
+    setJobConfig(newArchName, 'config.process[0].model.arch');
+  }`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'statically dead throwing finally prefix preserves required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    if (false) JSON.parse(newArchName);
+    setJobConfig(newArchName, 'config.process[0].model.arch');
+  }`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'nested nonthrowing finally prefix preserves required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    {
+      const harmless = 1;
+      setJobConfig(newArchName, 'config.process[0].model.arch');
+    }
   }`,
     ),
   );
