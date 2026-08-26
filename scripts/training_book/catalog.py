@@ -838,7 +838,10 @@ class UiBehaviorContract(_StrictModel):
     guard: Literal[
         "prompts-nonempty-array", "after-prompts-write",
         "type-is-ui-trainer", "property-present", "property-absent",
-        "platform-mac", "cleaned-model-changed", "section-unsupported",
+        "platform-mac", "text-encoder-path-unsupported",
+        "vae-path-unsupported",
+        "layer-offloading-unsupported-property-present",
+        "section-unsupported",
         "section-supported-property-absent", "architecture-change",
         "multi-control", "single-control", "no-control",
         "source-nonempty-target-empty", "source-nonempty",

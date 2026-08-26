@@ -1820,6 +1820,22 @@ try {
     },
   };
   validateTrainingBookUiFacts(behaviorFacts);
+  for (const guard of [
+    'text-encoder-path-unsupported',
+    'vae-path-unsupported',
+    'layer-offloading-unsupported-property-present',
+  ] as const) {
+    const exactGuardFacts = structuredClone(behaviorFacts);
+    (exactGuardFacts.config_claims[0]!.behavior_contract as any).guard = guard;
+    validateTrainingBookUiFacts(exactGuardFacts);
+  }
+  const vagueGuardFacts = structuredClone(behaviorFacts);
+  (vagueGuardFacts.config_claims[0]!.behavior_contract as any).guard = 'cleaned-model-changed';
+  assert.throws(
+    () => validateTrainingBookUiFacts(vagueGuardFacts),
+    /guard is unsupported/,
+    'behavior contracts reject the stale cleaned-model-changed guard',
+  );
   const architectureNameFacts = structuredClone(serialized);
   architectureNameFacts.config_claims[0].behavior_contract = {
     guard: 'architecture-change',
@@ -4327,12 +4343,12 @@ if (liveRoot !== undefined) {
     {
       symbol: 'handleModelArchChange::anima-paths::te_name_or_path::delete',
       path: 'config.process[*].model.te_name_or_path',
-      behavior: { guard: 'cleaned-model-changed', operation: 'delete', sources: ['config.process[*].model.te_name_or_path'], payload: { kind: 'undefined' } },
+      behavior: { guard: 'text-encoder-path-unsupported', operation: 'delete', sources: ['config.process[*].model.te_name_or_path'], payload: { kind: 'undefined' } },
     },
     {
       symbol: 'handleModelArchChange::anima-paths::vae_path::delete',
       path: 'config.process[*].model.vae_path',
-      behavior: { guard: 'cleaned-model-changed', operation: 'delete', sources: ['config.process[*].model.vae_path'], payload: { kind: 'undefined' } },
+      behavior: { guard: 'vae-path-unsupported', operation: 'delete', sources: ['config.process[*].model.vae_path'], payload: { kind: 'undefined' } },
     },
     {
       symbol: 'handleModelArchChange::low_vram::section-unsupported::write',
@@ -4344,10 +4360,10 @@ if (liveRoot !== undefined) {
       'layer_offloading_text_encoder_percent',
       'layer_offloading_transformer_percent',
     ].map(path => ({
-      symbol: `handleModelArchChange::layer-offloading::section-unsupported::${path}::delete`,
+      symbol: `handleModelArchChange::layer-offloading::unsupported-property-present::${path}::delete`,
       path: `config.process[*].model.${path}`,
       behavior: {
-        guard: 'section-unsupported', operation: 'delete',
+        guard: 'layer-offloading-unsupported-property-present', operation: 'delete',
         sources: ['config.process[*].model.layer_offloading'],
         payload: { kind: 'undefined' },
       },

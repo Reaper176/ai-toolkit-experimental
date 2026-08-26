@@ -1874,6 +1874,16 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             behavior,
         )
 
+        for guard in (
+            "text-encoder-path-unsupported",
+            "vae-path-unsupported",
+            "layer-offloading-unsupported-property-present",
+        ):
+            with self.subTest(exact_guard=guard):
+                exact = deepcopy(data)
+                exact["config_claims"][0]["behavior_contract"]["guard"] = guard
+                validate_training_book_ui_facts(exact)
+
         architecture_name = deepcopy(data)
         architecture_name["config_claims"][0]["behavior_contract"] = {
             "guard": "architecture-change",
@@ -1923,6 +1933,10 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
                     "kind": "map-prompt-objects", "item_key": "prompt",
                 }),
                 "source_path",
+            ),
+            "stale vague guard": (
+                lambda item: item.update(guard="cleaned-model-changed"),
+                "guard",
             ),
         }
         for label, (mutate, error) in invalid_cases.items():
@@ -2393,6 +2407,32 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             scope="ui-defaults-transitions",
         )
 
+        exact_architecture_guards = {
+            "handleModelArchChange::anima-paths::te_name_or_path::delete":
+                "text-encoder-path-unsupported",
+            "handleModelArchChange::anima-paths::vae_path::delete":
+                "vae-path-unsupported",
+            **{
+                (
+                    "handleModelArchChange::layer-offloading::"
+                    f"unsupported-property-present::{suffix}::delete"
+                ): "layer-offloading-unsupported-property-present"
+                for suffix in (
+                    "layer_offloading",
+                    "layer_offloading_text_encoder_percent",
+                    "layer_offloading_transformer_percent",
+                )
+            },
+        }
+        self.assertEqual(
+            exact_architecture_guards,
+            {
+                fact.symbol: fact.behavior_contract.guard
+                for fact in behaviors
+                if fact.symbol in exact_architecture_guards
+            },
+        )
+
         settings = {setting.id: setting for setting in catalog.settings}
         self.assertEqual(
             [alias.model_dump(mode="json") for alias in settings["sample.samples"].aliases],
@@ -2418,10 +2458,12 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             "process.type": "The UI migrator rewrites legacy ui_trainer to diffusion_trainer before queueing.",
             "process.logging": "When logging is absent, the UI migrator writes {log_every: 1, use_ui_logger: true}; an explicitly present value, including null, is retained.",
             "process.device": "On macOS, the UI migrator forces each process device to mps; this is distinct from the root config.device job setting.",
-            "model.te_name_or_path": "Changing architecture deletes te_name_or_path when the selected architecture does not support model.te_name_or_path.",
-            "model.vae_path": "Changing architecture deletes vae_path when the selected architecture does not support model.vae_path.",
+            "model.te_name_or_path": "Changing architecture deletes te_name_or_path only when the selected architecture does not support model.te_name_or_path, independently of model.vae_path support.",
+            "model.vae_path": "Changing architecture deletes vae_path only when the selected architecture does not support model.vae_path, independently of model.te_name_or_path support.",
             "model.low_vram": "Changing architecture writes low_vram=false when the selected architecture does not support model.low_vram.",
-            "model.layer_offloading": "Changing architecture deletes all layer-offloading fields when unsupported; when supported but absent, it writes layer_offloading=false and both percentage fields to 1.",
+            "model.layer_offloading": "When model.layer_offloading is unsupported and the main layer_offloading property is present, changing architecture deletes layer_offloading and both percentage fields from the copied model; when model.layer_offloading is supported but the main property is absent, it writes layer_offloading=false and both percentage fields to 1.",
+            "model.layer_offloading_text_encoder_percent": "Changing architecture deletes layer_offloading_text_encoder_percent only when model.layer_offloading is unsupported and the main layer_offloading property is present; it initializes the percentage to 1 when model.layer_offloading is supported but the main property is absent.",
+            "model.layer_offloading_transformer_percent": "Changing architecture deletes layer_offloading_transformer_percent only when model.layer_offloading is unsupported and the main layer_offloading property is present; it initializes the percentage to 1 when model.layer_offloading is supported but the main property is absent.",
             "model.arch": "Changing architecture writes the selected architecture name, reverts current defaults from tuple index 1, then applies selected defaults from tuple index 0.",
             "dataset.controls": "Changing architecture writes every dataset controls list from the selected architecture controls, falling back to an empty list.",
             "dataset.control_path": "Architecture changes initialize the active single-control path to null, copy a nonempty multi-control path into it when needed, and delete it for multi-control or no-control architectures.",

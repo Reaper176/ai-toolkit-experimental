@@ -45465,7 +45465,7 @@
           "applicability": []
         },
         {
-          "description": "Changing architecture deletes all layer-offloading fields when unsupported; when supported but absent, it writes layer_offloading=false and both percentage fields to 1.",
+          "description": "When model.layer_offloading is unsupported and the main layer_offloading property is present, changing architecture deletes layer_offloading and both percentage fields from the copied model; when model.layer_offloading is supported but the main property is absent, it writes layer_offloading=false and both percentage fields to 1.",
           "applicability": []
         }
       ],
@@ -45565,7 +45565,7 @@
       ],
       "normalizations": [
         {
-          "description": "Changing architecture deletes layer_offloading_text_encoder_percent when layer offloading is unsupported and initializes it to 1 when layer offloading is supported but absent.",
+          "description": "Changing architecture deletes layer_offloading_text_encoder_percent only when model.layer_offloading is unsupported and the main layer_offloading property is present; it initializes the percentage to 1 when model.layer_offloading is supported but the main property is absent.",
           "applicability": []
         }
       ],
@@ -45644,7 +45644,7 @@
       ],
       "normalizations": [
         {
-          "description": "Changing architecture deletes layer_offloading_transformer_percent when layer offloading is unsupported and initializes it to 1 when layer offloading is supported but absent.",
+          "description": "Changing architecture deletes layer_offloading_transformer_percent only when model.layer_offloading is unsupported and the main layer_offloading property is present; it initializes the percentage to 1 when model.layer_offloading is supported but the main property is absent.",
           "applicability": []
         }
       ],
@@ -51338,7 +51338,7 @@
       ],
       "normalizations": [
         {
-          "description": "Changing architecture deletes te_name_or_path when the selected architecture does not support model.te_name_or_path.",
+          "description": "Changing architecture deletes te_name_or_path only when the selected architecture does not support model.te_name_or_path, independently of model.vae_path support.",
           "applicability": []
         }
       ],
@@ -52010,7 +52010,7 @@
       ],
       "normalizations": [
         {
-          "description": "Changing architecture deletes vae_path when the selected architecture does not support model.vae_path.",
+          "description": "Changing architecture deletes vae_path only when the selected architecture does not support model.vae_path, independently of model.te_name_or_path support.",
           "applicability": []
         }
       ],
@@ -121247,7 +121247,7 @@
           "nullable": true
         },
         "behavior_contract": {
-          "guard": "cleaned-model-changed",
+          "guard": "text-encoder-path-unsupported",
           "operation": "delete",
           "sources": [
             "config.process[*].model.te_name_or_path"
@@ -121276,7 +121276,7 @@
           "nullable": true
         },
         "behavior_contract": {
-          "guard": "cleaned-model-changed",
+          "guard": "vae-path-unsupported",
           "operation": "delete",
           "sources": [
             "config.process[*].model.vae_path"
@@ -121892,7 +121892,7 @@
       "fact": {
         "fact_type": "source-claim",
         "source_path": "ui/src/app/jobs/new/utils.ts",
-        "symbol": "handleModelArchChange::layer-offloading::section-unsupported::layer_offloading::delete",
+        "symbol": "handleModelArchChange::layer-offloading::unsupported-property-present::layer_offloading::delete",
         "path": "config.process[*].model.layer_offloading",
         "kind": "setting",
         "ui_label": {
@@ -121905,7 +121905,7 @@
           "nullable": true
         },
         "behavior_contract": {
-          "guard": "section-unsupported",
+          "guard": "layer-offloading-unsupported-property-present",
           "operation": "delete",
           "sources": [
             "config.process[*].model.layer_offloading"
@@ -121921,7 +121921,7 @@
       "fact": {
         "fact_type": "source-claim",
         "source_path": "ui/src/app/jobs/new/utils.ts",
-        "symbol": "handleModelArchChange::layer-offloading::section-unsupported::layer_offloading_text_encoder_percent::delete",
+        "symbol": "handleModelArchChange::layer-offloading::unsupported-property-present::layer_offloading_text_encoder_percent::delete",
         "path": "config.process[*].model.layer_offloading_text_encoder_percent",
         "kind": "setting",
         "ui_label": {
@@ -121934,7 +121934,7 @@
           "nullable": true
         },
         "behavior_contract": {
-          "guard": "section-unsupported",
+          "guard": "layer-offloading-unsupported-property-present",
           "operation": "delete",
           "sources": [
             "config.process[*].model.layer_offloading"
@@ -121950,7 +121950,7 @@
       "fact": {
         "fact_type": "source-claim",
         "source_path": "ui/src/app/jobs/new/utils.ts",
-        "symbol": "handleModelArchChange::layer-offloading::section-unsupported::layer_offloading_transformer_percent::delete",
+        "symbol": "handleModelArchChange::layer-offloading::unsupported-property-present::layer_offloading_transformer_percent::delete",
         "path": "config.process[*].model.layer_offloading_transformer_percent",
         "kind": "setting",
         "ui_label": {
@@ -121963,7 +121963,7 @@
           "nullable": true
         },
         "behavior_contract": {
-          "guard": "section-unsupported",
+          "guard": "layer-offloading-unsupported-property-present",
           "operation": "delete",
           "sources": [
             "config.process[*].model.layer_offloading"

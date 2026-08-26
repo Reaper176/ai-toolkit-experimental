@@ -99,7 +99,8 @@ export type UiBehaviorPayload =
 export type UiBehaviorGuard =
   | 'prompts-nonempty-array' | 'after-prompts-write'
   | 'type-is-ui-trainer' | 'property-present' | 'property-absent'
-  | 'platform-mac' | 'cleaned-model-changed'
+  | 'platform-mac' | 'text-encoder-path-unsupported'
+  | 'vae-path-unsupported' | 'layer-offloading-unsupported-property-present'
   | 'section-unsupported' | 'section-supported-property-absent'
   | 'architecture-change' | 'multi-control' | 'single-control'
   | 'no-control' | 'source-nonempty-target-empty' | 'source-nonempty'
@@ -9770,9 +9771,10 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
 
   const claims: UiSourceClaim[] = [];
   const add = (symbol: string, path: string, type: UiSourceClaim['value_contract']['ui_type'], behavior: UiBehaviorContract): void => { claims.push(behaviorSettingClaim(sourceName, symbol, path, type, behavior)); };
-  for (const suffix of ['te_name_or_path', 'vae_path'] as const) add(`handleModelArchChange::anima-paths::${suffix}::delete`, `config.process[*].model.${suffix}`, 'path', { guard: 'cleaned-model-changed', operation: 'delete', sources: [`config.process[*].model.${suffix}`], payload: { kind: 'undefined' } });
+  add('handleModelArchChange::anima-paths::te_name_or_path::delete', 'config.process[*].model.te_name_or_path', 'path', { guard: 'text-encoder-path-unsupported', operation: 'delete', sources: ['config.process[*].model.te_name_or_path'], payload: { kind: 'undefined' } });
+  add('handleModelArchChange::anima-paths::vae_path::delete', 'config.process[*].model.vae_path', 'path', { guard: 'vae-path-unsupported', operation: 'delete', sources: ['config.process[*].model.vae_path'], payload: { kind: 'undefined' } });
   add('handleModelArchChange::low_vram::section-unsupported::write', 'config.process[*].model.low_vram', 'boolean', { guard: 'section-unsupported', operation: 'write', sources: [], payload: { kind: 'literal', value: { kind: 'boolean', value: false } } });
-  for (const suffix of layerDeletePaths) add(`handleModelArchChange::layer-offloading::section-unsupported::${suffix}::delete`, `config.process[*].model.${suffix}`, suffix === 'layer_offloading' ? 'boolean' : 'number', { guard: 'section-unsupported', operation: 'delete', sources: ['config.process[*].model.layer_offloading'], payload: { kind: 'undefined' } });
+  for (const suffix of layerDeletePaths) add(`handleModelArchChange::layer-offloading::unsupported-property-present::${suffix}::delete`, `config.process[*].model.${suffix}`, suffix === 'layer_offloading' ? 'boolean' : 'number', { guard: 'layer-offloading-unsupported-property-present', operation: 'delete', sources: ['config.process[*].model.layer_offloading'], payload: { kind: 'undefined' } });
   add('handleModelArchChange::layer-offloading::supported-absent::layer_offloading::write', 'config.process[*].model.layer_offloading', 'boolean', { guard: 'section-supported-property-absent', operation: 'write', sources: ['config.process[*].model.layer_offloading'], payload: { kind: 'literal', value: { kind: 'boolean', value: false } } });
   for (const suffix of ['layer_offloading_text_encoder_percent', 'layer_offloading_transformer_percent'] as const) add(`handleModelArchChange::layer-offloading::supported-absent::${suffix}::write`, `config.process[*].model.${suffix}`, 'number', { guard: 'section-supported-property-absent', operation: 'write', sources: ['config.process[*].model.layer_offloading'], payload: { kind: 'literal', value: { kind: 'number', value: 1 } } });
   add('handleModelArchChange::architecture::change::write', 'config.process[*].model.arch', 'string', { guard: 'architecture-change', operation: 'write', sources: [], payload: { kind: 'architecture-name' } });
@@ -11242,7 +11244,9 @@ function validateBehaviorContract(value: unknown, label: string): void {
   requireKeys(value, ['guard', 'operation', 'sources', 'payload'], label);
   const guards: UiBehaviorGuard[] = [
     'prompts-nonempty-array', 'after-prompts-write', 'type-is-ui-trainer',
-    'property-present', 'property-absent', 'platform-mac', 'cleaned-model-changed',
+    'property-present', 'property-absent', 'platform-mac',
+    'text-encoder-path-unsupported', 'vae-path-unsupported',
+    'layer-offloading-unsupported-property-present',
     'section-unsupported', 'section-supported-property-absent',
     'architecture-change', 'multi-control', 'single-control', 'no-control',
     'source-nonempty-target-empty', 'source-nonempty',
