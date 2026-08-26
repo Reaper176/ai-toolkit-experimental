@@ -5933,6 +5933,50 @@ function invocationCalleeDependsOnConstructorParameter(
         nextSeen,
       );
   }
+  if (ts.isPropertyAccessExpression(expression)) {
+    return invocationCalleeDependsOnConstructorParameter(
+      expression.expression,
+      bindings,
+      substitutions,
+      nextSeen,
+    );
+  }
+  if (ts.isElementAccessExpression(expression)) {
+    return invocationCalleeDependsOnConstructorParameter(
+      expression.expression,
+      bindings,
+      substitutions,
+      nextSeen,
+    ) || (
+      expression.argumentExpression !== undefined
+      && invocationCalleeDependsOnConstructorParameter(
+        expression.argumentExpression,
+        bindings,
+        substitutions,
+        nextSeen,
+      )
+    );
+  }
+  if (ts.isCallExpression(expression) || ts.isNewExpression(expression)) {
+    return invocationCalleeDependsOnConstructorParameter(
+      expression.expression,
+      bindings,
+      substitutions,
+      nextSeen,
+    ) || (expression.arguments ?? []).some(argument => invocationCalleeDependsOnConstructorParameter(
+      ts.isSpreadElement(argument) ? argument.expression : argument,
+      bindings,
+      substitutions,
+      nextSeen,
+    ));
+  }
+  if (ts.isBinaryExpression(expression)) {
+    if (expression.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+      return invocationCalleeDependsOnConstructorParameter(expression.right, bindings, substitutions, nextSeen);
+    }
+    return invocationCalleeDependsOnConstructorParameter(expression.left, bindings, substitutions, nextSeen)
+      || invocationCalleeDependsOnConstructorParameter(expression.right, bindings, substitutions, nextSeen);
+  }
   if (!ts.isIdentifier(expression)) return false;
   const declaration = bindings.bindingDeclaration(expression);
   const declarationSubstitution = declaration === undefined ? undefined : substitutions.get(declaration);
