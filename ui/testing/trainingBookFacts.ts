@@ -827,7 +827,8 @@ class LexicalBindings {
       if (ts.isCallExpression(node)) {
         const substitutions = new Map<ts.Node, InvocationValue>();
         const invocation = normalizeInvocation(node, this, substitutions);
-        const target = localFunctionFromExpression(invocation.target, this, substitutions, false);
+        const target = classMethodFromExpression(node.expression, this, substitutions)
+          ?? localFunctionFromExpression(invocation.target, this, substitutions, false);
         if (target !== undefined) {
           visitExecutableFunctionNodes(
             target,
@@ -3014,18 +3015,75 @@ function configToUiScale(
 ): number | undefined {
   if (expression === undefined) return undefined;
   const scales = new Set<number>();
-  const visit = (node: ts.Node): void => {
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AsteriskToken) {
-      const leftScale = finiteNumericLiteral(node.left);
-      const rightScale = finiteNumericLiteral(node.right);
-      if (leftScale !== undefined && semanticPrimaryReadPaths(node.right, bindings).includes(path)) scales.add(leftScale);
-      if (rightScale !== undefined && semanticPrimaryReadPaths(node.left, bindings).includes(path)) scales.add(rightScale);
+  const visit = (candidate: ts.Expression, inheritedScale = 1): void => {
+    candidate = unwrap(candidate);
+    if (canonicalAccessPath(candidate, bindings) === path) {
+      scales.add(inheritedScale);
+      return;
     }
-    ts.forEachChild(node, visit);
+    if (ts.isConditionalExpression(candidate)) {
+      const truth = staticTruthValue(candidate.condition, bindings);
+      if (truth === undefined) {
+        visit(candidate.whenTrue, inheritedScale);
+        visit(candidate.whenFalse, inheritedScale);
+      } else {
+        visit(truth ? candidate.whenTrue : candidate.whenFalse, inheritedScale);
+      }
+      return;
+    }
+    if (
+      ts.isBinaryExpression(candidate)
+      && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(candidate.operatorToken.kind)
+    ) {
+      const primary = semanticPrimaryReadPaths(candidate.left, bindings).includes(path)
+        ? candidate.left
+        : candidate.right;
+      visit(primary, inheritedScale);
+      return;
+    }
+    if (ts.isBinaryExpression(candidate) && candidate.operatorToken.kind === ts.SyntaxKind.AsteriskToken) {
+      const leftScale = finiteNumericLiteral(candidate.left);
+      const rightScale = finiteNumericLiteral(candidate.right);
+      if (leftScale !== undefined && semanticPrimaryReadPaths(candidate.right, bindings).includes(path)) {
+        visit(candidate.right, inheritedScale * leftScale);
+        return;
+      }
+      if (rightScale !== undefined && semanticPrimaryReadPaths(candidate.left, bindings).includes(path)) {
+        visit(candidate.left, inheritedScale * rightScale);
+        return;
+      }
+    }
+    if (ts.isCallExpression(candidate)) {
+      if (
+        ts.isPropertyAccessExpression(candidate.expression)
+        && semanticPrimaryReadPaths(candidate.expression.expression, bindings).includes(path)
+      ) {
+        visit(candidate.expression.expression, inheritedScale);
+        return;
+      }
+      for (const argument of candidate.arguments) {
+        if (!ts.isSpreadElement(argument) && semanticPrimaryReadPaths(argument, bindings).includes(path)) {
+          visit(argument, inheritedScale);
+        }
+      }
+      return;
+    }
+    if (ts.isTemplateExpression(candidate)) {
+      for (const span of candidate.templateSpans) {
+        if (semanticPrimaryReadPaths(span.expression, bindings).includes(path)) visit(span.expression, inheritedScale);
+      }
+      return;
+    }
+    ts.forEachChild(candidate, child => {
+      if (ts.isExpression(child) && semanticPrimaryReadPaths(child, bindings).includes(path)) {
+        visit(child, inheritedScale);
+      }
+    });
   };
   visit(expression);
   if (scales.size > 1) fail(expression, `ambiguous config-to-UI scale for ${path}`);
-  return [...scales][0];
+  const scale = [...scales][0];
+  return scale === 1 ? undefined : scale;
 }
 
 function exactLiteralSetterPath(call: ts.CallExpression): string | undefined {
@@ -3135,6 +3193,50 @@ function secondaryBooleanSetterPaths(
     .sort(compareCodePoint);
 }
 
+function quantizationStringValue(
+  expression: ts.Expression,
+  parameter: ts.Identifier,
+  bindings: LexicalBindings,
+  seen = new Set<ts.Identifier>(),
+): boolean {
+  expression = unwrap(expression);
+  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
+    return true;
+  }
+  if (
+    expression.kind === ts.SyntaxKind.TrueKeyword
+    || expression.kind === ts.SyntaxKind.FalseKeyword
+    || expression.kind === ts.SyntaxKind.NullKeyword
+    || ts.isNumericLiteral(expression)
+    || ts.isArrayLiteralExpression(expression)
+    || ts.isObjectLiteralExpression(expression)
+  ) return false;
+  if (ts.isConditionalExpression(expression)) {
+    const truth = staticTruthValue(expression.condition, bindings);
+    const branches = truth === undefined
+      ? [expression.whenTrue, expression.whenFalse]
+      : [truth ? expression.whenTrue : expression.whenFalse];
+    return branches.every(branch => quantizationStringValue(branch, parameter, bindings, seen));
+  }
+  if (!ts.isIdentifier(expression)) return false;
+  if (bindings.isExactNamedImport(expression, 'defaultQtype', './options')) return true;
+  const declaration = bindings.bindingDeclaration(expression);
+  if (declaration === undefined || seen.has(declaration)) return false;
+  const lookup = bindings.provenanceCandidates(expression);
+  if (!lookup.found || lookup.candidates.length === 0) return declaration === parameter;
+  const nextSeen = new Set(seen).add(declaration);
+  return lookup.candidates.every(candidate => {
+    if (candidate === declaration) return declaration === parameter;
+    if (candidate === 'absent' || candidate === 'tainted' || candidate === 'ambiguous-identity') return false;
+    if (isDefaultAliasCandidate(candidate) || isProjectedAliasCandidate(candidate)) {
+      const provenance = resolveAliasCandidate(candidate, bindings, new Map(), new Set());
+      return provenance.kind === 'exact' && !ts.isMethodDeclaration(provenance.origin)
+        && quantizationStringValue(provenance.origin, parameter, bindings, nextSeen);
+    }
+    return quantizationStringValue(candidate, parameter, bindings, nextSeen);
+  });
+}
+
 function booleanSetterValuesForPath(
   root: ts.Node,
   path: string,
@@ -3166,6 +3268,52 @@ function booleanSetterValuesForPath(
   return exact ? values : undefined;
 }
 
+function selectedValueAtUse(
+  expression: ts.Expression,
+  parameter: ts.Identifier,
+  bindings: LexicalBindings,
+  seen = new Set<ts.Identifier>(),
+): boolean {
+  expression = unwrap(expression);
+  if (ts.isConditionalExpression(expression)) {
+    const truth = staticTruthValue(expression.condition, bindings);
+    return truth === undefined
+      ? selectedValueAtUse(expression.whenTrue, parameter, bindings, seen)
+        && selectedValueAtUse(expression.whenFalse, parameter, bindings, seen)
+      : selectedValueAtUse(truth ? expression.whenTrue : expression.whenFalse, parameter, bindings, seen);
+  }
+  if (!ts.isIdentifier(expression)) return false;
+  const declaration = bindings.hasLexicalDeclaration(expression, parameter)
+    ? parameter
+    : bindings.bindingDeclaration(expression);
+  if (declaration === undefined || seen.has(declaration)) return false;
+  const nextSeen = new Set(seen).add(declaration);
+  let exact = declaration === parameter;
+  if (!exact) {
+    const initializer = bindings.declarationInitializer(expression);
+    exact = initializer !== undefined && selectedValueAtUse(initializer, parameter, bindings, nextSeen);
+  }
+  if (!exact) return false;
+  const owner = enclosingLexicalFunction(expression);
+  if (owner?.body === undefined) return exact;
+  const usePosition = expression.getStart();
+  const inspect = (node: ts.Node): void => {
+    if (!exact || node.getStart() >= usePosition || isStaticallyDead(node, bindings)) return;
+    if (node !== owner && ts.isFunctionLike(node)) return;
+    if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) {
+      const target = unwrap(node.left);
+      if (ts.isIdentifier(target) && bindings.hasLexicalDeclaration(target, declaration)) {
+        exact = node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+          && selectedValueAtUse(node.right, parameter, bindings, nextSeen);
+        if (!exact) return;
+      }
+    }
+    ts.forEachChild(node, inspect);
+  };
+  inspect(owner.body);
+  return exact;
+}
+
 function isExactEmptySelectionCondition(
   expression: ts.Expression,
   parameter: ts.Identifier,
@@ -3177,8 +3325,7 @@ function isExactEmptySelectionCondition(
   const right = unwrap(expression.right);
   const isEmpty = (value: ts.Expression): boolean =>
     (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) && value.text === '';
-  const isParameter = (value: ts.Expression): boolean =>
-    ts.isIdentifier(value) && bindings.hasLexicalDeclaration(value, parameter);
+  const isParameter = (value: ts.Expression): boolean => selectedValueAtUse(value, parameter, bindings);
   return (isParameter(left) && isEmpty(right)) || (isEmpty(left) && isParameter(right));
 }
 
@@ -3209,6 +3356,70 @@ function hasExactEmptySelectionBooleanMapping(
   };
   visit(onChange.body);
   return exactMappings === 1;
+}
+
+function quantizationSecondaryPath(primaryPath: string): string | undefined {
+  if (primaryPath === 'config.process[*].model.qtype') return 'config.process[*].model.quantize';
+  if (primaryPath === 'config.process[*].model.qtype_te') return 'config.process[*].model.quantize_te';
+  return undefined;
+}
+
+function validateQuantizationCallbackDataflow(
+  onChange: ts.Expression,
+  primaryPath: string,
+  secondaryPath: string,
+  bindings: LexicalBindings,
+  label: string,
+): void {
+  const callback = unwrap(onChange);
+  if (!ts.isArrowFunction(callback) && !ts.isFunctionExpression(callback)) {
+    fail(onChange, `${label} quantization control requires an exact callback`);
+  }
+  const parameter = exactCallbackIdentifier(callback.parameters[0]);
+  if (parameter === undefined) fail(callback, `${label} quantization callback requires one exact selected-value parameter`);
+  const directSetters = directExecutableSetterCalls(callback, bindings);
+  const primaryWrites = directSetters.filter(call => exactLiteralSetterPath(call) === primaryPath);
+  if (primaryWrites.length !== 1 || primaryWrites[0].arguments[0] === undefined) {
+    fail(callback, `${label} quantization control requires one exact qtype payload write`);
+  }
+  const payloadExpression = unwrap(primaryWrites[0].arguments[0]);
+  const payloadIsString = quantizationStringValue(payloadExpression, parameter, bindings);
+  let selectedCarrierAssignmentsAreStrings = true;
+  visitExecutableFunctionNodes(callback, bindings, (node, _substitutions, execution, _sequence, current) => {
+    if (
+      execution !== 'known'
+      || current !== callback
+      || !ts.isBinaryExpression(node)
+      || !isAssignmentOperator(node.operatorToken.kind)
+      || node.getStart() >= primaryWrites[0].getStart()
+    ) return;
+    const target = unwrap(node.left);
+    if (!ts.isIdentifier(target) || !bindings.hasLexicalDeclaration(target, parameter)) return;
+    if (node.operatorToken.kind !== ts.SyntaxKind.EqualsToken) {
+      selectedCarrierAssignmentsAreStrings = false;
+      return;
+    }
+    if (!quantizationStringValue(node.right, parameter, bindings)) {
+      selectedCarrierAssignmentsAreStrings = false;
+    }
+  });
+  const directSelectedCarrier = ts.isIdentifier(payloadExpression)
+    && bindings.hasLexicalDeclaration(payloadExpression, parameter);
+  const selectedAtPayload = selectedValueAtUse(payloadExpression, parameter, bindings);
+  const selectedCarrier = selectedAtPayload
+    || directSelectedCarrier;
+  const stringPayload = selectedAtPayload
+    || payloadIsString
+    || (directSelectedCarrier && selectedCarrierAssignmentsAreStrings);
+  if (!stringPayload || !selectedCarrier) {
+    fail(primaryWrites[0], `${label} quantization qtype payload must remain a string derived from the selected value`);
+  }
+  if (JSON.stringify(secondaryBooleanSetterPaths(callback, primaryPath, bindings)) !== JSON.stringify([secondaryPath])) {
+    fail(callback, `${label} quantization control must write exact false and true values to its Boolean setter path`);
+  }
+  if (!hasExactEmptySelectionBooleanMapping(callback, secondaryPath, bindings)) {
+    fail(callback, `${label} quantization control must map the selected empty string to false and nonempty strings to true`);
+  }
 }
 
 function selectOptionLiteralValue(item: ts.Expression): TrainingBookValueFact {
@@ -3552,12 +3763,7 @@ function validateQuantizationVisibilityGuards(source: ts.SourceFile, sourceName:
     if (JSON.stringify(setterPaths) !== JSON.stringify(expectedSetterPaths)) {
       fail(onChange, `${label} quantization control must write only its exact qtype and Boolean setter paths`);
     }
-    if (JSON.stringify(secondaryBooleanSetterPaths(onChange, primaryPath, bindings)) !== JSON.stringify([secondaryPath])) {
-      fail(onChange, `${label} quantization control must write exact false and true values to its Boolean setter path`);
-    }
-    if (!hasExactEmptySelectionBooleanMapping(onChange, secondaryPath, bindings)) {
-      fail(onChange, `${label} quantization control must map empty selection to false and nonempty selection to true`);
-    }
+    validateQuantizationCallbackDataflow(onChange, primaryPath, secondaryPath, bindings, label);
     const owners = new Set<ts.FunctionLikeDeclaration>();
     for (const setter of directSetters) owners.add(requireComponentSetterBinding(setter.expression as ts.Identifier, bindings));
     if (owners.size !== 1) fail(onChange, `${label} quantization setters require one exact component owner`);
@@ -3701,6 +3907,18 @@ export function collectVisibleControlClaimsFromSource(
               ) fail(optionsExpression ?? node, 'SelectInput options must resolve to closed accepted values or an exact projected options source');
               if (optionValues !== undefined && component === 'SelectInput') baseContract.accepted_values = optionValues;
               if (optionValues !== undefined && component === 'CreatableSelectInput') baseContract.suggested_values = optionValues;
+              const expectedQuantizationSecondaryPath = component === 'SelectInput'
+                ? quantizationSecondaryPath(path)
+                : undefined;
+              if (expectedQuantizationSecondaryPath !== undefined) {
+                validateQuantizationCallbackDataflow(
+                  onChange,
+                  path,
+                  expectedQuantizationSecondaryPath,
+                  bindings,
+                  label,
+                );
+              }
               Object.assign(
                 baseContract,
                 scaledControlContract(node, component, path, boundExpression, onChange, bindings),
@@ -6494,12 +6712,95 @@ function projectInvocationParameters(
   return projected;
 }
 
+function enclosingClassLike(node: ts.Node): ts.ClassDeclaration | ts.ClassExpression | undefined {
+  let current: ts.Node | undefined = node;
+  while (current !== undefined) {
+    if (ts.isClassDeclaration(current) || ts.isClassExpression(current)) return current;
+    current = current.parent;
+  }
+  return undefined;
+}
+
+function classContextIsStatic(node: ts.Node, declaration: ts.ClassDeclaration | ts.ClassExpression): boolean {
+  let current: ts.Node | undefined = node;
+  while (current !== undefined && current !== declaration) {
+    if (ts.isClassStaticBlockDeclaration(current)) return true;
+    if (
+      ts.isMethodDeclaration(current)
+      || ts.isPropertyDeclaration(current)
+      || ts.isGetAccessorDeclaration(current)
+      || ts.isSetAccessorDeclaration(current)
+    ) return current.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword) === true;
+    if (ts.isConstructorDeclaration(current)) return false;
+    current = current.parent;
+  }
+  return false;
+}
+
+function exactClassMethod(
+  declaration: ts.ClassDeclaration | ts.ClassExpression,
+  key: string,
+  staticContext: boolean,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  seen = new Set<ts.ClassDeclaration | ts.ClassExpression>(),
+): ts.MethodDeclaration | undefined {
+  if (seen.has(declaration)) return undefined;
+  const nextSeen = new Set(seen).add(declaration);
+  const methods = declaration.members.filter((member): member is ts.MethodDeclaration => {
+    if (!ts.isMethodDeclaration(member)) return false;
+    const memberStatic = member.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword) === true;
+    if (memberStatic !== staticContext) return false;
+    const name = ts.isComputedPropertyName(member.name)
+      ? resolveStaticString(member.name.expression, bindings, substitutions)
+      : ts.isIdentifier(member.name) || ts.isStringLiteral(member.name) || ts.isNumericLiteral(member.name)
+        ? member.name.text
+        : undefined;
+    return name === key;
+  });
+  if (methods.length > 1) return undefined;
+  if (methods.length === 1) return methods[0];
+  const base = declaration.heritageClauses
+    ?.find(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)
+    ?.types[0]?.expression;
+  const baseClass = base === undefined ? undefined : localClassFromExpression(base, bindings, substitutions);
+  return baseClass === undefined
+    ? undefined
+    : exactClassMethod(baseClass, key, staticContext, bindings, substitutions, nextSeen);
+}
+
+function classMethodFromExpression(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+): ts.MethodDeclaration | undefined {
+  const member = staticMember(expression);
+  if (member === undefined) return undefined;
+  const receiver = unwrap(member.base);
+  if (receiver.kind !== ts.SyntaxKind.ThisKeyword && receiver.kind !== ts.SyntaxKind.SuperKeyword) return undefined;
+  const lexicalClass = enclosingClassLike(expression);
+  if (lexicalClass === undefined) return undefined;
+  const staticContext = classContextIsStatic(expression, lexicalClass);
+  if (receiver.kind === ts.SyntaxKind.ThisKeyword) {
+    return exactClassMethod(lexicalClass, member.key, staticContext, bindings, substitutions);
+  }
+  const base = lexicalClass.heritageClauses
+    ?.find(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)
+    ?.types[0]?.expression;
+  const baseClass = base === undefined ? undefined : localClassFromExpression(base, bindings, substitutions);
+  return baseClass === undefined
+    ? undefined
+    : exactClassMethod(baseClass, member.key, staticContext, bindings, substitutions);
+}
+
 function localFunctionFromExpression(
   expression: ts.Expression,
   bindings: LexicalBindings,
   substitutions: InvocationSubstitutions,
   failOnTainted = true,
 ): ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration | ts.MethodDeclaration | undefined {
+  const classMethod = classMethodFromExpression(expression, bindings, substitutions);
+  if (classMethod !== undefined) return classMethod;
   const provenance = resolveAliasProvenance(expression, bindings, substitutions);
   if (provenance.kind === 'tainted') {
     if (!failOnTainted || expression.getSourceFile() === undefined || bindings.isBuildingMemberTimeline()) return undefined;
@@ -7322,28 +7623,53 @@ function finiteIteratorMethod(
   return undefined;
 }
 
-function localClassFromExpression(
+function localClassesFromExpression(
   expression: ts.Expression,
   bindings: LexicalBindings,
   substitutions: InvocationSubstitutions,
   seen = new Set<ts.Identifier>(),
-): ts.ClassDeclaration | ts.ClassExpression | undefined {
+): readonly (ts.ClassDeclaration | ts.ClassExpression)[] | undefined {
   expression = unwrap(expression);
-  if (ts.isClassExpression(expression)) return expression;
-  const provenance = resolveAliasProvenance(expression, bindings, substitutions);
-  if (provenance.kind === 'exact' && !ts.isMethodDeclaration(provenance.origin)) {
-    const origin = unwrap(provenance.origin);
-    if (ts.isClassExpression(origin)) return origin;
-    if (origin !== expression) return localClassFromExpression(origin, bindings, substitutions, seen);
+  if (ts.isClassExpression(expression)) return [expression];
+  if (ts.isConditionalExpression(expression)) {
+    const truth = staticTruthValue(expression.condition, bindings);
+    const branches = truth === undefined
+      ? [expression.whenTrue, expression.whenFalse]
+      : [truth ? expression.whenTrue : expression.whenFalse];
+    const classes = branches.flatMap(branch => localClassesFromExpression(branch, bindings, substitutions, seen) ?? []);
+    return classes.length === 0 ? undefined : [...new Set(classes)];
   }
-  if (!ts.isIdentifier(expression)) return undefined;
-  const declaration = bindings.bindingDeclaration(expression);
-  if (declaration === undefined || seen.has(declaration)) return undefined;
-  if (ts.isClassDeclaration(declaration.parent) && declaration.parent.name === declaration) return declaration.parent;
-  const initializer = bindings.declarationInitializer(expression);
-  return initializer === undefined
+  if (ts.isIdentifier(expression)) {
+    const declaration = bindings.bindingDeclaration(expression);
+    if (declaration !== undefined && !seen.has(declaration)) {
+      if (ts.isClassDeclaration(declaration.parent) && declaration.parent.name === declaration) return [declaration.parent];
+      const initializer = bindings.declarationInitializer(expression);
+      if (initializer !== undefined) {
+        const resolved = localClassesFromExpression(
+          initializer,
+          bindings,
+          substitutions,
+          new Set(seen).add(declaration),
+        );
+        if (resolved !== undefined) return resolved;
+      }
+    }
+  }
+  const provenance = resolveAliasProvenance(expression, bindings, substitutions);
+  if (provenance.kind !== 'exact' || ts.isMethodDeclaration(provenance.origin)) return undefined;
+  const origin = unwrap(provenance.origin);
+  return origin === expression
     ? undefined
-    : localClassFromExpression(initializer, bindings, substitutions, new Set(seen).add(declaration));
+    : localClassesFromExpression(origin, bindings, substitutions, seen);
+}
+
+function localClassFromExpression(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+): ts.ClassDeclaration | ts.ClassExpression | undefined {
+  const classes = localClassesFromExpression(expression, bindings, substitutions);
+  return classes?.length === 1 ? classes[0] : undefined;
 }
 
 const activeExecutableClassConstructions = new Set<ts.ClassDeclaration | ts.ClassExpression>();
@@ -7363,54 +7689,58 @@ function visitExecutableClassConstructionNodes(
     conditions: readonly ConditionalExecutionContext[],
   ) => void,
 ): void {
-  const declaration = localClassFromExpression(expression, bindings, substitutions);
-  if (declaration === undefined || activeExecutableClassConstructions.has(declaration)) return;
-  activeExecutableClassConstructions.add(declaration);
-  try {
-    const base = declaration.heritageClauses
-      ?.find(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)
-      ?.types[0]?.expression;
-    if (base !== undefined) {
-      visitExecutableClassConstructionNodes(base, undefined, bindings, substitutions, execution, visitor);
+  const declarations = localClassesFromExpression(expression, bindings, substitutions);
+  if (declarations === undefined) return;
+  const constructionExecution = declarations.length === 1 ? execution : 'unmodeled-callback';
+  for (const declaration of declarations) {
+    if (activeExecutableClassConstructions.has(declaration)) continue;
+    activeExecutableClassConstructions.add(declaration);
+    try {
+      const base = declaration.heritageClauses
+        ?.find(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)
+        ?.types[0]?.expression;
+      if (base !== undefined) {
+        visitExecutableClassConstructionNodes(base, undefined, bindings, substitutions, constructionExecution, visitor);
+      }
+      for (const member of declaration.members) {
+        if (
+          !ts.isPropertyDeclaration(member)
+          || member.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword)
+          || member.initializer === undefined
+        ) continue;
+        const owner = ts.factory.createArrowFunction(
+          undefined,
+          undefined,
+          [],
+          undefined,
+          ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+          member.initializer,
+        );
+        visitExecutableFunctionNodes(
+          owner,
+          bindings,
+          visitor,
+          true,
+          { arguments: [], substitutions, execution: constructionExecution },
+        );
+      }
+      const constructor = declaration.members.find(ts.isConstructorDeclaration);
+      if (constructor !== undefined) {
+        visitExecutableFunctionNodes(
+          constructor,
+          bindings,
+          visitor,
+          true,
+          {
+            arguments: argumentsToBind ?? constructor.parameters.map(() => 'tainted' as const),
+            substitutions,
+            execution: argumentsToBind === undefined ? 'unmodeled-callback' : constructionExecution,
+          },
+        );
+      }
+    } finally {
+      activeExecutableClassConstructions.delete(declaration);
     }
-    for (const member of declaration.members) {
-      if (
-        !ts.isPropertyDeclaration(member)
-        || member.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword)
-        || member.initializer === undefined
-      ) continue;
-      const owner = ts.factory.createArrowFunction(
-        undefined,
-        undefined,
-        [],
-        undefined,
-        ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-        member.initializer,
-      );
-      visitExecutableFunctionNodes(
-        owner,
-        bindings,
-        visitor,
-        true,
-        { arguments: [], substitutions, execution },
-      );
-    }
-    const constructor = declaration.members.find(ts.isConstructorDeclaration);
-    if (constructor !== undefined) {
-      visitExecutableFunctionNodes(
-        constructor,
-        bindings,
-        visitor,
-        true,
-        {
-          arguments: argumentsToBind ?? constructor.parameters.map(() => 'tainted' as const),
-          substitutions,
-          execution: argumentsToBind === undefined ? 'unmodeled-callback' : execution,
-        },
-      );
-    }
-  } finally {
-    activeExecutableClassConstructions.delete(declaration);
   }
 }
 
@@ -8476,7 +8806,9 @@ function visitExecutableFunctionNodes(
     if (ts.isCallExpression(node)) {
       normalizedCall ??= computeNormalizedCall!();
       const { invocation, activeForwardTarget, mutationApi } = normalizedCall!;
-      let direct = activeForwardTarget ?? localFunctionFromExpression(invocation.target, bindings, substitutions, false);
+      let direct = classMethodFromExpression(node.expression, bindings, substitutions)
+        ?? activeForwardTarget
+        ?? localFunctionFromExpression(invocation.target, bindings, substitutions, false);
       if (direct === undefined) direct = localFunctionFromExpression(invocation.target, bindings, substitutions);
       if (direct !== undefined) {
         if (invocation.arguments !== undefined) invoke(node, direct, invocation.arguments, execution, substitutions);

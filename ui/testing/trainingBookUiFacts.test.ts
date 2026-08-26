@@ -1650,6 +1650,104 @@ for (const [label, classSource, constructionSite] of [
   }
 }
 
+const ordinaryClassEffectControl = (classSource: string, construction: string): string => `
+  const modeOptions = [{ value: 'a', label: 'A' }];
+  ${classSource}
+  ${construction}
+  function Fixture({ jobConfig, setJobConfig }) {
+    return <SelectInput
+      label="Mode"
+      value={jobConfig.config.process[0].train.mode}
+      onChange={value => setJobConfig(value, 'config.process[0].train.mode')}
+      options={modeOptions}
+    />;
+  }
+`;
+for (const [label, classSource, construction] of [
+  [
+    'ordinary SelectInput ambiguous constructed class mutation fails closed',
+    `class Mutator { constructor() { modeOptions.push({ value: 'b', label: 'B' }); } }
+     class Safe {}
+     const Selected = condition ? Mutator : Safe;`,
+    'new Selected();',
+  ],
+  [
+    'ordinary SelectInput constructor-invoked method mutation fails closed',
+    `class Mutator {
+       constructor() { this.mutate(); }
+       mutate() { modeOptions.push({ value: 'b', label: 'B' }); }
+     }`,
+    'new Mutator();',
+  ],
+  [
+    'ordinary SelectInput static-block-invoked method mutation fails closed',
+    `class Mutator {
+       static mutate() { modeOptions.push({ value: 'b', label: 'B' }); }
+       static { this.mutate(); }
+     }`,
+    '',
+  ],
+  [
+    'ordinary SelectInput cyclic constructor method mutation fails closed',
+    `class Mutator {
+       constructor() { this.first(); }
+       first() { this.second(); }
+       second() { this.first(); modeOptions.push({ value: 'b', label: 'B' }); }
+     }`,
+    'new Mutator();',
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      ordinaryClassEffectControl(classSource, construction),
+      'fixture.tsx',
+      'Fixture',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /select.*options|accepted values|recursive|provenance/i, `${label} must replay or fail closed`);
+  }
+}
+try {
+  const harmlessInstantiatedClassClaims = collectVisibleControlClaimsFromSource(`
+    const modeOptions = [{ value: 'a', label: 'A' }];
+    const unrelatedOptions = [];
+    class UnrelatedMutator {
+      constructor() { this.mutate(); }
+      mutate() { unrelatedOptions.push('changed'); }
+    }
+    class SafeBase { constructor() { this.touch(); } touch() { return 1; } }
+    class SafeDerived extends SafeBase {}
+    const SafeAlias = SafeDerived;
+    new UnrelatedMutator();
+    new SafeAlias();
+    function Fixture({ jobConfig, setJobConfig }) {
+      return <SelectInput
+        label="Mode"
+        value={jobConfig.config.process[0].train.mode}
+        onChange={value => setJobConfig(value, 'config.process[0].train.mode')}
+        options={modeOptions}
+      />;
+    }
+  `, 'fixture.tsx', 'Fixture');
+  if (JSON.stringify(harmlessInstantiatedClassClaims[0]?.value_contract.accepted_values) !== JSON.stringify([
+    { kind: 'string', value: 'a' },
+  ])) factualUiContractFailures.push('unrelated instantiated and aliased inherited classes remain harmless');
+} catch {
+  factualUiContractFailures.push('unrelated instantiated and aliased inherited classes remain harmless');
+}
+try {
+  collectVisibleControlClaimsFromSource(ordinaryClassEffectControl(
+    `class BaseMutator { constructor() { modeOptions.push({ value: 'b', label: 'B' }); } }
+     class DerivedMutator extends BaseMutator {}
+     const MutatorAlias = DerivedMutator;`,
+    'new MutatorAlias();',
+  ), 'fixture.tsx', 'Fixture');
+  factualUiContractFailures.push('aliased inherited constructor option mutation remains visible');
+} catch (error) {
+  assert.match(String(error), /select.*options|accepted values/i);
+}
+
 const projectedOptionsControl = (before: string, during: string, after: string): string => `
   import { groupedModelOptions } from './options';
   import { handleModelArchChange } from './utils';
@@ -1678,6 +1776,46 @@ for (const [label, projectedSource] of [
     factualUiContractFailures.push(label);
   } catch (error) {
     assert.match(String(error), /select.*options|accepted values|projected/i, `${label} must reject mutable imported options`);
+  }
+}
+for (const [label, before, during] of [
+  [
+    'projected options ambiguous constructed class mutation fails closed',
+    `class Mutator { constructor() { groupedModelOptions.push({ value: 'stale', label: 'Stale' }); } }
+     class Safe {}
+     const Selected = condition ? Mutator : Safe;
+     new Selected();`,
+    '',
+  ],
+  [
+    'projected options constructor-invoked method mutation fails closed',
+    `class Mutator {
+       constructor() { this.mutate(); }
+       mutate() { groupedModelOptions.push({ value: 'stale', label: 'Stale' }); }
+     }
+     new Mutator();`,
+    '',
+  ],
+  [
+    'projected options static-block-invoked method mutation fails closed',
+    `class Mutator {
+       static mutate() { groupedModelOptions.push({ value: 'stale', label: 'Stale' }); }
+       static { this.mutate(); }
+     }`,
+    '',
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      projectedOptionsControl(before, during, ''),
+      'fixture.tsx',
+      'SimpleJob',
+      false,
+      true,
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /select.*options|accepted values|projected|provenance/i, `${label} must replay or fail closed`);
   }
 }
 const projectedConstructor = `class ProjectedMutator {
@@ -1735,6 +1873,39 @@ if (
   ])
 ) factualUiContractFailures.push('secondary quantize writes have boolean select semantics');
 
+for (const [label, primaryPath, secondaryPath] of [
+  [
+    'Transformer qtype Boolean primary payload fails closed',
+    'config.process[0].model.qtype',
+    'config.process[0].model.quantize',
+  ],
+  [
+    'Text Encoder qtype Boolean primary payload fails closed',
+    'config.process[0].model.qtype_te',
+    'config.process[0].model.quantize_te',
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(`
+      function Fixture({ jobConfig, setJobConfig }) {
+        return <SelectInput
+          label="Quantization"
+          value={jobConfig.${secondaryPath} ? jobConfig.${primaryPath} : ''}
+          onChange={value => {
+            if (value === '') setJobConfig(false, '${secondaryPath}');
+            else setJobConfig(true, '${secondaryPath}');
+            setJobConfig(false, '${primaryPath}');
+          }}
+          options={[{ value: '', label: 'Disabled' }, { value: 'qfloat8', label: 'qfloat8' }]}
+        />;
+      }
+    `, 'fixture.tsx', 'Fixture');
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /quantiz|qtype|string|payload/i, `${label} must reject a non-string qtype write`);
+  }
+}
+
 const layerScaleSource = `
   function Fixture({ jobConfig, setJobConfig }) {
     return <SliderInput
@@ -1768,6 +1939,60 @@ for (const [label, mutated] of [
     factualUiContractFailures.push(label);
   } catch (error) {
     assert.match(String(error), /reciprocal|scale/i, `${label} must fail for the scale contract`);
+  }
+}
+const layerScaleValueExpression = 'Math.round((jobConfig.config.process[0].model.layer_offloading_transformer_percent ?? 1) * 100)';
+const layerScaleReadPath = 'jobConfig.config.process[0].model.layer_offloading_transformer_percent';
+for (const [label, valueExpression] of [
+  [
+    'statically unreachable scaled slider read does not establish a scale',
+    `false ? ${layerScaleReadPath} * 100 : ${layerScaleReadPath}`,
+  ],
+  [
+    'inverse statically unreachable scaled slider read does not establish a scale',
+    `true ? ${layerScaleReadPath} : ${layerScaleReadPath} * 100`,
+  ],
+  [
+    'conditionally mixed scaled and unscaled slider reads fail closed',
+    `condition ? ${layerScaleReadPath} * 100 : ${layerScaleReadPath}`,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      layerScaleSource.replace(layerScaleValueExpression, valueExpression),
+      'fixture.tsx',
+      'Fixture',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /reciprocal|scale|ambiguous/i, `${label} must use only reachable read provenance`);
+  }
+}
+for (const [label, valueExpression] of [
+  [
+    'statically reachable scaled slider read preserves its scale',
+    `true ? ${layerScaleReadPath} * 100 : ${layerScaleReadPath}`,
+  ],
+  [
+    'inverse statically reachable scaled slider read preserves its scale',
+    `false ? ${layerScaleReadPath} : ${layerScaleReadPath} * 100`,
+  ],
+  [
+    'equivalent conditional slider scales remain provable',
+    `condition ? ${layerScaleReadPath} * 100 : ${layerScaleReadPath} * 100`,
+  ],
+] as const) {
+  try {
+    const contract = collectVisibleControlClaimsFromSource(
+      layerScaleSource.replace(layerScaleValueExpression, valueExpression),
+      'fixture.tsx',
+      'Fixture',
+    )[0]?.value_contract as unknown as Record<string, unknown>;
+    if (contract.config_to_ui_scale !== 100 || contract.ui_to_config_scale !== 0.01) {
+      factualUiContractFailures.push(label);
+    }
+  } catch {
+    factualUiContractFailures.push(label);
   }
 }
 try {
@@ -1842,6 +2067,59 @@ const guardedQuantizationSource = `
     </>;
   }
 `;
+const exactTransformerQuantizationCallback = `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`;
+const safeAliasedTransformerCallback = `onChange={value => {
+              const selected = value;
+              if (selected === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              setJobConfig(selected, 'config.process[0].model.qtype');
+            }}`;
+try {
+  collectVisibleControlClaimsFromSource(
+    guardedQuantizationSource.replace(exactTransformerQuantizationCallback, safeAliasedTransformerCallback),
+    'ui/src/app/jobs/new/SimpleJob.tsx',
+    'SimpleJob',
+  );
+} catch {
+  factualUiContractFailures.push('safe selected-value alias preserves quantization provenance');
+}
+for (const [label, corruptedCallback] of [
+  [
+    'Transformer overwritten selected value invalidates Boolean mapping',
+    `onChange={value => {
+              value = '';
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'Transformer overwritten alias invalidates Boolean mapping',
+    `onChange={value => {
+              let selected = value;
+              selected = '';
+              value = selected;
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, corruptedCallback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /quantiz|selection|provenance|qtype/i, `${label} must reject stale selection dataflow`);
+  }
+}
 const detachedTextEncoderSource = guardedQuantizationSource
   .replace(
     "          {!disableSections.includes('model.quantize_te') && (",
