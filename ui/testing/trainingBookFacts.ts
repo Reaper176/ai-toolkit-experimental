@@ -2998,13 +2998,13 @@ function uiToConfigScale(
   const scales = new Set<number>();
   let reachableWrites = 0;
   let invalidWrite = false;
-  const visit = (node: ts.Node): void => {
+  visitExecutableFunctionNodes(expression, bindings, (node, _substitutions, execution, _sequence, current) => {
+    if (execution !== 'known' || current !== expression) return;
     if (
       ts.isCallExpression(node)
       && ts.isIdentifier(node.expression)
       && node.expression.text === 'setJobConfig'
       && exactLiteralSetterPath(node) === path
-      && !isStaticallyDead(node)
     ) {
       reachableWrites += 1;
       requireComponentSetterBinding(node.expression, bindings);
@@ -3012,9 +3012,7 @@ function uiToConfigScale(
       if (scale !== undefined) scales.add(scale);
       else invalidWrite = true;
     }
-    ts.forEachChild(node, visit);
-  };
-  visit(expression.body);
+  });
   if (invalidWrite || reachableWrites > 1) fail(expression, `every reachable UI-to-config write must use one exact scale for ${path}`);
   if (scales.size > 1) fail(expression, `ambiguous UI-to-config scale for ${path}`);
   return [...scales][0];
@@ -3044,14 +3042,16 @@ function secondaryBooleanSetterPaths(
   bindings: LexicalBindings,
 ): string[] {
   if (onChange === undefined) return [];
+  onChange = unwrap(onChange);
+  if (!ts.isArrowFunction(onChange) && !ts.isFunctionExpression(onChange)) return [];
   const values = new Map<string, Set<boolean>>();
   const invalid = new Set<string>();
-  const visit = (node: ts.Node): void => {
+  visitExecutableFunctionNodes(onChange, bindings, (node, _substitutions, execution, _sequence, current) => {
+    if (execution !== 'known' || current !== onChange) return;
     if (
       ts.isCallExpression(node)
       && ts.isIdentifier(node.expression)
       && node.expression.text === 'setJobConfig'
-      && !isStaticallyDead(node)
     ) {
       const path = exactLiteralSetterPath(node);
       if (path !== undefined && path !== primaryPath) {
@@ -3064,9 +3064,7 @@ function secondaryBooleanSetterPaths(
         } else invalid.add(path);
       }
     }
-    ts.forEachChild(node, visit);
-  };
-  visit(onChange);
+  });
   return [...values]
     .filter(([path, observed]) => !invalid.has(path) && observed.has(false) && observed.has(true))
     .map(([path]) => path)
@@ -3077,16 +3075,22 @@ function booleanSetterValuesForPath(
   root: ts.Node,
   path: string,
   bindings: LexicalBindings,
+  owner: ts.ArrowFunction | ts.FunctionExpression,
 ): boolean[] | undefined {
   const values: boolean[] = [];
   let exact = true;
-  const visit = (node: ts.Node): void => {
+  const withinRoot = (node: ts.Node): boolean => {
+    let current: ts.Node | undefined = node;
+    while (current !== undefined && current !== root) current = current.parent;
+    return current === root;
+  };
+  visitExecutableFunctionNodes(owner, bindings, (node, _substitutions, execution, _sequence, current) => {
+    if (execution !== 'known' || current !== owner || !withinRoot(node)) return;
     if (
       ts.isCallExpression(node)
       && ts.isIdentifier(node.expression)
       && node.expression.text === 'setJobConfig'
       && exactLiteralSetterPath(node) === path
-      && !isStaticallyDead(node)
     ) {
       requireComponentSetterBinding(node.expression, bindings);
       const value = node.arguments[0] === undefined ? undefined : unwrap(node.arguments[0]);
@@ -3094,9 +3098,7 @@ function booleanSetterValuesForPath(
         values.push(value.kind === ts.SyntaxKind.TrueKeyword);
       } else exact = false;
     }
-    ts.forEachChild(node, visit);
-  };
-  visit(root);
+  });
   return exact ? values : undefined;
 }
 
@@ -3125,15 +3127,15 @@ function hasExactEmptySelectionBooleanMapping(
   if (!ts.isArrowFunction(onChange) && !ts.isFunctionExpression(onChange)) return false;
   const parameter = exactCallbackIdentifier(onChange.parameters[0]);
   if (parameter === undefined) return false;
-  const allValues = booleanSetterValuesForPath(onChange.body, path, bindings);
+  const allValues = booleanSetterValuesForPath(onChange.body, path, bindings, onChange);
   if (allValues === undefined || allValues.length !== 2) return false;
   let exactMappings = 0;
   const visit = (node: ts.Node): void => {
     if (ts.isIfStatement(node) && isExactEmptySelectionCondition(node.expression, parameter, bindings)) {
-      const emptyValues = booleanSetterValuesForPath(node.thenStatement, path, bindings);
+      const emptyValues = booleanSetterValuesForPath(node.thenStatement, path, bindings, onChange);
       const nonemptyValues = node.elseStatement === undefined
         ? undefined
-        : booleanSetterValuesForPath(node.elseStatement, path, bindings);
+        : booleanSetterValuesForPath(node.elseStatement, path, bindings, onChange);
       if (
         JSON.stringify(emptyValues) === JSON.stringify([false])
         && JSON.stringify(nonemptyValues) === JSON.stringify([true])
@@ -3159,70 +3161,41 @@ function selectOptionLiteralValue(item: ts.Expression): TrainingBookValueFact {
   fail(raw, 'select option value must remain a scalar literal accepted value');
 }
 
-function selectRootIdentifier(expression: ts.Expression): ts.Identifier | undefined {
-  expression = unwrap(expression);
-  if (ts.isIdentifier(expression)) return expression;
-  if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
-    return selectRootIdentifier(expression.expression);
-  }
-  return undefined;
-}
-
-function selectAliasMutatedBefore(
+function selectAliasHasReachableMutation(
   declaration: ts.Identifier,
   reference: ts.Identifier,
   bindings: LexicalBindings,
 ): boolean {
-  const source = reference.getSourceFile();
   const referenceOwner = enclosingLexicalFunction(reference);
-  let mutated = false;
-  const exactRoot = (expression: ts.Expression): boolean => {
-    const root = selectRootIdentifier(expression);
-    return root !== undefined && bindings.bindingDeclaration(root) === declaration;
-  };
-  const relevantOwner = (node: ts.Node): boolean => {
-    const owner = enclosingLexicalFunction(node);
-    return owner === undefined || owner === referenceOwner;
-  };
-  const visit = (node: ts.Node): void => {
-    if (mutated || node.getStart(source) >= reference.getStart(source)) return;
-    if (node.end <= declaration.end || isStaticallyDead(node)) return;
-    if (!relevantOwner(node)) return;
-    if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind) && exactRoot(node.left)) {
-      mutated = true;
-      return;
+  const reachesAlias = (expression: ts.Expression, substitutions: InvocationSubstitutions): boolean => {
+    try {
+      return aliasOriginReachesBinding(expression, declaration, bindings, substitutions);
+    } catch (error) {
+      if (!(error instanceof FactsError)) throw error;
+      return true;
     }
+  };
+  const mutationAt = (node: ts.Node, substitutions: InvocationSubstitutions): boolean => {
+    if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind) && reachesAlias(node.left, substitutions)) return true;
     if (
       (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node))
       && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)
-      && exactRoot(node.operand)
-    ) {
-      mutated = true;
-      return;
-    }
-    if (ts.isDeleteExpression(node) && exactRoot(node.expression)) {
-      mutated = true;
-      return;
-    }
+      && reachesAlias(node.operand, substitutions)
+    ) return true;
+    if (ts.isDeleteExpression(node) && reachesAlias(node.expression, substitutions)) return true;
     if (ts.isCallExpression(node)) {
       const member = staticMember(node.expression);
-      if (member !== undefined && exactRoot(member.base)) {
-        mutated = true;
-        return;
-      }
-      if (node.arguments.some(argument => !ts.isSpreadElement(argument) && exactRoot(argument))) {
-        mutated = true;
-        return;
-      }
+      if (member !== undefined && reachesAlias(member.base, substitutions)) return true;
+      if (node.arguments.some(argument => !ts.isSpreadElement(argument) && reachesAlias(argument, substitutions))) return true;
     }
-    if (ts.isNewExpression(node) && node.arguments?.some(argument => !ts.isSpreadElement(argument) && exactRoot(argument))) {
-      mutated = true;
-      return;
-    }
-    ts.forEachChild(node, visit);
+    return ts.isNewExpression(node)
+      && node.arguments?.some(argument => !ts.isSpreadElement(argument) && reachesAlias(argument, substitutions)) === true;
   };
-  visit(source);
-  return mutated;
+  if (bindings.executableModuleNodes().some(item => mutationAt(item.node, item.substitutions))) return true;
+  if (referenceOwner === undefined) return false;
+  const functionTimeline = bindings.executableFunctionTimeline(referenceOwner);
+  return functionTimeline === undefined
+    || functionTimeline.some(item => mutationAt(item.node, item.substitutions));
 }
 
 function literalSelectValues(
@@ -3244,7 +3217,7 @@ function literalSelectValues(
       || declaration.parent.name !== declaration
       || !ts.isVariableDeclarationList(declaration.parent.parent)
       || (declaration.parent.parent.flags & ts.NodeFlags.Const) === 0
-      || selectAliasMutatedBefore(declaration, expression, bindings)
+      || selectAliasHasReachableMutation(declaration, expression, bindings)
     ) return undefined;
     const initializer = lookup.event.initializer;
     return initializer === undefined
@@ -3416,6 +3389,25 @@ function isDisableSectionsIncludes(
   return declarationOwner === componentOwner;
 }
 
+function directExecutableSetterCalls(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+): ts.CallExpression[] {
+  expression = unwrap(expression);
+  if (!ts.isArrowFunction(expression) && !ts.isFunctionExpression(expression)) return [];
+  const calls: ts.CallExpression[] = [];
+  visitExecutableFunctionNodes(expression, bindings, (node, _substitutions, execution, _sequence, current) => {
+    if (
+      execution === 'known'
+      && current === expression
+      && ts.isCallExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === 'setJobConfig'
+    ) calls.push(node);
+  });
+  return calls;
+}
+
 function validateQuantizationVisibilityGuards(source: ts.SourceFile, sourceName: string): void {
   if (sourceName !== 'ui/src/app/jobs/new/SimpleJob.tsx') return;
   const controls = new Map<string, ts.JsxOpeningLikeElement>();
@@ -3447,7 +3439,13 @@ function validateQuantizationVisibilityGuards(source: ts.SourceFile, sourceName:
     const control = controls.get(label)!;
     const onChange = jsxAttributeExpression(jsxAttributeNode(control, 'onChange'));
     if (onChange === undefined) fail(control, `${label} quantization control requires an exact onChange setter`);
-    const setterPaths = canonicalSetterPathsFromAst(source, onChange, bindings);
+    const directSetters = directExecutableSetterCalls(onChange, bindings);
+    const setterPaths = [...new Set(directSetters.map(call => {
+      requireComponentSetterBinding(call.expression as ts.Identifier, bindings);
+      const path = exactLiteralSetterPath(call);
+      if (path === undefined) fail(call, `${label} quantization setter requires an exact literal path`);
+      return path;
+    }))].sort(compareCodePoint);
     const expectedSetterPaths = [primaryPath, secondaryPath].sort(compareCodePoint);
     if (JSON.stringify(setterPaths) !== JSON.stringify(expectedSetterPaths)) {
       fail(onChange, `${label} quantization control must write only its exact qtype and Boolean setter paths`);
@@ -3459,13 +3457,7 @@ function validateQuantizationVisibilityGuards(source: ts.SourceFile, sourceName:
       fail(onChange, `${label} quantization control must map empty selection to false and nonempty selection to true`);
     }
     const owners = new Set<ts.FunctionLikeDeclaration>();
-    const visitSetters = (node: ts.Node): void => {
-      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'setJobConfig') {
-        owners.add(requireComponentSetterBinding(node.expression, bindings));
-      }
-      ts.forEachChild(node, visitSetters);
-    };
-    visitSetters(onChange);
+    for (const setter of directSetters) owners.add(requireComponentSetterBinding(setter.expression as ts.Identifier, bindings));
     if (owners.size !== 1) fail(onChange, `${label} quantization setters require one exact component owner`);
     const owner = [...owners][0];
     if (enclosingLexicalFunction(control) !== owner) {
