@@ -5202,6 +5202,271 @@ if (liveRoot !== undefined) {
     { missingRejectCount: 0, missingRejects: [], positiveFailureCount: 0, positiveFailures: [] },
     'behavior-semantics guard/copy/expand/async matrix',
   );
+
+  const behaviorAcceptanceMissingRejects: string[] = [];
+  const behaviorAcceptancePositiveFailures: string[] = [];
+  const expectAcceptanceMigrateRejection = (label: string, mutated: string): void => {
+    try {
+      collectMigrateJobConfigBehaviorClaimsFromSource(mutated);
+      behaviorAcceptanceMissingRejects.push(label);
+    } catch {}
+  };
+  const expectAcceptanceArchitectureRejection = (label: string, mutated: string): void => {
+    try {
+      collectHandleModelArchChangeBehaviorClaimsFromSource(mutated, animaPathSource);
+      behaviorAcceptanceMissingRejects.push(label);
+    } catch {}
+  };
+  const expectAcceptanceMigratePositive = (label: string, mutated: string): void => {
+    try { assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(mutated), migrateClaims); } catch { behaviorAcceptancePositiveFailures.push(label); }
+  };
+  const expectAcceptanceArchitecturePositive = (label: string, mutated: string): void => {
+    try { assert.deepEqual(collectHandleModelArchChangeBehaviorClaimsFromSource(mutated, animaPathSource), architectureClaims); } catch { behaviorAcceptancePositiveFailures.push(label); }
+  };
+  const architectureCommit = "  setJobConfig(newArchName, 'config.process[0].model.arch');";
+  const currentDefaultsLoop = `  for (const key in currentDefaults) {
+    setJobConfig(currentDefaults[key][1], key);
+  }`;
+
+  expectAcceptanceArchitectureRejection(
+    'architecture commit follows conditional return in enclosing block',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  { if (runtimeCondition) return; }
+${architectureCommit}`,
+    ),
+  );
+  expectAcceptanceArchitectureRejection(
+    'architecture helper conditionally returns before required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  function commitArchitecture() {
+    if (runtimeCondition) return;
+    setJobConfig(newArchName, 'config.process[0].model.arch');
+  }
+  commitArchitecture();`,
+    ),
+  );
+  expectAcceptanceMigrateRejection(
+    'migration type write follows conditional throw',
+    replaceBehaviorFixture(
+      migrateJobConfigSource,
+      "    jobConfig.config.process[0].type = 'diffusion_trainer';",
+      "    if (runtimeCondition) throw new Error('stop');\n    jobConfig.config.process[0].type = 'diffusion_trainer';",
+    ),
+  );
+  for (const [label, prefix] of [
+    ['while-true', '  while (true) {}\n'],
+    ['do-while-true', '  do {} while (true);\n'],
+    ['for-ever', '  for (;;) {}\n'],
+  ] as const) {
+    expectAcceptanceArchitectureRejection(
+      `architecture commit follows non-completing ${label} loop`,
+      replaceBehaviorFixture(modelArchChangeSource, architectureCommit, `${prefix}${architectureCommit}`),
+    );
+  }
+  for (const [label, wrapped] of [
+    ['while-true', `  while (true) {\n${architectureCommit}\n  }`],
+    ['do-while-true', `  do {\n${architectureCommit}\n  } while (true);`],
+    ['for-ever', `  for (;;) {\n${architectureCommit}\n  }`],
+  ] as const) {
+    expectAcceptanceArchitectureRejection(
+      `architecture commit repeats in ${label} loop`,
+      replaceBehaviorFixture(modelArchChangeSource, architectureCommit, wrapped),
+    );
+  }
+
+  expectAcceptanceArchitectureRejection(
+    'architecture finally prefix may throw before required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    JSON.parse(newArchName);
+    setJobConfig(newArchName, 'config.process[0].model.arch');
+  }`,
+    ),
+  );
+  expectAcceptanceMigrateRejection(
+    'migration finally prefix may throw before exact type write',
+    replaceBehaviorFixture(
+      migrateJobConfigSource,
+      canonicalTypeBlock,
+      `  try {} finally {
+    JSON.parse('runtime');
+    if (jobConfig?.config?.process && jobConfig.config.process[0]?.type === 'ui_trainer') {
+      jobConfig.config.process[0].type = 'diffusion_trainer';
+    }
+  }`,
+    ),
+  );
+
+  expectAcceptanceArchitectureRejection(
+    'current-default loop iterates an alias instead of exact container',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      currentDefaultsLoop,
+      `  const defaultsAlias = currentDefaults;
+  for (const key in defaultsAlias) {
+    setJobConfig(currentDefaults[key][1], key);
+  }`,
+    ),
+  );
+  expectAcceptanceArchitectureRejection(
+    'current-default loop setter does not use loop key binding',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      currentDefaultsLoop,
+      `  const key = 'fixed';
+  for (const otherKey in currentDefaults) {
+    setJobConfig(currentDefaults[key][1], key);
+  }`,
+    ),
+  );
+  for (const [label, body] of [
+    ['break after setter', `    setJobConfig(currentDefaults[key][1], key);\n    break;`],
+    ['conditional continue before setter', `    if (runtimeCondition) continue;\n    setJobConfig(currentDefaults[key][1], key);`],
+    ['conditional break before setter', `    if (runtimeCondition) break;\n    setJobConfig(currentDefaults[key][1], key);`],
+    ['return after setter', `    setJobConfig(currentDefaults[key][1], key);\n    return;`],
+    ['throw after setter', `    setJobConfig(currentDefaults[key][1], key);\n    throw new Error('stop');`],
+  ] as const) {
+    expectAcceptanceArchitectureRejection(
+      `current-default loop has ${label}`,
+      replaceBehaviorFixture(
+        modelArchChangeSource,
+        currentDefaultsLoop,
+        `  for (const key in currentDefaults) {\n${body}\n  }`,
+      ),
+    );
+  }
+
+  expectAcceptanceArchitectureRejection(
+    'architecture setter callee contains optional-chain segment',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      "  setJobConfig?.call(null, newArchName, 'config.process[0].model.arch');",
+    ),
+  );
+  expectAcceptanceArchitectureRejection(
+    'layer objectCopy callee contains optional-chain segment',
+    replaceBehaviorFixture(modelArchChangeSource, 'objectCopy(cleanedModel)', 'objectCopy?.call(null, cleanedModel)'),
+  );
+  expectAcceptanceArchitectureRejection(
+    'cleanup callee contains optional-chain segment',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      'clearUnsupportedAnimaPaths(currentModel, newArch?.additionalSections)',
+      'clearUnsupportedAnimaPaths?.call(null, currentModel, newArch?.additionalSections)',
+    ),
+  );
+  expectAcceptanceMigrateRejection(
+    'prompt delete has optional config receiver',
+    replaceBehaviorFixture(
+      migrateJobConfigSource,
+      'delete jobConfig.config.process[0].sample.prompts;',
+      'delete jobConfig?.config.process[0].sample.prompts;',
+    ),
+  );
+  expectAcceptanceMigrateRejection(
+    'type assignment has optional config receiver',
+    replaceBehaviorFixture(
+      migrateJobConfigSource,
+      "jobConfig.config.process[0].type = 'diffusion_trainer';",
+      "(jobConfig?.config.process[0]).type = 'diffusion_trainer';",
+    ),
+  );
+  expectAcceptanceArchitectureRejection(
+    'layer delete has optional copied-model receiver',
+    replaceBehaviorFixture(modelArchChangeSource, 'delete newModel.layer_offloading;', 'delete newModel?.layer_offloading;'),
+  );
+
+  expectAcceptanceArchitecturePositive(
+    'statically dead preceding conditional exit is harmless',
+    replaceBehaviorFixture(modelArchChangeSource, architectureCommit, `  { if (false) return; }\n${architectureCommit}`),
+  );
+  expectAcceptanceArchitecturePositive(
+    'statically dead preceding loops are harmless',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  while (false) {}
+  for (; false;) {}
+${architectureCommit}`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'preceding loop with exact break completes finitely',
+    replaceBehaviorFixture(modelArchChangeSource, architectureCommit, `  while (true) { break; }\n${architectureCommit}`),
+  );
+  expectAcceptanceArchitecturePositive(
+    'do-while-false required commit executes exactly once',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  do {
+${architectureCommit}
+  } while (false);`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'nonthrowing finally prefix preserves required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    const harmless = 1;
+    setJobConfig(newArchName, 'config.process[0].model.arch');
+  }`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'default loop key binding may be consistently renamed',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      currentDefaultsLoop,
+      `  for (const defaultKey in currentDefaults) {
+    setJobConfig(currentDefaults[defaultKey][1], defaultKey);
+  }`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'default loop permits harmless nonthrowing statements',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      currentDefaultsLoop,
+      `  for (const key in currentDefaults) {
+    0;
+    setJobConfig(currentDefaults[key][1], key);
+  }`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'nonoptional native call wrapper remains exact',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      "  setJobConfig.call(null, newArchName, 'config.process[0].model.arch');",
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'unrelated optional callee chain remains harmless',
+    replaceBehaviorFixture(modelArchChangeSource, architectureCommit, `  harmless?.call(null);\n${architectureCommit}`),
+  );
+  expectAcceptanceMigratePositive('canonical optional presence guards remain exact', migrateJobConfigSource);
+
+  assert.deepEqual(
+    {
+      missingRejectCount: behaviorAcceptanceMissingRejects.length,
+      missingRejects: behaviorAcceptanceMissingRejects,
+      positiveFailureCount: behaviorAcceptancePositiveFailures.length,
+      positiveFailures: behaviorAcceptancePositiveFailures,
+    },
+    { missingRejectCount: 0, missingRejects: [], positiveFailureCount: 0, positiveFailures: [] },
+    'behavior acceptance exact-once/default-loop/optional-chain matrix',
+  );
   const liveSimpleJobSource = readFileSync(join(liveRoot, 'ui/src/app/jobs/new/SimpleJob.tsx'), 'utf8');
   validateArchitectureProjectedControlTemplates(liveSimpleJobSource, 'ui/src/app/jobs/new/SimpleJob.tsx', true, true);
   assert.throws(

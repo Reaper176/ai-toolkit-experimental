@@ -4352,6 +4352,26 @@ function staticMember(
   return undefined;
 }
 
+function accessPathContainsOptionalSegment(expression: ts.Expression): boolean {
+  let current = unwrap(expression);
+  const seen = new Set<ts.Expression>();
+  while (!seen.has(current)) {
+    seen.add(current);
+    if (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
+      if (current.questionDotToken !== undefined) return true;
+      current = unwrap(current.expression);
+      continue;
+    }
+    if (ts.isCallExpression(current)) {
+      if (current.questionDotToken !== undefined) return true;
+      current = unwrap(current.expression);
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
 type AliasOriginNode = ts.Expression | ts.MethodDeclaration;
 type AliasProvenance =
   | { kind: 'exact'; origin: AliasOriginNode; lineage?: ReadonlySet<ts.Identifier> }
@@ -5523,9 +5543,9 @@ function normalizeInvocation(
   const invocation = candidate === undefined
     ? computeNormalizedInvocation(call, bindings, substitutions)
     : normalizedMutationInvocationIdentity(call, bindings, substitutions, candidate).invocation;
-  return call.questionDotToken === undefined
+  return call.questionDotToken === undefined && !accessPathContainsOptionalSegment(call.expression)
     ? invocation
-    : { ...invocation, unsupported: invocation.unsupported ?? 'optional invocation is conditionally executed' };
+    : { ...invocation, unsupported: invocation.unsupported ?? 'optional invocation callee path is conditionally executed' };
 }
 
 function bindingIdentifiers(name: ts.BindingName): ts.Identifier[] {
@@ -6567,6 +6587,7 @@ function visitExecutableFunctionNodes(
   },
   relevantBindings: readonly ts.Identifier[] = [],
   strictUnknownAccessEffects = false,
+  approvedPrecedingExits: ReadonlySet<ts.Statement> = new Set(),
 ): void {
   const active = new Set<ts.FunctionLikeDeclaration>([owner]);
   const invocationConditions = new Map<ts.FunctionLikeDeclaration, readonly ConditionalExecutionContext[]>();
@@ -6609,6 +6630,110 @@ function visitExecutableFunctionNodes(
     ));
     if (ts.isBlock(statement)) return statement.statements.some(statementMayThrow);
     return true;
+  };
+  const bodyHasReachableContinue = (statement: ts.Statement): boolean => {
+    let found = false;
+    const inspect = (node: ts.Node): void => {
+      if (
+        found
+        || isStaticallyDead(node, bindings)
+        || (node !== statement && (
+          ts.isFunctionLike(node)
+          || ts.isForStatement(node)
+          || ts.isForInStatement(node)
+          || ts.isForOfStatement(node)
+          || ts.isWhileStatement(node)
+          || ts.isDoStatement(node)
+        ))
+      ) return;
+      if (ts.isContinueStatement(node)) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(node, inspect);
+    };
+    inspect(statement);
+    return found;
+  };
+  const bodyDefinitelyBreaksLoop = (statement: ts.Statement): boolean => {
+    if (isStaticallyDead(statement, bindings)) return false;
+    if (bodyHasReachableContinue(statement)) return false;
+    if (ts.isBreakStatement(statement)) return statement.label === undefined;
+    if (ts.isBlock(statement)) {
+      for (const child of statement.statements) {
+        if (isStaticallyDead(child, bindings)) continue;
+        if (bodyDefinitelyBreaksLoop(child)) return true;
+        if (ts.isReturnStatement(child) || ts.isThrowStatement(child) || ts.isContinueStatement(child)) return false;
+      }
+      return false;
+    }
+    if (ts.isIfStatement(statement)) {
+      const truth = staticTruthValue(statement.expression, bindings);
+      if (truth === true) return bodyDefinitelyBreaksLoop(statement.thenStatement);
+      if (truth === false) return statement.elseStatement !== undefined && bodyDefinitelyBreaksLoop(statement.elseStatement);
+      return statement.elseStatement !== undefined
+        && bodyDefinitelyBreaksLoop(statement.thenStatement)
+        && bodyDefinitelyBreaksLoop(statement.elseStatement);
+    }
+    return false;
+  };
+  const loopMayPreventFollowing = (statement: ts.IterationStatement): boolean => {
+    if (ts.isForInStatement(statement) || ts.isForOfStatement(statement)) return false;
+    if (bodyDefinitelyBreaksLoop(statement.statement)) return false;
+    if (ts.isDoStatement(statement)) return staticTruthValue(statement.expression, bindings) !== false;
+    const condition = ts.isForStatement(statement)
+      ? statement.condition
+      : ts.isWhileStatement(statement) ? statement.expression : undefined;
+    return condition === undefined || staticTruthValue(condition, bindings) !== false;
+  };
+  const statementMayPreventFollowing = (statement: ts.Statement): boolean => {
+    if (ts.isFunctionDeclaration(statement)) return false;
+    let found = false;
+    const inspect = (node: ts.Node): void => {
+      if (found || isStaticallyDead(node, bindings) || (node !== statement && ts.isFunctionLike(node))) return;
+      if (ts.isReturnStatement(node)) {
+        found = true;
+        return;
+      }
+      if (ts.isThrowStatement(node)) {
+        let child: ts.Node = node;
+        let caught = false;
+        while (child !== statement && child.parent !== undefined) {
+          const parent = child.parent;
+          if (ts.isTryStatement(parent) && parent.tryBlock === child && parent.catchClause !== undefined) {
+            caught = true;
+            break;
+          }
+          child = parent;
+        }
+        if (!caught) {
+          found = true;
+          return;
+        }
+      }
+      if (
+        (ts.isForStatement(node) || ts.isForInStatement(node) || ts.isForOfStatement(node) || ts.isWhileStatement(node) || ts.isDoStatement(node))
+        && loopMayPreventFollowing(node)
+      ) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(node, inspect);
+    };
+    inspect(statement);
+    return found;
+  };
+  const loopBodyExecutesExactlyOnce = (statement: ts.IterationStatement): boolean => {
+    if (ts.isForInStatement(statement) || ts.isForOfStatement(statement)) return false;
+    if (ts.isDoStatement(statement)) {
+      return bodyDefinitelyBreaksLoop(statement.statement)
+        || staticTruthValue(statement.expression, bindings) === false;
+    }
+    const condition = ts.isForStatement(statement)
+      ? statement.condition
+      : ts.isWhileStatement(statement) ? statement.expression : undefined;
+    return staticTruthValue(condition ?? ts.factory.createTrue(), bindings) === true
+      && bodyDefinitelyBreaksLoop(statement.statement);
   };
   const lexicalConditions = (
     node: ts.Node,
@@ -6654,13 +6779,34 @@ function visitExecutableFunctionNodes(
         conditions.push({ owner: parent, arm: 'body', substitutions });
       } else if (ts.isForStatement(parent) && child === parent.statement) {
         const truth = parent.condition === undefined ? true : staticTruthValue(parent.condition, bindings);
-        if (truth !== true) conditions.push({ owner: parent, arm: 'body', substitutions });
-      } else if (ts.isWhileStatement(parent) && child === parent.statement && staticTruthValue(parent.expression, bindings) !== true) {
-        conditions.push({ owner: parent, arm: 'body', substitutions });
-      } else if (ts.isBlock(parent) && ts.isStatement(child) && ts.isTryStatement(parent.parent) && parent.parent.tryBlock === parent) {
+        if (truth !== false && !loopBodyExecutesExactlyOnce(parent)) conditions.push({ owner: parent, arm: 'body', substitutions });
+      } else if (ts.isWhileStatement(parent) && child === parent.statement) {
+        if (staticTruthValue(parent.expression, bindings) !== false && !loopBodyExecutesExactlyOnce(parent)) {
+          conditions.push({ owner: parent, arm: 'body', substitutions });
+        }
+      } else if (ts.isDoStatement(parent) && child === parent.statement) {
+        if (!loopBodyExecutesExactlyOnce(parent)) conditions.push({ owner: parent, arm: 'body', substitutions });
+      } else if (ts.isBlock(parent) && ts.isStatement(child)) {
         const index = parent.statements.indexOf(child);
-        if (index > 0 && parent.statements.slice(0, index).some(statementMayThrow)) {
-          conditions.push({ owner: parent.parent, arm: 'try-after-possibly-throwing', substitutions });
+        const preceding = index <= 0 ? [] : parent.statements.slice(0, index);
+        const bypass = preceding.find(statement => (
+          !approvedPrecedingExits.has(statement)
+          && statementMayPreventFollowing(statement)
+        ));
+        if (bypass !== undefined) conditions.push({ owner: bypass, arm: 'after-possibly-abrupt', substitutions });
+        if (
+          index > 0
+          && ts.isTryStatement(parent.parent)
+          && (parent.parent.tryBlock === parent || parent.parent.finallyBlock === parent)
+          && preceding.some(statementMayThrow)
+        ) {
+          conditions.push({
+            owner: parent.parent,
+            arm: parent.parent.tryBlock === parent
+              ? 'try-after-possibly-throwing'
+              : 'finally-after-possibly-throwing',
+            substitutions,
+          });
         }
       } else if (ts.isCatchClause(parent) && child === parent.block) {
         conditions.push({ owner: parent, arm: 'catch', substitutions });
@@ -7641,6 +7787,9 @@ function configMutationsAtNode(
   if (ts.isCallExpression(node)) return boundedMutationApi(node, parameter, bindings, substitutions, execution);
   if (ts.isDeleteExpression(node)) {
     const path = scopedFunctionConfigPath(node.expression, parameter, bindings, new Set(), substitutions);
+    if (path !== undefined && accessPathContainsOptionalSegment(node.expression)) {
+      fail(node, 'unsupported reachable mutation: optional delete receiver');
+    }
     return path === undefined ? [] : [{ node, operation: 'delete', path, syntax: 'delete', execution, substitutions }];
   }
   if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) {
@@ -7651,6 +7800,9 @@ function configMutationsAtNode(
       : node.operatorToken.kind === ts.SyntaxKind.EqualsToken ? 'assign' : 'compound';
     return targets.flatMap(target => {
       const path = scopedFunctionConfigPath(target, parameter, bindings, new Set(), substitutions, false);
+      if (path !== undefined && accessPathContainsOptionalSegment(target)) {
+        fail(target, 'unsupported reachable mutation: optional assignment receiver');
+      }
       return path === undefined ? [] : [{ node, operation: 'write' as const, path, syntax, execution, substitutions }];
     });
   }
@@ -8737,7 +8889,7 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     const found = configMutationsAtNode(node, configParameter, bindings, substitutions, execution);
     for (const mutation of found) mutationConditions.set(mutation, executionConditions);
     directMutations.push(...found);
-  }, true, undefined, [configParameter, setterParameter]);
+  }, true, undefined, [configParameter, setterParameter], false, new Set([noOpGuards[0]]));
   if (cleanupCalls.length !== 1) fail(owner, 'handleModelArchChange behavior requires one Anima cleanup call');
   const cleanupCall = cleanupCalls[0];
   const cleanupInvocation = normalizeInvocation(cleanupCall, bindings);
@@ -9116,6 +9268,29 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     if (item === undefined || item.call.conditions.length !== 1) fail(owner, `handleModelArchChange ${label} behavior has an unsupported enclosing runtime guard`);
     const condition = item.call.conditions[0];
     if (!ts.isForInStatement(condition.owner) || condition.arm !== 'body') fail(item.call.node, `handleModelArchChange ${label} behavior requires the exact defaults iteration guard`);
+    const loop = condition.owner as ts.ForInStatement;
+    const initializer = loop.initializer;
+    const source = unwrap(loop.expression);
+    if (
+      !ts.isVariableDeclarationList(initializer)
+      || (initializer.flags & ts.NodeFlags.Const) === 0
+      || initializer.declarations.length !== 1
+      || !ts.isIdentifier(initializer.declarations[0].name)
+      || !ts.isIdentifier(source)
+      || !bindings.sameBinding(source, item.container)
+      || !bindings.isBinding(item.pathArgument, initializer.declarations[0].name)
+    ) fail(loop, `handleModelArchChange ${label} behavior requires the exact defaults container and key binding`);
+    let abrupt: ts.Node | undefined;
+    const inspect = (node: ts.Node): void => {
+      if (abrupt !== undefined || isStaticallyDead(node, bindings) || (node !== loop.statement && ts.isFunctionLike(node))) return;
+      if (ts.isBreakStatement(node) || ts.isContinueStatement(node) || ts.isReturnStatement(node) || ts.isThrowStatement(node)) {
+        abrupt = node;
+        return;
+      }
+      ts.forEachChild(node, inspect);
+    };
+    inspect(loop.statement);
+    if (abrupt !== undefined) fail(abrupt, `handleModelArchChange ${label} behavior must exhaustively commit every defaults key exactly once`);
   };
   requireExactDefaultLoop(currentDefaults, 'current-default commit');
   requireExactDefaultLoop(newDefaults, 'next-default commit');
