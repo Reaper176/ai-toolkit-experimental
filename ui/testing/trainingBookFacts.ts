@@ -418,7 +418,7 @@ type ProjectedAliasCandidate = {
   key: string | number;
   at: ts.Node;
 };
-type AliasCandidate = ts.Expression | 'absent' | 'tainted' | DefaultAliasCandidate | ProjectedAliasCandidate;
+type AliasCandidate = ts.Expression | 'absent' | 'tainted' | 'ambiguous-identity' | DefaultAliasCandidate | ProjectedAliasCandidate;
 
 function isDefaultAliasCandidate(candidate: AliasCandidate): candidate is DefaultAliasCandidate {
   return typeof candidate !== 'string' && (candidate as { kind: unknown }).kind === 'default';
@@ -510,7 +510,7 @@ function staticTruthValue(
     const nextSeen = new Set(seen).add(declaration);
     const values = lookup.candidates.map(candidate => {
       if (candidate === 'absent') return false;
-      if (candidate === 'tainted' || isDefaultAliasCandidate(candidate) || isProjectedAliasCandidate(candidate)) return undefined;
+      if (candidate === 'tainted' || candidate === 'ambiguous-identity' || isDefaultAliasCandidate(candidate) || isProjectedAliasCandidate(candidate)) return undefined;
       return staticTruthValue(candidate, bindings, nextSeen);
     });
     return values.some(value => value === undefined) || values.some(value => value !== values[0])
@@ -544,7 +544,7 @@ function staticNullishValue(
     const nextSeen = new Set(seen).add(declaration);
     const values = lookup.candidates.map(candidate => {
       if (candidate === 'absent') return true;
-      if (candidate === 'tainted' || isDefaultAliasCandidate(candidate) || isProjectedAliasCandidate(candidate)) return undefined;
+      if (candidate === 'tainted' || candidate === 'ambiguous-identity' || isDefaultAliasCandidate(candidate) || isProjectedAliasCandidate(candidate)) return undefined;
       return staticNullishValue(candidate, bindings, nextSeen);
     });
     return values.some(value => value === undefined) || values.some(value => value !== values[0])
@@ -578,16 +578,101 @@ class LexicalBindings {
   private readonly projectedMembers = new WeakSet<ts.Expression>();
   private readonly activeMemberApiResolution = new Set<ts.CallExpression>();
   private readonly activeMemberValueResolution = new Set<ts.Expression>();
+  private readonly activeMemberCandidateQueries = new WeakMap<ts.Node, WeakMap<ts.Expression, Set<string>>>();
   private readonly memberCandidateQueries = new WeakMap<ts.Node, WeakMap<ts.Expression, Map<string, AliasCandidate[] | null>>>();
   private readonly arrayAppendQueries = new WeakMap<object, WeakMap<ts.Node, WeakMap<ts.Expression, { values: readonly ts.Expression[]; tainted: boolean } | null>>>();
+  private readonly descriptorQueries = new WeakMap<object, WeakMap<ts.Node, WeakMap<ts.Node, FiniteOwnDescriptorResult>>>();
+  private readonly activeDescriptorQueries = new WeakMap<object, WeakMap<ts.Node, WeakSet<ts.Node>>>();
   private readonly exactGlobalMemberExpressions = new Map<string, ts.Expression | null>();
-  private moduleExecutableNodes?: readonly ts.Node[];
+  private moduleExecutableTimeline?: readonly {
+    node: ts.Node;
+    substitutions: InvocationSubstitutions;
+    execution: 'known' | 'unmodeled-callback';
+    current: ts.Node;
+  }[];
+  private activeModuleExecutableTimeline?: readonly {
+    node: ts.Node;
+    substitutions: InvocationSubstitutions;
+    execution: 'known' | 'unmodeled-callback';
+    current: ts.Node;
+  }[];
   private activeMemberTimelineBuildDepth = 0;
 
   constructor(private readonly source: ts.SourceFile) {}
 
   isBuildingMemberTimeline(): boolean {
     return this.activeMemberTimelineBuildDepth > 0;
+  }
+
+  finiteDescriptorQuery(
+    root: ts.Node,
+    substitutions: InvocationSubstitutions,
+    at: ts.Node,
+    compute: () => FiniteOwnDescriptorResult,
+  ): FiniteOwnDescriptorResult {
+    const substitutionIdentity = substitutions as object;
+    let activeByPosition = this.activeDescriptorQueries.get(substitutionIdentity);
+    if (activeByPosition === undefined) {
+      activeByPosition = new WeakMap();
+      this.activeDescriptorQueries.set(substitutionIdentity, activeByPosition);
+    }
+    let activeRoots = activeByPosition.get(at);
+    if (activeRoots === undefined) {
+      activeRoots = new WeakSet();
+      activeByPosition.set(at, activeRoots);
+    }
+    if (activeRoots.has(root)) return { properties: new Map(), unknown: true, prototype: { kind: 'unknown' } };
+
+    let cachedByPosition = this.descriptorQueries.get(substitutionIdentity);
+    if (cachedByPosition === undefined) {
+      cachedByPosition = new WeakMap();
+      this.descriptorQueries.set(substitutionIdentity, cachedByPosition);
+    }
+    let cachedRoots = cachedByPosition.get(at);
+    if (cachedRoots === undefined) {
+      cachedRoots = new WeakMap();
+      cachedByPosition.set(at, cachedRoots);
+    }
+    const cached = cachedRoots.get(root);
+    if (cached !== undefined) return cached;
+
+    activeRoots.add(root);
+    try {
+      const completed = compute();
+      cachedRoots.set(root, completed);
+      return completed;
+    } finally {
+      activeRoots.delete(root);
+    }
+  }
+
+  executableFunctionTimeline(owner: ts.FunctionLikeDeclaration): readonly {
+    node: ts.Node;
+    substitutions: InvocationSubstitutions;
+    execution: 'known' | 'unmodeled-callback';
+    sequence: number;
+    current: ts.FunctionLikeDeclaration;
+  }[] | undefined {
+    const cached = this.memberTimelines.get(owner);
+    if (cached !== undefined) return cached;
+    if (this.activeMemberTimelineBuildDepth !== 0) return undefined;
+    const timeline: Array<{
+      node: ts.Node;
+      substitutions: InvocationSubstitutions;
+      execution: 'known' | 'unmodeled-callback';
+      sequence: number;
+      current: ts.FunctionLikeDeclaration;
+    }> = [];
+    this.activeMemberTimelineBuildDepth += 1;
+    try {
+      visitExecutableFunctionNodes(owner, this, (node, substitutions, execution, sequence, current) => {
+        timeline.push({ node, substitutions, execution, sequence, current });
+      }, true);
+    } finally {
+      this.activeMemberTimelineBuildDepth -= 1;
+    }
+    this.memberTimelines.set(owner, timeline);
+    return timeline;
   }
 
   stableMemberProjection(base: ts.Expression, key: string | number): ts.ElementAccessExpression {
@@ -641,18 +726,57 @@ class LexicalBindings {
     return result;
   }
 
-  executableModuleNodes(): readonly ts.Node[] {
-    if (this.moduleExecutableNodes !== undefined) return this.moduleExecutableNodes;
-    const result: ts.Node[] = [];
+  executableModuleNodes(): readonly {
+    node: ts.Node;
+    substitutions: InvocationSubstitutions;
+    execution: 'known' | 'unmodeled-callback';
+    current: ts.Node;
+  }[] {
+    if (this.moduleExecutableTimeline !== undefined) return this.moduleExecutableTimeline;
+    if (this.activeModuleExecutableTimeline !== undefined) return this.activeModuleExecutableTimeline;
+    const result: Array<{
+      node: ts.Node;
+      substitutions: InvocationSubstitutions;
+      execution: 'known' | 'unmodeled-callback';
+      current: ts.Node;
+    }> = [];
+    // Expose an active (never cached) finite prefix so normalization queries do
+    // not recursively rebuild the same module timeline. Repeated member-query
+    // identities still fail closed through the active provenance guard.
+    this.activeModuleExecutableTimeline = result;
     const visit = (node: ts.Node): void => {
       if (node !== this.source && (ts.isFunctionLike(node) || ts.isClassLike(node))) return;
       if (isStaticallyDead(node, this)) return;
-      result.push(node);
+      result.push({ node, substitutions: new Map(), execution: 'known', current: this.source });
+      if (ts.isCallExpression(node)) {
+        const substitutions = new Map<ts.Node, InvocationValue>();
+        const invocation = normalizeInvocation(node, this, substitutions);
+        const target = localFunctionFromExpression(invocation.target, this, substitutions, false);
+        if (target !== undefined) {
+          visitExecutableFunctionNodes(
+            target,
+            this,
+            (invokedNode, substitutions, execution, _sequence, current) => {
+              result.push({ node: invokedNode, substitutions, execution, current });
+            },
+            true,
+            {
+              arguments: invocation.arguments ?? target.parameters.map(() => 'tainted' as const),
+              substitutions,
+              execution: invocation.arguments === undefined ? 'unmodeled-callback' : 'known',
+            },
+          );
+        }
+      }
       ts.forEachChild(node, visit);
     };
-    for (const statement of this.source.statements) visit(statement);
-    this.moduleExecutableNodes = result;
-    return result;
+    try {
+      for (const statement of this.source.statements) visit(statement);
+      this.moduleExecutableTimeline = [...result];
+      return this.moduleExecutableTimeline;
+    } finally {
+      this.activeModuleExecutableTimeline = undefined;
+    }
   }
 
   lookup(identifier: ts.Identifier): LexicalLookup {
@@ -720,24 +844,40 @@ class LexicalBindings {
 
   memberProvenanceCandidates(base: ts.Expression, key: string, at: ts.Node): AliasCandidate[] | undefined {
     base = unwrap(base);
-    const cacheable = this.activeMemberTimelineBuildDepth === 0
-      && this.activeMemberApiResolution.size === 0
-      && this.activeMemberValueResolution.size === 0;
-    if (!cacheable) return this.computeMemberProvenanceCandidates(base, key, at);
-    let byBase = this.memberCandidateQueries.get(at);
-    if (byBase === undefined) {
-      byBase = new WeakMap();
-      this.memberCandidateQueries.set(at, byBase);
+    let activeByBase = this.activeMemberCandidateQueries.get(at);
+    if (activeByBase === undefined) {
+      activeByBase = new WeakMap();
+      this.activeMemberCandidateQueries.set(at, activeByBase);
     }
-    let byKey = byBase.get(base);
-    if (byKey === undefined) {
-      byKey = new Map();
-      byBase.set(base, byKey);
+    let activeKeys = activeByBase.get(base);
+    if (activeKeys === undefined) {
+      activeKeys = new Set();
+      activeByBase.set(base, activeKeys);
     }
-    if (byKey.has(key)) return byKey.get(key) ?? undefined;
-    const result = this.computeMemberProvenanceCandidates(base, key, at);
-    byKey.set(key, result ?? null);
-    return result;
+    if (activeKeys.has(key)) return ['tainted'];
+    activeKeys.add(key);
+    try {
+      const cacheable = this.activeMemberTimelineBuildDepth === 0
+        && this.activeMemberApiResolution.size === 0
+        && this.activeMemberValueResolution.size === 0;
+      if (!cacheable) return this.computeMemberProvenanceCandidates(base, key, at);
+      let byBase = this.memberCandidateQueries.get(at);
+      if (byBase === undefined) {
+        byBase = new WeakMap();
+        this.memberCandidateQueries.set(at, byBase);
+      }
+      let byKey = byBase.get(base);
+      if (byKey === undefined) {
+        byKey = new Map();
+        byBase.set(base, byKey);
+      }
+      if (byKey.has(key)) return byKey.get(key) ?? undefined;
+      const result = this.computeMemberProvenanceCandidates(base, key, at);
+      byKey.set(key, result ?? null);
+      return result;
+    } finally {
+      activeKeys.delete(key);
+    }
   }
 
   private computeMemberProvenanceCandidates(base: ts.Expression, key: string, at: ts.Node): AliasCandidate[] | undefined {
@@ -784,8 +924,154 @@ class LexicalBindings {
     let owner: ts.Node | undefined = at;
     while (owner !== undefined && !isLexicalFunction(owner) && !ts.isSourceFile(owner)) owner = owner.parent;
     if (owner === undefined) return undefined;
-    type MemberEvent = { initializer?: ts.Expression; invalid: boolean; position: number; branch?: NonNullable<LexicalBindingEvent['branch']> };
+    type MemberEvent = { initializer?: ts.Expression; invalid: boolean; deleted?: boolean; ambiguousIdentity?: boolean; position: number; branch?: NonNullable<LexicalBindingEvent['branch']> };
     const events: MemberEvent[] = [];
+    type OwnDescriptorState = 'absent' | 'writable-data' | 'readonly-data' | 'accessor' | 'unknown';
+    const descriptorStates = new Map<ts.Node | string, Map<string, OwnDescriptorState>>();
+    const resolvedPropertyKey = (
+      name: ts.PropertyName,
+      substitutions: InvocationSubstitutions,
+    ): string | undefined => ts.isComputedPropertyName(name)
+      ? resolveStaticString(name.expression, this, substitutions)
+      : propertyName(name);
+    const initialOwnDescriptor = (
+      origin: ts.Node | string,
+      memberKey: string,
+      substitutions: InvocationSubstitutions,
+      seen = new Set<ts.ObjectLiteralExpression>(),
+    ): OwnDescriptorState => {
+      if (origin === 'global:Array.prototype' && ['map', 'forEach', 'push'].includes(memberKey)) return 'writable-data';
+      if (typeof origin === 'string' || !ts.isObjectLiteralExpression(origin)) return 'absent';
+      if (seen.has(origin)) return 'unknown';
+      const nextSeen = new Set(seen).add(origin);
+      for (let index = origin.properties.length - 1; index >= 0; index -= 1) {
+        const property = origin.properties[index];
+        if (ts.isSpreadAssignment(property)) {
+          const provenance = resolveAliasProvenance(property.expression, this, substitutions);
+          if (provenance.kind === 'tainted') return 'unknown';
+          if (provenance.kind === 'absent' || ts.isMethodDeclaration(provenance.origin)) continue;
+          const nested = unwrap(provenance.origin);
+          if (!ts.isObjectLiteralExpression(nested)) return 'unknown';
+          const state = initialOwnDescriptor(nested, memberKey, substitutions, nextSeen);
+          if (state === 'unknown') return state;
+          // Object spread always creates a fresh writable data property.
+          if (state !== 'absent') return 'writable-data';
+          continue;
+        }
+        const propertyKey = resolvedPropertyKey(property.name, substitutions);
+        if (propertyKey === undefined) return 'unknown';
+        if (propertyKey !== memberKey) continue;
+        if (
+          memberKey === '__proto__'
+          && !ts.isComputedPropertyName(property.name)
+          && ts.isPropertyAssignment(property)
+        ) continue;
+        return ts.isGetAccessorDeclaration(property) || ts.isSetAccessorDeclaration(property)
+          ? 'accessor'
+          : 'writable-data';
+      }
+      return 'absent';
+    };
+    const descriptorState = (
+      target: ts.Expression,
+      memberKey: string,
+      substitutions: InvocationSubstitutions,
+    ): OwnDescriptorState => {
+      const targetRoot = root(target, substitutions);
+      if (targetRoot === undefined) return 'unknown';
+      let states = descriptorStates.get(targetRoot);
+      if (states === undefined) {
+        states = new Map();
+        descriptorStates.set(targetRoot, states);
+      }
+      if (!states.has(memberKey)) states.set(memberKey, initialOwnDescriptor(targetRoot, memberKey, substitutions));
+      return states.get(memberKey)!;
+    };
+    const setDescriptorState = (
+      target: ts.Expression,
+      memberKey: string | undefined,
+      state: OwnDescriptorState,
+      substitutions: InvocationSubstitutions,
+    ): void => {
+      const targetRoot = root(target, substitutions);
+      if (targetRoot === undefined) return;
+      if (memberKey === undefined) {
+        const states = descriptorStates.get(targetRoot) ?? new Map<string, OwnDescriptorState>();
+        states.set(key, 'unknown');
+        descriptorStates.set(targetRoot, states);
+        return;
+      }
+      let states = descriptorStates.get(targetRoot);
+      if (states === undefined) {
+        states = new Map();
+        descriptorStates.set(targetRoot, states);
+      }
+      states.set(memberKey, state);
+    };
+    type FunctionMethod = 'call' | 'apply' | 'bind';
+    type FunctionMethodState = 'native' | 'rebound' | 'unknown';
+    const functionMethodStates = new Map<ts.Node | string, Map<FunctionMethod, FunctionMethodState>>();
+    const functionMethod = (value: string): value is FunctionMethod => value === 'call' || value === 'apply' || value === 'bind';
+    const obviousCallable = (
+      expression: ts.Expression,
+      substitutions: InvocationSubstitutions,
+      seen = new Set<ts.Identifier>(),
+    ): boolean => {
+      expression = unwrap(expression);
+      const substitution = substitutions.get(expression);
+      if (substitution !== undefined) return typeof substitution !== 'string' && obviousCallable(substitution, substitutions, seen);
+      if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) return true;
+      if (!ts.isIdentifier(expression)) return false;
+      const declaration = this.bindingDeclaration(expression);
+      if (declaration === undefined || seen.has(declaration)) return false;
+      if (ts.isFunctionDeclaration(declaration.parent) && declaration.parent.name === declaration) return true;
+      const initializer = this.declarationInitializer(expression);
+      return initializer !== undefined && obviousCallable(initializer, substitutions, new Set(seen).add(declaration));
+    };
+    const obviousNativeFunctionMember = (
+      expression: ts.Expression | undefined,
+      method: FunctionMethod,
+      substitutions: InvocationSubstitutions,
+      seen = new Set<ts.Identifier>(),
+    ): boolean => {
+      if (expression === undefined) return false;
+      expression = unwrap(expression);
+      if (ts.isIdentifier(expression)) {
+        const declaration = this.bindingDeclaration(expression);
+        if (declaration === undefined || seen.has(declaration)) return false;
+        const initializer = this.declarationInitializer(expression);
+        return initializer !== undefined && obviousNativeFunctionMember(initializer, method, substitutions, new Set(seen).add(declaration));
+      }
+      const member = staticMember(expression);
+      return member?.key === method && obviousCallable(member.base, substitutions);
+    };
+    const setFunctionMethodState = (
+      target: ts.Expression,
+      method: FunctionMethod,
+      state: FunctionMethodState,
+      substitutions: InvocationSubstitutions,
+    ): void => {
+      const targetRoot = root(target, substitutions);
+      if (targetRoot === undefined) return;
+      let states = functionMethodStates.get(targetRoot);
+      if (states === undefined) {
+        states = new Map();
+        functionMethodStates.set(targetRoot, states);
+      }
+      states.set(method, state);
+    };
+    const nativeFunctionWrapper = (
+      target: ts.Expression,
+      method: FunctionMethod,
+      substitutions: InvocationSubstitutions,
+    ): boolean => {
+      if (!obviousCallable(target, substitutions)) return false;
+      const targetRoot = root(target, substitutions);
+      if (targetRoot === undefined) return false;
+      const own = functionMethodStates.get(targetRoot)?.get(method);
+      if (own !== undefined) return own === 'native';
+      return (functionMethodStates.get('global:Function.prototype')?.get(method) ?? 'native') === 'native';
+    };
     const branchAt = (node: ts.Node, scope: ts.Node): MemberEvent['branch'] | 'dead' | 'invalid' | undefined => {
       let current: ts.Node | undefined = node;
       let result: MemberEvent['branch'] | undefined;
@@ -843,7 +1129,7 @@ class LexicalBindings {
       position: number,
       scope: ts.Node,
     ): void => {
-      const record = (target: ts.Expression, initializer: ts.Expression | undefined, invalid: boolean): void => {
+      const record = (target: ts.Expression, initializer: ts.Expression | undefined, invalid: boolean, deleted = false, ambiguousIdentity = false): void => {
         for (let current: ts.Node | undefined = at; current !== undefined && current !== node; current = current.parent) {
           if (current === target) return;
         }
@@ -924,6 +1210,8 @@ class LexicalBindings {
         events.push({
           initializer: projectedInitializer,
           invalid: invalid || execution !== 'known' || branch === 'invalid' || (initializer !== undefined && projected?.kind !== 'exact'),
+          deleted,
+          ambiguousIdentity,
           branch: branch === 'invalid' ? undefined : branch,
           position,
         });
@@ -973,17 +1261,7 @@ class LexicalBindings {
               continue;
             }
             if (ts.isMethodDeclaration(property) || ts.isGetAccessorDeclaration(property) || ts.isSetAccessorDeclaration(property)) continue;
-            const key = ts.isComputedPropertyName(property.name)
-              ? (() => {
-                const provenance = resolveAliasProvenance(property.name.expression, this, substitutions);
-                const origin = provenance.kind === 'exact' && !ts.isMethodDeclaration(provenance.origin)
-                  ? unwrap(provenance.origin)
-                  : undefined;
-                return origin !== undefined && (ts.isStringLiteral(origin) || ts.isNumericLiteral(origin) || ts.isNoSubstitutionTemplateLiteral(origin))
-                  ? origin.text
-                  : undefined;
-              })()
-              : propertyName(property.name);
+            const key = resolvedPropertyKey(property.name, substitutions);
             const projected = key === undefined
               ? { expression: undefined, invalid: true }
               : projectedInitializer(initializer, key);
@@ -1009,11 +1287,46 @@ class LexicalBindings {
               record(this.stableMemberProjection(assignedMember.base, key), projected.origin, false);
             } else record(this.stableMemberProjection(assignedMember.base, key), undefined, true);
           }
+          if (assignedMember !== undefined && assignedMember.key !== '__proto__') {
+            const currentDescriptor = descriptorState(assignedMember.base, assignedMember.key, substitutions);
+            setDescriptorState(
+              assignedMember.base,
+              assignedMember.key,
+              currentDescriptor === 'readonly-data' ? 'readonly-data' : 'writable-data',
+              substitutions,
+            );
+          }
+          if (assignedMember !== undefined && functionMethod(assignedMember.key)) {
+            setFunctionMethodState(
+              assignedMember.base,
+              assignedMember.key,
+              branchAt(node, scope) === undefined && obviousNativeFunctionMember(node.right, assignedMember.key, substitutions)
+                ? 'native'
+                : branchAt(node, scope) === undefined
+                  ? 'rebound'
+                  : 'unknown',
+              substitutions,
+            );
+          }
           recordAssignmentTargets(node.left, node.right, false);
         }
         else record(node.left, undefined, true);
       }
-      else if (ts.isDeleteExpression(node)) record(node.expression, undefined, true);
+      else if (ts.isDeleteExpression(node)) {
+        const deletedMember = staticMember(node.expression);
+        if (deletedMember !== undefined) {
+          setDescriptorState(deletedMember.base, deletedMember.key, 'absent', substitutions);
+          if (functionMethod(deletedMember.key)) {
+            const deletedRoot = root(deletedMember.base, substitutions);
+            if (deletedRoot === 'global:Function.prototype') {
+              setFunctionMethodState(deletedMember.base, deletedMember.key, 'rebound', substitutions);
+            } else if (deletedRoot !== undefined) {
+              functionMethodStates.get(deletedRoot)?.delete(deletedMember.key);
+            }
+          }
+        }
+        record(node.expression, undefined, false, true);
+      }
       else if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)) record(node.operand, undefined, true);
       else if (ts.isCallExpression(node)) {
         const directMember = staticMember(node.expression);
@@ -1024,6 +1337,90 @@ class LexicalBindings {
           && (directReceiver.text === 'Object' || directReceiver.text === 'Reflect')
           ? { receiver: directReceiver.text, method: directMember.key, exactGlobal: !this.lookup(directReceiver).found }
           : undefined;
+        const callee = unwrap(node.expression);
+        const directMutationApi = directApi?.exactGlobal === true
+          ? directApi
+          : ts.isIdentifier(callee)
+            ? (() => {
+              const initializer = this.declarationInitializer(callee);
+              const apiMember = initializer === undefined ? undefined : staticMember(initializer);
+              const receiver = apiMember === undefined ? undefined : unwrap(apiMember.base);
+              return receiver !== undefined
+                && ts.isIdentifier(receiver)
+                && (receiver.text === 'Object' || receiver.text === 'Reflect')
+                && !this.lookup(receiver).found
+                ? { receiver: receiver.text, method: apiMember!.key, exactGlobal: true } as MutationApiIdentity
+                : undefined;
+            })()
+            : undefined;
+        const directLocal = (() => {
+          if (ts.isArrowFunction(callee) || ts.isFunctionExpression(callee)) return callee;
+          if (!ts.isIdentifier(callee)) return undefined;
+          const declaration = this.bindingDeclaration(callee);
+          if (declaration !== undefined && ts.isFunctionDeclaration(declaration.parent) && declaration.parent.name === declaration) return declaration.parent;
+          const initializer = this.declarationInitializer(callee);
+          const value = initializer === undefined ? undefined : unwrap(initializer);
+          return value !== undefined && (ts.isArrowFunction(value) || ts.isFunctionExpression(value)) ? value : undefined;
+        })();
+        const receiverRoot = directReceiver === undefined ? undefined : root(directReceiver, substitutions);
+        let obviousArrayMethodRebind = false;
+        if (
+          directMember !== undefined
+          && receiverRoot !== undefined
+          && typeof receiverRoot !== 'string'
+          && ts.isArrayLiteralExpression(receiverRoot)
+          && (directMember.key === 'map' || directMember.key === 'forEach' || directMember.key === 'push')
+        ) {
+          const inspectPriorWrites = (candidate: ts.Node): void => {
+            if (obviousArrayMethodRebind || candidate.getStart(this.source) >= node.getStart(this.source)) return;
+            if (candidate !== scope && ts.isFunctionLike(candidate)) return;
+            if (ts.isBinaryExpression(candidate) && isAssignmentOperator(candidate.operatorToken.kind)) {
+              const assigned = staticMember(candidate.left);
+              const assignedRoot = assigned === undefined ? undefined : root(assigned.base, substitutions);
+              if (
+                assigned?.key === directMember.key
+                && (assignedRoot === receiverRoot || assignedRoot === 'global:Array.prototype')
+              ) obviousArrayMethodRebind = true;
+            }
+            ts.forEachChild(candidate, inspectPriorWrites);
+          };
+          ts.forEachChild(scope, inspectPriorWrites);
+        }
+        const nativeArrayCall = directMember !== undefined
+          && directReceiver !== undefined
+          && (directMember.key === 'map' || directMember.key === 'forEach' || directMember.key === 'push')
+          && receiverRoot !== undefined
+          && typeof receiverRoot !== 'string'
+          && ts.isArrayLiteralExpression(receiverRoot)
+          && !obviousArrayMethodRebind;
+        const exactFunctionWrapper = directMember !== undefined
+          && (directMember.key === 'call' || directMember.key === 'apply' || directMember.key === 'bind')
+          && nativeFunctionWrapper(directMember.base, directMember.key, substitutions);
+        const knownNonEscapingCall = directLocal !== undefined
+          || directMutationApi?.exactGlobal === true
+          || nativeArrayCall
+          || exactFunctionWrapper
+          || (directMember?.key === 'isArray'
+            && directReceiver !== undefined
+            && ts.isIdentifier(directReceiver)
+            && directReceiver.text === 'Array'
+            && !this.lookup(directReceiver).found);
+        const escapeRelevantRoot = expectedRoot === 'global:Array.prototype'
+          || (typeof expectedRoot !== 'string' && ts.isArrayLiteralExpression(expectedRoot))
+          || (typeof expectedRoot !== 'string'
+            && ts.isObjectLiteralExpression(expectedRoot)
+            && ['map', 'forEach', 'push'].includes(key));
+        if (!knownNonEscapingCall && escapeRelevantRoot) {
+          for (const argument of node.arguments) {
+            const value = ts.isSpreadElement(argument) ? argument.expression : argument;
+            const aggregate = finiteAggregateRelevance(value, this, substitutions);
+            const candidates = [value, ...(aggregate?.identities ?? []), ...(aggregate?.leaves ?? [])];
+            const escaped = candidates.find(candidate => root(candidate, substitutions) === expectedRoot);
+            if (escaped !== undefined) {
+              record(this.stableMemberProjection(escaped, key), undefined, true);
+            }
+          }
+        }
         let invocation: NormalizedInvocation;
         let api: MutationApiIdentity | undefined;
         if (directApi?.exactGlobal === true && !node.arguments.some(ts.isSpreadElement)) {
@@ -1075,9 +1472,55 @@ class LexicalBindings {
         }
         if (api?.exactGlobal !== true || invocation.arguments === undefined || invocation.arguments[0] === undefined) return;
         const args = invocation.arguments;
-        const recordKey = (memberKey: string | undefined, initializer: ts.Expression | undefined, invalid = false): void => {
-          if (memberKey !== key) return;
-          record(this.stableMemberProjection(args[0], key), initializer, invalid);
+        const recordOn = (target: ts.Expression, memberKey: string | undefined, initializer: ts.Expression | undefined, invalid = false, ambiguousIdentity = false): void => {
+          if (memberKey !== undefined && memberKey !== key) return;
+          record(this.stableMemberProjection(target, key), initializer, invalid || memberKey === undefined, false, ambiguousIdentity);
+        };
+        const recordKey = (memberKey: string | undefined, initializer: ts.Expression | undefined, invalid = false, ambiguousIdentity = false): void => {
+          recordOn(args[0], memberKey, initializer, invalid, ambiguousIdentity);
+        };
+        const descriptorField = (
+          expression: ts.Expression | undefined,
+          field: 'value' | 'writable' | 'get' | 'set',
+          seen = new Set<ts.ObjectLiteralExpression>(),
+        ): AliasProvenance => {
+          if (expression === undefined) return { kind: 'tainted' };
+          const provenance = resolveAliasProvenance(expression, this, substitutions);
+          if (provenance.kind !== 'exact' || ts.isMethodDeclaration(provenance.origin)) return provenance;
+          const descriptor = unwrap(provenance.origin);
+          if (!ts.isObjectLiteralExpression(descriptor) || seen.has(descriptor)) return { kind: 'tainted' };
+          const nextSeen = new Set(seen).add(descriptor);
+          for (let index = descriptor.properties.length - 1; index >= 0; index -= 1) {
+            const property = descriptor.properties[index];
+            if (ts.isSpreadAssignment(property)) {
+              const spreadValue = descriptorField(property.expression, field, nextSeen);
+              if (spreadValue.kind !== 'absent') return spreadValue;
+              continue;
+            }
+            const memberKey = ts.isComputedPropertyName(property.name)
+              ? resolveStaticString(property.name.expression, this, substitutions)
+              : propertyName(property.name);
+            if (memberKey === undefined) return { kind: 'tainted' };
+            if (memberKey !== field) continue;
+            if (ts.isPropertyAssignment(property)) return resolveAliasProvenance(property.initializer, this, substitutions);
+            if (ts.isShorthandPropertyAssignment(property)) return resolveAliasProvenance(property.name, this, substitutions);
+            return { kind: 'tainted' };
+          }
+          return { kind: 'absent' };
+        };
+        const descriptorValue = (expression: ts.Expression | undefined): AliasProvenance => descriptorField(expression, 'value');
+        const descriptorDefinitionState = (expression: ts.Expression | undefined): OwnDescriptorState => {
+          const value = descriptorField(expression, 'value');
+          const getter = descriptorField(expression, 'get');
+          const setter = descriptorField(expression, 'set');
+          if (value.kind === 'tainted' || getter.kind === 'tainted' || setter.kind === 'tainted') return 'unknown';
+          if (value.kind === 'absent' && (getter.kind !== 'absent' || setter.kind !== 'absent')) return 'accessor';
+          const writable = descriptorField(expression, 'writable');
+          if (writable.kind === 'tainted') return 'unknown';
+          if (writable.kind === 'absent') return 'readonly-data';
+          if (ts.isMethodDeclaration(writable.origin)) return 'unknown';
+          const truth = staticTruthValue(writable.origin, this);
+          return truth === true ? 'writable-data' : truth === false ? 'readonly-data' : 'unknown';
         };
         if (api.method === 'assign') {
           for (const sourceExpression of args.slice(1)) {
@@ -1088,32 +1531,158 @@ class LexicalBindings {
             }
             for (const property of source.properties) {
               if (ts.isSpreadAssignment(property)) recordKey(key, undefined, true);
-              else if (propertyName(property.name) === key) {
-                recordKey(key, ts.isPropertyAssignment(property) ? property.initializer : undefined, !ts.isPropertyAssignment(property));
+              else {
+                const assignedKey = resolvedPropertyKey(property.name, substitutions);
+                if (assignedKey !== undefined && functionMethod(assignedKey)) {
+                  const initializer = ts.isPropertyAssignment(property)
+                    ? property.initializer
+                    : ts.isShorthandPropertyAssignment(property)
+                      ? property.name
+                      : undefined;
+                  setFunctionMethodState(
+                    args[0],
+                    assignedKey,
+                    branchAt(node, scope) === undefined && obviousNativeFunctionMember(initializer, assignedKey, substitutions)
+                      ? 'native'
+                      : branchAt(node, scope) === undefined
+                        ? 'rebound'
+                        : 'unknown',
+                    substitutions,
+                  );
+                }
+                if (assignedKey === key) {
+                  recordKey(key, ts.isPropertyAssignment(property) ? property.initializer : undefined, !ts.isPropertyAssignment(property));
+                  setDescriptorState(args[0], key, 'writable-data', substitutions);
+                }
               }
             }
           }
-        } else if (api.method === 'defineProperty' || (api.receiver === 'Reflect' && api.method === 'set')) {
-          const memberKey = resolveStaticString(args[1], this);
-          if (api.receiver === 'Reflect') recordKey(memberKey, args[2], memberKey === undefined || args[2] === undefined);
-          else {
-            const descriptor = args[2] === undefined ? undefined : unwrap(args[2]);
-            const value = descriptor !== undefined && ts.isObjectLiteralExpression(descriptor)
-              ? descriptor.properties.find(property => !ts.isSpreadAssignment(property) && propertyName(property.name) === 'value')
-              : undefined;
-            recordKey(memberKey, value !== undefined && ts.isPropertyAssignment(value) ? value.initializer : undefined, memberKey === undefined || value === undefined || !ts.isPropertyAssignment(value));
+        } else if (api.method === 'defineProperty') {
+          const memberKey = resolveStaticString(args[1], this, substitutions);
+          const value = descriptorValue(args[2]);
+          recordKey(
+            memberKey,
+            value.kind === 'exact' && !ts.isMethodDeclaration(value.origin) ? value.origin : undefined,
+            memberKey === undefined || value.kind !== 'exact' || ts.isMethodDeclaration(value.origin),
+            value.kind === 'tainted',
+          );
+          setDescriptorState(
+            args[0],
+            memberKey,
+            branchAt(node, scope) === undefined ? descriptorDefinitionState(args[2]) : 'unknown',
+            substitutions,
+          );
+          if (memberKey !== undefined && functionMethod(memberKey)) {
+            setFunctionMethodState(
+              args[0],
+              memberKey,
+              branchAt(node, scope) === undefined
+                && value.kind === 'exact'
+                && !ts.isMethodDeclaration(value.origin)
+                && obviousNativeFunctionMember(value.origin, memberKey, substitutions)
+                ? 'native'
+                : branchAt(node, scope) === undefined
+                  ? 'rebound'
+                  : 'unknown',
+              substitutions,
+            );
+          }
+        } else if (api.receiver === 'Reflect' && api.method === 'set') {
+          if (definitelyPrimitiveExpression(args[0], this, substitutions)) return;
+          const memberKey = resolveStaticString(args[1], this, substitutions);
+          if (memberKey === undefined || args[2] === undefined) {
+            recordKey(memberKey, args[2], true, true);
+            if (args[3] !== undefined) recordOn(args[3], memberKey, args[2], true, true);
+          } else {
+            const receiver = args[3] ?? args[0];
+            const receiverProvenance = resolveAliasProvenance(receiver, this, substitutions);
+            const primitiveReceiver = definitelyPrimitiveExpression(receiver, this, substitutions);
+            const targetDescriptor = descriptorState(args[0], memberKey, substitutions);
+            if (!primitiveReceiver && targetDescriptor !== 'readonly-data') {
+              const exactDescriptor = finiteOwnDescriptorsAt(args[0], this, substitutions, node).properties.get(memberKey);
+              if (exactDescriptor?.kind === 'accessor') {
+                if (exactDescriptor.setter === 'unknown') recordOn(receiver, memberKey, args[2], true, true);
+              } else if (memberKey === '__proto__' && targetDescriptor === 'absent') {
+                const prototype = resolveAliasProvenance(args[2], this, substitutions);
+                const projected = prototype.kind === 'exact' && !ts.isMethodDeclaration(prototype.origin)
+                  && ts.isObjectLiteralExpression(unwrap(prototype.origin))
+                  ? resolveObjectLiteralProperty(unwrap(prototype.origin) as ts.ObjectLiteralExpression, key, this, substitutions, new Set())
+                  : { kind: 'tainted' as const };
+                recordOn(
+                  receiver,
+                  key,
+                  projected.kind === 'exact' && !ts.isMethodDeclaration(projected.origin) ? projected.origin : undefined,
+                  projected.kind !== 'exact' || ts.isMethodDeclaration(projected.origin),
+                  projected.kind === 'tainted',
+                );
+              } else if (targetDescriptor === 'accessor' || targetDescriptor === 'unknown' || receiverProvenance.kind !== 'exact') {
+                recordOn(receiver, memberKey, args[2], true, targetDescriptor === 'unknown' || receiverProvenance.kind !== 'exact');
+                if (functionMethod(memberKey)) setFunctionMethodState(receiver, memberKey, 'unknown', substitutions);
+              } else {
+                const receiverDescriptor = descriptorState(receiver, memberKey, substitutions);
+                if (receiverDescriptor === 'accessor' || receiverDescriptor === 'unknown') {
+                  recordOn(receiver, memberKey, args[2], true, receiverDescriptor === 'unknown');
+                  if (functionMethod(memberKey)) setFunctionMethodState(receiver, memberKey, 'unknown', substitutions);
+                } else if (receiverDescriptor !== 'readonly-data') {
+                  recordOn(receiver, memberKey, args[2]);
+                  setDescriptorState(receiver, memberKey, 'writable-data', substitutions);
+                  if (functionMethod(memberKey)) {
+                    setFunctionMethodState(
+                      receiver,
+                      memberKey,
+                      obviousNativeFunctionMember(args[2], memberKey, substitutions) ? 'native' : 'rebound',
+                      substitutions,
+                    );
+                  }
+                }
+              }
+            }
           }
         } else if (api.method === 'defineProperties') {
           const descriptors = args[1] === undefined ? undefined : unwrap(args[1]);
           if (descriptors === undefined || !ts.isObjectLiteralExpression(descriptors)) recordKey(key, undefined, true);
           else {
-            const descriptorProperty = descriptors.properties.find(property => !ts.isSpreadAssignment(property) && propertyName(property.name) === key);
-            const descriptor = descriptorProperty !== undefined && ts.isPropertyAssignment(descriptorProperty) ? unwrap(descriptorProperty.initializer) : undefined;
-            const value = descriptor !== undefined && ts.isObjectLiteralExpression(descriptor)
-              ? descriptor.properties.find(property => !ts.isSpreadAssignment(property) && propertyName(property.name) === 'value')
-              : undefined;
-            if (descriptorProperty !== undefined) recordKey(key, value !== undefined && ts.isPropertyAssignment(value) ? value.initializer : undefined, value === undefined || !ts.isPropertyAssignment(value));
-            if (descriptors.properties.some(ts.isSpreadAssignment)) recordKey(key, undefined, true);
+            const descriptor = resolveObjectLiteralProperty(descriptors, key, this, substitutions, new Set());
+            if (descriptor.kind !== 'absent') {
+              const value = descriptor.kind === 'exact' && !ts.isMethodDeclaration(descriptor.origin)
+                ? descriptorValue(descriptor.origin)
+                : { kind: 'tainted' as const };
+              recordKey(
+                key,
+                value.kind === 'exact' && !ts.isMethodDeclaration(value.origin) ? value.origin : undefined,
+                descriptor.kind !== 'exact' || ts.isMethodDeclaration(descriptor.origin)
+                  || value.kind !== 'exact' || ts.isMethodDeclaration(value.origin),
+                descriptor.kind === 'tainted' || value.kind === 'tainted',
+              );
+              setDescriptorState(
+                args[0],
+                key,
+                descriptor.kind === 'exact' && !ts.isMethodDeclaration(descriptor.origin) && branchAt(node, scope) === undefined
+                  ? descriptorDefinitionState(descriptor.origin)
+                  : 'unknown',
+                substitutions,
+              );
+            }
+            for (const method of ['call', 'apply', 'bind'] as const) {
+              const methodDescriptor = resolveObjectLiteralProperty(descriptors, method, this, substitutions, new Set());
+              if (methodDescriptor.kind === 'absent') continue;
+              const methodValue = methodDescriptor.kind === 'exact' && !ts.isMethodDeclaration(methodDescriptor.origin)
+                ? descriptorValue(methodDescriptor.origin)
+                : { kind: 'tainted' as const };
+              setFunctionMethodState(
+                args[0],
+                method,
+                branchAt(node, scope) === undefined
+                  && methodValue.kind === 'exact'
+                  && !ts.isMethodDeclaration(methodValue.origin)
+                  && obviousNativeFunctionMember(methodValue.origin, method, substitutions)
+                  ? 'native'
+                  : branchAt(node, scope) === undefined
+                    ? 'rebound'
+                    : 'unknown',
+                substitutions,
+              );
+            }
           }
         } else if (api.method === 'setPrototypeOf') {
           const prototype = args[1] === undefined ? undefined : unwrap(args[1]);
@@ -1124,7 +1693,15 @@ class LexicalBindings {
             else recordKey(key, undefined, true);
           }
         } else if (api.receiver === 'Reflect' && api.method === 'deleteProperty') {
-          recordKey(resolveStaticString(args[1], this), undefined, true);
+          const memberKey = resolveStaticString(args[1], this, substitutions);
+          if (memberKey !== undefined && functionMethod(memberKey)) {
+            const deletedRoot = root(args[0], substitutions);
+            if (deletedRoot === 'global:Function.prototype') setFunctionMethodState(args[0], memberKey, 'rebound', substitutions);
+            else if (deletedRoot !== undefined) functionMethodStates.get(deletedRoot)?.delete(memberKey);
+          }
+          if (memberKey === undefined || memberKey === key) {
+            record(this.stableMemberProjection(args[0], key), undefined, memberKey === undefined, memberKey !== undefined);
+          }
         }
       }
     };
@@ -1138,7 +1715,9 @@ class LexicalBindings {
     const replayOwner = isLexicalFunction(owner) ? owner : undefined;
     if (replayOwner !== undefined) {
       let moduleSequence = -1_000_000;
-      for (const node of this.executableModuleNodes()) recordNode(node, new Map(), 'known', moduleSequence++, this.source);
+      for (const item of this.executableModuleNodes()) {
+        recordNode(item.node, item.substitutions, item.execution, moduleSequence++, item.current);
+      }
     }
     if (replayOwner !== undefined && this.activeMemberTimelineBuildDepth === 0) {
       let timeline = this.memberTimelines.get(replayOwner);
@@ -1166,6 +1745,10 @@ class LexicalBindings {
     const preceding = events.filter(event => event.position < atPosition!).sort((left, right) => left.position - right.position);
     if (preceding.length === 0) return undefined;
     const eventCandidates = (event: MemberEvent): AliasCandidate[] => {
+      if (event.deleted && !event.invalid) return ['absent'];
+      if (event.ambiguousIdentity) return event.initializer === undefined
+        ? ['ambiguous-identity']
+        : ['ambiguous-identity', event.initializer];
       if (!event.invalid && event.initializer !== undefined) return [event.initializer];
       return event.initializer === undefined ? ['tainted'] : ['tainted', event.initializer];
     };
@@ -1319,6 +1902,15 @@ class LexicalBindings {
   declarationInitializer(identifier: ts.Identifier): ts.Expression | undefined {
     const lookup = this.lookup(identifier);
     return lookup.found ? lookup.event?.initializer : undefined;
+  }
+
+  uniqueLexicalInitializer(identifier: ts.Identifier): ts.Expression | undefined {
+    for (const scope of this.scopes(identifier)) {
+      const declarations = (this.eventsFor(scope).get(identifier.text) ?? []).filter(event => event.kind === 'declaration');
+      if (declarations.length === 0) continue;
+      return declarations.length === 1 ? declarations[0].initializer : undefined;
+    }
+    return undefined;
   }
 
   componentPropBinding(identifier: ts.Identifier, propName: string): { declaration: ts.Identifier; owner: ts.FunctionLikeDeclaration } | undefined {
@@ -3318,7 +3910,31 @@ function factSymbol(node: ts.Node, sourcePath: string): string {
   return lexical;
 }
 
+type AbruptKind = 'return' | 'throw' | 'break' | 'continue';
+type AbruptAnalysis = { definite: boolean; kinds: Set<AbruptKind> };
+type StaticDeadAnalysisCache = {
+  dead: WeakMap<ts.Node, boolean>;
+  nonThrowingExpressions: WeakMap<ts.Expression, boolean>;
+  throwingNodes: WeakMap<ts.Node, boolean>;
+  abruptStatements: WeakMap<ts.Statement, AbruptAnalysis | null>;
+};
+const unboundStaticDeadCacheKey = {};
+const staticDeadAnalysisCaches = new WeakMap<object, StaticDeadAnalysisCache>();
+
 function isStaticallyDead(node: ts.Node, bindings?: LexicalBindings): boolean {
+  const cacheKey = bindings ?? unboundStaticDeadCacheKey;
+  let cache = staticDeadAnalysisCaches.get(cacheKey);
+  if (cache === undefined) {
+    cache = {
+      dead: new WeakMap(),
+      nonThrowingExpressions: new WeakMap(),
+      throwingNodes: new WeakMap(),
+      abruptStatements: new WeakMap(),
+    };
+    staticDeadAnalysisCaches.set(cacheKey, cache);
+  }
+  const cachedDead = cache.dead.get(node);
+  if (cachedDead !== undefined) return cachedDead;
   const staticTruth = (expression: ts.Expression): boolean | undefined => {
     if (bindings !== undefined) return staticTruthValue(expression, bindings);
     const value = unwrap(expression);
@@ -3330,10 +3946,11 @@ function isStaticallyDead(node: ts.Node, bindings?: LexicalBindings): boolean {
   const staticNullish = (expression: ts.Expression): boolean | undefined => bindings === undefined
     ? undefined
     : staticNullishValue(expression, bindings);
-  type AbruptKind = 'return' | 'throw' | 'break' | 'continue';
-  type AbruptAnalysis = { definite: boolean; kinds: Set<AbruptKind> };
   const expressionDefinitelyNonThrowing = (candidate: ts.Expression): boolean => {
     const expression = unwrap(candidate);
+    const cached = cache.nonThrowingExpressions.get(expression);
+    if (cached !== undefined) return cached;
+    const compute = (): boolean => {
     if (
       ts.isStringLiteral(expression)
       || ts.isNoSubstitutionTemplateLiteral(expression)
@@ -3390,8 +4007,15 @@ function isStaticallyDead(node: ts.Node, bindings?: LexicalBindings): boolean {
         && ts.isNumericLiteral(unwrap(expression.operand));
     }
     return false;
+    };
+    const result = compute();
+    cache.nonThrowingExpressions.set(expression, result);
+    return result;
   };
   const hasPotentiallyThrowingEvaluation = (node: ts.Node): boolean => {
+    const cached = cache.throwingNodes.get(node);
+    if (cached !== undefined) return cached;
+    const compute = (): boolean => {
     if (ts.isExpression(node)) return !expressionDefinitelyNonThrowing(node);
     if (ts.isExpressionStatement(node)) return !expressionDefinitelyNonThrowing(node.expression);
     if (ts.isVariableStatement(node)) {
@@ -3420,8 +4044,15 @@ function isStaticallyDead(node: ts.Node, bindings?: LexicalBindings): boolean {
       || ts.isContinueStatement(node)
     ) return false;
     return true;
+    };
+    const result = compute();
+    cache.throwingNodes.set(node, result);
+    return result;
   };
   const abruptAnalysis = (statement: ts.Statement): AbruptAnalysis | undefined => {
+    const cached = cache.abruptStatements.get(statement);
+    if (cached !== undefined) return cached ?? undefined;
+    const compute = (): AbruptAnalysis | undefined => {
     if (ts.isReturnStatement(statement)) return {
       definite: true,
       kinds: new Set(statement.expression !== undefined && hasPotentiallyThrowingEvaluation(statement.expression) ? ['return', 'throw'] : ['return']),
@@ -3471,40 +4102,49 @@ function isStaticallyDead(node: ts.Node, bindings?: LexicalBindings): boolean {
       return kinds.size === 0 && !definite ? undefined : { definite, kinds };
     }
     return hasPotentiallyThrowingEvaluation(statement) ? { definite: false, kinds: new Set(['throw']) } : undefined;
+    };
+    const result = compute();
+    cache.abruptStatements.set(statement, result ?? null);
+    return result;
   };
   const isDefinitelyAbrupt = (statement: ts.Statement): boolean => abruptAnalysis(statement)?.definite === true;
-  let current: ts.Node | undefined = node;
-  while (current?.parent !== undefined) {
-    const parent: ts.Node = current.parent;
-    if (ts.isIfStatement(parent)) {
-      const condition = staticTruth(parent.expression);
-      if (condition === false && current === parent.thenStatement) return true;
-      if (condition === true && current === parent.elseStatement) return true;
+  const computeDead = (): boolean => {
+    let current: ts.Node | undefined = node;
+    while (current?.parent !== undefined) {
+      const parent: ts.Node = current.parent;
+      if (ts.isIfStatement(parent)) {
+        const condition = staticTruth(parent.expression);
+        if (condition === false && current === parent.thenStatement) return true;
+        if (condition === true && current === parent.elseStatement) return true;
+      }
+      if (ts.isConditionalExpression(parent)) {
+        const condition = staticTruth(parent.condition);
+        if (condition === false && current === parent.whenTrue) return true;
+        if (condition === true && current === parent.whenFalse) return true;
+      }
+      if (ts.isBinaryExpression(parent) && current === parent.right) {
+        const left = staticTruth(parent.left);
+        if (parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && left === false) return true;
+        if (parent.operatorToken.kind === ts.SyntaxKind.BarBarToken && left === true) return true;
+        if (parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken && staticNullish(parent.left) === false) return true;
+      }
+      if (ts.isWhileStatement(parent) && staticTruth(parent.expression) === false) return true;
+      if (ts.isForStatement(parent) && parent.condition !== undefined && staticTruth(parent.condition) === false && current === parent.statement) return true;
+      if (ts.isBlock(parent) && ts.isStatement(current)) {
+        const index = parent.statements.indexOf(current);
+        if (index > 0 && parent.statements.slice(0, index).some(isDefinitelyAbrupt)) return true;
+      }
+      if ((ts.isCaseClause(parent) || ts.isDefaultClause(parent)) && ts.isStatement(current)) {
+        const index = parent.statements.indexOf(current);
+        if (index > 0 && parent.statements.slice(0, index).some(isDefinitelyAbrupt)) return true;
+      }
+      current = parent;
     }
-    if (ts.isConditionalExpression(parent)) {
-      const condition = staticTruth(parent.condition);
-      if (condition === false && current === parent.whenTrue) return true;
-      if (condition === true && current === parent.whenFalse) return true;
-    }
-    if (ts.isBinaryExpression(parent) && current === parent.right) {
-      const left = staticTruth(parent.left);
-      if (parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && left === false) return true;
-      if (parent.operatorToken.kind === ts.SyntaxKind.BarBarToken && left === true) return true;
-      if (parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken && staticNullish(parent.left) === false) return true;
-    }
-    if (ts.isWhileStatement(parent) && staticTruth(parent.expression) === false) return true;
-    if (ts.isForStatement(parent) && parent.condition !== undefined && staticTruth(parent.condition) === false && current === parent.statement) return true;
-    if (ts.isBlock(parent) && ts.isStatement(current)) {
-      const index = parent.statements.indexOf(current);
-      if (index > 0 && parent.statements.slice(0, index).some(isDefinitelyAbrupt)) return true;
-    }
-    if ((ts.isCaseClause(parent) || ts.isDefaultClause(parent)) && ts.isStatement(current)) {
-      const index = parent.statements.indexOf(current);
-      if (index > 0 && parent.statements.slice(0, index).some(isDefinitelyAbrupt)) return true;
-    }
-    current = parent;
-  }
-  return false;
+    return false;
+  };
+  const result = computeDead();
+  cache.dead.set(node, result);
+  return result;
 }
 
 function serverStateClaim(
@@ -3742,7 +4382,7 @@ function resolveAliasCandidate(
   substitutions: InvocationSubstitutions,
   seen: Set<ts.Identifier>,
 ): AliasProvenance {
-  if (candidate === 'tainted') return { kind: 'tainted' };
+  if (candidate === 'tainted' || candidate === 'ambiguous-identity') return { kind: 'tainted' };
   if (candidate === 'absent') return { kind: 'absent' };
   if (isProjectedAliasCandidate(candidate)) {
     const source = resolveAliasCandidate(candidate.source, bindings, substitutions, seen);
@@ -4110,6 +4750,7 @@ function expressionBindingReachability(
     if (!(error instanceof FactsError)) throw error;
   }
   const candidateReachability = (candidate: AliasCandidate): BindingReachability => {
+    if (candidate === 'ambiguous-identity') return 'tainted';
     if (candidate === 'tainted') return 'unrelated';
     if (candidate === 'absent') return 'unrelated';
     if (isDefaultAliasCandidate(candidate) || isProjectedAliasCandidate(candidate)) {
@@ -4328,8 +4969,78 @@ function exactNativeArrayMethod(
   bindings: LexicalBindings,
   substitutions: InvocationSubstitutions,
 ): boolean {
-  return !ownStaticMember(call.expression, bindings)
-    && exactNativeArrayPrototypeMethod(method, call.expression, bindings, substitutions);
+  const member = staticMember(call.expression);
+  if (member === undefined) return false;
+  const candidates = bindings.memberProvenanceCandidates(member.base, method, call.expression);
+  if (candidates === undefined) {
+    return !ownStaticMember(call.expression, bindings)
+      && exactNativeArrayPrototypeMethod(method, call.expression, bindings, substitutions);
+  }
+  return candidates.length > 0 && candidates.every(candidate => {
+    const provenance = resolveAliasCandidate(candidate, bindings, substitutions, new Set());
+    if (provenance.kind === 'absent') {
+      return exactNativeArrayPrototypeMethod(method, call.expression, bindings, substitutions);
+    }
+    if (provenance.kind !== 'exact' || ts.isMethodDeclaration(provenance.origin)) return false;
+    const nativeMember = staticMember(provenance.origin);
+    if (nativeMember?.key !== method || !exactLiteralArrayIdentity(nativeMember.base, bindings, substitutions)) return false;
+    return exactNativeArrayPrototypeMethod(method, provenance.origin, bindings, substitutions);
+  });
+}
+
+function exactNativeFunctionPrototypeMethod(
+  method: 'call' | 'apply' | 'bind',
+  at: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  seen = new Set<ts.Node>(),
+): boolean {
+  const prototype = bindings.exactGlobalMemberExpression('Function', 'prototype');
+  if (prototype === undefined) return true;
+  const candidates = bindings.memberProvenanceCandidates(prototype, method, at);
+  if (candidates === undefined) return true;
+  if (seen.has(at)) return false;
+  const nextSeen = new Set(seen).add(at);
+  return candidates.length > 0 && candidates.every(candidate => {
+    const provenance = resolveAliasCandidate(candidate, bindings, substitutions, new Set());
+    if (provenance.kind !== 'exact' || ts.isMethodDeclaration(provenance.origin)) return false;
+    const member = staticMember(provenance.origin);
+    if (member?.key !== method) return false;
+    const prototypeMember = staticMember(member.base);
+    const receiver = prototypeMember === undefined ? undefined : unwrap(prototypeMember.base);
+    if (
+      prototypeMember?.key === 'prototype'
+      && receiver !== undefined
+      && ts.isIdentifier(receiver)
+      && receiver.text === 'Function'
+      && !bindings.lookup(receiver).found
+    ) return exactNativeFunctionPrototypeMethod(method, provenance.origin, bindings, substitutions, nextSeen);
+    return callableAliasOrigin(member.base, bindings)
+      && exactNativeFunctionMethod(provenance.origin, method, bindings, substitutions, nextSeen);
+  });
+}
+
+function exactNativeFunctionMethod(
+  expression: ts.Expression,
+  method: 'call' | 'apply' | 'bind',
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  seen = new Set<ts.Node>(),
+): boolean {
+  const member = staticMember(expression);
+  if (member?.key !== method || !callableAliasOrigin(member.base, bindings)) return false;
+  const candidates = bindings.memberProvenanceCandidates(member.base, method, expression);
+  if (candidates === undefined) {
+    return exactNativeFunctionPrototypeMethod(method, expression, bindings, substitutions, seen);
+  }
+  if (seen.has(expression)) return false;
+  const nextSeen = new Set(seen).add(expression);
+  return candidates.length > 0 && candidates.every(candidate => {
+    const provenance = resolveAliasCandidate(candidate, bindings, substitutions, new Set());
+    if (provenance.kind === 'absent') return exactNativeFunctionPrototypeMethod(method, expression, bindings, substitutions, nextSeen);
+    if (provenance.kind !== 'exact' || ts.isMethodDeclaration(provenance.origin)) return false;
+    return exactNativeFunctionMethod(provenance.origin, method, bindings, substitutions, nextSeen);
+  });
 }
 
 function unmodeledCallConsumesRelevantIdentity(
@@ -4342,7 +5053,7 @@ function unmodeledCallConsumesRelevantIdentity(
   if (localFunctionFromExpression(invocation.target, bindings, substitutions, false) !== undefined) return false;
   const mutationApi = resolveMutationApiIdentity(invocation.target, bindings, substitutions);
   if (mutationApi?.exactGlobal === true && (
-    (mutationApi.receiver === 'Object' && ['assign', 'defineProperty', 'defineProperties'].includes(mutationApi.method))
+    (mutationApi.receiver === 'Object' && ['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf'].includes(mutationApi.method))
     || (mutationApi.receiver === 'Reflect' && ['set', 'deleteProperty'].includes(mutationApi.method))
   )) return false;
   const member = staticMember(call.expression);
@@ -4354,7 +5065,7 @@ function unmodeledCallConsumesRelevantIdentity(
       && exactNativeArrayMethod(call, member.key, bindings, substitutions)
     ) return false;
   }
-  if (member?.key === 'bind' && !ownStaticMember(call.expression, bindings) && callableAliasOrigin(member.base, bindings)) return false;
+  if (member?.key === 'bind' && exactNativeFunctionMethod(call.expression, 'bind', bindings, substitutions)) return false;
   if (member?.key === 'push' && receiver !== undefined) {
     if (
       provenArrayIdentity(receiver, relevantBindings, bindings, substitutions) === 'literal'
@@ -4433,7 +5144,7 @@ function callableAliasOrigin(expression: ts.Expression, bindings: LexicalBinding
   const receiver = resolveAliasOrigin(api.base, bindings);
   return ts.isIdentifier(receiver)
     && !bindings.lookup(receiver).found
-    && ((receiver.text === 'Object' && ['assign', 'defineProperty', 'defineProperties'].includes(api.key))
+    && ((receiver.text === 'Object' && ['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf'].includes(api.key))
       || (receiver.text === 'Reflect' && ['set', 'deleteProperty'].includes(api.key)));
 }
 
@@ -4454,7 +5165,7 @@ function normalizeInvocation(
   const callee = unwrap(call.expression);
   if (ts.isCallExpression(callee)) {
     const bindCallee = staticMember(callee.expression);
-    if (bindCallee?.key === 'bind' && !ownStaticMember(callee.expression, bindings) && callableAliasOrigin(bindCallee.base, bindings)) {
+    if (bindCallee?.key === 'bind' && exactNativeFunctionMethod(callee.expression, 'bind', bindings, substitutions)) {
       const bound = finiteInvocationArgumentList(callee.arguments, bindings);
       const later = finiteInvocationArgumentList(call.arguments, bindings);
       return bound !== undefined && later !== undefined && exactThisArgument(bound[0], bindings)
@@ -4463,7 +5174,11 @@ function normalizeInvocation(
     }
   }
   const member = staticMember(callee);
-  if (member !== undefined && (member.key === 'call' || member.key === 'apply') && !ownStaticMember(callee, bindings) && callableAliasOrigin(member.base, bindings)) {
+  if (
+    member !== undefined
+    && (member.key === 'call' || member.key === 'apply')
+    && exactNativeFunctionMethod(callee, member.key, bindings, substitutions)
+  ) {
     const target = unwrap(member.base);
     const directArguments = finiteInvocationArgumentList(call.arguments, bindings);
     if (directArguments === undefined || !exactThisArgument(directArguments[0], bindings)) return { target, unsupported: `${member.key} requires an exact null/undefined this argument` };
@@ -4494,12 +5209,19 @@ type InvocationDefaultEffect = {
   substitutions: InvocationSubstitutions;
 };
 
+type InvocationAccessEffect = {
+  target: ts.FunctionLikeDeclaration;
+  receiver: ts.Expression;
+};
+
 function projectInvocationParameters(
   parameters: readonly ts.ParameterDeclaration[],
   argumentValues: readonly InvocationValue[],
   bindings: LexicalBindings,
   inherited: InvocationSubstitutions,
   defaultEffects?: InvocationDefaultEffect[],
+  accessEffects?: InvocationAccessEffect[],
+  accessAt?: ts.Node,
 ): Map<ts.Node, InvocationValue> {
   const projected = new Map(inherited);
   const taint = (name: ts.BindingName): void => {
@@ -4525,6 +5247,33 @@ function projectInvocationParameters(
       });
       notePossibleDefaults(element.name);
     }
+  };
+  const selectedGetter = (
+    object: ts.ObjectLiteralExpression,
+    key: string,
+    seen = new Set<ts.ObjectLiteralExpression>(),
+  ): ts.GetAccessorDeclaration | 'unknown' | undefined => {
+    if (seen.has(object)) return 'unknown';
+    const nextSeen = new Set(seen).add(object);
+    for (let index = object.properties.length - 1; index >= 0; index -= 1) {
+      const property = object.properties[index];
+      if (ts.isSpreadAssignment(property)) {
+        const provenance = resolveAliasProvenance(property.expression, bindings, projected);
+        if (provenance.kind !== 'exact' || ts.isMethodDeclaration(provenance.origin)) return 'unknown';
+        const origin = unwrap(provenance.origin);
+        if (!ts.isObjectLiteralExpression(origin)) return 'unknown';
+        const nested = selectedGetter(origin, key, nextSeen);
+        if (nested !== undefined) return nested;
+        continue;
+      }
+      const propertyKey = ts.isComputedPropertyName(property.name)
+        ? resolveStaticString(property.name.expression, bindings, projected)
+        : propertyName(property.name);
+      if (propertyKey === undefined) return 'unknown';
+      if (propertyKey !== key) continue;
+      return ts.isGetAccessorDeclaration(property) ? property : undefined;
+    }
+    return undefined;
   };
   const project = (name: ts.BindingName, rawValue: InvocationValue, fallback?: ts.Expression): void => {
     const selection: 'always' | 'maybe' | 'never' = rawValue === 'absent'
@@ -4556,6 +5305,32 @@ function projectInvocationParameters(
       return;
     }
     if (ts.isObjectBindingPattern(name)) {
+      if (ts.isObjectLiteralExpression(aggregate)) {
+        const restAccess = finiteObjectSpreadGetters(aggregate, bindings, projected, accessAt);
+        const excluded = new Set<string>();
+        for (const element of name.elements) {
+          if (element.dotDotDotToken !== undefined) {
+            for (const [key, getter] of restAccess.properties) {
+              if (getter !== undefined && !excluded.has(key)) accessEffects?.push({ target: getter, receiver: aggregate });
+            }
+            continue;
+          }
+          const key = element.propertyName === undefined && ts.isIdentifier(element.name)
+            ? element.name.text
+            : element.propertyName === undefined
+              ? undefined
+              : ts.isComputedPropertyName(element.propertyName)
+                ? resolveStaticString(element.propertyName.expression, bindings, projected)
+                : propertyName(element.propertyName);
+          if (key === undefined) continue;
+          excluded.add(key);
+          const getter = selectedGetter(aggregate, key);
+          if (getter === 'unknown') {
+            notePossibleDefaults(element.name);
+            taint(element.name);
+          } else if (getter !== undefined) accessEffects?.push({ target: getter, receiver: aggregate });
+        }
+      }
       if (!ts.isObjectLiteralExpression(aggregate) || aggregate.properties.some(property => ts.isSpreadAssignment(property) || ts.isGetAccessorDeclaration(property) || ts.isSetAccessorDeclaration(property))) {
         notePossibleDefaults(name);
         taint(name);
@@ -4580,6 +5355,13 @@ function projectInvocationParameters(
       }
       return;
     }
+    const iterator = finiteIteratorMethod(aggregate, bindings, projected);
+    if (iterator === 'unknown') {
+      notePossibleDefaults(name);
+      taint(name);
+      return;
+    }
+    if (iterator !== undefined) accessEffects?.push({ target: iterator, receiver: aggregate });
     if (!ts.isArrayLiteralExpression(aggregate) || aggregate.elements.some(element => ts.isOmittedExpression(element) || ts.isSpreadElement(element))) {
       notePossibleDefaults(name);
       taint(name);
@@ -4688,6 +5470,566 @@ function summarizeInvocationReturnProvenance(
   }
 }
 
+type FiniteAccessorTarget = ts.FunctionLikeDeclaration | 'unknown';
+type FiniteOwnDescriptor =
+  | { kind: 'data'; enumerable: boolean | 'unknown'; configurable: boolean | 'unknown' }
+  | {
+    kind: 'accessor';
+    getter?: FiniteAccessorTarget;
+    setter?: FiniteAccessorTarget;
+    enumerable: boolean | 'unknown';
+    configurable: boolean | 'unknown';
+  }
+  | { kind: 'unknown' };
+type FinitePrototypeState =
+  | { kind: 'exact'; expression: ts.Expression }
+  | { kind: 'builtin-object' | 'builtin-array' | 'null' | 'unknown' };
+type FiniteOwnDescriptorResult = {
+  properties: ReadonlyMap<string, FiniteOwnDescriptor>;
+  unknown: boolean;
+  prototype: FinitePrototypeState;
+};
+
+function syntacticExactAliasOrigin(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  seen = new Set<ts.Node>(),
+): ts.Expression | undefined {
+  expression = unwrap(expression);
+  if (seen.has(expression)) return undefined;
+  const nextSeen = new Set(seen).add(expression);
+  const directSubstitution = substitutions.get(expression);
+  if (directSubstitution !== undefined) return typeof directSubstitution === 'string'
+    ? undefined
+    : syntacticExactAliasOrigin(directSubstitution, bindings, substitutions, nextSeen);
+  if (!ts.isIdentifier(expression)) return expression;
+  const declaration = bindings.bindingDeclaration(expression);
+  if (declaration === undefined) return expression;
+  if (seen.has(declaration)) return undefined;
+  const declarationSubstitution = substitutions.get(declaration);
+  if (declarationSubstitution !== undefined) return typeof declarationSubstitution === 'string'
+    ? undefined
+    : syntacticExactAliasOrigin(declarationSubstitution, bindings, substitutions, new Set(nextSeen).add(declaration));
+  const lookup = bindings.provenanceCandidates(expression);
+  if (!lookup.found || lookup.candidates.length !== 1) return undefined;
+  const [candidate] = lookup.candidates;
+  if (
+    typeof candidate === 'string'
+    || isDefaultAliasCandidate(candidate)
+    || isProjectedAliasCandidate(candidate)
+    || candidate === declaration
+  ) return undefined;
+  return syntacticExactAliasOrigin(candidate, bindings, substitutions, new Set(nextSeen).add(declaration));
+}
+
+function definitelyPrimitiveExpression(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+): boolean {
+  const provenance = resolveAliasProvenance(expression, bindings, substitutions);
+  if (provenance.kind !== 'exact' || ts.isMethodDeclaration(provenance.origin)) return false;
+  const origin = unwrap(provenance.origin);
+  if (
+    origin.kind === ts.SyntaxKind.NullKeyword
+    || origin.kind === ts.SyntaxKind.TrueKeyword
+    || origin.kind === ts.SyntaxKind.FalseKeyword
+    || ts.isNumericLiteral(origin)
+    || ts.isBigIntLiteral(origin)
+    || ts.isStringLiteral(origin)
+    || ts.isNoSubstitutionTemplateLiteral(origin)
+    || ts.isTemplateExpression(origin)
+    || definitelyUndefinedOrigin(origin, bindings)
+  ) return true;
+  if (!ts.isCallExpression(origin) || origin.arguments.length > 1) return false;
+  const callee = unwrap(origin.expression);
+  return ts.isIdentifier(callee)
+    && (callee.text === 'Symbol' || callee.text === 'BigInt')
+    && !bindings.lookup(callee).found;
+}
+
+function finiteOwnDescriptorsAt(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  at: ts.Node,
+): FiniteOwnDescriptorResult {
+  const root = syntacticExactAliasOrigin(expression, bindings, substitutions);
+  if (root === undefined) return { properties: new Map(), unknown: true, prototype: { kind: 'unknown' } };
+  return bindings.finiteDescriptorQuery(root, substitutions, at, () => computeFiniteOwnDescriptorsAt(root, bindings, substitutions, at));
+}
+
+function computeFiniteOwnDescriptorsAt(
+  rootExpression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  at: ts.Node,
+): FiniteOwnDescriptorResult {
+  const properties = new Map<string, FiniteOwnDescriptor>();
+  let unknown = false;
+  const root = unwrap(rootExpression);
+  let prototype: FinitePrototypeState = ts.isArrayLiteralExpression(root)
+    ? { kind: 'builtin-array' }
+    : { kind: 'builtin-object' };
+  const propertyKey = (
+    name: ts.PropertyName,
+    projected: InvocationSubstitutions = substitutions,
+  ): string | undefined => {
+    if (!ts.isComputedPropertyName(name)) return propertyName(name);
+    return resolveStaticString(name.expression, bindings, projected);
+  };
+  const seedObject = (
+    object: ts.ObjectLiteralExpression,
+    seen = new Set<ts.ObjectLiteralExpression>(),
+    seedPrototype = false,
+  ): void => {
+    if (seen.has(object)) {
+      unknown = true;
+      return;
+    }
+    const nextSeen = new Set(seen).add(object);
+    for (const property of object.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        const spread = resolveAliasProvenance(property.expression, bindings, substitutions);
+        if (spread.kind !== 'exact' || ts.isMethodDeclaration(spread.origin)) {
+          unknown = true;
+          continue;
+        }
+        const spreadOrigin = unwrap(spread.origin);
+        if (!ts.isObjectLiteralExpression(spreadOrigin)) {
+          unknown = true;
+          continue;
+        }
+        const nested = new Map(properties);
+        const beforeUnknown = unknown;
+        properties.clear();
+        seedObject(spreadOrigin, nextSeen);
+        const spreadProperties = new Map(properties);
+        properties.clear();
+        for (const [key, descriptor] of nested) properties.set(key, descriptor);
+        for (const [key, descriptor] of spreadProperties) {
+          if (descriptor.kind === 'unknown' || descriptor.enumerable === 'unknown') unknown = true;
+          if (descriptor.kind !== 'unknown' && descriptor.enumerable === true) {
+            properties.set(key, { kind: 'data', enumerable: true, configurable: true });
+          }
+        }
+        unknown ||= beforeUnknown;
+        continue;
+      }
+      const key = propertyKey(property.name);
+      if (key === undefined) {
+        unknown = true;
+        continue;
+      }
+      if (key === '__proto__' && !ts.isComputedPropertyName(property.name) && ts.isPropertyAssignment(property)) {
+        if (seedPrototype) {
+          const origin = syntacticExactAliasOrigin(property.initializer, bindings, substitutions);
+          if (origin === undefined) prototype = { kind: 'unknown' };
+          else if (unwrap(origin).kind === ts.SyntaxKind.NullKeyword) prototype = { kind: 'null' };
+          else if (!definitelyPrimitiveExpression(origin, bindings, substitutions)) prototype = { kind: 'exact', expression: origin };
+        }
+        continue;
+      }
+      if (ts.isGetAccessorDeclaration(property) || ts.isSetAccessorDeclaration(property)) {
+        const previous = properties.get(key);
+        const accessor = previous?.kind === 'accessor'
+          ? { ...previous }
+          : { kind: 'accessor' as const, enumerable: true as const, configurable: true as const };
+        if (ts.isGetAccessorDeclaration(property)) accessor.getter = property;
+        else accessor.setter = property;
+        properties.set(key, accessor);
+      } else properties.set(key, { kind: 'data', enumerable: true, configurable: true });
+    }
+  };
+  if (ts.isObjectLiteralExpression(root)) seedObject(root, new Set(), true);
+  else if (!ts.isArrayLiteralExpression(root)) return { properties, unknown: true, prototype: { kind: 'unknown' } };
+
+  const sameTarget = (
+    candidate: ts.Expression,
+    projected: InvocationSubstitutions = substitutions,
+  ): boolean => {
+    const candidateRoot = syntacticExactAliasOrigin(candidate, bindings, projected);
+    return candidateRoot !== undefined && sameAliasOrigin(candidateRoot, root, bindings);
+  };
+  const field = (
+    descriptor: ts.Expression,
+    key: 'value' | 'get' | 'set' | 'enumerable' | 'configurable',
+    projected: InvocationSubstitutions,
+  ): AliasProvenance => {
+    const descriptorProvenance = resolveAliasProvenance(descriptor, bindings, projected);
+    if (descriptorProvenance.kind !== 'exact' || ts.isMethodDeclaration(descriptorProvenance.origin)) return descriptorProvenance;
+    const object = unwrap(descriptorProvenance.origin);
+    return ts.isObjectLiteralExpression(object)
+      ? resolveObjectLiteralProperty(object, key, bindings, projected, new Set())
+      : { kind: 'tainted' };
+  };
+  const booleanField = (
+    descriptor: ts.Expression,
+    key: 'enumerable' | 'configurable',
+    fallback: boolean | 'unknown',
+    projected: InvocationSubstitutions,
+  ): boolean | 'unknown' => {
+    const value = field(descriptor, key, projected);
+    if (value.kind === 'absent') return fallback;
+    if (value.kind !== 'exact' || ts.isMethodDeclaration(value.origin)) return 'unknown';
+    return staticTruthValue(value.origin, bindings) ?? 'unknown';
+  };
+  const accessorTarget = (
+    value: AliasProvenance,
+    projected: InvocationSubstitutions,
+  ): FiniteAccessorTarget | undefined | 'noncallable' => {
+    if (value.kind === 'absent') return undefined;
+    if (value.kind !== 'exact') return 'unknown';
+    if (ts.isMethodDeclaration(value.origin)) return value.origin;
+    if (definitelyUndefinedOrigin(value.origin, bindings)) return undefined;
+    const target = localFunctionFromExpression(value.origin, bindings, projected, false);
+    return target ?? 'noncallable';
+  };
+  const applyDescriptor = (
+    key: string,
+    descriptor: ts.Expression,
+    uncertain: boolean,
+    projected: InvocationSubstitutions,
+  ): void => {
+    if (uncertain) {
+      properties.set(key, { kind: 'unknown' });
+      return;
+    }
+    const previous = properties.get(key);
+    const projectedValue = field(descriptor, 'value', projected);
+    const projectedGetter = field(descriptor, 'get', projected);
+    const projectedSetter = field(descriptor, 'set', projected);
+    const hasValue = projectedValue.kind !== 'absent';
+    const hasAccessor = projectedGetter.kind !== 'absent' || projectedSetter.kind !== 'absent';
+    if (hasValue && hasAccessor) return;
+    const enumerable = booleanField(
+      descriptor,
+      'enumerable',
+      previous === undefined || previous.kind === 'unknown' ? false : previous.enumerable,
+      projected,
+    );
+    const configurable = booleanField(
+      descriptor,
+      'configurable',
+      previous === undefined || previous.kind === 'unknown' ? false : previous.configurable,
+      projected,
+    );
+    if (hasAccessor) {
+      const getter = accessorTarget(projectedGetter, projected);
+      const setter = accessorTarget(projectedSetter, projected);
+      if (getter === 'noncallable' || setter === 'noncallable') return;
+      const previousAccessor = previous?.kind === 'accessor' ? previous : undefined;
+      properties.set(key, {
+        kind: 'accessor',
+        ...(projectedGetter.kind === 'absent' ? { getter: previousAccessor?.getter } : { getter }),
+        ...(projectedSetter.kind === 'absent' ? { setter: previousAccessor?.setter } : { setter }),
+        enumerable,
+        configurable,
+      });
+      return;
+    }
+    if (hasValue) {
+      properties.set(key, projectedValue.kind === 'tainted'
+        ? { kind: 'unknown' }
+        : { kind: 'data', enumerable, configurable });
+      return;
+    }
+    if (previous !== undefined) properties.set(key, previous.kind === 'unknown' ? previous : { ...previous, enumerable, configurable });
+  };
+  const uncertainExecution = (node: ts.Node, owner: ts.Node): boolean => {
+    let current: ts.Node | undefined = node;
+    while (current?.parent !== undefined && current.parent !== owner) {
+      const parent: ts.Node = current.parent;
+      if (ts.isIfStatement(parent) && staticTruthValue(parent.expression, bindings) === undefined) return true;
+      if (ts.isConditionalExpression(parent) && staticTruthValue(parent.condition, bindings) === undefined) return true;
+      if (
+        ts.isForStatement(parent) || ts.isForInStatement(parent) || ts.isForOfStatement(parent)
+        || ts.isWhileStatement(parent) || ts.isDoStatement(parent) || ts.isTryStatement(parent)
+      ) return true;
+      current = parent;
+    }
+    return false;
+  };
+  let owner: ts.Node | undefined = at;
+  while (owner !== undefined && !isLexicalFunction(owner) && !ts.isSourceFile(owner)) owner = owner.parent;
+  if (owner === undefined) return { properties, unknown: true, prototype: { kind: 'unknown' } };
+  const processNode = (
+    node: ts.Node,
+    projected: InvocationSubstitutions,
+    executionOwner: ts.Node,
+    uncertainInvocation: boolean,
+  ): void => {
+    const uncertain = uncertainInvocation || uncertainExecution(node, executionOwner);
+    const replacePrototype = (value: ts.Expression): void => {
+      const origin = syntacticExactAliasOrigin(value, bindings, projected);
+      prototype = uncertain || origin === undefined
+        ? { kind: 'unknown' }
+        : unwrap(origin).kind === ts.SyntaxKind.NullKeyword
+          ? { kind: 'null' }
+          : definitelyPrimitiveExpression(origin, bindings, projected)
+            ? prototype
+            : { kind: 'exact', expression: origin };
+    };
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      const member = staticMember(node.left);
+      if (member !== undefined && sameTarget(member.base, projected)) {
+        if (member.key === '__proto__') {
+          const own = properties.get('__proto__');
+          const selected: FiniteReachableDescriptor = own ?? (() => {
+            if (prototype.kind === 'exact') {
+              return finiteReachableDescriptorAt(prototype.expression, '__proto__', bindings, projected, node);
+            }
+            if (prototype.kind === 'unknown') return { kind: 'unknown' };
+            if (prototype.kind === 'null') return { kind: 'absent' };
+            return { kind: 'builtin-proto-setter' };
+          })();
+          if (selected.kind === 'builtin-proto-setter') replacePrototype(node.right);
+          else if (own === undefined && (selected.kind === 'absent' || selected.kind === 'data')) {
+            properties.set('__proto__', uncertain ? { kind: 'unknown' } : { kind: 'data', enumerable: true, configurable: true });
+          } else if (selected.kind === 'unknown') {
+            prototype = { kind: 'unknown' };
+            properties.set('__proto__', { kind: 'unknown' });
+          }
+        } else properties.set(member.key, uncertain ? { kind: 'unknown' } : { kind: 'data', enumerable: true, configurable: true });
+      }
+    } else if (ts.isDeleteExpression(node)) {
+      const member = staticMember(node.expression);
+      if (member !== undefined && sameTarget(member.base, projected)) {
+        const previous = properties.get(member.key);
+        if (uncertain || previous?.kind === 'unknown' || previous?.configurable === 'unknown') properties.set(member.key, { kind: 'unknown' });
+        else if (previous?.configurable === true) properties.delete(member.key);
+      }
+    } else if (ts.isCallExpression(node)) {
+      const invocation = normalizeInvocation(node, bindings, projected);
+      const api = resolveMutationApiIdentity(invocation.target, bindings, projected);
+      const args = invocation.arguments;
+      if (api?.exactGlobal !== true || invocation.unsupported !== undefined || args === undefined || args[0] === undefined) return;
+      if (api.receiver === 'Object' && api.method === 'defineProperty' && sameTarget(args[0], projected)) {
+        const key = args[1] === undefined ? undefined : resolveStaticString(args[1], bindings, projected);
+        if (key === undefined || args[2] === undefined) unknown = true;
+        else applyDescriptor(key, args[2], uncertain, projected);
+      } else if (api.receiver === 'Object' && api.method === 'defineProperties' && sameTarget(args[0], projected)) {
+        const descriptorProvenance = args[1] === undefined
+          ? undefined
+          : resolveAliasProvenance(args[1], bindings, projected);
+        const descriptors = descriptorProvenance?.kind === 'exact' && !ts.isMethodDeclaration(descriptorProvenance.origin)
+          ? unwrap(descriptorProvenance.origin)
+          : undefined;
+        if (descriptors === undefined || !ts.isObjectLiteralExpression(descriptors)) unknown = true;
+        else {
+          for (const property of descriptors.properties) {
+            if (!ts.isPropertyAssignment(property)) {
+              unknown = true;
+              continue;
+            }
+            const key = propertyKey(property.name, projected);
+            if (key === undefined) unknown = true;
+            else applyDescriptor(key, property.initializer, uncertain, projected);
+          }
+        }
+      } else if (api.receiver === 'Reflect' && api.method === 'deleteProperty' && sameTarget(args[0], projected)) {
+        const key = args[1] === undefined ? undefined : resolveStaticString(args[1], bindings, projected);
+        if (key === undefined) unknown = true;
+        else {
+          const previous = properties.get(key);
+          if (uncertain || previous?.kind === 'unknown' || previous?.configurable === 'unknown') properties.set(key, { kind: 'unknown' });
+          else if (previous?.configurable === true) properties.delete(key);
+        }
+      } else if (api.receiver === 'Object' && api.method === 'setPrototypeOf' && sameTarget(args[0], projected)) {
+        if (args[1] === undefined || (
+          unwrap(args[1]).kind !== ts.SyntaxKind.NullKeyword
+          && definitelyPrimitiveExpression(args[1], bindings, projected)
+        )) prototype = { kind: 'unknown' };
+        else replacePrototype(args[1]);
+      }
+    }
+  };
+  const timeline = isLexicalFunction(owner) ? bindings.executableFunctionTimeline(owner) : undefined;
+  const timelinePositions = timeline?.filter(item => item.node === at).map(item => item.sequence) ?? [];
+  const atPosition = timelinePositions.length === 0 ? undefined : timelinePositions[timelinePositions.length - 1];
+  if (timeline !== undefined && atPosition !== undefined) {
+    for (const item of timeline) {
+      if (item.sequence >= atPosition || isStaticallyDead(item.node, bindings)) continue;
+      processNode(item.node, item.substitutions, item.current, item.execution !== 'known');
+    }
+  } else {
+    const atStart = at.getStart(at.getSourceFile());
+    const visit = (node: ts.Node): void => {
+      if (node !== owner && ts.isFunctionLike(node)) return;
+      if (node.getStart(node.getSourceFile()) >= atStart || isStaticallyDead(node, bindings)) return;
+      processNode(node, substitutions, owner!, false);
+      ts.forEachChild(node, visit);
+    };
+    ts.forEachChild(owner, visit);
+  }
+  return { properties, unknown, prototype };
+}
+
+type FiniteReachableSetterResult = {
+  setters: ReadonlyMap<string, ts.FunctionLikeDeclaration>;
+  unknown: boolean;
+};
+
+function finiteReachableSettersAt(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  at: ts.Node,
+  seen = new Set<ts.Expression>(),
+): FiniteReachableSetterResult {
+  const root = syntacticExactAliasOrigin(expression, bindings, substitutions);
+  if (root === undefined || seen.has(root)) return { setters: new Map(), unknown: true };
+  const descriptors = finiteOwnDescriptorsAt(root, bindings, substitutions, at);
+  const setters = new Map<string, ts.FunctionLikeDeclaration>();
+  let unknown = descriptors.unknown;
+  for (const [key, descriptor] of descriptors.properties) {
+    if (descriptor.kind === 'unknown') {
+      unknown = true;
+      continue;
+    }
+    if (descriptor.kind === 'accessor') {
+      if (descriptor.setter === 'unknown') unknown = true;
+      else if (descriptor.setter !== undefined) setters.set(key, descriptor.setter);
+    }
+  }
+  if (descriptors.prototype.kind === 'unknown') unknown = true;
+  else if (descriptors.prototype.kind === 'exact') {
+    const inherited = finiteReachableSettersAt(
+      descriptors.prototype.expression,
+      bindings,
+      substitutions,
+      at,
+      new Set(seen).add(root),
+    );
+    unknown ||= inherited.unknown;
+    for (const [key, setter] of inherited.setters) {
+      if (!descriptors.properties.has(key)) setters.set(key, setter);
+    }
+  }
+  return { setters, unknown };
+}
+
+type FiniteReachableDescriptor = FiniteOwnDescriptor | { kind: 'absent' | 'builtin-proto-setter' };
+
+function finiteReachableDescriptorAt(
+  expression: ts.Expression,
+  key: string,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  at: ts.Node,
+  seen = new Set<ts.Expression>(),
+): FiniteReachableDescriptor {
+  const root = syntacticExactAliasOrigin(expression, bindings, substitutions);
+  if (root === undefined || seen.has(root)) return { kind: 'unknown' };
+  const descriptors = finiteOwnDescriptorsAt(root, bindings, substitutions, at);
+  const own = descriptors.properties.get(key);
+  if (own !== undefined) return own;
+  if (descriptors.unknown) return { kind: 'unknown' };
+  if (descriptors.prototype.kind === 'exact') {
+    return finiteReachableDescriptorAt(
+      descriptors.prototype.expression,
+      key,
+      bindings,
+      substitutions,
+      at,
+      new Set(seen).add(root),
+    );
+  }
+  if (descriptors.prototype.kind === 'unknown') return { kind: 'unknown' };
+  if (descriptors.prototype.kind === 'null') return { kind: 'absent' };
+  return key === '__proto__' ? { kind: 'builtin-proto-setter' } : { kind: 'absent' };
+}
+
+function finiteObjectSpreadGetters(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  at?: ts.Node,
+  seen = new Set<ts.ObjectLiteralExpression>(),
+): { getters: readonly ts.FunctionLikeDeclaration[]; properties: ReadonlyMap<string, ts.FunctionLikeDeclaration | undefined>; unknown: boolean } {
+  if (at !== undefined) {
+    const descriptors = finiteOwnDescriptorsAt(expression, bindings, substitutions, at);
+    const properties = new Map<string, ts.FunctionLikeDeclaration | undefined>();
+    let unknown = descriptors.unknown;
+    for (const [key, descriptor] of descriptors.properties) {
+      if (descriptor.kind === 'unknown' || descriptor.enumerable === 'unknown') {
+        unknown = true;
+        continue;
+      }
+      if (descriptor.enumerable !== true) continue;
+      const getter = descriptor.kind === 'accessor' ? descriptor.getter : undefined;
+      if (getter === 'unknown') unknown = true;
+      else properties.set(key, getter);
+    }
+    return { getters: [...properties.values()].filter((getter): getter is ts.FunctionLikeDeclaration => getter !== undefined), properties, unknown };
+  }
+  const provenance = resolveAliasProvenance(expression, bindings, substitutions);
+  if (provenance.kind !== 'exact' || ts.isMethodDeclaration(provenance.origin)) return { getters: [], properties: new Map(), unknown: true };
+  const object = unwrap(provenance.origin);
+  if (!ts.isObjectLiteralExpression(object) || seen.has(object)) return { getters: [], properties: new Map(), unknown: true };
+  const nextSeen = new Set(seen).add(object);
+  const properties = new Map<string, ts.FunctionLikeDeclaration | undefined>();
+  let unknown = false;
+  for (const property of object.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      const nested = finiteObjectSpreadGetters(property.expression, bindings, substitutions, undefined, nextSeen);
+      unknown ||= nested.unknown;
+      for (const [key, getter] of nested.properties) properties.set(key, getter);
+      continue;
+    }
+    const key = ts.isComputedPropertyName(property.name)
+      ? resolveStaticString(property.name.expression, bindings, substitutions)
+      : propertyName(property.name);
+    if (key === undefined) {
+      unknown = true;
+      continue;
+    }
+    properties.set(key, ts.isGetAccessorDeclaration(property) ? property : undefined);
+  }
+  return { getters: [...properties.values()].filter((getter): getter is ts.FunctionLikeDeclaration => getter !== undefined), properties, unknown };
+}
+
+function finiteIteratorMethod(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  seen = new Set<ts.ObjectLiteralExpression>(),
+): ts.MethodDeclaration | ts.FunctionExpression | ts.ArrowFunction | 'unknown' | undefined {
+  const provenance = resolveAliasProvenance(expression, bindings, substitutions);
+  if (provenance.kind !== 'exact' || ts.isMethodDeclaration(provenance.origin)) return 'unknown';
+  const value = unwrap(provenance.origin);
+  if (ts.isArrayLiteralExpression(value)) return undefined;
+  if (!ts.isObjectLiteralExpression(value) || seen.has(value)) return 'unknown';
+  const nextSeen = new Set(seen).add(value);
+  for (let index = value.properties.length - 1; index >= 0; index -= 1) {
+    const property = value.properties[index];
+    if (ts.isSpreadAssignment(property)) {
+      const nested = finiteIteratorMethod(property.expression, bindings, substitutions, nextSeen);
+      if (nested !== undefined) return nested;
+      continue;
+    }
+    if (!ts.isComputedPropertyName(property.name)) continue;
+    const iterator = staticMember(property.name.expression);
+    const receiver = iterator === undefined ? undefined : unwrap(iterator.base);
+    const exactIterator = iterator?.key === 'iterator'
+      && receiver !== undefined
+      && ts.isIdentifier(receiver)
+      && receiver.text === 'Symbol'
+      && !bindings.lookup(receiver).found;
+    if (!exactIterator) return 'unknown';
+    if (ts.isMethodDeclaration(property)) return property;
+    if (ts.isPropertyAssignment(property)) {
+      const target = localFunctionFromExpression(property.initializer, bindings, substitutions, false);
+      return target !== undefined && (ts.isFunctionExpression(target) || ts.isArrowFunction(target) || ts.isMethodDeclaration(target))
+        ? target
+        : 'unknown';
+    }
+    return 'unknown';
+  }
+  return undefined;
+}
+
 function visitExecutableFunctionNodes(
   owner: ts.FunctionLikeDeclaration,
   bindings: LexicalBindings,
@@ -4699,6 +6041,13 @@ function visitExecutableFunctionNodes(
     current: ts.FunctionLikeDeclaration,
   ) => void,
   invokeMapCallbacks = false,
+  initialInvocation?: {
+    arguments: readonly InvocationValue[];
+    substitutions: InvocationSubstitutions;
+    execution: 'known' | 'unmodeled-callback';
+  },
+  relevantBindings: readonly ts.Identifier[] = [],
+  strictUnknownAccessEffects = false,
 ): void {
   const active = new Set<ts.FunctionLikeDeclaration>([owner]);
   const synchronousArrayCallbacks = new Set(['map', 'forEach']);
@@ -4733,7 +6082,22 @@ function visitExecutableFunctionNodes(
       }
       if (ts.isCallExpression(node)) {
         const recursiveIdentifier = ts.isIdentifier(unwrap(node.expression)) ? unwrap(node.expression) as ts.Identifier : undefined;
-        if (recursiveIdentifier === undefined || target.name === undefined || !ts.isIdentifier(target.name) || !bindings.isBinding(recursiveIdentifier, target.name)) {
+        const initializer = recursiveIdentifier === undefined
+          ? undefined
+          : bindings.declarationInitializer(recursiveIdentifier)
+            ?? bindings.uniqueLexicalInitializer(recursiveIdentifier);
+        const forwardAlias = initializer === undefined
+          ? undefined
+          : localFunctionFromExpression(initializer, bindings, new Map(), false);
+        const recursiveTarget = forwardAlias === target
+          ? forwardAlias
+          : recursiveIdentifier === undefined
+            ? undefined
+            : localFunctionFromExpression(recursiveIdentifier, bindings, new Map(), false);
+        if (
+          recursiveTarget !== target
+          && (recursiveIdentifier === undefined || target.name === undefined || !ts.isIdentifier(target.name) || !bindings.isBinding(recursiveIdentifier, target.name))
+        ) {
           found = true;
           return;
         }
@@ -4745,7 +6109,89 @@ function visitExecutableFunctionNodes(
     inspect(target.body);
     return found;
   };
-  const visit = (
+  let visit: (
+    node: ts.Node,
+    substitutions: InvocationSubstitutions,
+    current: ts.FunctionLikeDeclaration,
+    execution: 'known' | 'unmodeled-callback',
+  ) => void;
+  const invoke = (
+    site: ts.Node,
+    target: ts.FunctionLikeDeclaration,
+    argumentsToBind: readonly InvocationValue[] | undefined,
+    targetExecution: 'known' | 'unmodeled-callback',
+    substitutions: InvocationSubstitutions,
+    thisValue: InvocationValue = 'absent',
+  ): void => {
+    if (target.body === undefined) return;
+    if (active.has(target)) {
+      if (hasPotentialEffect(target)) fail(site, `unsupported recursive local invocation: tainted effect provenance cycle for ${target.name?.getText() ?? '<anonymous>'}`);
+      return;
+    }
+    const defaultEffects: InvocationDefaultEffect[] = [];
+    const accessEffects: InvocationAccessEffect[] = [];
+    const next = projectInvocationParameters(
+      target.parameters,
+      argumentsToBind ?? target.parameters.map(() => 'tainted' as const),
+      bindings,
+      substitutions,
+      defaultEffects,
+      accessEffects,
+      site,
+    );
+    if (ts.isGetAccessorDeclaration(target) || ts.isSetAccessorDeclaration(target)) {
+      const parameterValues = new Map<string, InvocationValue>();
+      for (const parameter of target.parameters) {
+        for (const identifier of bindingIdentifiers(parameter.name)) {
+          const value = next.get(identifier);
+          if (value !== undefined) parameterValues.set(identifier.text, value);
+        }
+      }
+      const declaredWithinTarget = (declaration: ts.Node): boolean => {
+        let current: ts.Node | undefined = declaration;
+        while (current !== undefined && current !== target) current = current.parent;
+        return current === target;
+      };
+      const bindAccessorParameters = (candidate: ts.Node): void => {
+        if (candidate !== target.body && ts.isFunctionLike(candidate)) return;
+        if (ts.isIdentifier(candidate)) {
+          const value = parameterValues.get(candidate.text);
+          if (value !== undefined) {
+            const lookup = bindings.lookup(candidate);
+            if (!lookup.found || (lookup.event?.name !== undefined && !declaredWithinTarget(lookup.event.name))) {
+              next.set(candidate, value);
+            }
+          }
+        }
+        ts.forEachChild(candidate, bindAccessorParameters);
+      };
+      bindAccessorParameters(target.body);
+    }
+    if (!ts.isArrowFunction(target)) {
+      const bindThis = (candidate: ts.Node): void => {
+        if (candidate.kind === ts.SyntaxKind.ThisKeyword) {
+          next.set(candidate, thisValue);
+          return;
+        }
+        if (candidate !== target.body && ts.isFunctionLike(candidate) && !ts.isArrowFunction(candidate)) return;
+        ts.forEachChild(candidate, bindThis);
+      };
+      bindThis(target.body);
+    }
+    active.add(target);
+    for (const effect of accessEffects) invoke(site, effect.target, [], targetExecution, substitutions, effect.receiver);
+    for (const effect of defaultEffects) {
+      visit(
+        effect.expression,
+        effect.substitutions,
+        target,
+        effect.selection === 'maybe' ? 'unmodeled-callback' : targetExecution,
+      );
+    }
+    visit(target.body, next, target, targetExecution);
+    active.delete(target);
+  };
+  visit = (
     node: ts.Node,
     substitutions: InvocationSubstitutions,
     current: ts.FunctionLikeDeclaration,
@@ -4754,54 +6200,124 @@ function visitExecutableFunctionNodes(
     if (isStaticallyDead(node, bindings)) return;
     if (node !== current && ts.isFunctionLike(node)) return;
     visitor(node, substitutions, execution, sequence++, current);
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      const member = staticMember(node.left);
+      if (member?.key === '__proto__') {
+        const selected = finiteReachableDescriptorAt(member.base, '__proto__', bindings, substitutions, node);
+        if (selected.kind === 'accessor') {
+          if (selected.setter === 'unknown') {
+            if (strictUnknownAccessEffects && relevantBindings.some(binding => (
+              expressionBindingReachability(member.base, binding, bindings, substitutions) !== 'unrelated'
+              || expressionBindingReachability(node.right, binding, bindings, substitutions) !== 'unrelated'
+            ))) fail(node, 'unsupported __proto__ assignment: tainted setter provenance');
+          } else if (selected.setter !== undefined) {
+            invoke(node, selected.setter, [node.right], execution, substitutions, member.base);
+          }
+        } else if (selected.kind === 'unknown' && strictUnknownAccessEffects && relevantBindings.some(binding => (
+          expressionBindingReachability(member.base, binding, bindings, substitutions) !== 'unrelated'
+          || expressionBindingReachability(node.right, binding, bindings, substitutions) !== 'unrelated'
+        ))) {
+          fail(node, 'unsupported __proto__ assignment: unknown descriptor provenance');
+        }
+      }
+    }
+    if (ts.isSpreadAssignment(node)) {
+      const access = finiteObjectSpreadGetters(node.expression, bindings, substitutions, node);
+      for (const getter of access.getters) invoke(node, getter, [], execution, substitutions, node.expression);
+      if (access.unknown && strictUnknownAccessEffects && relevantBindings.some(binding => (
+        expressionBindingReachability(node.expression, binding, bindings, substitutions) === 'relevant'
+      ))) {
+        fail(node, 'unsupported object spread: tainted accessor provenance may consume relevant identity');
+      }
+    }
+    if (ts.isSpreadElement(node)) {
+      const iterator = finiteIteratorMethod(node.expression, bindings, substitutions);
+      if (iterator === 'unknown') {
+        if (strictUnknownAccessEffects && relevantBindings.some(binding => (
+          expressionBindingReachability(node.expression, binding, bindings, substitutions) === 'relevant'
+        ))) {
+          fail(node, 'unsupported spread: tainted iterator provenance may consume relevant identity');
+        }
+      } else if (iterator !== undefined) invoke(node, iterator, [], execution, substitutions, node.expression);
+    }
     if (ts.isCallExpression(node)) {
-      const invoke = (
-        target: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration | ts.MethodDeclaration,
-        argumentsToBind: readonly InvocationValue[] | undefined,
-        targetExecution: 'known' | 'unmodeled-callback',
-        thisValue: InvocationValue = 'absent',
-      ): void => {
-        if (target.body === undefined) return;
-        if (active.has(target)) {
-          if (hasPotentialEffect(target)) fail(node, `unsupported recursive local invocation: tainted effect provenance cycle for ${target.name?.getText() ?? '<anonymous>'}`);
-          return;
-        }
-        const defaultEffects: InvocationDefaultEffect[] = [];
-        const next = projectInvocationParameters(
-          target.parameters,
-          argumentsToBind ?? target.parameters.map(() => 'tainted' as const),
-          bindings,
-          substitutions,
-          defaultEffects,
-        );
-        if (!ts.isArrowFunction(target)) {
-          const bindThis = (candidate: ts.Node): void => {
-            if (candidate.kind === ts.SyntaxKind.ThisKeyword) {
-              next.set(candidate, thisValue);
-              return;
-            }
-            if (candidate !== target.body && ts.isFunctionLike(candidate) && !ts.isArrowFunction(candidate)) return;
-            ts.forEachChild(candidate, bindThis);
-          };
-          bindThis(target.body);
-        }
-        active.add(target);
-        for (const effect of defaultEffects) {
-          visit(
-            effect.expression,
-            effect.substitutions,
-            target,
-            effect.selection === 'maybe' ? 'unmodeled-callback' : targetExecution,
-          );
-        }
-        visit(target.body, next, target, targetExecution);
-        active.delete(target);
-      };
-      const invocation = normalizeInvocation(node, bindings, substitutions);
-      const direct = localFunctionFromExpression(invocation.target, bindings, substitutions);
+      const rawIdentifier = ts.isIdentifier(unwrap(node.expression)) ? unwrap(node.expression) as ts.Identifier : undefined;
+      const forwardInitializer = rawIdentifier === undefined
+        ? undefined
+        : bindings.declarationInitializer(rawIdentifier)
+          ?? bindings.uniqueLexicalInitializer(rawIdentifier);
+      const forwardTarget = forwardInitializer === undefined
+        ? undefined
+        : localFunctionFromExpression(forwardInitializer, bindings, substitutions, false);
+      const activeForwardTarget = forwardTarget !== undefined && active.has(forwardTarget) ? forwardTarget : undefined;
+      const forwardArguments = activeForwardTarget === undefined ? undefined : finiteInvocationArgumentList(node.arguments, bindings);
+      const invocation: NormalizedInvocation = activeForwardTarget === undefined
+        ? normalizeInvocation(node, bindings, substitutions)
+        : forwardArguments === undefined
+          ? { target: forwardInitializer!, unsupported: 'dynamic or ambiguous argument spread' }
+          : { target: forwardInitializer!, arguments: forwardArguments };
+      let direct = activeForwardTarget ?? localFunctionFromExpression(invocation.target, bindings, substitutions, false);
+      if (direct === undefined) direct = localFunctionFromExpression(invocation.target, bindings, substitutions);
       if (direct !== undefined) {
-        if (invocation.arguments !== undefined) invoke(direct, invocation.arguments, execution);
-        else if (invocation.unsupported !== undefined) invoke(direct, undefined, 'unmodeled-callback');
+        if (invocation.arguments !== undefined) invoke(node, direct, invocation.arguments, execution, substitutions);
+        else if (invocation.unsupported !== undefined) invoke(node, direct, undefined, 'unmodeled-callback', substitutions);
+      }
+      const mutationApi = resolveMutationApiIdentity(invocation.target, bindings, substitutions);
+      if (
+        mutationApi?.exactGlobal === true
+        && mutationApi.receiver === 'Reflect'
+        && mutationApi.method === 'set'
+        && invocation.arguments !== undefined
+        && invocation.arguments[0] !== undefined
+        && !definitelyPrimitiveExpression(invocation.arguments[0], bindings, substitutions)
+      ) {
+        const memberKey = resolveStaticString(invocation.arguments[1], bindings, substitutions);
+        if (memberKey !== undefined) {
+          const targetRoot = syntacticExactAliasOrigin(invocation.arguments[0], bindings, substitutions);
+          const finiteTarget = targetRoot !== undefined
+            && (ts.isObjectLiteralExpression(unwrap(targetRoot)) || ts.isArrayLiteralExpression(unwrap(targetRoot)));
+          if (finiteTarget) {
+            const possible = finiteReachableSettersAt(invocation.arguments[0], bindings, substitutions, node);
+            if (possible.unknown && strictUnknownAccessEffects) fail(node, 'unsupported Reflect.set: exact key has unknown descriptor or prototype state');
+            const setter = possible.setters.get(memberKey);
+            if (setter !== undefined) {
+              invoke(
+                node,
+                setter,
+                [invocation.arguments[2] ?? 'absent'],
+                execution,
+                substitutions,
+                invocation.arguments[3] ?? invocation.arguments[0],
+              );
+            }
+          }
+        } else {
+          const targetRoot = syntacticExactAliasOrigin(invocation.arguments[0], bindings, substitutions);
+          const finiteTarget = targetRoot !== undefined
+            && (ts.isObjectLiteralExpression(unwrap(targetRoot)) || ts.isArrayLiteralExpression(unwrap(targetRoot)));
+          if (finiteTarget) {
+            const possible = finiteReachableSettersAt(invocation.arguments[0], bindings, substitutions, node);
+            if (possible.unknown && strictUnknownAccessEffects) fail(node, 'unsupported Reflect.set: dynamic key has unknown descriptor or prototype state');
+            for (const setter of possible.setters.values()) {
+              invoke(
+                node,
+                setter,
+                [invocation.arguments[2] ?? 'absent'],
+                'unmodeled-callback',
+                substitutions,
+                invocation.arguments[3] ?? invocation.arguments[0],
+              );
+            }
+          } else if (strictUnknownAccessEffects && relevantBindings.some(binding => {
+            const targetReachability = expressionBindingReachability(invocation.arguments![0], binding, bindings, substitutions);
+            const suppliedReachability = [invocation.arguments![2], invocation.arguments![3]]
+              .filter((value): value is ts.Expression => value !== undefined)
+              .some(value => expressionBindingReachability(value, binding, bindings, substitutions) !== 'unrelated');
+            return targetReachability === 'relevant' || suppliedReachability;
+          })) {
+            fail(node, 'unsupported Reflect.set: dynamic key may invoke a relevant setter');
+          }
+        }
       }
       const callee = unwrap(node.expression);
       const calleeMember = staticMember(callee);
@@ -4855,7 +6371,7 @@ function visitExecutableFunctionNodes(
         }
         if (callbackTarget === direct) continue;
         if (!synchronousMethod || calleeMember === undefined) {
-          invoke(callbackTarget, undefined, 'unmodeled-callback');
+          invoke(node, callbackTarget, undefined, 'unmodeled-callback', substitutions);
           continue;
         }
         if (receiverPath !== undefined && receiverPath.startsWith('config.')) {
@@ -4864,7 +6380,7 @@ function visitExecutableFunctionNodes(
           const callbackThis: InvocationValue = node.arguments[1] === undefined
             ? 'absent'
             : finiteProjectedValue(node.arguments[1], substitutions);
-          invoke(callbackTarget, [element, wildcard, calleeMember.base], execution, callbackThis);
+          invoke(node, callbackTarget, [element, wildcard, calleeMember.base], execution, substitutions, callbackThis);
           continue;
         }
         const receiverProvenance = resolveAliasProvenance(calleeMember.base, bindings, substitutions);
@@ -4879,17 +6395,43 @@ function visitExecutableFunctionNodes(
               const callbackThis: InvocationValue = node.arguments[1] === undefined
                 ? 'absent'
                 : finiteProjectedValue(node.arguments[1], substitutions);
-              invoke(callbackTarget, [value, ts.factory.createNumericLiteral(index), calleeMember.base], execution, callbackThis);
+              invoke(node, callbackTarget, [value, ts.factory.createNumericLiteral(index), calleeMember.base], execution, substitutions, callbackThis);
             });
             continue;
           }
         }
-        invoke(callbackTarget, ['tainted', 'tainted', 'tainted'], execution, node.arguments[1] === undefined ? 'absent' : 'tainted');
+        invoke(node, callbackTarget, ['tainted', 'tainted', 'tainted'], execution, substitutions, node.arguments[1] === undefined ? 'absent' : 'tainted');
       }
     }
     ts.forEachChild(node, child => visit(child, substitutions, current, execution));
   };
-  if (owner.body !== undefined) visit(owner.body, new Map(), owner, 'known');
+  if (owner.body !== undefined) {
+    if (initialInvocation === undefined) visit(owner.body, new Map(), owner, 'known');
+    else {
+      const defaultEffects: InvocationDefaultEffect[] = [];
+      const accessEffects: InvocationAccessEffect[] = [];
+      const projected = projectInvocationParameters(
+        owner.parameters,
+        initialInvocation.arguments,
+        bindings,
+        initialInvocation.substitutions,
+        defaultEffects,
+        accessEffects,
+      );
+      for (const effect of accessEffects) {
+        invoke(owner, effect.target, [], initialInvocation.execution, initialInvocation.substitutions, effect.receiver);
+      }
+      for (const effect of defaultEffects) {
+        visit(
+          effect.expression,
+          effect.substitutions,
+          owner,
+          effect.selection === 'maybe' ? 'unmodeled-callback' : initialInvocation.execution,
+        );
+      }
+      visit(owner.body, projected, owner, initialInvocation.execution);
+    }
+  }
 }
 
 function assignmentTargetExpressions(expression: ts.Expression): ts.Expression[] {
@@ -4971,9 +6513,12 @@ function boundedMutationApi(
   });
   const keyedPath = (keyExpression: ts.Expression | undefined): string | undefined => {
     if (keyExpression === undefined) return undefined;
-    const key = resolveStaticString(keyExpression, bindings);
+    const key = resolveStaticString(keyExpression, bindings, substitutions);
     return key === undefined ? undefined : normalizePath(`${targetPath}.${key}`, { allowCanonicalWildcards: true });
   };
+  const mutationPropertyKey = (name: ts.PropertyName): string | undefined => ts.isComputedPropertyName(name)
+    ? resolveStaticString(name.expression, bindings, substitutions)
+    : propertyName(name);
   if (api.receiver === 'Reflect' && api.method === 'set') return [make('write', keyedPath(args[1]) ?? targetPath)];
   if (api.receiver === 'Reflect' && api.method === 'deleteProperty') return [make('delete', keyedPath(args[1]) ?? targetPath)];
   if (api.receiver !== 'Object') return [];
@@ -4984,7 +6529,10 @@ function boundedMutationApi(
       if (!ts.isObjectLiteralExpression(source)) return [];
       return source.properties.flatMap(property => ts.isSpreadAssignment(property)
         ? []
-        : [normalizePath(`${targetPath}.${propertyName(property.name)}`, { allowCanonicalWildcards: true })]);
+        : (() => {
+          const key = mutationPropertyKey(property.name);
+          return key === undefined ? [] : [normalizePath(`${targetPath}.${key}`, { allowCanonicalWildcards: true })];
+        })());
     });
     return paths.length === args.length - 1 && paths.length > 0
       ? paths.map(path => make('write', path))
@@ -4995,7 +6543,10 @@ function boundedMutationApi(
     return descriptors !== undefined && ts.isObjectLiteralExpression(descriptors) && descriptors.properties.length > 0
       ? descriptors.properties.flatMap(property => ts.isSpreadAssignment(property)
         ? [make('write', targetPath)]
-        : [make('write', normalizePath(`${targetPath}.${propertyName(property.name)}`, { allowCanonicalWildcards: true }))])
+        : (() => {
+          const key = mutationPropertyKey(property.name);
+          return [make('write', key === undefined ? targetPath : normalizePath(`${targetPath}.${key}`, { allowCanonicalWildcards: true }))];
+        })())
       : [make('write', targetPath)];
   }
   return [];
@@ -5086,7 +6637,7 @@ function collectFunctionConfigMutations(
       fail(node, `migrateJobConfig behavior has an unsupported unmodeled call consuming configuration identity: ${node.getText()}`);
     }
     mutations.push(...configMutationsAtNode(node, parameter, bindings, substitutions, execution));
-  }, true);
+  }, true, undefined, [parameter], true);
   return mutations;
 }
 
@@ -5273,7 +6824,7 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
     }
     if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind) && assignmentTargetExpressions(node.left).some(target => isTrackedPromptMutationTarget(target, substitutions))) unsupportedAccumulatorEffects.push(node);
     if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) && isTrackedPromptMutationTarget(node.operand, substitutions)) unsupportedAccumulatorEffects.push(node);
-  }, true);
+  }, true, undefined, [samplesDeclaration]);
   if (unsupportedAccumulatorEffects.length > 0) fail(unsupportedAccumulatorEffects[0], 'migrateJobConfig prompts behavior has an unsupported accumulator mutation');
   if (!(samplesDeclaration.getStart() < loops[0].getStart() && loops[0].getStart() < sampleWrite.node.getStart() && sampleWrite.node.getStart() < promptDelete.node.getStart())) fail(promptIf, 'migrateJobConfig prompts behavior requires map, write, then delete order');
 
@@ -5438,6 +6989,25 @@ function scopedFunctionConfigPath(
   }
   if (member !== undefined) {
     const baseExpression = unwrap(member.base);
+    const directBaseSubstitution = substitutions.get(baseExpression);
+    if (directBaseSubstitution !== undefined) {
+      if (directBaseSubstitution === 'tainted' || directBaseSubstitution === 'absent') {
+        fail(baseExpression, 'unsupported reachable mutation: tainted callback receiver provenance');
+      }
+      const substitutedBase = resolveAliasProvenance(directBaseSubstitution, bindings, substitutions);
+      if (substitutedBase.kind === 'tainted') fail(baseExpression, 'unsupported reachable mutation: tainted callback receiver provenance');
+      if (substitutedBase.kind === 'exact' && !ts.isMethodDeclaration(substitutedBase.origin)) {
+        const exactBase = unwrap(substitutedBase.origin);
+        if (ts.isObjectLiteralExpression(exactBase)) {
+          const projected = resolveObjectLiteralProperty(exactBase, member.key, bindings, substitutions, seen);
+          if (projected.kind === 'tainted') fail(expression, `unsupported reachable mutation: tainted object-member provenance for ${expression.getText()}`);
+          if (projected.kind === 'exact' && !ts.isMethodDeclaration(projected.origin)) {
+            return scopedFunctionConfigPath(projected.origin, configParameter, bindings, seen, substitutions, followTerminalAliasProjection);
+          }
+          if (projected.kind === 'absent') return undefined;
+        }
+      }
+    }
     const baseProvenance = resolveAliasProvenance(baseExpression, bindings, substitutions);
     const resolvedBase = baseProvenance.kind === 'exact' && !ts.isMethodDeclaration(baseProvenance.origin)
       ? unwrap(baseProvenance.origin)
@@ -5471,9 +7041,15 @@ function branchContains(branch: ts.Statement, node: ts.Node): boolean {
   return branch.getStart() <= node.getStart() && node.getEnd() <= branch.getEnd();
 }
 
-function resolveStaticString(expression: ts.Expression, bindings: LexicalBindings): string | undefined {
-  expression = resolveAliasOrigin(expression, bindings);
-  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
+function resolveStaticString(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions = new Map(),
+): string | undefined {
+  const provenance = resolveAliasProvenance(expression, bindings, substitutions);
+  if (provenance.kind !== 'exact' || ts.isMethodDeclaration(provenance.origin)) return undefined;
+  const origin = unwrap(provenance.origin);
+  if (ts.isStringLiteral(origin) || ts.isNumericLiteral(origin) || ts.isNoSubstitutionTemplateLiteral(origin)) return origin.text;
   return undefined;
 }
 
@@ -5631,7 +7207,7 @@ function validateAnimaPathBehavior(sourceText: string, sourceName: string): void
       if (expression === projectedAnchor) break;
       if (ts.isPropertyAccessExpression(expression)) parts.unshift(expression.name.text);
       else {
-        const key = expression.argumentExpression === undefined ? undefined : resolveStaticString(expression.argumentExpression, bindings);
+        const key = expression.argumentExpression === undefined ? undefined : resolveStaticString(expression.argumentExpression, bindings, substitutions);
         if (key === undefined) return undefined;
         parts.unshift(key);
       }
@@ -5664,21 +7240,24 @@ function validateAnimaPathBehavior(sourceText: string, sourceName: string): void
       if (invocation.unsupported !== undefined || invocation.arguments === undefined) fail(node, `Anima path behavior has unsupported mutation API invocation: ${invocation.unsupported ?? 'unknown arguments'}`);
       const args = invocation.arguments;
       if (args[0] === undefined) return;
-      const key = ['defineProperty', 'set', 'deleteProperty'].includes(api.method) ? resolveStaticString(args[1], bindings) : undefined;
+      const key = ['defineProperty', 'set', 'deleteProperty'].includes(api.method) ? resolveStaticString(args[1], bindings, substitutions) : undefined;
+      const apiPropertyKey = (name: ts.PropertyName): string | undefined => ts.isComputedPropertyName(name)
+        ? resolveStaticString(name.expression, bindings, substitutions)
+        : propertyName(name);
       if (api.method === 'assign') {
         const source = args[1] === undefined ? undefined : unwrap(args[1]);
         if (source !== undefined && ts.isObjectLiteralExpression(source)) {
-          for (const property of source.properties) record(args[0], 'write', 'api', ts.isSpreadAssignment(property) ? undefined : propertyName(property.name));
+          for (const property of source.properties) record(args[0], 'write', 'api', ts.isSpreadAssignment(property) ? undefined : apiPropertyKey(property.name));
         } else record(args[0], 'write', 'api');
       } else if (api.method === 'defineProperties') {
         const descriptors = args[1] === undefined ? undefined : unwrap(args[1]);
         if (descriptors !== undefined && ts.isObjectLiteralExpression(descriptors)) {
-          for (const property of descriptors.properties) record(args[0], 'write', 'api', ts.isSpreadAssignment(property) ? undefined : propertyName(property.name));
+          for (const property of descriptors.properties) record(args[0], 'write', 'api', ts.isSpreadAssignment(property) ? undefined : apiPropertyKey(property.name));
         } else record(args[0], 'write', 'api');
       } else if (api.method === 'defineProperty' || (api.receiver === 'Reflect' && api.method === 'set')) record(args[0], 'write', 'api', key);
       else if (api.receiver === 'Reflect' && api.method === 'deleteProperty') record(args[0], 'delete', 'api', key);
     }
-  }, true);
+  }, true, undefined, [modelParameter, cleanedBinding!]);
   const cleanedMutations = mutations.filter(mutation => mutation.root === 'cleaned');
   const modelMutations = mutations.filter(mutation => mutation.root === 'model');
   const deleteEffects = cleanedMutations.filter(mutation => mutation.execution === 'known' && mutation.operation === 'delete' && mutation.syntax === 'direct');
@@ -5832,7 +7411,7 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
       ) fail(node, `handleModelArchChange behavior has an unsupported unmodeled call consuming configuration or setter identity: ${node.getText()}`);
     }
     directMutations.push(...configMutationsAtNode(node, configParameter, bindings, substitutions, execution));
-  }, true);
+  }, true, undefined, [configParameter, setterParameter]);
   if (cleanupCalls.length !== 1) fail(owner, 'handleModelArchChange behavior requires one Anima cleanup call');
   const cleanupCall = cleanupCalls[0];
   const cleanupInvocation = normalizeInvocation(cleanupCall, bindings);

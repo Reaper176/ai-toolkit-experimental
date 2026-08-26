@@ -3279,6 +3279,339 @@ if (liveRoot !== undefined) {
     },
     'reviewed provenance roots preserve taint, exact object order, destructuring writes, built-in identity, default effects, and lexical logical constants',
   );
+  const nextReviewDynamicMutationFailures = [
+    ['dynamic defineProperty config key', "  const holder = { target: otherConfig };\n  Object.defineProperty(holder, runtimeKey, { value: jobConfig });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['dynamic Reflect.set config key', "  const holder = { target: otherConfig };\n  Reflect.set(holder, runtimeKey, jobConfig);\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['dynamic defineProperty array method key', "  const items = [];\n  Object.defineProperty(items, runtimeKey, { value: dynamicConsumer });\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['dynamic Reflect.set array method key', "  const items = [];\n  Reflect.set(items, runtimeKey, dynamicConsumer);\n  items.forEach(jobConfig);\n  if (isMac()) {"],
+    ['dynamic defineProperty legacy prototype key', "  const items = [];\n  Object.defineProperty(items, runtimeKey, { value: { push: dynamicConsumer } });\n  items.push(jobConfig);\n  if (isMac()) {"],
+    ['dynamic Reflect.set legacy prototype key', "  const items = [];\n  Reflect.set(items, runtimeKey, { map: dynamicConsumer });\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['dynamic defineProperty global prototype key', "  Object.defineProperty(Array.prototype, runtimeKey, { value: dynamicConsumer });\n  const items = [];\n  items.push(jobConfig);\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const nextReviewDescriptorOrderFailures = [
+    ['descriptor duplicate unsafe last', "  const holder = { target: otherConfig };\n  Object.defineProperty(holder, 'target', { value: otherConfig, value: jobConfig });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['descriptor computed unsafe last', "  const descriptorKey = 'value';\n  const holder = { target: otherConfig };\n  Object.defineProperty(holder, 'target', { value: otherConfig, [descriptorKey]: jobConfig });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['descriptor spread unsafe last', "  const holder = { target: otherConfig };\n  Object.defineProperty(holder, 'target', { value: otherConfig, ...{ value: jobConfig } });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['descriptor unknown spread unsafe last', "  const holder = { target: otherConfig };\n  Object.defineProperty(holder, 'target', { value: otherConfig, ...runtimeDescriptor });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['descriptor accessor unsafe last', "  const holder = { target: otherConfig };\n  Object.defineProperty(holder, 'target', { value: otherConfig, get value() { return jobConfig; } });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const nextReviewEscapeFailures = [
+    ['escaped exact array before map', "  const items = [];\n  dynamicConsumer(items);\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['escaped Array prototype before forEach', "  dynamicConsumer(Array.prototype);\n  const items = [];\n  items.forEach(jobConfig);\n  if (isMac()) {"],
+    ['escaped method holder before prototype install', "  const nativePush = [].push;\n  const methods = { push: nativePush };\n  dynamicConsumer(methods);\n  Array.prototype.push = methods.push;\n  const items = [];\n  items.push(jobConfig);\n  if (isMac()) {"],
+    ['own map call escapes exact array', "  const items = [];\n  const consumer = { map: dynamicConsumer };\n  consumer.map(items);\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['rebound push call escapes exact array', "  const items = [];\n  const consumer = [];\n  consumer.push = dynamicConsumer;\n  consumer.push(items);\n  items.map(jobConfig);\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const nextReviewModuleExecutionFailures = [
+    ['invoked module helper mutates native', summaryMigrateSource.replace('export const migrateJobConfig', "function install() { Array.prototype.map = dynamicConsumer; }\ninstall();\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['module IIFE mutates native', summaryMigrateSource.replace('export const migrateJobConfig', "(() => { Array.prototype.forEach = dynamicConsumer; })();\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.forEach(jobConfig);\n  return jobConfig;")],
+    ['recursive module effect cycle', summaryMigrateSource.replace('export const migrateJobConfig', "function install() { Array.prototype.push = dynamicConsumer; install(); }\ninstall();\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.push(jobConfig);\n  return jobConfig;")],
+    ['dynamic module call escapes prototype', summaryMigrateSource.replace('export const migrateJobConfig', "dynamicConsumer(Array.prototype);\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['invoked parameterized module helper mutates native', summaryMigrateSource.replace('export const migrateJobConfig', "function install(target, consumer) { target.map = consumer; }\ninstall(Array.prototype, dynamicConsumer);\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  const nextReviewExecutedAccessorFailures = [
+    ['destructured argument getter effect', "  function consume({ target }) {}\n  consume({ get target() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } });\n  if (isMac()) {"],
+    ['object spread getter effect', "  const source = { get target() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } };\n  const copied = { ...source };\n  copied;\n  if (isMac()) {"],
+    ['spread argument iterator effect', "  const iterable = { [Symbol.iterator]() { jobConfig.config.process[0].train.steps = 99; return [otherConfig][Symbol.iterator](); } };\n  function consume(target) {}\n  consume(...iterable);\n  if (isMac()) {"],
+    ['unknown relevant getter effect', "  const source = { get target() { dynamicConsumer(jobConfig); return otherConfig; } };\n  const copied = { ...source };\n  copied;\n  if (isMac()) {"],
+    ['unknown relevant iterator identity', "  const iterable = { value: jobConfig, [runtimeKey]: dynamicConsumer };\n  function consume(target) {}\n  consume(...iterable);\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const nextReviewFunctionPrototypeFailures = [
+    ['global Function call rebound', "  Function.prototype.call = dynamicConsumer;\n  function consume(target) {}\n  consume.call(null, jobConfig);\n  if (isMac()) {"],
+    ['assigned global Function apply rebound', "  Object.assign(Function.prototype, { apply: dynamicConsumer });\n  function consume(target) {}\n  consume.apply(null, [jobConfig]);\n  if (isMac()) {"],
+    ['defined global Function bind rebound', "  Object.defineProperty(Function.prototype, 'bind', { value: dynamicConsumer });\n  function consume(target) {}\n  consume.bind(null, jobConfig)();\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const nextReviewLexicalAssignmentFailures = [
+    ['const true alias live if assignment', "  const flag = true;\n  const holder = { target: otherConfig };\n  if (flag) holder.target = jobConfig;\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['rebound false alias unknown if assignment', "  let flag = false;\n  flag = runtimeCondition;\n  const holder = { target: otherConfig };\n  if (flag) holder.target = jobConfig;\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['const true alias live native assignment', "  const flag = true;\n  if (flag) Array.prototype.map = dynamicConsumer;\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const nextReviewPositiveFailures: string[] = [];
+  for (const [label, replacement] of [
+    ['dynamic defineProperty after relevant call', "  const items = [];\n  items.map(jobConfig);\n  Object.defineProperty(items, runtimeKey, { value: dynamicConsumer });\n  if (isMac()) {"],
+    ['dynamic Reflect.set unrelated object', "  Reflect.set(otherObject, runtimeKey, dynamicConsumer);\n  const items = [];\n  items.map(() => 1);\n  if (isMac()) {"],
+    ['descriptor duplicate safe last', "  const holder = { target: jobConfig };\n  Object.defineProperty(holder, 'target', { value: jobConfig, value: otherConfig });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['descriptor computed safe last', "  const descriptorKey = 'value';\n  const holder = { target: jobConfig };\n  Object.defineProperty(holder, 'target', { value: jobConfig, [descriptorKey]: otherConfig });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['descriptor spread safe last', "  const holder = { target: jobConfig };\n  Object.defineProperty(holder, 'target', { value: jobConfig, ...{ value: otherConfig } });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['descriptor accessor shadowed by safe last', "  const holder = { target: jobConfig };\n  Object.defineProperty(holder, 'target', { get value() { return jobConfig; }, value: otherConfig });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['escaped array with no later member use', "  const items = [];\n  dynamicConsumer(items);\n  if (isMac()) {"],
+    ['array escape after relevant native call', "  const items = [];\n  items.map(jobConfig);\n  dynamicConsumer(items);\n  if (isMac()) {"],
+    ['escaped array restored before later call', "  const nativeMap = [].map;\n  const items = [];\n  dynamicConsumer(items);\n  items.map = nativeMap;\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['uninvoked module helper has no effect', "  function install() { Array.prototype.map = dynamicConsumer; }\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['harmless invoked module helper', "  function inspect() { otherObject.value = 1; }\n  inspect();\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['harmless destructured argument getter', "  function consume({ target }) {}\n  consume({ get target() { otherObject.value = 1; return otherConfig; } });\n  if (isMac()) {"],
+    ['harmless object spread getter', "  const source = { get target() { otherObject.value = 1; return otherConfig; } };\n  const copied = { ...source };\n  copied;\n  if (isMac()) {"],
+    ['nested object spread getter shadowed by safe last', "  const source = { get target() { jobConfig.config.process[0].train.steps = 99; return jobConfig; }, ...{ target: otherConfig } };\n  const copied = { ...source };\n  copied;\n  if (isMac()) {"],
+    ['unknown unrelated iterator identity', "  const iterable = { value: otherConfig, [runtimeKey]: dynamicConsumer };\n  function consume(target) {}\n  consume(...iterable);\n  if (isMac()) {"],
+    ['Function call rebound after invocation', "  function consume(target) {}\n  consume.call(null, jobConfig);\n  Function.prototype.call = dynamicConsumer;\n  if (isMac()) {"],
+    ['shadowed Function prototype is unrelated', "  { const Function = { prototype: {} }; Function.prototype.call = dynamicConsumer; }\n  function consume(target) {}\n  consume.call(null, jobConfig);\n  if (isMac()) {"],
+    ['unrelated constructor prototype is unrelated', "  OtherFunction.prototype.call = dynamicConsumer;\n  function consume(target) {}\n  consume.call(null, jobConfig);\n  if (isMac()) {"],
+    ['restored native Function methods remain exact', "  const nativeCall = (function () {}).call;\n  const nativeApply = (function () {}).apply;\n  const nativeBind = (function () {}).bind;\n  Function.prototype.call = dynamicConsumer;\n  Function.prototype.apply = dynamicConsumer;\n  Function.prototype.bind = dynamicConsumer;\n  Function.prototype.call = nativeCall;\n  Function.prototype.apply = nativeApply;\n  Function.prototype.bind = nativeBind;\n  function consume(target) {}\n  consume.call(null, jobConfig);\n  consume.apply(null, [jobConfig]);\n  consume.bind(null, jobConfig)();\n  if (isMac()) {"],
+    ['harmless recursive module helper is bounded', "  function inspect() { inspect(); }\n  inspect();\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['const false alias dead if assignment', "  const flag = false;\n  const holder = { target: otherConfig };\n  if (flag) holder.target = jobConfig;\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['chained false alias dead conditional assignment', "  const first = false;\n  const flag = first;\n  const holder = { target: otherConfig };\n  flag ? holder.target = jobConfig : otherObject;\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['delete own method restores array native', "  const items = [];\n  items.map = dynamicConsumer;\n  delete items.map;\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['assign exact native restores array method', "  const nativeMap = [].map;\n  const items = [];\n  items.map = dynamicConsumer;\n  items.map = nativeMap;\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Object.assign exact native restores array method', "  const nativeMap = [].map;\n  const items = [];\n  items.map = dynamicConsumer;\n  Object.assign(items, { map: nativeMap });\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Object.assign exact native restores prototype method', "  const nativeMap = [].map;\n  Array.prototype.map = dynamicConsumer;\n  Object.assign(Array.prototype, { map: nativeMap });\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.deleteProperty restores inherited array native', "  const items = [];\n  items.map = dynamicConsumer;\n  Reflect.deleteProperty(items, 'map');\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['const false alias dead native assignment', "  const flag = false;\n  flag && (Array.prototype.map = dynamicConsumer);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+  ] as const) {
+    try {
+      assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts);
+    } catch {
+      nextReviewPositiveFailures.push(label);
+    }
+  }
+  const guardedAliasStarted = Date.now();
+  try {
+    assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace(
+      '  if (isMac()) {',
+      "  const assign = Object.assign;\n  const holder = { target: otherConfig };\n  assign(holder, { target: otherConfig });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {",
+    )), summaryMigrateFacts);
+  } catch {
+    nextReviewPositiveFailures.push('stable aliased API query changed semantics');
+  }
+  const guardedAliasElapsed = Date.now() - guardedAliasStarted;
+  if (guardedAliasElapsed > 2_000) nextReviewPositiveFailures.push(`stable aliased API query took ${guardedAliasElapsed}ms`);
+  for (const [label, source] of [
+    ['uninvoked module helper has no module effect', summaryMigrateSource.replace('export const migrateJobConfig', "function install() { Array.prototype.map = dynamicConsumer; }\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['invoked harmless module helper has no relevant effect', summaryMigrateSource.replace('export const migrateJobConfig', "function inspect() { otherObject.value = 1; }\ninspect();\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['module helper restores captured native method', summaryMigrateSource.replace('export const migrateJobConfig', "const nativeMap = [].map;\nfunction install() { Array.prototype.map = dynamicConsumer; Array.prototype.map = nativeMap; }\ninstall();\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['harmless recursive module helper is bounded', summaryMigrateSource.replace('export const migrateJobConfig', "function inspect() { inspect(); }\ninspect();\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+  ] as const) {
+    try {
+      assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(source), summaryMigrateFacts);
+    } catch {
+      nextReviewPositiveFailures.push(label);
+    }
+  }
+  assert.deepEqual(
+    {
+      nextReviewDynamicMutationFailures,
+      nextReviewDescriptorOrderFailures,
+      nextReviewEscapeFailures,
+      nextReviewModuleExecutionFailures,
+      nextReviewExecutedAccessorFailures,
+      nextReviewFunctionPrototypeFailures,
+      nextReviewLexicalAssignmentFailures,
+      nextReviewPositiveFailures,
+    },
+    {
+      nextReviewDynamicMutationFailures: [],
+      nextReviewDescriptorOrderFailures: [],
+      nextReviewEscapeFailures: [],
+      nextReviewModuleExecutionFailures: [],
+      nextReviewExecutedAccessorFailures: [],
+      nextReviewFunctionPrototypeFailures: [],
+      nextReviewLexicalAssignmentFailures: [],
+      nextReviewPositiveFailures: [],
+    },
+    'next bounded provenance review preserves dynamic mutation taint, descriptor order, escaped identities, module effects, access effects, Function natives, and lexical dead writes',
+  );
+  const finalReviewDefinePropertiesFailures = [
+    ['defineProperties duplicate unsafe last', "  const holder = { target: otherConfig };\n  Object.defineProperties(holder, { target: { value: otherConfig }, target: { value: jobConfig } });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['defineProperties computed unsafe last', "  const key = 'target';\n  const holder = { target: otherConfig };\n  Object.defineProperties(holder, { target: { value: otherConfig }, [key]: { value: jobConfig } });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['defineProperties spread unsafe last', "  const holder = { target: otherConfig };\n  Object.defineProperties(holder, { target: { value: otherConfig }, ...{ target: { value: jobConfig } } });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['defineProperties inner descriptor spread unsafe last', "  const holder = { target: otherConfig };\n  Object.defineProperties(holder, { target: { value: otherConfig, ...{ value: jobConfig } } });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['defineProperties descriptor accessor unsafe last', "  const holder = { target: otherConfig };\n  Object.defineProperties(holder, { target: { value: otherConfig, get value() { return jobConfig; } } });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const finalReviewReflectSetFailures = [
+    ['Reflect.set inherited __proto__ setter', "  const items = [];\n  Reflect.set(items, '__proto__', { map: dynamicConsumer });\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set writes through Array prototype receiver', "  const holder = { map: [].map };\n  Reflect.set(holder, 'map', dynamicConsumer, Array.prototype);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set writes through exact array receiver', "  const holder = { map: [].map };\n  const items = [];\n  Reflect.set(holder, 'map', dynamicConsumer, items);\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set executes exact target setter', "  const target = { set map(value) { Array.prototype.map = value; } };\n  Reflect.set(target, 'map', dynamicConsumer);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set exact target setter consumes relevant value', "  const target = { set map(value) { dynamicConsumer(value); } };\n  Reflect.set(target, 'map', jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set exact key invokes inherited target setter', "  const prototype = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const target = { __proto__: prototype };\n  Reflect.set(target, 'value', 1);\n  if (isMac()) {"],
+    ['Reflect.set exact key invokes inherited setter revealed by delete', "  const prototype = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const target = { __proto__: prototype, value: 1 };\n  delete target.value;\n  Reflect.set(target, 'value', 1);\n  if (isMac()) {"],
+    ['setPrototypeOf exact alias installs inherited harmful setter', "  const prototype = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const target = {};\n  const setProto = Object.setPrototypeOf;\n  setProto(target, prototype);\n  Reflect.set(target, runtimeKey, 1);\n  if (isMac()) {"],
+    ['setPrototypeOf destructured alias installs inherited harmful setter', "  const prototype = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const target = {};\n  const { setPrototypeOf: setProto } = Object;\n  setProto(target, prototype);\n  Reflect.set(target, runtimeKey, 1);\n  if (isMac()) {"],
+    ['setPrototypeOf alias replaces prior null prototype', "  const prototype = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const target = { __proto__: null };\n  const setProto = Object.setPrototypeOf;\n  setProto(target, prototype);\n  Reflect.set(target, runtimeKey, 1);\n  if (isMac()) {"],
+    ['deleteProperty alias reveals inherited harmful setter', "  const prototype = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const target = { __proto__: prototype, value: 1 };\n  const remove = Reflect.deleteProperty;\n  remove(target, 'value');\n  Reflect.set(target, 'value', 2);\n  if (isMac()) {"],
+    ['deleteProperty call reveals inherited harmful setter', "  const prototype = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const target = { __proto__: prototype, value: 1 };\n  Reflect.deleteProperty.call(null, target, 'value');\n  Reflect.set(target, 'value', 2);\n  if (isMac()) {"],
+    ['own data __proto__ assignment preserves inherited setter', "  const prototype = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const target = { __proto__: prototype };\n  Object.defineProperty(target, '__proto__', { value: otherObject, writable: true });\n  target.__proto__ = null;\n  Reflect.set(target, 'value', 1);\n  if (isMac()) {"],
+    ['own __proto__ setter executes on direct assignment', "  const target = { set __proto__(next) { jobConfig.config.process[0].train.steps = 99; } };\n  target.__proto__ = otherObject;\n  if (isMac()) {"],
+    ['Reflect.set exact target setter uses supplied receiver as this', "  const target = { set value(next) { this.config.process[0].train.steps = next; } };\n  Reflect.set(target, 'value', 99, jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set exact target setter defaults this to target', "  const target = { config: jobConfig.config, set value(next) { this.config.process[0].train.steps = next; } };\n  Reflect.set(target, 'value', 99);\n  if (isMac()) {"],
+    ['Reflect.set helper parameter exact key invokes target setter', "  const target = { set value(next) { next.config.process[0].train.steps = 99; } };\n  function assign(object, key, value) { Reflect.set(object, key, value); }\n  assign(target, 'value', jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set direct const exact key invokes target setter', "  const target = { set value(next) { next.config.process[0].train.steps = 99; } };\n  const key = 'value';\n  Reflect.set(target, key, jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set helper call exact key invokes target setter', "  const target = { set value(next) { next.config.process[0].train.steps = 99; } };\n  function assign(object, key, value) { Reflect.set(object, key, value); }\n  assign.call(null, target, 'value', jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set helper apply exact key invokes target setter', "  const target = { set value(next) { next.config.process[0].train.steps = 99; } };\n  function assign(object, key, value) { Reflect.set(object, key, value); }\n  assign.apply(null, [target, 'value', jobConfig]);\n  if (isMac()) {"],
+    ['Reflect.set helper bind exact key invokes target setter', "  const target = { set value(next) { next.config.process[0].train.steps = 99; } };\n  function assign(object, key, value) { Reflect.set(object, key, value); }\n  assign.bind(null, target, 'value', jobConfig)();\n  if (isMac()) {"],
+    ['Reflect.set helper tainted key fails closed for target setter', "  const target = { set value(next) { next.config.process[0].train.steps = 99; } };\n  function assign(object, key, value) { Reflect.set(object, key, value); }\n  assign(target, runtimeKey, jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set helper tainted key may select captured relevant setter', "  const target = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  function assign(object, key, value) { Reflect.set(object, key, value); }\n  assign(target, runtimeKey, 1);\n  if (isMac()) {"],
+    ['Reflect.set tainted key may select prototype-rebinding setter', "  const target = { set value(next) { Array.prototype.map = dynamicConsumer; } };\n  Reflect.set(target, runtimeKey, 1);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set tainted key joins every finite own setter', "  const target = { set first(next) { otherObject.value = next; }, set second(next) { jobConfig.config.process[0].train.steps = 99; } };\n  Reflect.set(target, runtimeKey, 1);\n  if (isMac()) {"],
+    ['Reflect.set tainted key joins inherited finite setter', "  const prototype = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const target = {};\n  Object.setPrototypeOf(target, prototype);\n  Reflect.set(target, runtimeKey, 1);\n  if (isMac()) {"],
+    ['Reflect.set tainted key joins object-literal inherited setter', "  const prototype = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const target = { __proto__: prototype };\n  Reflect.set(target, runtimeKey, 1);\n  if (isMac()) {"],
+    ['Reflect.set tainted key rejects cyclic prototype state without recursion', "  const first = {};\n  const second = {};\n  Object.setPrototypeOf(first, second);\n  Object.setPrototypeOf(second, first);\n  Reflect.set(first, runtimeKey, 1);\n  if (isMac()) {"],
+    ['Reflect.set primitive target still evaluates target expression', "  Reflect.set((Array.prototype.map = dynamicConsumer, 1), 'map', dynamicConsumer, Array.prototype);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set primitive target still evaluates value argument', "  Reflect.set(1, 'map', (Array.prototype.map = dynamicConsumer), Array.prototype);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set primitive target still evaluates receiver argument', "  Reflect.set(1, 'map', dynamicConsumer, (Array.prototype.map = dynamicConsumer, Array.prototype));\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const finalReviewEscapeFailures = [
+    ['own call escapes exact array', "  const items = [];\n  const consumer = { call: dynamicConsumer };\n  consumer.call(null, items);\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['rebound apply escapes exact array', "  const items = [];\n  function consumer() {}\n  consumer.apply = dynamicConsumer;\n  consumer.apply(null, [items]);\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['rebound bind escapes exact array', "  const items = [];\n  function consumer() {}\n  consumer.bind = dynamicConsumer;\n  consumer.bind(null, items)();\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['post literal method holder escape', "  const methods = {};\n  methods.map = [].map;\n  dynamicConsumer(methods);\n  Array.prototype.map = methods.map;\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['nested aggregate exact array escape', "  const items = [];\n  dynamicConsumer({ items });\n  items.map(jobConfig);\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const finalReviewModuleInvocationFailures = [
+    ['module helper exact alias invocation', summaryMigrateSource.replace('export const migrateJobConfig', "function install() { Array.prototype.map = dynamicConsumer; }\nconst run = install;\nrun();\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['module helper native call invocation', summaryMigrateSource.replace('export const migrateJobConfig', "function install() { Array.prototype.map = dynamicConsumer; }\ninstall.call(null);\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['module helper native apply invocation', summaryMigrateSource.replace('export const migrateJobConfig', "function install() { Array.prototype.map = dynamicConsumer; }\ninstall.apply(null, []);\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['module helper native bind invocation', summaryMigrateSource.replace('export const migrateJobConfig', "function install() { Array.prototype.map = dynamicConsumer; }\ninstall.bind(null)();\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['module helper aliased effect cycle', summaryMigrateSource.replace('export const migrateJobConfig', "function install() { Array.prototype.map = dynamicConsumer; run(); }\nconst run = install;\nrun();\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+  ].map(([label, source]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(source))).filter((failure): failure is string => failure !== undefined);
+  const finalReviewAccessEffectFailures = [
+    ['object rest getter effect', "  function consume({ ...rest }) {}\n  consume({ get target() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } });\n  if (isMac()) {"],
+    ['array parameter iterator effect', "  const iterable = { [Symbol.iterator]() { jobConfig.config.process[0].train.steps = 99; return [otherConfig][Symbol.iterator](); } };\n  function consume([target]) {}\n  consume(iterable);\n  if (isMac()) {"],
+    ['array rest parameter iterator effect', "  const iterable = { [Symbol.iterator]() { jobConfig.config.process[0].train.steps = 99; return [otherConfig, otherConfig][Symbol.iterator](); } };\n  function consume([target, ...rest]) {}\n  consume(iterable);\n  if (isMac()) {"],
+    ['relevant dynamic object spread', "  const copied = { ...jobConfig };\n  copied;\n  if (isMac()) {"],
+    ['relevant dynamic argument spread', "  function consume(target) {}\n  consume(...jobConfig);\n  if (isMac()) {"],
+    ['object spread executes installed enumerable getter', "  const source = {};\n  Object.defineProperty(source, 'target', { enumerable: true, get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } });\n  const copied = { ...source };\n  copied;\n  if (isMac()) {"],
+    ['object rest executes installed enumerable getter', "  const source = {};\n  Object.defineProperty(source, 'target', { enumerable: true, get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } });\n  function consume({ ...rest }) {}\n  consume(source);\n  if (isMac()) {"],
+    ['object spread executes helper-installed enumerable getter', "  const source = {};\n  function install(target) { Object.defineProperty(target, 'value', { enumerable: true, get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } }); }\n  install(source);\n  const copied = { ...source };\n  copied;\n  if (isMac()) {"],
+    ['object rest executes helper-installed enumerable getter', "  const source = {};\n  function install(target) { Object.defineProperty(target, 'value', { enumerable: true, get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } }); }\n  install(source);\n  function consume({ ...rest }) {}\n  consume(source);\n  if (isMac()) {"],
+    ['object spread executes IIFE-installed enumerable getter', "  const source = {};\n  ((target) => { Object.defineProperty(target, 'value', { enumerable: true, get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } }); })(source);\n  const copied = { ...source };\n  copied;\n  if (isMac()) {"],
+    ['object rest executes IIFE-installed enumerable getter', "  const source = {};\n  ((target) => { Object.defineProperty(target, 'value', { enumerable: true, get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } }); })(source);\n  function consume({ ...rest }) {}\n  consume(source);\n  if (isMac()) {"],
+    ['object spread executes call-installed enumerable getter', "  const source = {};\n  function install(target) { Object.defineProperty(target, 'value', { enumerable: true, get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } }); }\n  install.call(null, source);\n  const copied = { ...source };\n  copied;\n  if (isMac()) {"],
+    ['object spread executes apply-installed enumerable getter', "  const source = {};\n  function install(target) { Object.defineProperty(target, 'value', { enumerable: true, get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } }); }\n  install.apply(null, [source]);\n  const copied = { ...source };\n  copied;\n  if (isMac()) {"],
+    ['object spread executes bind-installed enumerable getter', "  const source = {};\n  function install(target) { Object.defineProperty(target, 'value', { enumerable: true, get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } }); }\n  install.bind(null, source)();\n  const copied = { ...source };\n  copied;\n  if (isMac()) {"],
+    ['dynamic helper invocation may install relevant enumerable getter', "  const source = {};\n  function install(target) { Object.defineProperty(target, 'value', { enumerable: true, get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } }); }\n  dynamicConsumer(install, source);\n  const copied = { ...source };\n  copied;\n  if (isMac()) {"],
+    ['recursive helper installation is bounded and fail closed', "  const source = {};\n  function install(target) { Object.defineProperty(target, 'value', { enumerable: true, get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } }); install(target); }\n  install(source);\n  const copied = { ...source };\n  copied;\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const finalReviewPositiveFailures: string[] = [];
+  for (const [label, replacement] of [
+    ['defineProperties duplicate safe last', "  const holder = { target: jobConfig };\n  Object.defineProperties(holder, { target: { value: jobConfig }, target: { value: otherConfig } });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['defineProperties computed safe last', "  const key = 'target';\n  const holder = { target: jobConfig };\n  Object.defineProperties(holder, { target: { value: jobConfig }, [key]: { value: otherConfig } });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['defineProperties spread safe last', "  const holder = { target: jobConfig };\n  Object.defineProperties(holder, { target: { value: jobConfig }, ...{ target: { value: otherConfig } } });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['defineProperties inner descriptor spread safe last', "  const holder = { target: jobConfig };\n  Object.defineProperties(holder, { target: { value: jobConfig, ...{ value: otherConfig } } });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['defineProperties descriptor accessor shadowed by safe last', "  const holder = { target: jobConfig };\n  Object.defineProperties(holder, { target: { get value() { return jobConfig; }, value: otherConfig } });\n  holder.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['Reflect.set __proto__ own data property is ordinary', "  const items = [];\n  Object.defineProperty(items, '__proto__', { value: otherObject, writable: true });\n  Reflect.set(items, '__proto__', { map: dynamicConsumer });\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set unrelated receiver preserves array native', "  const holder = { map: [].map };\n  Reflect.set(holder, 'map', dynamicConsumer, otherObject);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set false nonwritable target preserves receiver', "  const holder = {};\n  Object.defineProperty(holder, 'map', { value: [].map, writable: false });\n  Reflect.set(holder, 'map', dynamicConsumer, Array.prototype);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set false nonwritable receiver preserves native', "  const nativeMap = [].map;\n  Object.defineProperty(Array.prototype, 'map', { value: nativeMap, writable: false });\n  const holder = { map: nativeMap };\n  Reflect.set(holder, 'map', dynamicConsumer, Array.prototype);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set primitive receiver throws before later use', "  const holder = { map: [].map };\n  Reflect.set(holder, 'map', dynamicConsumer, 1);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set primitive target throws before receiver write', "  Reflect.set(1, 'map', dynamicConsumer, Array.prototype);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set string target throws before receiver write', "  Reflect.set('target', 'map', dynamicConsumer, Array.prototype);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set boolean target throws before receiver write', "  Reflect.set(true, 'map', dynamicConsumer, Array.prototype);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set bigint target throws before receiver write', "  Reflect.set(1n, 'map', dynamicConsumer, Array.prototype);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set symbol target throws before receiver write', "  Reflect.set(Symbol('target'), 'map', dynamicConsumer, Array.prototype);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set null target throws before receiver write', "  Reflect.set(null, 'map', dynamicConsumer, Array.prototype);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set undefined target throws before receiver write', "  Reflect.set(undefined, 'map', dynamicConsumer, Array.prototype);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set primitive target does not coerce property key', "  const key = { toString() { Array.prototype.map = dynamicConsumer; return 'map'; } };\n  Reflect.set(1, key, dynamicConsumer, Array.prototype);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set harmless exact target setter', "  const target = { set map(value) { otherObject.value = value; } };\n  Reflect.set(target, 'map', dynamicConsumer);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set dynamic key invokes harmless Object.setPrototypeOf setter', "  const prototype = { set value(next) { otherObject.value = next; } };\n  const target = {};\n  Object.setPrototypeOf(target, prototype);\n  Reflect.set(target, runtimeKey, 1);\n  if (isMac()) {"],
+    ['Reflect.set exact key invokes harmless Object.setPrototypeOf setter', "  const prototype = { set value(next) { otherObject.value = next; } };\n  const target = {};\n  Object.setPrototypeOf(target, prototype);\n  Reflect.set(target, 'value', 1);\n  if (isMac()) {"],
+    ['Reflect.set own data shadows inherited setter', "  const prototype = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const target = { __proto__: prototype, value: 1 };\n  Reflect.set(target, 'value', 2);\n  if (isMac()) {"],
+    ['Reflect.set inherited data shadows farther inherited setter', "  const base = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const prototype = { __proto__: base, value: 1 };\n  const target = { __proto__: prototype };\n  Reflect.set(target, runtimeKey, 2);\n  if (isMac()) {"],
+    ['Reflect.set later own data descriptor shadows inherited setter', "  const prototype = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const target = { __proto__: prototype };\n  Object.defineProperty(target, 'value', { value: 1, writable: true });\n  Reflect.set(target, runtimeKey, 2);\n  if (isMac()) {"],
+    ['Reflect.set deleted inherited setter is harmless', "  const prototype = {};\n  Object.defineProperty(prototype, 'value', { configurable: true, set(next) { jobConfig.config.process[0].train.steps = 99; } });\n  delete prototype.value;\n  const target = { __proto__: prototype };\n  Reflect.set(target, runtimeKey, 1);\n  if (isMac()) {"],
+    ['Reflect.set exact key on null prototype is harmless', "  const target = { __proto__: null };\n  Reflect.set(target, 'value', 1);\n  if (isMac()) {"],
+    ['Reflect.set dynamic key after null setPrototypeOf is harmless', "  const target = {};\n  Object.setPrototypeOf(target, null);\n  Reflect.set(target, runtimeKey, 1);\n  if (isMac()) {"],
+    ['setPrototypeOf call with harmless prototype is harmless', "  const prototype = { set value(next) { otherObject.value = next; } };\n  const target = {};\n  Object.setPrototypeOf.call(null, target, prototype);\n  Reflect.set(target, runtimeKey, 1);\n  if (isMac()) {"],
+    ['setPrototypeOf apply with harmless prototype is harmless', "  const prototype = { set value(next) { otherObject.value = next; } };\n  const target = {};\n  Object.setPrototypeOf.apply(null, [target, prototype]);\n  Reflect.set(target, runtimeKey, 1);\n  if (isMac()) {"],
+    ['setPrototypeOf bind with harmless prototype is harmless', "  const prototype = { set value(next) { otherObject.value = next; } };\n  const target = {};\n  Object.setPrototypeOf.bind(null, target, prototype)();\n  Reflect.set(target, runtimeKey, 1);\n  if (isMac()) {"],
+    ['defineProperty alias installs own data shadow', "  const prototype = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const target = { __proto__: prototype };\n  const define = Object.defineProperty;\n  define(target, 'value', { value: 1, writable: true });\n  Reflect.set(target, runtimeKey, 2);\n  if (isMac()) {"],
+    ['defineProperty call installs own data shadow', "  const prototype = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const target = { __proto__: prototype };\n  Object.defineProperty.call(null, target, 'value', { value: 1, writable: true });\n  Reflect.set(target, runtimeKey, 2);\n  if (isMac()) {"],
+    ['null prototype __proto__ assignment creates ordinary own data', "  const prototype = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const target = { __proto__: null };\n  target.__proto__ = prototype;\n  Reflect.set(target, runtimeKey, 1);\n  if (isMac()) {"],
+    ['Reflect.set exact target setter uses harmless supplied receiver', "  const target = { set value(next) { this.value = next; } };\n  Reflect.set(target, 'value', 99, otherObject);\n  if (isMac()) {"],
+    ['Reflect.set exact target setter with primitive receiver throws before relevant this write', "  const target = { set value(next) { this.config.process[0].train.steps = next; } };\n  Reflect.set(target, 'value', 99, 1);\n  if (isMac()) {"],
+    ['Reflect.set helper parameter nonmatching exact key skips target setter', "  const target = { set value(next) { next.config.process[0].train.steps = 99; } };\n  function assign(object, key, value) { Reflect.set(object, key, value); }\n  assign(target, 'other', jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set direct const nonmatching key skips target setter', "  const target = { set value(next) { next.config.process[0].train.steps = 99; } };\n  const key = 'other';\n  Reflect.set(target, key, jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set tainted key with harmless finite setters is harmless', "  const target = { set value(next) { otherObject.value = next; } };\n  function assign(object, key, value) { Reflect.set(object, key, value); }\n  assign(target, runtimeKey, 1);\n  if (isMac()) {"],
+    ['Reflect.set tainted key with multiple harmless finite setters is harmless', "  const target = { set first(next) { otherObject.first = next; }, set second(next) { otherObject.second = next; } };\n  Reflect.set(target, runtimeKey, 1);\n  if (isMac()) {"],
+    ['cyclic prototype state without a dynamic member operation is harmless', "  const first = {};\n  const second = {};\n  Object.setPrototypeOf(first, second);\n  Object.setPrototypeOf(second, first);\n  if (isMac()) {"],
+    ['Reflect.set getter-only target returns false', "  const target = { get map() { return [].map; } };\n  Reflect.set(target, 'map', dynamicConsumer, Array.prototype);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set exact throwing setter stops before later use', "  const target = { set map(value) { throw new Error('stop'); } };\n  Reflect.set(target, 'map', dynamicConsumer);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['noncallable installed setter throws during definition', "  const target = {};\n  Object.defineProperty(target, 'map', { set: 1 });\n  Reflect.set(target, 'map', dynamicConsumer);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['native local call does not escape argument', "  const items = [];\n  function inspect(target) {}\n  inspect.call(null, items);\n  items.map(jobConfig);\n  if (isMac()) {"],
+    ['nested aggregate without later use is harmless', "  const items = [];\n  dynamicConsumer({ items });\n  if (isMac()) {"],
+    ['harmless object rest getter', "  function consume({ ...rest }) {}\n  consume({ get target() { otherObject.value = 1; return otherConfig; } });\n  if (isMac()) {"],
+    ['harmless array rest iterator', "  const iterable = { [Symbol.iterator]() { otherObject.value = 1; return [otherConfig, otherConfig][Symbol.iterator](); } };\n  function consume([target, ...rest]) {}\n  consume(iterable);\n  if (isMac()) {"],
+    ['harmless installed enumerable getter in object spread', "  const source = {};\n  Object.defineProperty(source, 'target', { enumerable: true, get() { otherObject.value = 1; return otherConfig; } });\n  const copied = { ...source };\n  copied;\n  if (isMac()) {"],
+    ['harmless installed enumerable getter in object rest', "  const source = {};\n  Object.defineProperty(source, 'target', { enumerable: true, get() { otherObject.value = 1; return otherConfig; } });\n  function consume({ ...rest }) {}\n  consume(source);\n  if (isMac()) {"],
+    ['harmless helper-installed enumerable getter in object spread and rest', "  const source = {};\n  function install(target) { Object.defineProperty(target, 'value', { enumerable: true, get() { otherObject.value = 1; return otherConfig; } }); }\n  install(source);\n  const copied = { ...source };\n  function consume({ ...rest }) {}\n  consume(source);\n  copied;\n  if (isMac()) {"],
+    ['getter installed by helper after spread and rest is not retroactive', "  const source = {};\n  const copied = { ...source };\n  function consume({ ...rest }) {}\n  consume(source);\n  function install(target) { Object.defineProperty(target, 'value', { enumerable: true, get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } }); }\n  install(source);\n  copied;\n  if (isMac()) {"],
+    ['uninvoked getter installation helper is harmless', "  const source = {};\n  function install(target) { Object.defineProperty(target, 'value', { enumerable: true, get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } }); }\n  const copied = { ...source };\n  function consume({ ...rest }) {}\n  consume(source);\n  copied;\n  if (isMac()) {"],
+    ['nonenumerable installed getter is not executed by spread or rest', "  const source = {};\n  Object.defineProperty(source, 'target', { enumerable: false, get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } });\n  const copied = { ...source };\n  function consume({ ...rest }) {}\n  consume(source);\n  copied;\n  if (isMac()) {"],
+    ['default-nonenumerable installed getter is not executed', "  const source = {};\n  Object.defineProperty(source, 'target', { get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } });\n  const copied = { ...source };\n  function consume({ ...rest }) {}\n  consume(source);\n  copied;\n  if (isMac()) {"],
+    ['deleted installed getter is not executed', "  const source = {};\n  Object.defineProperty(source, 'target', { enumerable: true, configurable: true, get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } });\n  delete source.target;\n  const copied = { ...source };\n  function consume({ ...rest }) {}\n  consume(source);\n  copied;\n  if (isMac()) {"],
+    ['installed getter shadowed by safe data descriptor', "  const source = {};\n  Object.defineProperty(source, 'target', { enumerable: true, configurable: true, get() { jobConfig.config.process[0].train.steps = 99; return jobConfig; } });\n  Object.defineProperty(source, 'target', { enumerable: true, value: otherConfig });\n  const copied = { ...source };\n  function consume({ ...rest }) {}\n  consume(source);\n  copied.target.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+    ['getter installed after spread and rest is not retroactive', "  const source = {};\n  const copied = { ...source };\n  function consume({ ...rest }) {}\n  consume(source);\n  Object.defineProperty(source, 'target', { enumerable: true, get() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } });\n  copied;\n  if (isMac()) {"],
+    ['unrelated dynamic object spread', "  const copied = { ...otherConfig };\n  copied;\n  if (isMac()) {"],
+    ['unrelated dynamic argument spread', "  function consume(target) {}\n  consume(...otherConfig);\n  if (isMac()) {"],
+  ] as const) {
+    try {
+      assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)), summaryMigrateFacts);
+    } catch {
+      finalReviewPositiveFailures.push(label);
+    }
+  }
+  for (const [label, source] of [
+    ['uninvoked module helper alias is harmless', summaryMigrateSource.replace('export const migrateJobConfig', "function install() { Array.prototype.map = dynamicConsumer; }\nconst run = install;\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['module alias helper restores native before export use', summaryMigrateSource.replace('export const migrateJobConfig', "const nativeMap = [].map;\nfunction install() { Array.prototype.map = dynamicConsumer; Array.prototype.map = nativeMap; }\nconst run = install;\nrun();\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+    ['harmless aliased recursive module cycle is bounded', summaryMigrateSource.replace('export const migrateJobConfig', "function inspect() { run(); }\nconst run = inspect;\nrun();\nexport const migrateJobConfig").replace('  return jobConfig;', "  const items = [];\n  items.map(jobConfig);\n  return jobConfig;")],
+  ] as const) {
+    try { assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(source), summaryMigrateFacts); }
+    catch { finalReviewPositiveFailures.push(label); }
+  }
+  const finalReviewRepeatedStarted = Date.now();
+  const repeatedWrapperSource = summaryMigrateSource.replace(
+    '  if (isMac()) {',
+    "  const items = [];\n  function inspect(target) {}\n  inspect.call(null, { nested: [items] });\n  items.map(jobConfig);\n  if (isMac()) {",
+  );
+  try {
+    for (let index = 0; index < 3; index += 1) {
+      assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(repeatedWrapperSource), summaryMigrateFacts);
+    }
+  } catch {
+    finalReviewPositiveFailures.push('repeated exact wrapper provenance changed semantics');
+  }
+  const finalReviewRepeatedElapsed = Date.now() - finalReviewRepeatedStarted;
+  if (finalReviewRepeatedElapsed > 3_000) finalReviewPositiveFailures.push(`repeated exact wrapper provenance took ${finalReviewRepeatedElapsed}ms`);
+  const finalReviewRepeatedDescriptorStarted = Date.now();
+  const repeatedDescriptorSources = [
+    "  const target = { set map(value) { otherObject.value = value; } };\n  Reflect.set(target, 'map', dynamicConsumer);\n  const items = [];\n  items.map(jobConfig);\n  if (isMac()) {",
+    "  const source = {};\n  Object.defineProperty(source, 'target', { enumerable: true, get() { otherObject.value = 1; return otherConfig; } });\n  const copied = { ...source };\n  copied;\n  if (isMac()) {",
+    "  const source = {};\n  Object.defineProperty(source, 'target', { enumerable: true, get() { otherObject.value = 1; return otherConfig; } });\n  function consume({ ...rest }) {}\n  consume(source);\n  if (isMac()) {",
+  ];
+  try {
+    for (let index = 0; index < 3; index += 1) {
+      for (const replacement of repeatedDescriptorSources) {
+        assert.deepEqual(
+          collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)),
+          summaryMigrateFacts,
+        );
+      }
+    }
+  } catch {
+    finalReviewPositiveFailures.push('repeated descriptor queries changed semantics');
+  }
+  const finalReviewRepeatedDescriptorElapsed = Date.now() - finalReviewRepeatedDescriptorStarted;
+  if (finalReviewRepeatedDescriptorElapsed > 3_000) {
+    finalReviewPositiveFailures.push(`repeated spread/rest/Reflect descriptor queries took ${finalReviewRepeatedDescriptorElapsed}ms`);
+  }
+  assert.deepEqual(
+    {
+      finalReviewDefinePropertiesFailures,
+      finalReviewReflectSetFailures,
+      finalReviewEscapeFailures,
+      finalReviewModuleInvocationFailures,
+      finalReviewAccessEffectFailures,
+      finalReviewPositiveFailures,
+    },
+    {
+      finalReviewDefinePropertiesFailures: [],
+      finalReviewReflectSetFailures: [],
+      finalReviewEscapeFailures: [],
+      finalReviewModuleInvocationFailures: [],
+      finalReviewAccessEffectFailures: [],
+      finalReviewPositiveFailures: [],
+    },
+    'final bounded review covers defineProperties order, Reflect receivers, aggregate escapes, indirect module calls, and rest/iterator access effects',
+  );
   assert.equal(summaryArchFacts.length, 30);
   assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));
