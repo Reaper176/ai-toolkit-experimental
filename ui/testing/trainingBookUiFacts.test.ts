@@ -5682,6 +5682,22 @@ ${architectureCommit}
       ].join('\n'),
     ),
   );
+  expectAcceptanceArchitectureRejection(
+    'selected switch inner-label break still falls through to throwing default',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    switch (1) {
+      case 1:
+        inner: { break inner; }
+      default:
+        JSON.parse(newArchName);
+    }
+    setJobConfig(newArchName, 'config.process[0].model.arch');
+  }`,
+    ),
+  );
   expectAcceptanceArchitecturePositive(
     'statically selected nested switch break in finally preserves required commit',
     replaceBehaviorFixture(
@@ -5752,6 +5768,23 @@ ${architectureCommit}`,
       `  for (const defaultKey in currentDefaults) {
     setJobConfig(currentDefaults[defaultKey][1], defaultKey);
       }`,
+    ),
+  );
+  expectAcceptanceArchitecturePositive(
+    'selected switch inner-label then direct break in finally preserves required commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      architectureCommit,
+      `  try {} finally {
+    switch (1) {
+      case 1:
+        inner: { break inner; }
+        break;
+      default:
+        JSON.parse(newArchName);
+    }
+    setJobConfig(newArchName, 'config.process[0].model.arch');
+  }`,
     ),
   );
   expectAcceptanceArchitecturePositive(

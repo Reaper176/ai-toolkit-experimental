@@ -6701,37 +6701,64 @@ function visitExecutableFunctionNodes(
     }
     return false;
   };
-  const statementDefinitelyBreaksSwitch = (statement: ts.Statement): boolean => {
+  const breakExitsSwitch = (statement: ts.BreakStatement, target: ts.SwitchStatement): boolean => {
+    if (statement.label !== undefined) {
+      let owner: ts.Node | undefined = statement.parent;
+      while (owner !== undefined && !ts.isFunctionLike(owner)) {
+        if (ts.isLabeledStatement(owner) && owner.label.text === statement.label.text) {
+          let ancestor: ts.Node | undefined = target;
+          while (ancestor !== undefined && ancestor !== owner.statement) ancestor = ancestor.parent;
+          return ancestor === owner.statement;
+        }
+        owner = owner.parent;
+      }
+      return false;
+    }
+    let owner: ts.Node | undefined = statement.parent;
+    while (owner !== undefined && !ts.isFunctionLike(owner)) {
+      if (
+        ts.isSwitchStatement(owner)
+        || ts.isForStatement(owner)
+        || ts.isForInStatement(owner)
+        || ts.isForOfStatement(owner)
+        || ts.isWhileStatement(owner)
+        || ts.isDoStatement(owner)
+      ) return owner === target;
+      owner = owner.parent;
+    }
+    return false;
+  };
+  const statementDefinitelyBreaksSwitch = (statement: ts.Statement, target: ts.SwitchStatement): boolean => {
     if (isStaticallyDead(statement, bindings)) return false;
-    if (ts.isBreakStatement(statement)) return true;
+    if (ts.isBreakStatement(statement)) return breakExitsSwitch(statement, target);
     if (ts.isBlock(statement)) {
       for (const child of statement.statements) {
         if (isStaticallyDead(child, bindings)) continue;
-        if (statementDefinitelyBreaksSwitch(child)) return true;
+        if (statementDefinitelyBreaksSwitch(child, target)) return true;
         if (ts.isReturnStatement(child) || ts.isThrowStatement(child) || ts.isContinueStatement(child)) return false;
       }
       return false;
     }
     if (ts.isIfStatement(statement)) {
       const truth = staticTruthValue(statement.expression, bindings);
-      if (truth === true) return statementDefinitelyBreaksSwitch(statement.thenStatement);
+      if (truth === true) return statementDefinitelyBreaksSwitch(statement.thenStatement, target);
       if (truth === false) return statement.elseStatement !== undefined
-        && statementDefinitelyBreaksSwitch(statement.elseStatement);
+        && statementDefinitelyBreaksSwitch(statement.elseStatement, target);
       return statement.elseStatement !== undefined
-        && statementDefinitelyBreaksSwitch(statement.thenStatement)
-        && statementDefinitelyBreaksSwitch(statement.elseStatement);
+        && statementDefinitelyBreaksSwitch(statement.thenStatement, target)
+        && statementDefinitelyBreaksSwitch(statement.elseStatement, target);
     }
-    if (ts.isLabeledStatement(statement)) return statementDefinitelyBreaksSwitch(statement.statement);
+    if (ts.isLabeledStatement(statement)) return statementDefinitelyBreaksSwitch(statement.statement, target);
     if (ts.isTryStatement(statement)) {
-      if (statement.finallyBlock !== undefined && statementDefinitelyBreaksSwitch(statement.finallyBlock)) return true;
+      if (statement.finallyBlock !== undefined && statementDefinitelyBreaksSwitch(statement.finallyBlock, target)) return true;
       if (statement.finallyBlock !== undefined && statementMayThrow(statement.finallyBlock)) return false;
-      const tryBreaks = statementDefinitelyBreaksSwitch(statement.tryBlock);
+      const tryBreaks = statementDefinitelyBreaksSwitch(statement.tryBlock, target);
       if (tryBreaks) return statement.catchClause === undefined
         || !statementMayThrow(statement.tryBlock)
-        || statementDefinitelyBreaksSwitch(statement.catchClause.block);
+        || statementDefinitelyBreaksSwitch(statement.catchClause.block, target);
       return statement.catchClause !== undefined
         && statementDefinitelyThrowsBeforeCompletion(statement.tryBlock)
-        && statementDefinitelyBreaksSwitch(statement.catchClause.block);
+        && statementDefinitelyBreaksSwitch(statement.catchClause.block, target);
     }
     return false;
   };
@@ -6798,7 +6825,7 @@ function visitExecutableFunctionNodes(
       for (let index = selectedIndex; index < statement.caseBlock.clauses.length; index += 1) {
         for (const child of statement.caseBlock.clauses[index].statements) {
           if (statementMayThrow(child)) return true;
-          if (statementDefinitelyBreaksSwitch(child)) return false;
+          if (statementDefinitelyBreaksSwitch(child, statement)) return false;
           if (ts.isReturnStatement(child) || ts.isThrowStatement(child)) return false;
         }
       }
