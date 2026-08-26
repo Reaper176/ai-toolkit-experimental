@@ -2653,6 +2653,523 @@ for (const [label, mutated] of [
     assert.match(String(error), /quantiz|disableSections|visibility/i, `${label} must fail closed`);
   }
 }
+
+const exactTextEncoderQuantizationCallback = `onChange={value => {
+                if (value === '') setJobConfig(false, 'config.process[0].model.quantize_te');
+                else setJobConfig(true, 'config.process[0].model.quantize_te');
+                setJobConfig(value, 'config.process[0].model.qtype_te');
+              }}`;
+for (const [label, original, corrupted] of [
+  [
+    'Transformer invoked helper qtype setter effect fails closed',
+    exactTransformerQuantizationCallback,
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              setJobConfig(value, 'config.process[0].model.qtype');
+              const corrupt = () => setJobConfig(false, 'config.process[0].model.qtype');
+              corrupt();
+            }}`,
+  ],
+  [
+    'Text Encoder nested helper quantize setter effect fails closed',
+    exactTextEncoderQuantizationCallback,
+    `onChange={value => {
+                if (value === '') setJobConfig(false, 'config.process[0].model.quantize_te');
+                else setJobConfig(true, 'config.process[0].model.quantize_te');
+                setJobConfig(value, 'config.process[0].model.qtype_te');
+                const inner = () => setJobConfig('garbage', 'config.process[0].model.quantize_te');
+                const outer = () => inner();
+                outer();
+              }}`,
+  ],
+  [
+    'Transformer invoked helper false carrier overwrite fails closed',
+    exactTransformerQuantizationCallback,
+    `onChange={value => {
+              let selected = value;
+              if (selected === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              const corrupt = () => { selected = false; };
+              corrupt();
+              setJobConfig(selected, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'Text Encoder nested helper garbage carrier overwrite fails closed',
+    exactTextEncoderQuantizationCallback,
+    `onChange={value => {
+                let selected = value;
+                if (selected === '') setJobConfig(false, 'config.process[0].model.quantize_te');
+                else setJobConfig(true, 'config.process[0].model.quantize_te');
+                const inner = () => { selected = 'garbage'; };
+                const outer = () => inner();
+                outer();
+                setJobConfig(selected, 'config.process[0].model.qtype_te');
+              }}`,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(original, corrupted),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /quantiz|qtype|setter|selection|provenance/i, `${label} must include every invoked helper effect`);
+  }
+}
+for (const [label, callback] of [
+  [
+    'uninvoked invalid quantization setter helper remains harmless',
+    `onChange={value => {
+              const uninvoked = () => setJobConfig(false, 'config.process[0].model.qtype');
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'exact invoked quantization carrier helper remains safe',
+    `onChange={value => {
+              let selected = value;
+              const preserve = () => { selected = value; };
+              preserve();
+              if (selected === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              setJobConfig(selected, 'config.process[0].model.qtype');
+            }}`,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+  } catch {
+    factualUiContractFailures.push(label);
+  }
+}
+
+for (const [label, callback] of [
+  [
+    'prefix update of selected quantization binding fails closed',
+    `onChange={value => {
+              value++;
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'array destructuring write to selected quantization alias fails closed',
+    `onChange={value => {
+              let selected = value;
+              [selected] = [''];
+              if (selected === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              setJobConfig(selected, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'object destructuring write after quantization mapping fails closed',
+    `onChange={value => {
+              let selected = value;
+              if (selected === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              ({ selected } = { selected: '' });
+              setJobConfig(selected, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'nested helper postfix update of selected alias fails closed',
+    `onChange={value => {
+              let selected = value;
+              if (selected === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              const inner = () => { selected++; };
+              const outer = () => inner();
+              outer();
+              setJobConfig(selected, 'config.process[0].model.qtype');
+            }}`,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /quantiz|selection|write|provenance|qtype/i, `${label} must taint unsupported reachable writes`);
+  }
+}
+
+const layerReadHelperSource = (helper: string, invocation: string): string => `
+  function Fixture({ jobConfig, setJobConfig }) {
+    let shown = jobConfig.config.process[0].model.layer_offloading_transformer_percent;
+    ${helper}
+    ${invocation}
+    return <SliderInput
+      label="Transformer Offload %"
+      value={shown * 100}
+      onChange={value => setJobConfig(value * 0.01, 'config.process[0].model.layer_offloading_transformer_percent')}
+      min={0}
+      max={100}
+      step={1}
+    />;
+  }
+`;
+for (const [label, helper, invocation] of [
+  [
+    'invoked helper division invalidates config-to-UI alias scale',
+    `const rewrite = () => { shown = jobConfig.config.process[0].model.layer_offloading_transformer_percent / 100; };`,
+    'rewrite();',
+  ],
+  [
+    'nested helper unknown transform invalidates config-to-UI alias scale',
+    `const inner = () => { shown = transform(jobConfig.config.process[0].model.layer_offloading_transformer_percent); };
+     const outer = () => inner();`,
+    'outer();',
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(layerReadHelperSource(helper, invocation), 'fixture.tsx', 'Fixture');
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /scale|alias|provenance|transform/i, `${label} must include invoked alias effects`);
+  }
+}
+for (const [label, helper, invocation] of [
+  [
+    'uninvoked layer read alias helper remains harmless',
+    `const uninvoked = () => { shown = jobConfig.config.process[0].model.layer_offloading_transformer_percent / 100; };`,
+    '',
+  ],
+  [
+    'exact invoked layer read alias helper preserves scale',
+    `const preserve = () => { shown = jobConfig.config.process[0].model.layer_offloading_transformer_percent; };`,
+    'preserve();',
+  ],
+] as const) {
+  try {
+    const contract = collectVisibleControlClaimsFromSource(
+      layerReadHelperSource(helper, invocation),
+      'fixture.tsx',
+      'Fixture',
+    )[0]?.value_contract as unknown as Record<string, unknown>;
+    if (contract.config_to_ui_scale !== 100 || contract.ui_to_config_scale !== 0.01) factualUiContractFailures.push(label);
+  } catch {
+    factualUiContractFailures.push(label);
+  }
+}
+
+const layerWriteHelperSource = (callback: string): string => layerScaleSource.replace(
+  "onChange={value => setJobConfig(value * 0.01, 'config.process[0].model.layer_offloading_transformer_percent')}",
+  callback,
+);
+for (const [label, callback] of [
+  [
+    'invoked helper unscaled UI-to-config setter fails closed',
+    `onChange={value => {
+        setJobConfig(value * 0.01, 'config.process[0].model.layer_offloading_transformer_percent');
+        const corrupt = () => setJobConfig(value, 'config.process[0].model.layer_offloading_transformer_percent');
+        corrupt();
+      }}`,
+  ],
+  [
+    'nested helper unknown UI-to-config setter fails closed',
+    `onChange={value => {
+        setJobConfig(value * 0.01, 'config.process[0].model.layer_offloading_transformer_percent');
+        const inner = () => setJobConfig(transform(value), 'config.process[0].model.layer_offloading_transformer_percent');
+        const outer = () => inner();
+        outer();
+      }}`,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(layerWriteHelperSource(callback), 'fixture.tsx', 'Fixture');
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /scale|setter|write|provenance/i, `${label} must include every reachable helper setter`);
+  }
+}
+try {
+  const safeHelperScale = collectVisibleControlClaimsFromSource(layerWriteHelperSource(
+    `onChange={value => {
+      const write = () => setJobConfig(value * 0.01, 'config.process[0].model.layer_offloading_transformer_percent');
+      write();
+    }}`,
+  ), 'fixture.tsx', 'Fixture')[0]?.value_contract as unknown as Record<string, unknown>;
+  if (safeHelperScale.config_to_ui_scale !== 100 || safeHelperScale.ui_to_config_scale !== 0.01) {
+    factualUiContractFailures.push('exact invoked helper UI-to-config setter preserves scale');
+  }
+} catch {
+  factualUiContractFailures.push('exact invoked helper UI-to-config setter preserves scale');
+}
+
+for (const [label, sourceText, symbol, projected] of [
+  [
+    'ordinary derived getter effect during base construction fails closed',
+    ordinaryClassEffectControl(
+      `class BaseAccessor {
+         constructor() { this.changed; }
+         get changed() { return 1; }
+       }
+       class DerivedAccessor extends BaseAccessor {
+         get changed() { modeOptions.push({ value: 'b', label: 'B' }); return 1; }
+       }`,
+      'new DerivedAccessor();',
+    ),
+    'Fixture',
+    false,
+  ],
+  [
+    'projected callable instance field effect during construction fails closed',
+    projectedOptionsControl(
+      `class FieldMutator {
+         mutate = () => groupedModelOptions.push({ value: 'stale', label: 'Stale' });
+         constructor() { this.mutate(); }
+       }
+       new FieldMutator();`,
+      '',
+      '',
+    ),
+    'SimpleJob',
+    true,
+  ],
+  [
+    'ordinary callable static field effect in static block fails closed',
+    ordinaryClassEffectControl(
+      `class StaticFieldMutator {
+         static mutate = function () { modeOptions.push({ value: 'b', label: 'B' }); };
+         static { this.mutate(); }
+       }`,
+      '',
+    ),
+    'Fixture',
+    false,
+  ],
+  [
+    'projected super accessor effect in static block fails closed',
+    projectedOptionsControl(
+      `class BaseAccessor {
+         static get mutate() {
+           groupedModelOptions.push({ value: 'stale', label: 'Stale' });
+           return () => undefined;
+         }
+       }
+       class DerivedAccessor extends BaseAccessor {
+         static { super.mutate(); }
+       }`,
+      '',
+      '',
+    ),
+    'SimpleJob',
+    true,
+  ],
+  [
+    'recursive callable field effect fails closed without hanging',
+    ordinaryClassEffectControl(
+      `class RecursiveFieldMutator {
+         mutate = () => { this.mutate(); modeOptions.push({ value: 'b', label: 'B' }); };
+         constructor() { this.mutate(); }
+       }`,
+      'new RecursiveFieldMutator();',
+    ),
+    'Fixture',
+    false,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(sourceText, 'fixture.tsx', symbol, false, projected);
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /class|accessor|field|select.*options|accepted values|recursive|provenance/i, `${label} must replay or conservatively reject member effects`);
+  }
+}
+try {
+  const safeClassMembers = collectVisibleControlClaimsFromSource(ordinaryClassEffectControl(
+    `class SafeMembers {
+       get value() { return 1; }
+       mutate = () => 1;
+       static mutate = () => 1;
+       constructor() { this.value; this.mutate(); }
+       static { this.mutate(); }
+     }`,
+    'new SafeMembers();',
+  ), 'fixture.tsx', 'Fixture');
+  if (JSON.stringify(safeClassMembers[0]?.value_contract.accepted_values) !== JSON.stringify([
+    { kind: 'string', value: 'a' },
+  ])) factualUiContractFailures.push('safe accessors and callable fields remain harmless');
+} catch {
+  factualUiContractFailures.push('safe accessors and callable fields remain harmless');
+}
+
+for (const [label, sourceText, symbol, projected] of [
+  [
+    'class-name static method effect in static block fails closed',
+    ordinaryClassEffectControl(
+      `class NamedStaticMutator {
+         static mutate() { modeOptions.push({ value: 'b', label: 'B' }); }
+         static { NamedStaticMutator.mutate(); }
+       }`,
+      '',
+    ),
+    'Fixture',
+    false,
+  ],
+  [
+    'aliased class static method effect fails closed',
+    projectedOptionsControl(
+      `class StaticMutator {
+         static mutate() { groupedModelOptions.push({ value: 'stale', label: 'Stale' }); }
+       }
+       const StaticAlias = StaticMutator;
+       StaticAlias.mutate();`,
+      '',
+      '',
+    ),
+    'SimpleJob',
+    true,
+  ],
+  [
+    'known instance method effect fails closed',
+    ordinaryClassEffectControl(
+      `class InstanceMutator {
+         mutate() { modeOptions.push({ value: 'b', label: 'B' }); }
+       }
+       const instance = new InstanceMutator();`,
+      'instance.mutate();',
+    ),
+    'Fixture',
+    false,
+  ],
+  [
+    'detached exact instance method effect fails closed',
+    projectedOptionsControl(
+      `class InstanceMutator {
+         mutate() { groupedModelOptions.push({ value: 'stale', label: 'Stale' }); }
+       }
+       const instance = new InstanceMutator();
+       const mutate = instance.mutate;
+       mutate();`,
+      '',
+      '',
+    ),
+    'SimpleJob',
+    true,
+  ],
+  [
+    'unresolved conditional instance receiver fails closed',
+    ordinaryClassEffectControl(
+      `class SafeReceiver { mutate() {} }
+       const receiver = condition ? new SafeReceiver() : externalReceiver;`,
+      'receiver.mutate();',
+    ),
+    'Fixture',
+    false,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(sourceText, 'fixture.tsx', symbol, false, projected);
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /class|receiver|method|select.*options|accepted values|provenance/i, `${label} must resolve or reject reachable receiver effects`);
+  }
+}
+try {
+  const safeKnownReceivers = collectVisibleControlClaimsFromSource(ordinaryClassEffectControl(
+    `class SafeReceiver {
+       static mutate() { return 1; }
+       mutate() { return 1; }
+     }
+     const Alias = SafeReceiver;
+     Alias.mutate();
+     const instance = new SafeReceiver();
+     instance.mutate();
+     const detached = instance.mutate;
+     detached();`,
+    '',
+  ), 'fixture.tsx', 'Fixture');
+  if (JSON.stringify(safeKnownReceivers[0]?.value_contract.accepted_values) !== JSON.stringify([
+    { kind: 'string', value: 'a' },
+  ])) factualUiContractFailures.push('safe known class instance and detached receivers remain harmless');
+} catch {
+  factualUiContractFailures.push('safe known class instance and detached receivers remain harmless');
+}
+
+const ordinaryLoopEffectControl = (effect: string): string => `
+  ${effect.includes('let modeOptions') ? '' : "const modeOptions = [{ value: 'a', label: 'A' }];"}
+  ${effect}
+  function Fixture({ jobConfig, setJobConfig }) {
+    return <SelectInput
+      label="Mode"
+      value={jobConfig.config.process[0].train.mode}
+      onChange={value => setJobConfig(value, 'config.process[0].train.mode')}
+      options={modeOptions}
+    />;
+  }
+`;
+for (const [label, sourceText, symbol, projected] of [
+  [
+    'for-of direct options element target fails closed',
+    ordinaryLoopEffectControl(`for (modeOptions[0] of [[{ value: 'b', label: 'B' }]]) {}`),
+    'Fixture',
+    false,
+  ],
+  [
+    'for-of aliased destructuring options target fails closed',
+    ordinaryLoopEffectControl(`const alias = modeOptions;
+      for ([alias[0]] of [[{ value: 'b', label: 'B' }]]) {}`),
+    'Fixture',
+    false,
+  ],
+  [
+    'for-in property options target fails closed',
+    ordinaryLoopEffectControl(`const holder = { options: modeOptions };
+      for (holder.options[0] in { changed: true }) {}`),
+    'Fixture',
+    false,
+  ],
+  [
+    'for-of options binding reassignment fails closed',
+    ordinaryLoopEffectControl(`let modeOptions = [{ value: 'a', label: 'A' }];
+      for (modeOptions of [[{ value: 'b', label: 'B' }]]) {}`),
+    'Fixture',
+    false,
+  ],
+  [
+    'projected options for-of element target fails closed',
+    projectedOptionsControl(
+      `for (groupedModelOptions[0] of [[{ value: 'stale', label: 'Stale' }]]) {}`,
+      '',
+      '',
+    ),
+    'SimpleJob',
+    true,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(sourceText, 'fixture.tsx', symbol, false, projected);
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /for-|loop|select.*options|accepted values|provenance|mutation/i, `${label} must treat loop assignment targets as writes`);
+  }
+}
+try {
+  const harmlessLoopLocal = collectVisibleControlClaimsFromSource(ordinaryLoopEffectControl(
+    `for (const option of [{ value: 'other', label: 'Other' }]) { const label = option.label; }`,
+  ), 'fixture.tsx', 'Fixture');
+  if (JSON.stringify(harmlessLoopLocal[0]?.value_contract.accepted_values) !== JSON.stringify([
+    { kind: 'string', value: 'a' },
+  ])) factualUiContractFailures.push('harmless loop-local assignment remains unrelated');
+} catch {
+  factualUiContractFailures.push('harmless loop-local assignment remains unrelated');
+}
 assert.deepEqual(factualUiContractFailures, [], 'shared factual UI contracts must remain exact');
 
 assert.throws(
