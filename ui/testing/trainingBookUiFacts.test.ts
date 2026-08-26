@@ -3922,6 +3922,158 @@ for (const [label, helperBody] of [
     factualUiContractFailures.push(label);
   }
 }
+
+const conditionalConstructorQuantizationCallback = (
+  constructorBody: string,
+  constructions: string,
+): string => `onChange={value => {
+            if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+            else setJobConfig(true, 'config.process[0].model.quantize');
+            class Safe {}
+            class Bad { constructor() { value = false; } }
+            class Base { constructor(Ctor, useSafe) { ${constructorBody} } }
+            ${constructions}
+            setJobConfig(value, 'config.process[0].model.qtype');
+          }}`;
+
+for (const [label, callback] of [
+  [
+    'false constructor selector preserves corrupt quantization target',
+    conditionalConstructorQuantizationCallback('if (useSafe) Ctor = Safe; new Ctor();', 'new Base(Bad, false);'),
+  ],
+  [
+    'false constructor selector reaches corrupt else target',
+    conditionalConstructorQuantizationCallback('if (useSafe) Ctor = Safe; else Ctor = Bad; new Ctor();', 'new Base(Safe, false);'),
+  ],
+  [
+    'nested aliased false selector preserves corrupt quantization target',
+    conditionalConstructorQuantizationCallback(
+      'const choose = flag => { if (flag) Ctor = Safe; }; const selected = useSafe; choose(selected); new Ctor();',
+      'new Base(Bad, false);',
+    ),
+  ],
+  [
+    'repeated safe then corrupt constructor invocations remain isolated',
+    conditionalConstructorQuantizationCallback(
+      'if (useSafe) Ctor = Safe; new Ctor();',
+      'new Base(Bad, true); new Base(Bad, false);',
+    ),
+  ],
+  [
+    'repeated corrupt then safe constructor invocations remain isolated',
+    conditionalConstructorQuantizationCallback(
+      'if (useSafe) Ctor = Safe; new Ctor();',
+      'new Base(Bad, false); new Base(Bad, true);',
+    ),
+  ],
+  [
+    'derived super forwards false constructor selector',
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              class Safe {}
+              class Bad { constructor() { value = false; } }
+              class Base { constructor(Ctor, useSafe) { if (useSafe) Ctor = Safe; new Ctor(); } }
+              class Derived extends Base { constructor(Ctor, useSafe) { super(Ctor, useSafe); } }
+              new Derived(Bad, false);
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'unknown constructor selector fails closed',
+    conditionalConstructorQuantizationCallback('if (useSafe) Ctor = Safe; new Ctor();', 'new Base(Bad, externalFlag);'),
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /class|constructor|new|qtype|selection|payload|provenance|target|condition/i, `${label} must honor the reachable constructor target branch`);
+  }
+}
+
+for (const [label, callback] of [
+  [
+    'true constructor selector chooses safe quantization target',
+    conditionalConstructorQuantizationCallback('if (useSafe) Ctor = Safe; new Ctor();', 'new Base(Bad, true);'),
+  ],
+  [
+    'false constructor selector chooses safe else target',
+    conditionalConstructorQuantizationCallback('if (useSafe) Ctor = Bad; else Ctor = Safe; new Ctor();', 'new Base(Bad, false);'),
+  ],
+  [
+    'nested aliased true selector chooses safe quantization target',
+    conditionalConstructorQuantizationCallback(
+      'const choose = flag => { if (flag) Ctor = Safe; }; const selected = useSafe; choose(selected); new Ctor();',
+      'new Base(Bad, true);',
+    ),
+  ],
+  [
+    'literal false selector leaves an existing safe target unchanged',
+    conditionalConstructorQuantizationCallback('if (useSafe) Ctor = Bad; new Ctor();', 'new Base(Safe, false);'),
+  ],
+  [
+    'derived super forwards true constructor selector',
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              class Safe {}
+              class Bad { constructor() { value = false; } }
+              class Base { constructor(Ctor, useSafe) { if (useSafe) Ctor = Safe; new Ctor(); } }
+              class Derived extends Base { constructor(Ctor, useSafe) { super(Ctor, useSafe); } }
+              new Derived(Bad, true);
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+  } catch {
+    factualUiContractFailures.push(label);
+  }
+}
+
+for (const [label, sourceText, symbol, projected] of [
+  [
+    'false constructor selector preserves ordinary options mutator',
+    ordinaryClassEffectControl(
+      `class Safe {}
+       class Bad { constructor() { modeOptions.push({ value: 'b', label: 'B' }); } }
+       class Base { constructor(Ctor, useSafe) { if (useSafe) Ctor = Safe; new Ctor(); } }`,
+      'new Base(Bad, false);',
+    ),
+    'Fixture',
+    false,
+  ],
+  [
+    'false constructor selector preserves projected options mutator',
+    projectedOptionsControl(
+      `class Safe {}
+       class Bad { constructor() { groupedModelOptions.push({ value: 'stale', label: 'Stale' }); } }
+       class Base { constructor(Ctor, useSafe) { if (useSafe) Ctor = Safe; new Ctor(); } }
+       new Base(Bad, false);`,
+      '',
+      '',
+    ),
+    'SimpleJob',
+    true,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(sourceText, 'fixture.tsx', symbol, false, projected);
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /class|constructor|new|select.*options|accepted values|projected|provenance|target|condition/i, `${label} must honor the reachable constructor target branch`);
+  }
+}
 assert.deepEqual(factualUiContractFailures, [], 'shared factual UI contracts must remain exact');
 
 assert.throws(

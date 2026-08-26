@@ -8734,6 +8734,89 @@ function visitExecutableFunctionNodes(
     }
     return false;
   };
+  const invocationStaticTruthValue = (
+    candidate: ts.Expression,
+    substitutions: InvocationSubstitutions,
+    seen = new Set<ts.Node>(),
+  ): boolean | undefined => {
+    if (substitutions.size === 0) return staticTruthValue(candidate, bindings);
+    const expression = unwrap(candidate);
+    if (seen.has(expression)) return undefined;
+    const nextSeen = new Set(seen).add(expression);
+    const direct = substitutions.get(expression);
+    if (direct !== undefined) return typeof direct === 'string'
+      ? direct === 'absent' ? false : undefined
+      : invocationStaticTruthValue(direct, substitutions, nextSeen);
+    if (ts.isIdentifier(expression)) {
+      const declaration = bindings.uniqueLexicalDeclaration(expression)
+        ?? bindings.bindingDeclaration(expression);
+      if (declaration !== undefined && !nextSeen.has(declaration)) {
+        if (ts.isClassDeclaration(declaration.parent) && declaration.parent.name === declaration) return true;
+        const substituted = substitutions.get(declaration);
+        if (substituted !== undefined) return typeof substituted === 'string'
+          ? substituted === 'absent' ? false : undefined
+          : invocationStaticTruthValue(substituted, substitutions, new Set(nextSeen).add(declaration));
+        const provenance = resolveAliasProvenance(expression, bindings, substitutions);
+        if (provenance.kind === 'tainted') return undefined;
+        if (provenance.kind === 'absent') return false;
+        if (provenance.kind === 'exact' && !ts.isMethodDeclaration(provenance.origin)) {
+          const origin = unwrap(provenance.origin);
+          if (origin !== expression) {
+            return invocationStaticTruthValue(origin, substitutions, new Set(nextSeen).add(declaration));
+          }
+        }
+      }
+    }
+    if (ts.isPrefixUnaryExpression(expression) && expression.operator === ts.SyntaxKind.ExclamationToken) {
+      const operand = invocationStaticTruthValue(expression.operand, substitutions, nextSeen);
+      return operand === undefined ? undefined : !operand;
+    }
+    if (ts.isBinaryExpression(expression)) {
+      const left = invocationStaticTruthValue(expression.left, substitutions, nextSeen);
+      if (expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && left !== undefined) {
+        return left ? invocationStaticTruthValue(expression.right, substitutions, nextSeen) : false;
+      }
+      if (expression.operatorToken.kind === ts.SyntaxKind.BarBarToken && left !== undefined) {
+        return left ? true : invocationStaticTruthValue(expression.right, substitutions, nextSeen);
+      }
+    }
+    return staticTruthValue(expression, bindings);
+  };
+  const invocationStaticNullishValue = (
+    candidate: ts.Expression,
+    substitutions: InvocationSubstitutions,
+    seen = new Set<ts.Node>(),
+  ): boolean | undefined => {
+    if (substitutions.size === 0) return staticNullishValue(candidate, bindings);
+    const expression = unwrap(candidate);
+    if (seen.has(expression)) return undefined;
+    const nextSeen = new Set(seen).add(expression);
+    const direct = substitutions.get(expression);
+    if (direct !== undefined) return typeof direct === 'string'
+      ? direct === 'absent' ? true : undefined
+      : invocationStaticNullishValue(direct, substitutions, nextSeen);
+    if (ts.isIdentifier(expression)) {
+      const declaration = bindings.uniqueLexicalDeclaration(expression)
+        ?? bindings.bindingDeclaration(expression);
+      if (declaration !== undefined && !nextSeen.has(declaration)) {
+        if (ts.isClassDeclaration(declaration.parent) && declaration.parent.name === declaration) return false;
+        const substituted = substitutions.get(declaration);
+        if (substituted !== undefined) return typeof substituted === 'string'
+          ? substituted === 'absent' ? true : undefined
+          : invocationStaticNullishValue(substituted, substitutions, new Set(nextSeen).add(declaration));
+        const provenance = resolveAliasProvenance(expression, bindings, substitutions);
+        if (provenance.kind === 'tainted') return undefined;
+        if (provenance.kind === 'absent') return true;
+        if (provenance.kind === 'exact' && !ts.isMethodDeclaration(provenance.origin)) {
+          const origin = unwrap(provenance.origin);
+          if (origin !== expression) {
+            return invocationStaticNullishValue(origin, substitutions, new Set(nextSeen).add(declaration));
+          }
+        }
+      }
+    }
+    return staticNullishValue(expression, bindings);
+  };
   const lexicalConditions = (
     node: ts.Node,
     current: ts.FunctionLikeDeclaration,
@@ -8748,12 +8831,12 @@ function visitExecutableFunctionNodes(
     while (child !== current && child.parent !== undefined) {
       const parent = child.parent;
       if (ts.isIfStatement(parent)) {
-        const truth = staticTruthValue(parent.expression, bindings);
+        const truth = invocationStaticTruthValue(parent.expression, substitutions);
         if (truth === undefined) {
           if (child === parent.thenStatement) conditions.push({ owner: parent, arm: 'then', substitutions });
           else if (child === parent.elseStatement) conditions.push({ owner: parent, arm: 'else', substitutions });
         }
-      } else if (ts.isConditionalExpression(parent) && staticTruthValue(parent.condition, bindings) === undefined) {
+      } else if (ts.isConditionalExpression(parent) && invocationStaticTruthValue(parent.condition, substitutions) === undefined) {
         if (child === parent.whenTrue) conditions.push({ owner: parent, arm: 'true', substitutions });
         else if (child === parent.whenFalse) conditions.push({ owner: parent, arm: 'false', substitutions });
       } else if (
@@ -8761,8 +8844,8 @@ function visitExecutableFunctionNodes(
         && child === parent.right
         && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(parent.operatorToken.kind)
       ) {
-        const truth = staticTruthValue(parent.left, bindings);
-        const nullish = staticNullishValue(parent.left, bindings);
+        const truth = invocationStaticTruthValue(parent.left, substitutions);
+        const nullish = invocationStaticNullishValue(parent.left, substitutions);
         const conditional = (parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && truth === undefined)
           || (parent.operatorToken.kind === ts.SyntaxKind.BarBarToken && truth === undefined)
           || (parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken && nullish === undefined);
@@ -8781,10 +8864,10 @@ function visitExecutableFunctionNodes(
       ) {
         conditions.push({ owner: parent, arm: 'body', substitutions });
       } else if (ts.isForStatement(parent) && child === parent.statement) {
-        const truth = parent.condition === undefined ? true : staticTruthValue(parent.condition, bindings);
+        const truth = parent.condition === undefined ? true : invocationStaticTruthValue(parent.condition, substitutions);
         if (truth !== false && !loopBodyExecutesExactlyOnce(parent)) conditions.push({ owner: parent, arm: 'body', substitutions });
       } else if (ts.isWhileStatement(parent) && child === parent.statement) {
-        if (staticTruthValue(parent.expression, bindings) !== false && !loopBodyExecutesExactlyOnce(parent)) {
+        if (invocationStaticTruthValue(parent.expression, substitutions) !== false && !loopBodyExecutesExactlyOnce(parent)) {
           conditions.push({ owner: parent, arm: 'body', substitutions });
         }
       } else if (ts.isDoStatement(parent) && child === parent.statement) {
@@ -8818,6 +8901,44 @@ function visitExecutableFunctionNodes(
       child = parent;
     }
     return conditions.reverse();
+  };
+  const isInvocationStaticallyDead = (
+    node: ts.Node,
+    current: ts.FunctionLikeDeclaration,
+    substitutions: InvocationSubstitutions,
+  ): boolean => {
+    let child: ts.Node = node;
+    while (child !== current && child.parent !== undefined) {
+      const parent = child.parent;
+      if (ts.isIfStatement(parent)) {
+        const truth = invocationStaticTruthValue(parent.expression, substitutions);
+        if (truth === false && child === parent.thenStatement) return true;
+        if (truth === true && child === parent.elseStatement) return true;
+      } else if (ts.isConditionalExpression(parent)) {
+        const truth = invocationStaticTruthValue(parent.condition, substitutions);
+        if (truth === false && child === parent.whenTrue) return true;
+        if (truth === true && child === parent.whenFalse) return true;
+      } else if (ts.isBinaryExpression(parent) && child === parent.right) {
+        const truth = invocationStaticTruthValue(parent.left, substitutions);
+        if (parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && truth === false) return true;
+        if (parent.operatorToken.kind === ts.SyntaxKind.BarBarToken && truth === true) return true;
+        if (
+          parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
+          && invocationStaticNullishValue(parent.left, substitutions) === false
+        ) return true;
+      } else if (
+        ts.isWhileStatement(parent)
+        && invocationStaticTruthValue(parent.expression, substitutions) === false
+      ) return true;
+      else if (
+        ts.isForStatement(parent)
+        && parent.condition !== undefined
+        && child === parent.statement
+        && invocationStaticTruthValue(parent.condition, substitutions) === false
+      ) return true;
+      child = parent;
+    }
+    return false;
   };
   const mergeConditions = (
     inherited: readonly ConditionalExecutionContext[],
@@ -8886,8 +9007,8 @@ function visitExecutableFunctionNodes(
   ): ts.Identifier | undefined => {
     const expression = unwrap(candidate);
     if (!ts.isIdentifier(expression)) return undefined;
-    const declaration = bindings.bindingDeclaration(expression)
-      ?? bindings.uniqueLexicalDeclaration(expression);
+    const declaration = bindings.uniqueLexicalDeclaration(expression)
+      ?? bindings.bindingDeclaration(expression);
     if (declaration === undefined) return undefined;
     if (executableConstructorTargets.has(declaration)) return declaration;
     if (
@@ -9064,8 +9185,8 @@ function visitExecutableFunctionNodes(
     current: ts.FunctionLikeDeclaration,
     execution: 'known' | 'unmodeled-callback',
   ): void => {
-    if (isStaticallyDead(node, bindings)) return;
     substitutions = withExecutableConstructorTargets(substitutions);
+    if (isStaticallyDead(node, bindings) || isInvocationStaticallyDead(node, current, substitutions)) return;
     if (node !== current && ts.isFunctionLike(node)) return;
     const conditions = mergeConditions(
       invocationConditions.get(current) ?? [],
@@ -9257,12 +9378,27 @@ function visitExecutableFunctionNodes(
     }
     visitor(node, substitutions, execution, sequence++, current, conditions);
     if (ts.isNewExpression(node)) {
-      const trackedTarget = executableConstructorTargetBinding(node.expression, substitutions) !== undefined;
+      const trackedBinding = executableConstructorTargetBinding(node.expression, substitutions);
+      const trackedTarget = trackedBinding !== undefined;
+      let constructionSubstitutions = substitutions;
+      if (trackedBinding !== undefined) {
+        const currentTarget = executableConstructorTargets.get(trackedBinding)
+          ?? substitutions.get(trackedBinding)
+          ?? (() => {
+            const initializer = bindings.uniqueLexicalInitializer(trackedBinding);
+            return initializer === undefined ? undefined : projectedExecutableValue(initializer, substitutions);
+          })();
+        if (currentTarget !== undefined) {
+          const projected = new Map(substitutions);
+          projected.set(node.expression, currentTarget);
+          constructionSubstitutions = projected;
+        }
+      }
       const resolved = visitExecutableClassConstructionNodes(
         node.expression,
         node.arguments === undefined ? [] : finiteInvocationArgumentList(node.arguments, bindings),
         bindings,
-        substitutions,
+        constructionSubstitutions,
         execution,
         (invokedNode, projected, invokedExecution, _nestedSequence, invokedCurrent, invokedConditions) => {
           visitor(
@@ -9277,7 +9413,7 @@ function visitExecutableFunctionNodes(
       );
       if (!resolved && (
         trackedTarget
-        || invocationCalleeDependsOnConstructorParameter(node.expression, bindings, substitutions)
+        || invocationCalleeDependsOnConstructorParameter(node.expression, bindings, constructionSubstitutions)
       )) {
         fail(node, 'unsupported class construction: unresolved constructor parameter provenance');
       }
