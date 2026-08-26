@@ -4862,6 +4862,346 @@ if (liveRoot !== undefined) {
     architectureClaims,
     'harmless local binding renames preserve semantic architecture identities',
   );
+
+  const replaceBehaviorFixture = (source: string, needle: string, replacement: string): string => {
+    assert.ok(source.includes(needle), `behavior-semantics fixture contains ${needle}`);
+    return source.replace(needle, replacement);
+  };
+  const expandHelperStart = modelArchChangeSource.indexOf('const expandDatasetDefaults =');
+  const expandHelperEnd = modelArchChangeSource.indexOf('\n\nexport const handleModelArchChange');
+  assert.ok(expandHelperStart >= 0 && expandHelperEnd > expandHelperStart, 'expandDatasetDefaults fixture is bounded');
+  const expandHelperSource = modelArchChangeSource.slice(expandHelperStart, expandHelperEnd);
+  const mutateExpandHelper = (mutate: (helper: string) => string): string => {
+    const mutated = mutate(expandHelperSource);
+    assert.notEqual(mutated, expandHelperSource, 'expandDatasetDefaults mutation changes the helper');
+    return `${modelArchChangeSource.slice(0, expandHelperStart)}${mutated}${modelArchChangeSource.slice(expandHelperEnd)}`;
+  };
+  const behaviorSemanticsMissingRejects: string[] = [];
+  const expectMigrateBehaviorRejection = (label: string, mutated: string): void => {
+    try {
+      collectMigrateJobConfigBehaviorClaimsFromSource(mutated);
+      behaviorSemanticsMissingRejects.push(label);
+    } catch {}
+  };
+  const expectArchitectureBehaviorRejection = (label: string, mutated: string): void => {
+    try {
+      collectHandleModelArchChangeBehaviorClaimsFromSource(mutated, animaPathSource);
+      behaviorSemanticsMissingRejects.push(label);
+    } catch {}
+  };
+
+  const canonicalTypeBlock = `  if (jobConfig?.config?.process && jobConfig.config.process[0]?.type === 'ui_trainer') {
+    jobConfig.config.process[0].type = 'diffusion_trainer';
+  }`;
+  expectMigrateBehaviorRejection(
+    'migration exact type guard nested under runtime guard',
+    replaceBehaviorFixture(
+      migrateJobConfigSource,
+      canonicalTypeBlock,
+      `  if (runtimeCondition) {
+    if (jobConfig?.config?.process && jobConfig.config.process[0]?.type === 'ui_trainer') {
+      jobConfig.config.process[0].type = 'diffusion_trainer';
+    }
+  }`,
+    ),
+  );
+  expectMigrateBehaviorRejection(
+    'migration helper call runtime-guards exact type write',
+    replaceBehaviorFixture(
+      migrateJobConfigSource,
+      "    jobConfig.config.process[0].type = 'diffusion_trainer';",
+      "    function commitType() { jobConfig.config.process[0].type = 'diffusion_trainer'; }\n    if (runtimeCondition) commitType();",
+    ),
+  );
+  expectArchitectureBehaviorRejection(
+    'architecture-name helper commit runtime-guarded at call site',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      "  setJobConfig(newArchName, 'config.process[0].model.arch');",
+      "  function commitArchitecture() { setJobConfig(newArchName, 'config.process[0].model.arch'); }\n  if (runtimeCondition) commitArchitecture();",
+    ),
+  );
+  expectArchitectureBehaviorRejection(
+    'dataset aggregate helper commit runtime-guarded at call site',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      "  setJobConfig(datasets, 'config.process[0].datasets');",
+      "  function commitDatasets() { setJobConfig(datasets, 'config.process[0].datasets'); }\n  if (runtimeCondition) commitDatasets();",
+    ),
+  );
+  expectArchitectureBehaviorRejection(
+    'sample aggregate callback commit runtime-guarded at call site',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      "  setJobConfig(samples, 'config.process[0].sample.samples');",
+      "  if (runtimeCondition) [samples].forEach(value => setJobConfig(value, 'config.process[0].sample.samples'));",
+    ),
+  );
+  expectArchitectureBehaviorRejection(
+    'current-default commits wrapped in runtime guard',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      `  // revert defaults from previous model
+  for (const key in currentDefaults) {
+    setJobConfig(currentDefaults[key][1], key);
+  }`,
+      `  // revert defaults from previous model
+  if (runtimeCondition) {
+    for (const key in currentDefaults) {
+      setJobConfig(currentDefaults[key][1], key);
+      }
+  }`,
+    ),
+  );
+  expectMigrateBehaviorRejection(
+    'migration exact type guard nested in runtime loop',
+    replaceBehaviorFixture(
+      migrateJobConfigSource,
+      canonicalTypeBlock,
+      `  for (; runtimeCondition;) {
+    if (jobConfig?.config?.process && jobConfig.config.process[0]?.type === 'ui_trainer') {
+      jobConfig.config.process[0].type = 'diffusion_trainer';
+    }
+    break;
+  }`,
+    ),
+  );
+  expectArchitectureBehaviorRejection(
+    'architecture-name commit wrapped in runtime loop',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      "  setJobConfig(newArchName, 'config.process[0].model.arch');",
+      "  while (runtimeCondition) { setJobConfig(newArchName, 'config.process[0].model.arch'); break; }",
+    ),
+  );
+  expectArchitectureBehaviorRejection(
+    'architecture-name commit behind runtime logical guard',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      "  setJobConfig(newArchName, 'config.process[0].model.arch');",
+      "  runtimeCondition && setJobConfig(newArchName, 'config.process[0].model.arch');",
+    ),
+  );
+  expectArchitectureBehaviorRejection(
+    'architecture-name commit behind runtime switch guard',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      "  setJobConfig(newArchName, 'config.process[0].model.arch');",
+      "  switch (runtimeMode) { case 'commit': setJobConfig(newArchName, 'config.process[0].model.arch'); break; }",
+    ),
+  );
+  expectMigrateBehaviorRejection(
+    'migration required write follows potentially throwing try evaluation',
+    replaceBehaviorFixture(
+      migrateJobConfigSource,
+      canonicalTypeBlock,
+      `  try {
+    JSON.parse('not json');
+    if (jobConfig?.config?.process && jobConfig.config.process[0]?.type === 'ui_trainer') {
+      jobConfig.config.process[0].type = 'diffusion_trainer';
+    }
+  } catch {}`,
+    ),
+  );
+  expectArchitectureBehaviorRejection(
+    'architecture-name commit follows potentially throwing try evaluation',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      "  setJobConfig(newArchName, 'config.process[0].model.arch');",
+      "  try { JSON.parse(newArchName); setJobConfig(newArchName, 'config.process[0].model.arch'); } catch {}",
+    ),
+  );
+  expectArchitectureBehaviorRejection(
+    'optional architecture-name setter invocation',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      "  setJobConfig(newArchName, 'config.process[0].model.arch');",
+      "  setJobConfig?.(newArchName, 'config.process[0].model.arch');",
+    ),
+  );
+  expectArchitectureBehaviorRejection(
+    'optional layer objectCopy invocation',
+    replaceBehaviorFixture(modelArchChangeSource, 'objectCopy(cleanedModel)', 'objectCopy?.(cleanedModel)'),
+  );
+  expectArchitectureBehaviorRejection(
+    'optional dataset objectCopy invocation',
+    replaceBehaviorFixture(modelArchChangeSource, 'objectCopy(dataset)', 'objectCopy?.(dataset)'),
+  );
+  expectArchitectureBehaviorRejection(
+    'optional sample objectCopy invocation',
+    replaceBehaviorFixture(modelArchChangeSource, 'objectCopy(sample)', 'objectCopy?.(sample)'),
+  );
+  expectArchitectureBehaviorRejection(
+    'optional defaults-expansion invocation',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      'expandDatasetDefaults(currentArch.defaults || {}, numDatasets)',
+      'expandDatasetDefaults?.(currentArch.defaults || {}, numDatasets)',
+    ),
+  );
+
+  expectArchitectureBehaviorRejection(
+    'layer aggregate copies current model instead of cleaned model',
+    replaceBehaviorFixture(modelArchChangeSource, 'const newModel = objectCopy(cleanedModel);', 'const newModel = objectCopy(currentModel);'),
+  );
+  expectArchitectureBehaviorRejection(
+    'layer aggregate mutates cleaned model without defensive copy',
+    replaceBehaviorFixture(modelArchChangeSource, 'const newModel = objectCopy(cleanedModel);', 'const newModel = cleanedModel;'),
+  );
+  expectArchitectureBehaviorRejection(
+    'layer aggregate copy occurs after deletions',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      `      const newModel = objectCopy(cleanedModel);
+      delete newModel.layer_offloading;
+      delete newModel.layer_offloading_text_encoder_percent;
+      delete newModel.layer_offloading_transformer_percent;
+      setJobConfig(newModel, 'config.process[0].model');`,
+      `      const newModel = cleanedModel;
+      delete newModel.layer_offloading;
+      delete newModel.layer_offloading_text_encoder_percent;
+      delete newModel.layer_offloading_transformer_percent;
+      const copiedModel = objectCopy(newModel);
+      setJobConfig(copiedModel, 'config.process[0].model');`,
+    ),
+  );
+  expectArchitectureBehaviorRejection(
+    'dataset mapper mutates source without defensive copy',
+    replaceBehaviorFixture(modelArchChangeSource, 'const newDataset = objectCopy(dataset);', 'const newDataset = dataset;'),
+  );
+  expectArchitectureBehaviorRejection(
+    'dataset mapper copies only after mutation',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      '    const newDataset = objectCopy(dataset);',
+      '    const newDataset = dataset;',
+    ).replace('    return newDataset;\n  });\n  setJobConfig(datasets', '    return objectCopy(newDataset);\n  });\n  setJobConfig(datasets'),
+  );
+  expectArchitectureBehaviorRejection(
+    'sample mapper mutates source without defensive copy',
+    replaceBehaviorFixture(modelArchChangeSource, 'const newSample = objectCopy(sample);', 'const newSample = sample;'),
+  );
+  expectArchitectureBehaviorRejection(
+    'sample mapper copies only after mutation',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      '    const newSample = objectCopy(sample);',
+      '    const newSample = sample;',
+    ).replace('    return newSample;\n  });\n  setJobConfig(samples', '    return objectCopy(newSample);\n  });\n  setJobConfig(samples'),
+  );
+
+  for (const [label, mutate] of [
+    ['expand helper clone seed', (helper: string) => helper.replace('{ ...defaults }', '{}')],
+    ['expand helper placeholder predicate', (helper: string) => helper.replace("key.includes('datasets[x].')", "key.startsWith('datasets[x].')")],
+    ['expand helper dataset bound', (helper: string) => helper.replace('i < numDatasets', 'i <= numDatasets')],
+    ['expand helper projected key', (helper: string) => helper.replace("key.replace('datasets[x].', `datasets[${i}].`)", "key.replace('datasets[x].', `items[${i}].`)")],
+    ['expand helper value defensive copy', (helper: string) => helper.replace('Array.isArray(v) ? [...v] : objectCopy(v)', 'v')],
+    ['expand helper source-key deletion', (helper: string) => helper.replace('      delete expandedDefaults[key];\n', '')],
+    ['expand helper return identity', (helper: string) => helper.replace('  return expandedDefaults;', '  return defaults;')],
+    ['expand helper exact parameters', (helper: string) => helper.replace('numDatasets: number,\n)', 'numDatasets: number,\n  extra?: unknown,\n)')],
+    ['expand helper synchronous result', (helper: string) => helper.replace('const expandDatasetDefaults = (', 'const expandDatasetDefaults = async (')],
+  ] as const) {
+    expectArchitectureBehaviorRejection(label, mutateExpandHelper(mutate));
+  }
+
+  expectArchitectureBehaviorRejection(
+    'async dataset mapper feeds promise elements to setter',
+    replaceBehaviorFixture(modelArchChangeSource, '.datasets.map(dataset => {', '.datasets.map(async dataset => {'),
+  );
+  expectArchitectureBehaviorRejection(
+    'async sample mapper feeds promise elements to setter',
+    replaceBehaviorFixture(modelArchChangeSource, '.sample.samples.map(sample => {', '.sample.samples.map(async sample => {'),
+  );
+  expectArchitectureBehaviorRejection(
+    'generator sample mapper feeds iterator elements to setter',
+    replaceBehaviorFixture(modelArchChangeSource, '.sample.samples.map(sample => {', '.sample.samples.map(function* (sample) {'),
+  );
+
+  const behaviorSemanticsPositiveFailures: string[] = [];
+  const expectMigrateBehaviorPositive = (label: string, mutated: string): void => {
+    try { assert.deepEqual(collectMigrateJobConfigBehaviorClaimsFromSource(mutated), migrateClaims); } catch { behaviorSemanticsPositiveFailures.push(label); }
+  };
+  const expectArchitectureBehaviorPositive = (label: string, mutated: string): void => {
+    try { assert.deepEqual(collectHandleModelArchChangeBehaviorClaimsFromSource(mutated, animaPathSource), architectureClaims); } catch { behaviorSemanticsPositiveFailures.push(label); }
+  };
+  expectMigrateBehaviorPositive('canonical migration guards', migrateJobConfigSource);
+  expectMigrateBehaviorPositive(
+    'unconditional helper inside exact type guard',
+    replaceBehaviorFixture(
+      migrateJobConfigSource,
+      "    jobConfig.config.process[0].type = 'diffusion_trainer';",
+      "    function commitType() { jobConfig.config.process[0].type = 'diffusion_trainer'; }\n    commitType();",
+    ),
+  );
+  expectArchitectureBehaviorPositive('canonical architecture guards and defensive copies', modelArchChangeSource);
+  expectArchitectureBehaviorPositive(
+    'statically true architecture commit wrapper',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      "  setJobConfig(newArchName, 'config.process[0].model.arch');",
+      "  if (true) setJobConfig(newArchName, 'config.process[0].model.arch');",
+    ),
+  );
+  expectArchitectureBehaviorPositive(
+    'statically selected logical architecture commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      "  setJobConfig(newArchName, 'config.process[0].model.arch');",
+      "  true && setJobConfig(newArchName, 'config.process[0].model.arch');",
+    ),
+  );
+  expectArchitectureBehaviorPositive(
+    'nonthrowing try prefix preserves required architecture commit',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      "  setJobConfig(newArchName, 'config.process[0].model.arch');",
+      "  try { 1; setJobConfig(newArchName, 'config.process[0].model.arch'); } catch {}",
+    ),
+  );
+  expectArchitectureBehaviorPositive(
+    'required architecture commit in finally remains unconditional',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      "  setJobConfig(newArchName, 'config.process[0].model.arch');",
+      "  try { JSON.parse(newArchName); } finally { setJobConfig(newArchName, 'config.process[0].model.arch'); }",
+    ),
+  );
+  expectArchitectureBehaviorPositive(
+    'unrelated optional invocation is harmless',
+    replaceBehaviorFixture(modelArchChangeSource, '  // update samples', '  harmless?.();\n\n  // update samples'),
+  );
+  expectArchitectureBehaviorPositive(
+    'exact defensive-copy input aliases',
+    modelArchChangeSource
+      .replace('const newModel = objectCopy(cleanedModel);', 'const modelCopySource = cleanedModel;\n      const newModel = objectCopy(modelCopySource);')
+      .replace('const newDataset = objectCopy(dataset);', 'const datasetCopySource = dataset;\n    const newDataset = objectCopy(datasetCopySource);')
+      .replace('const newSample = objectCopy(sample);', 'const sampleCopySource = sample;\n    const newSample = objectCopy(sampleCopySource);'),
+  );
+  expectArchitectureBehaviorPositive(
+    'expand helper harmless binding renames',
+    mutateExpandHelper(helper => helper
+      .replaceAll('expandedDefaults', 'result')
+      .replaceAll('numDatasets', 'datasetCount')
+      .replaceAll('defaults', 'sourceDefaults')),
+  );
+  expectArchitectureBehaviorPositive(
+    'uninvoked async and generator helpers are harmless',
+    replaceBehaviorFixture(
+      modelArchChangeSource,
+      '  // update samples',
+      '  const dormantAsync = async () => 42;\n  function* dormantGenerator() { yield 1; }\n\n  // update samples',
+    ),
+  );
+  assert.deepEqual(
+    {
+      missingRejectCount: behaviorSemanticsMissingRejects.length,
+      missingRejects: behaviorSemanticsMissingRejects,
+      positiveFailureCount: behaviorSemanticsPositiveFailures.length,
+      positiveFailures: behaviorSemanticsPositiveFailures,
+    },
+    { missingRejectCount: 0, missingRejects: [], positiveFailureCount: 0, positiveFailures: [] },
+    'behavior-semantics guard/copy/expand/async matrix',
+  );
   const liveSimpleJobSource = readFileSync(join(liveRoot, 'ui/src/app/jobs/new/SimpleJob.tsx'), 'utf8');
   validateArchitectureProjectedControlTemplates(liveSimpleJobSource, 'ui/src/app/jobs/new/SimpleJob.tsx', true, true);
   assert.throws(

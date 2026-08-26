@@ -4334,6 +4334,11 @@ type ConfigMutation = {
 
 type InvocationValue = ts.Expression | 'tainted' | 'absent';
 type InvocationSubstitutions = ReadonlyMap<ts.Node, InvocationValue>;
+type ConditionalExecutionContext = {
+  owner: ts.Node;
+  arm: string;
+  substitutions: InvocationSubstitutions;
+};
 
 function staticMember(
   expression: ts.Expression,
@@ -5515,9 +5520,12 @@ function normalizeInvocation(
   substitutions: InvocationSubstitutions = new Map(),
 ): NormalizedInvocation {
   const candidate = preflightMutationApiCandidate(call, bindings, substitutions);
-  return candidate === undefined
+  const invocation = candidate === undefined
     ? computeNormalizedInvocation(call, bindings, substitutions)
     : normalizedMutationInvocationIdentity(call, bindings, substitutions, candidate).invocation;
+  return call.questionDotToken === undefined
+    ? invocation
+    : { ...invocation, unsupported: invocation.unsupported ?? 'optional invocation is conditionally executed' };
 }
 
 function bindingIdentifiers(name: ts.BindingName): ts.Identifier[] {
@@ -6549,6 +6557,7 @@ function visitExecutableFunctionNodes(
     execution: 'known' | 'unmodeled-callback',
     sequence: number,
     current: ts.FunctionLikeDeclaration,
+    conditions: readonly ConditionalExecutionContext[],
   ) => void,
   invokeMapCallbacks = false,
   initialInvocation?: {
@@ -6560,7 +6569,116 @@ function visitExecutableFunctionNodes(
   strictUnknownAccessEffects = false,
 ): void {
   const active = new Set<ts.FunctionLikeDeclaration>([owner]);
+  const invocationConditions = new Map<ts.FunctionLikeDeclaration, readonly ConditionalExecutionContext[]>();
+  const nodeConditions = new WeakMap<ts.Node, readonly ConditionalExecutionContext[]>();
   const synchronousArrayCallbacks = new Set(['map', 'forEach']);
+  const obviouslyNonThrowingExpression = (candidate: ts.Expression): boolean => {
+    const expression = unwrap(candidate);
+    if (
+      ts.isStringLiteral(expression)
+      || ts.isNoSubstitutionTemplateLiteral(expression)
+      || ts.isNumericLiteral(expression)
+      || ts.isBigIntLiteral(expression)
+      || ts.isRegularExpressionLiteral(expression)
+      || expression.kind === ts.SyntaxKind.TrueKeyword
+      || expression.kind === ts.SyntaxKind.FalseKeyword
+      || expression.kind === ts.SyntaxKind.NullKeyword
+      || ts.isArrowFunction(expression)
+      || ts.isFunctionExpression(expression)
+    ) return true;
+    if (ts.isArrayLiteralExpression(expression)) return expression.elements.every(element => (
+      ts.isOmittedExpression(element)
+      || (!ts.isSpreadElement(element) && obviouslyNonThrowingExpression(element))
+    ));
+    if (ts.isObjectLiteralExpression(expression)) return expression.properties.every(property => (
+      ts.isPropertyAssignment(property)
+        ? !ts.isComputedPropertyName(property.name) && obviouslyNonThrowingExpression(property.initializer)
+        : (ts.isMethodDeclaration(property) || ts.isGetAccessorDeclaration(property) || ts.isSetAccessorDeclaration(property))
+          && !ts.isComputedPropertyName(property.name)
+    ));
+    if (ts.isPrefixUnaryExpression(expression) && expression.operator === ts.SyntaxKind.ExclamationToken) return obviouslyNonThrowingExpression(expression.operand);
+    if (ts.isVoidExpression(expression)) return obviouslyNonThrowingExpression(expression.expression);
+    return false;
+  };
+  const statementMayThrow = (statement: ts.Statement): boolean => {
+    if (ts.isEmptyStatement(statement) || ts.isFunctionDeclaration(statement) || ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) return false;
+    if (ts.isExpressionStatement(statement)) return !obviouslyNonThrowingExpression(statement.expression);
+    if (ts.isVariableStatement(statement)) return statement.declarationList.declarations.some(declaration => (
+      !ts.isIdentifier(declaration.name)
+      || (declaration.initializer !== undefined && !obviouslyNonThrowingExpression(declaration.initializer))
+    ));
+    if (ts.isBlock(statement)) return statement.statements.some(statementMayThrow);
+    return true;
+  };
+  const lexicalConditions = (
+    node: ts.Node,
+    current: ts.FunctionLikeDeclaration,
+    substitutions: InvocationSubstitutions,
+  ): ConditionalExecutionContext[] => {
+    const conditions: ConditionalExecutionContext[] = [];
+    let child: ts.Node = node;
+    while (child !== current && child.parent !== undefined) {
+      const parent = child.parent;
+      if (ts.isIfStatement(parent)) {
+        const truth = staticTruthValue(parent.expression, bindings);
+        if (truth === undefined) {
+          if (child === parent.thenStatement) conditions.push({ owner: parent, arm: 'then', substitutions });
+          else if (child === parent.elseStatement) conditions.push({ owner: parent, arm: 'else', substitutions });
+        }
+      } else if (ts.isConditionalExpression(parent) && staticTruthValue(parent.condition, bindings) === undefined) {
+        if (child === parent.whenTrue) conditions.push({ owner: parent, arm: 'true', substitutions });
+        else if (child === parent.whenFalse) conditions.push({ owner: parent, arm: 'false', substitutions });
+      } else if (
+        ts.isBinaryExpression(parent)
+        && child === parent.right
+        && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(parent.operatorToken.kind)
+      ) {
+        const truth = staticTruthValue(parent.left, bindings);
+        const nullish = staticNullishValue(parent.left, bindings);
+        const conditional = (parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && truth === undefined)
+          || (parent.operatorToken.kind === ts.SyntaxKind.BarBarToken && truth === undefined)
+          || (parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken && nullish === undefined);
+        if (conditional) conditions.push({ owner: parent, arm: 'right', substitutions });
+      } else if (ts.isCaseClause(parent) || ts.isDefaultClause(parent)) {
+        const caseBlock = parent.parent;
+        const switchStatement = ts.isCaseBlock(caseBlock) && ts.isSwitchStatement(caseBlock.parent) ? caseBlock.parent : undefined;
+        if (switchStatement !== undefined) conditions.push({
+          owner: switchStatement,
+          arm: String(caseBlock.clauses.indexOf(parent)),
+          substitutions,
+        });
+      } else if (
+        (ts.isForInStatement(parent) || ts.isForOfStatement(parent))
+        && child === parent.statement
+      ) {
+        conditions.push({ owner: parent, arm: 'body', substitutions });
+      } else if (ts.isForStatement(parent) && child === parent.statement) {
+        const truth = parent.condition === undefined ? true : staticTruthValue(parent.condition, bindings);
+        if (truth !== true) conditions.push({ owner: parent, arm: 'body', substitutions });
+      } else if (ts.isWhileStatement(parent) && child === parent.statement && staticTruthValue(parent.expression, bindings) !== true) {
+        conditions.push({ owner: parent, arm: 'body', substitutions });
+      } else if (ts.isBlock(parent) && ts.isStatement(child) && ts.isTryStatement(parent.parent) && parent.parent.tryBlock === parent) {
+        const index = parent.statements.indexOf(child);
+        if (index > 0 && parent.statements.slice(0, index).some(statementMayThrow)) {
+          conditions.push({ owner: parent.parent, arm: 'try-after-possibly-throwing', substitutions });
+        }
+      } else if (ts.isCatchClause(parent) && child === parent.block) {
+        conditions.push({ owner: parent, arm: 'catch', substitutions });
+      }
+      child = parent;
+    }
+    return conditions.reverse();
+  };
+  const mergeConditions = (
+    inherited: readonly ConditionalExecutionContext[],
+    local: readonly ConditionalExecutionContext[],
+  ): readonly ConditionalExecutionContext[] => {
+    const merged: ConditionalExecutionContext[] = [...inherited];
+    for (const condition of local) {
+      if (!merged.some(existing => existing.owner === condition.owner && existing.arm === condition.arm)) merged.push(condition);
+    }
+    return merged;
+  };
   const finiteProjectedValue = (
     expression: ts.Expression,
     substitutions: InvocationSubstitutions,
@@ -6690,18 +6808,25 @@ function visitExecutableFunctionNodes(
       };
       bindThis(target.body);
     }
+    const priorConditions = invocationConditions.get(target);
+    invocationConditions.set(target, nodeConditions.get(site) ?? []);
     active.add(target);
-    for (const effect of accessEffects) invoke(site, effect.target, [], targetExecution, substitutions, effect.receiver);
-    for (const effect of defaultEffects) {
-      visit(
-        effect.expression,
-        effect.substitutions,
-        target,
-        effect.selection === 'maybe' ? 'unmodeled-callback' : targetExecution,
-      );
+    try {
+      for (const effect of accessEffects) invoke(site, effect.target, [], targetExecution, substitutions, effect.receiver);
+      for (const effect of defaultEffects) {
+        visit(
+          effect.expression,
+          effect.substitutions,
+          target,
+          effect.selection === 'maybe' ? 'unmodeled-callback' : targetExecution,
+        );
+      }
+      visit(target.body, next, target, targetExecution);
+    } finally {
+      active.delete(target);
+      if (priorConditions === undefined) invocationConditions.delete(target);
+      else invocationConditions.set(target, priorConditions);
     }
-    visit(target.body, next, target, targetExecution);
-    active.delete(target);
   };
   visit = (
     node: ts.Node,
@@ -6711,6 +6836,11 @@ function visitExecutableFunctionNodes(
   ): void => {
     if (isStaticallyDead(node, bindings)) return;
     if (node !== current && ts.isFunctionLike(node)) return;
+    const conditions = mergeConditions(
+      invocationConditions.get(current) ?? [],
+      lexicalConditions(node, current, substitutions),
+    );
+    nodeConditions.set(node, conditions);
     let normalizedCall: {
       invocation: NormalizedInvocation;
       activeForwardTarget?: ts.FunctionLikeDeclaration;
@@ -6875,7 +7005,7 @@ function visitExecutableFunctionNodes(
         }
       }
     }
-    visitor(node, substitutions, execution, sequence++, current);
+    visitor(node, substitutions, execution, sequence++, current, conditions);
     if (
       ts.isVariableDeclaration(node)
       && node.initializer !== undefined
@@ -7579,15 +7709,18 @@ function collectFunctionConfigMutations(
   owner: ts.ArrowFunction,
   parameter: ts.Identifier,
   bindings: LexicalBindings,
-): ConfigMutation[] {
+): { mutations: ConfigMutation[]; conditions: Map<ConfigMutation, readonly ConditionalExecutionContext[]> } {
   const mutations: ConfigMutation[] = [];
-  visitExecutableFunctionNodes(owner, bindings, (node, substitutions, execution) => {
+  const conditions = new Map<ConfigMutation, readonly ConditionalExecutionContext[]>();
+  visitExecutableFunctionNodes(owner, bindings, (node, substitutions, execution, _sequence, _current, executionConditions) => {
     if (ts.isCallExpression(node) && unmodeledCallConsumesRelevantIdentity(node, [parameter], bindings, substitutions)) {
       fail(node, `migrateJobConfig behavior has an unsupported unmodeled call consuming configuration identity: ${node.getText()}`);
     }
-    mutations.push(...configMutationsAtNode(node, parameter, bindings, substitutions, execution));
+    const found = configMutationsAtNode(node, parameter, bindings, substitutions, execution);
+    for (const mutation of found) conditions.set(mutation, executionConditions);
+    mutations.push(...found);
   }, true, undefined, [parameter], true);
-  return mutations;
+  return { mutations, conditions };
 }
 
 function invocationIdentifierResolvesTo(
@@ -7620,7 +7753,7 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
   const parameter = exactCallbackIdentifier(owner.parameters[0]);
   if (parameter === undefined || owner.parameters.length !== 1) fail(owner, 'migrateJobConfig behavior requires one exact parameter');
   const bindings = new LexicalBindings(source);
-  const mutations = collectFunctionConfigMutations(owner, parameter, bindings);
+  const { mutations, conditions: mutationConditions } = collectFunctionConfigMutations(owner, parameter, bindings);
   const consumed = new Set<ConfigMutation>();
   const take = (operation: ConfigMutation['operation'], path: string): ConfigMutation => {
     const expectedSyntax = operation === 'write' ? 'assign' : 'delete';
@@ -7628,6 +7761,17 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
     if (matches.length !== 1) fail(owner, `migrateJobConfig behavior requires one ${operation} for ${path}`);
     consumed.add(matches[0]);
     return matches[0];
+  };
+  const requireExactConditions = (
+    mutation: ConfigMutation,
+    expected: readonly { owner: ts.Node; arm: string }[],
+    label: string,
+  ): void => {
+    const actual = mutationConditions.get(mutation) ?? [];
+    if (
+      actual.length !== expected.length
+      || expected.some(item => !actual.some(condition => condition.owner === item.owner && condition.arm === item.arm))
+    ) fail(mutation.node, `migrateJobConfig ${label} behavior has an unsupported enclosing runtime guard`);
   };
   const pathIs = (
     expression: ts.Expression,
@@ -7657,6 +7801,8 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
   const promptSubstitutions = sampleWrite.substitutions;
   const promptIf = enclosingIfWithin(sampleWrite.node, owner);
   if (promptIf === undefined || enclosingIfWithin(promptDelete.node, owner) !== promptIf) fail(sampleWrite.node, 'migrateJobConfig prompts behavior requires one shared guard');
+  requireExactConditions(sampleWrite, [{ owner: promptIf, arm: 'then' }], 'prompts write');
+  requireExactConditions(promptDelete, [{ owner: promptIf, arm: 'then' }], 'prompts delete');
   const promptGuard = flattenAnd(promptIf.expression);
   if (promptGuard.length !== 4
     || !pathIs(promptGuard[0], 'config.process', promptSubstitutions)
@@ -7782,11 +7928,14 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
   const typeParts = typeIf === undefined ? [] : flattenAnd(typeIf.expression);
   const typeComparison = typeParts[1] === undefined ? undefined : unwrap(typeParts[1]);
   if (typeParts.length !== 2 || !pathIs(typeParts[0], 'config.process', typeWrite.substitutions) || typeComparison === undefined || !ts.isBinaryExpression(typeComparison) || typeComparison.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken || !pathIs(typeComparison.left, 'config.process[*].type', typeWrite.substitutions) || !exactString(typeComparison.right, 'ui_trainer') || !exactString((typeWrite.node as ts.BinaryExpression).right, 'diffusion_trainer')) fail(typeWrite.node, 'migrateJobConfig type behavior is unsupported');
+  requireExactConditions(typeWrite, [{ owner: typeIf!, arm: 'then' }], 'type');
 
   const autoWrite = take('write', 'config.process[*].model.layer_offloading');
   const autoDelete = take('delete', 'config.process[*].model.auto_memory');
   const autoIf = enclosingIfWithin(autoWrite.node, owner);
   if (autoIf === undefined || enclosingIfWithin(autoDelete.node, owner) !== autoIf || !exactInGuard(autoIf.expression, 'auto_memory', 'config.process[*].model', false, autoWrite.substitutions)) fail(autoWrite.node, 'migrateJobConfig auto_memory behavior requires the exact presence guard');
+  requireExactConditions(autoWrite, [{ owner: autoIf, arm: 'then' }], 'auto_memory write');
+  requireExactConditions(autoDelete, [{ owner: autoIf, arm: 'then' }], 'auto_memory delete');
   const autoValue = unwrap((autoWrite.node as ts.BinaryExpression).right);
   if (!ts.isBinaryExpression(autoValue) || autoValue.operatorToken.kind !== ts.SyntaxKind.BarBarToken || !pathIs(autoValue.left, 'config.process[*].model.auto_memory', autoWrite.substitutions) || !exactBoolean(autoValue.right, false) || autoWrite.node.getStart() >= autoDelete.node.getStart()) fail(autoWrite.node, 'migrateJobConfig auto_memory behavior requires falsey fallback, write, then delete');
 
@@ -7794,6 +7943,7 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
   const loggingIf = enclosingIfWithin(loggingWrite.node, owner);
   const loggingValue = unwrap((loggingWrite.node as ts.BinaryExpression).right);
   if (loggingIf === undefined || !exactInGuard(loggingIf.expression, 'logging', 'config.process[*]', true, loggingWrite.substitutions) || !ts.isObjectLiteralExpression(loggingValue)) fail(loggingWrite.node, 'migrateJobConfig logging behavior is unsupported');
+  requireExactConditions(loggingWrite, [{ owner: loggingIf, arm: 'then' }], 'logging');
   const loggingProperties = objectProperties(loggingValue);
   if (loggingProperties.size !== 2 || !exactNumber(loggingProperties.get('log_every')!, 1) || !exactBoolean(loggingProperties.get('use_ui_logger')!, true)) fail(loggingValue, 'migrateJobConfig logging behavior requires exact defaults');
 
@@ -7803,6 +7953,7 @@ export function collectMigrateJobConfigBehaviorClaimsFromSource(
   const deviceInvocation = deviceGuard !== undefined && ts.isCallExpression(deviceGuard) ? normalizeInvocation(deviceGuard, bindings, deviceWrite.substitutions) : undefined;
   const deviceTarget = deviceInvocation === undefined ? undefined : unwrap(deviceInvocation.target);
   if (deviceInvocation === undefined || deviceInvocation.unsupported !== undefined || deviceInvocation.arguments?.length !== 0 || deviceTarget === undefined || !ts.isIdentifier(deviceTarget) || !identifierResolvesToExactImport(deviceTarget, 'isMac', '@/helpers/basic', bindings, deviceWrite.substitutions) || !exactString((deviceWrite.node as ts.BinaryExpression).right, 'mps')) fail(deviceWrite.node, 'migrateJobConfig device behavior requires exact isMac/mps semantics');
+  requireExactConditions(deviceWrite, [{ owner: deviceIf!, arm: 'then' }], 'device');
 
   const unsupported = mutations.filter(item => !consumed.has(item));
   if (unsupported.length > 0) fail(unsupported[0].node, `migrateJobConfig unsupported reachable mutation ${unsupported[0].syntax} ${unsupported[0].path}`);
@@ -8262,6 +8413,7 @@ type HandlerSetterCall = {
   path?: string;
   value: ts.Expression;
   execution: 'known' | 'unmodeled-callback';
+  conditions: readonly ConditionalExecutionContext[];
 };
 
 export function collectHandleModelArchChangeBehaviorClaimsFromSource(
@@ -8283,6 +8435,226 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     : []);
   if (expandDatasetDefaultsDeclarations.length !== 1 || !ts.isIdentifier(expandDatasetDefaultsDeclarations[0].name) || expandDatasetDefaultsDeclarations[0].initializer === undefined || !ts.isArrowFunction(unwrap(expandDatasetDefaultsDeclarations[0].initializer))) fail(owner, 'handleModelArchChange behavior requires one exact expandDatasetDefaults helper binding');
   const expandDatasetDefaultsBinding = expandDatasetDefaultsDeclarations[0].name;
+  const expandDatasetDefaults = unwrap(expandDatasetDefaultsDeclarations[0].initializer!);
+  const expandFailure = (node: ts.Node): never => fail(node, 'handleModelArchChange behavior requires exact expandDatasetDefaults helper semantics');
+  if (
+    !ts.isArrowFunction(expandDatasetDefaults)
+    || !ts.isBlock(expandDatasetDefaults.body)
+    || (ts.getCombinedModifierFlags(expandDatasetDefaults) & ts.ModifierFlags.Async) !== 0
+    || expandDatasetDefaults.parameters.length !== 2
+  ) expandFailure(expandDatasetDefaults);
+  const expandHelper = expandDatasetDefaults as ts.ArrowFunction;
+  const expandHelperBody = expandHelper.body as ts.Block;
+  const defaultsParameter = exactCallbackIdentifier(expandHelper.parameters[0]);
+  const datasetCountParameter = exactCallbackIdentifier(expandHelper.parameters[1]);
+  if (defaultsParameter === undefined || datasetCountParameter === undefined) expandFailure(expandDatasetDefaults);
+  const defaultsBinding = defaultsParameter as ts.Identifier;
+  const datasetCountBinding = datasetCountParameter as ts.Identifier;
+  const helperStatements = expandHelperBody.statements;
+  const resultStatement = helperStatements[0];
+  const projectionLoop = helperStatements[1];
+  const resultStatementReturn = helperStatements[2];
+  if (
+    helperStatements.length !== 3
+    || resultStatement === undefined
+    || !ts.isVariableStatement(resultStatement)
+    || (resultStatement.declarationList.flags & ts.NodeFlags.Const) === 0
+    || resultStatement.declarationList.declarations.length !== 1
+  ) expandFailure(expandHelperBody);
+  const exactResultStatement = resultStatement as ts.VariableStatement;
+  const resultDeclaration = exactResultStatement.declarationList.declarations[0];
+  const resultBinding = ts.isIdentifier(resultDeclaration.name) ? resultDeclaration.name : undefined;
+  const resultInitializer = resultDeclaration.initializer === undefined ? undefined : unwrap(resultDeclaration.initializer);
+  if (
+    resultBinding === undefined
+    || resultInitializer === undefined
+    || !ts.isObjectLiteralExpression(resultInitializer)
+    || resultInitializer.properties.length !== 1
+    || !ts.isSpreadAssignment(resultInitializer.properties[0])
+  ) expandFailure(resultDeclaration);
+  const expandedResultBinding = resultBinding as ts.Identifier;
+  const expandedResultInitializer = resultInitializer as ts.ObjectLiteralExpression;
+  const initialSpread = expandedResultInitializer.properties[0] as ts.SpreadAssignment;
+  const initialSpreadValue = unwrap(initialSpread.expression);
+  if (!ts.isIdentifier(initialSpreadValue) || !bindings.isBinding(initialSpreadValue, defaultsBinding)) expandFailure(initialSpread);
+  if (
+    projectionLoop === undefined
+    || !ts.isForInStatement(projectionLoop)
+    || !ts.isVariableDeclarationList(projectionLoop.initializer)
+    || (projectionLoop.initializer.flags & ts.NodeFlags.Const) === 0
+    || projectionLoop.initializer.declarations.length !== 1
+    || !ts.isIdentifier(projectionLoop.initializer.declarations[0].name)
+  ) expandFailure(projectionLoop ?? expandHelperBody);
+  const exactProjectionLoop = projectionLoop as ts.ForInStatement;
+  const keyBinding = (exactProjectionLoop.initializer as ts.VariableDeclarationList).declarations[0].name as ts.Identifier;
+  const projectionSource = unwrap(exactProjectionLoop.expression);
+  if (!ts.isIdentifier(projectionSource) || !bindings.isBinding(projectionSource, defaultsBinding) || !ts.isBlock(exactProjectionLoop.statement) || exactProjectionLoop.statement.statements.length !== 1) expandFailure(exactProjectionLoop);
+  const projectionBody = exactProjectionLoop.statement as ts.Block;
+  const placeholderIf = projectionBody.statements[0];
+  if (!ts.isIfStatement(placeholderIf) || placeholderIf.elseStatement !== undefined || !ts.isBlock(placeholderIf.thenStatement) || placeholderIf.thenStatement.statements.length !== 2) expandFailure(placeholderIf);
+  const exactPlaceholderIf = placeholderIf as ts.IfStatement;
+  const placeholderBody = exactPlaceholderIf.thenStatement as ts.Block;
+  const placeholderCall = unwrap(exactPlaceholderIf.expression);
+  const placeholderMember = ts.isCallExpression(placeholderCall) ? staticMember(placeholderCall.expression) : undefined;
+  const placeholderBase = placeholderMember === undefined ? undefined : unwrap(placeholderMember.base);
+  if (
+    !ts.isCallExpression(placeholderCall)
+    || placeholderMember?.key !== 'includes'
+    || placeholderBase === undefined
+    || !ts.isIdentifier(placeholderBase)
+    || !bindings.isBinding(placeholderBase, keyBinding)
+    || placeholderCall.arguments.length !== 1
+    || !exactString(placeholderCall.arguments[0], 'datasets[x].')
+  ) expandFailure(exactPlaceholderIf.expression);
+  const expansionLoop = placeholderBody.statements[0];
+  const sourceDeleteStatement = placeholderBody.statements[1];
+  if (
+    !ts.isForStatement(expansionLoop)
+    || expansionLoop.initializer === undefined
+    || !ts.isVariableDeclarationList(expansionLoop.initializer)
+    || expansionLoop.initializer.declarations.length !== 1
+    || !ts.isIdentifier(expansionLoop.initializer.declarations[0].name)
+  ) expandFailure(expansionLoop);
+  const exactExpansionLoop = expansionLoop as ts.ForStatement;
+  const expansionInitializer = exactExpansionLoop.initializer as ts.VariableDeclarationList;
+  const indexDeclaration = expansionInitializer.declarations[0];
+  const indexBinding = indexDeclaration.name as ts.Identifier;
+  if (indexDeclaration.initializer === undefined || !exactNumber(indexDeclaration.initializer, 0)) expandFailure(indexDeclaration);
+  const expansionCondition = exactExpansionLoop.condition === undefined ? undefined : unwrap(exactExpansionLoop.condition);
+  const expansionIncrement = exactExpansionLoop.incrementor === undefined ? undefined : unwrap(exactExpansionLoop.incrementor);
+  if (
+    expansionCondition === undefined
+    || !ts.isBinaryExpression(expansionCondition)
+    || expansionCondition.operatorToken.kind !== ts.SyntaxKind.LessThanToken
+    || !ts.isIdentifier(unwrap(expansionCondition.left))
+    || !bindings.isBinding(unwrap(expansionCondition.left) as ts.Identifier, indexBinding)
+    || !ts.isIdentifier(unwrap(expansionCondition.right))
+    || !bindings.isBinding(unwrap(expansionCondition.right) as ts.Identifier, datasetCountBinding)
+    || expansionIncrement === undefined
+    || !ts.isPostfixUnaryExpression(expansionIncrement)
+    || expansionIncrement.operator !== ts.SyntaxKind.PlusPlusToken
+    || !ts.isIdentifier(unwrap(expansionIncrement.operand))
+    || !bindings.isBinding(unwrap(expansionIncrement.operand) as ts.Identifier, indexBinding)
+    || !ts.isBlock(exactExpansionLoop.statement)
+    || exactExpansionLoop.statement.statements.length !== 3
+  ) expandFailure(exactExpansionLoop);
+  const expansionBody = exactExpansionLoop.statement as ts.Block;
+  const [projectedKeyStatement, valueStatement, projectedWriteStatement] = expansionBody.statements;
+  const oneIdentifierDeclaration = (statement: ts.Statement): { binding: ts.Identifier; initializer: ts.Expression } | undefined => {
+    if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) return undefined;
+    const declaration = statement.declarationList.declarations[0];
+    return ts.isIdentifier(declaration.name) && declaration.initializer !== undefined
+      ? { binding: declaration.name, initializer: unwrap(declaration.initializer) }
+      : undefined;
+  };
+  const projectedKey = oneIdentifierDeclaration(projectedKeyStatement);
+  const projectedKeyCall = projectedKey === undefined ? undefined : unwrap(projectedKey.initializer);
+  const projectedKeyMember = projectedKeyCall !== undefined && ts.isCallExpression(projectedKeyCall) ? staticMember(projectedKeyCall.expression) : undefined;
+  const projectedKeyBase = projectedKeyMember === undefined ? undefined : unwrap(projectedKeyMember.base);
+  const projectedTemplate = projectedKeyCall !== undefined && ts.isCallExpression(projectedKeyCall) ? unwrap(projectedKeyCall.arguments[1]) : undefined;
+  if (
+    projectedKey === undefined
+    || projectedKeyCall === undefined
+    || !ts.isCallExpression(projectedKeyCall)
+    || projectedKeyMember?.key !== 'replace'
+    || projectedKeyBase === undefined
+    || !ts.isIdentifier(projectedKeyBase)
+    || projectedKeyCall.arguments.length !== 2
+    || !exactString(projectedKeyCall.arguments[0], 'datasets[x].')
+    || projectedTemplate === undefined
+    || !ts.isTemplateExpression(projectedTemplate)
+    || projectedTemplate.head.text !== 'datasets['
+    || projectedTemplate.templateSpans.length !== 1
+    || !ts.isIdentifier(unwrap(projectedTemplate.templateSpans[0].expression))
+    || projectedTemplate.templateSpans[0].literal.text !== '].'
+  ) expandFailure(projectedKeyStatement);
+  const exactProjectedKeyBase = projectedKeyBase as ts.Identifier;
+  const exactProjectedTemplate = projectedTemplate as ts.TemplateExpression;
+  const projectedIndex = unwrap(exactProjectedTemplate.templateSpans[0].expression) as ts.Identifier;
+  if (!bindings.isBinding(exactProjectedKeyBase, keyBinding) || projectedIndex.text !== indexBinding.text) expandFailure(projectedKeyStatement);
+  const exactProjectedKey = projectedKey as { binding: ts.Identifier; initializer: ts.Expression };
+  const projectedValue = oneIdentifierDeclaration(valueStatement);
+  const projectedValueAccess = projectedValue === undefined ? undefined : unwrap(projectedValue.initializer);
+  const projectedValueBase = projectedValueAccess !== undefined && ts.isElementAccessExpression(projectedValueAccess) ? unwrap(projectedValueAccess.expression) : undefined;
+  const projectedValueKey = projectedValueAccess !== undefined && ts.isElementAccessExpression(projectedValueAccess) && projectedValueAccess.argumentExpression !== undefined ? unwrap(projectedValueAccess.argumentExpression) : undefined;
+  if (
+    projectedValue === undefined
+    || projectedValueAccess === undefined
+    || !ts.isElementAccessExpression(projectedValueAccess)
+    || projectedValueBase === undefined
+    || !ts.isIdentifier(projectedValueBase)
+    || !bindings.isBinding(projectedValueBase, defaultsBinding)
+    || projectedValueKey === undefined
+    || !ts.isIdentifier(projectedValueKey)
+    || !bindings.isBinding(projectedValueKey, keyBinding)
+  ) expandFailure(valueStatement);
+  const exactProjectedValue = projectedValue as { binding: ts.Identifier; initializer: ts.Expression };
+  const projectedWrite = ts.isExpressionStatement(projectedWriteStatement) ? unwrap(projectedWriteStatement.expression) : undefined;
+  const projectedTarget = projectedWrite !== undefined && ts.isBinaryExpression(projectedWrite) ? unwrap(projectedWrite.left) : undefined;
+  const projectedTargetBase = projectedTarget !== undefined && ts.isElementAccessExpression(projectedTarget) ? unwrap(projectedTarget.expression) : undefined;
+  const projectedTargetKey = projectedTarget !== undefined && ts.isElementAccessExpression(projectedTarget) && projectedTarget.argumentExpression !== undefined ? unwrap(projectedTarget.argumentExpression) : undefined;
+  const projectedChoice = projectedWrite !== undefined && ts.isBinaryExpression(projectedWrite) ? unwrap(projectedWrite.right) : undefined;
+  if (
+    projectedWrite === undefined
+    || !ts.isBinaryExpression(projectedWrite)
+    || projectedWrite.operatorToken.kind !== ts.SyntaxKind.EqualsToken
+    || projectedTargetBase === undefined
+    || !ts.isIdentifier(projectedTargetBase)
+    || !bindings.isBinding(projectedTargetBase, expandedResultBinding)
+    || projectedTargetKey === undefined
+    || !ts.isIdentifier(projectedTargetKey)
+    || !bindings.isBinding(projectedTargetKey, exactProjectedKey.binding)
+    || projectedChoice === undefined
+    || !ts.isConditionalExpression(projectedChoice)
+  ) expandFailure(projectedWriteStatement);
+  const exactProjectedChoice = projectedChoice as ts.ConditionalExpression;
+  const arrayCheck = unwrap(exactProjectedChoice.condition);
+  const arrayCheckMember = ts.isCallExpression(arrayCheck) ? staticMember(arrayCheck.expression) : undefined;
+  const arrayCheckBase = arrayCheckMember === undefined ? undefined : unwrap(arrayCheckMember.base);
+  const arrayValue = unwrap(exactProjectedChoice.whenTrue);
+  const copiedValue = unwrap(exactProjectedChoice.whenFalse);
+  const copiedInvocation = ts.isCallExpression(copiedValue) ? normalizeInvocation(copiedValue, bindings) : undefined;
+  const copiedTarget = copiedInvocation === undefined ? undefined : unwrap(copiedInvocation.target);
+  if (
+    !ts.isCallExpression(arrayCheck)
+    || arrayCheckMember?.key !== 'isArray'
+    || arrayCheckBase === undefined
+    || !ts.isIdentifier(arrayCheckBase)
+    || arrayCheckBase.text !== 'Array'
+    || bindings.lookup(arrayCheckBase).found
+    || arrayCheck.arguments.length !== 1
+    || !ts.isIdentifier(unwrap(arrayCheck.arguments[0]))
+    || !bindings.isBinding(unwrap(arrayCheck.arguments[0]) as ts.Identifier, exactProjectedValue.binding)
+    || !ts.isArrayLiteralExpression(arrayValue)
+    || arrayValue.elements.length !== 1
+    || !ts.isSpreadElement(arrayValue.elements[0])
+    || !ts.isIdentifier(unwrap(arrayValue.elements[0].expression))
+    || !bindings.isBinding(unwrap(arrayValue.elements[0].expression) as ts.Identifier, exactProjectedValue.binding)
+    || copiedInvocation === undefined
+    || copiedInvocation.unsupported !== undefined
+    || copiedInvocation.arguments?.length !== 1
+    || copiedTarget === undefined
+    || !ts.isIdentifier(copiedTarget)
+    || !identifierResolvesToExactImport(copiedTarget, 'objectCopy', '@/utils/basic', bindings)
+    || !ts.isIdentifier(unwrap(copiedInvocation.arguments[0]))
+    || !bindings.isBinding(unwrap(copiedInvocation.arguments[0]) as ts.Identifier, exactProjectedValue.binding)
+  ) expandFailure(exactProjectedChoice);
+  const sourceDelete = ts.isExpressionStatement(sourceDeleteStatement) ? unwrap(sourceDeleteStatement.expression) : undefined;
+  const sourceDeleteTarget = sourceDelete !== undefined && ts.isDeleteExpression(sourceDelete) ? unwrap(sourceDelete.expression) : undefined;
+  const sourceDeleteBase = sourceDeleteTarget !== undefined && ts.isElementAccessExpression(sourceDeleteTarget) ? unwrap(sourceDeleteTarget.expression) : undefined;
+  const sourceDeleteKey = sourceDeleteTarget !== undefined && ts.isElementAccessExpression(sourceDeleteTarget) && sourceDeleteTarget.argumentExpression !== undefined ? unwrap(sourceDeleteTarget.argumentExpression) : undefined;
+  if (
+    sourceDelete === undefined
+    || !ts.isDeleteExpression(sourceDelete)
+    || sourceDeleteBase === undefined
+    || !ts.isIdentifier(sourceDeleteBase)
+    || !bindings.isBinding(sourceDeleteBase, expandedResultBinding)
+    || sourceDeleteKey === undefined
+    || !ts.isIdentifier(sourceDeleteKey)
+    || !bindings.isBinding(sourceDeleteKey, keyBinding)
+  ) expandFailure(sourceDeleteStatement);
+  const returnedResult = resultStatementReturn !== undefined && ts.isReturnStatement(resultStatementReturn) && resultStatementReturn.expression !== undefined ? unwrap(resultStatementReturn.expression) : undefined;
+  if (returnedResult === undefined || !ts.isIdentifier(returnedResult) || !bindings.isBinding(returnedResult, expandedResultBinding)) expandFailure(resultStatementReturn ?? expandHelperBody);
   const architectureFinds: Array<{ declaration: ts.Identifier; compared: ts.Identifier }> = [];
   const findVisit = (node: ts.Node): void => {
     if (node !== owner && ts.isFunctionLike(node)) return;
@@ -8322,9 +8694,11 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
 
   validateAnimaPathBehavior(animaPathSourceText, animaPathSourceName);
   const cleanupCalls: ts.CallExpression[] = [];
+  const cleanupConditions = new Map<ts.CallExpression, readonly ConditionalExecutionContext[]>();
   const directMutations: ConfigMutation[] = [];
+  const mutationConditions = new Map<ConfigMutation, readonly ConditionalExecutionContext[]>();
   const setterCalls: HandlerSetterCall[] = [];
-  visitExecutableFunctionNodes(owner, bindings, (node, substitutions, execution) => {
+  visitExecutableFunctionNodes(owner, bindings, (node, substitutions, execution, _sequence, _current, executionConditions) => {
     if (ts.isCallExpression(node)) {
       const invocation = normalizeInvocation(node, bindings, substitutions);
       const target = unwrap(invocation.target);
@@ -8348,18 +8722,21 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
           return substitution ?? argument;
         });
         const pathExpression = unwrap(setterArguments[1]);
-        setterCalls.push({ node, arguments: setterArguments, path: ts.isStringLiteral(pathExpression) || ts.isNoSubstitutionTemplateLiteral(pathExpression) ? normalizePath(pathExpression.text, {}) : undefined, value: setterArguments[0], execution });
+        setterCalls.push({ node, arguments: setterArguments, path: ts.isStringLiteral(pathExpression) || ts.isNoSubstitutionTemplateLiteral(pathExpression) ? normalizePath(pathExpression.text, {}) : undefined, value: setterArguments[0], execution, conditions: executionConditions });
       } else if (ts.isIdentifier(target) && identifierResolvesToExactImport(target, 'clearUnsupportedAnimaPaths', '@/helpers/animaModelPaths', bindings)) {
         modeledRelevantCall = true;
         if (invocation.unsupported !== undefined || invocation.arguments === undefined) fail(node, `handleModelArchChange behavior cleanup invocation is unsupported: ${invocation.unsupported ?? 'unknown arguments'}`);
         cleanupCalls.push(node);
+        cleanupConditions.set(node, executionConditions);
       }
       if (
         !modeledRelevantCall
         && unmodeledCallConsumesRelevantIdentity(node, [configParameter, setterParameter], bindings, substitutions)
       ) fail(node, `handleModelArchChange behavior has an unsupported unmodeled call consuming configuration or setter identity: ${node.getText()}`);
     }
-    directMutations.push(...configMutationsAtNode(node, configParameter, bindings, substitutions, execution));
+    const found = configMutationsAtNode(node, configParameter, bindings, substitutions, execution);
+    for (const mutation of found) mutationConditions.set(mutation, executionConditions);
+    directMutations.push(...found);
   }, true, undefined, [configParameter, setterParameter]);
   if (cleanupCalls.length !== 1) fail(owner, 'handleModelArchChange behavior requires one Anima cleanup call');
   const cleanupCall = cleanupCalls[0];
@@ -8377,6 +8754,7 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
   const cleanupSections = unwrap(cleanupArguments[1]);
   const cleanupSectionsBase = ts.isPropertyAccessExpression(cleanupSections) ? unwrap(cleanupSections.expression) : undefined;
   if (!ts.isPropertyAccessExpression(cleanupSections) || cleanupSections.name.text !== 'additionalSections' || cleanupSectionsBase === undefined || !ts.isIdentifier(cleanupSectionsBase) || !bindings.isBinding(cleanupSectionsBase, nextArchitecture)) fail(cleanupCall, 'handleModelArchChange behavior requires selected architecture cleanup sections');
+  if ((cleanupConditions.get(cleanupCall) ?? []).length !== 0) fail(cleanupCall, 'handleModelArchChange cleanup behavior has an unsupported enclosing runtime guard');
 
   const consumedMutations = new Set<ConfigMutation>();
   const consumedSetters = new Set<HandlerSetterCall>();
@@ -8399,6 +8777,25 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     consumedMutations.add(matches[0]);
     return matches[0];
   };
+  const conditionsMatch = (
+    actual: readonly ConditionalExecutionContext[],
+    expected: readonly { owner: ts.Node; arm: string }[],
+  ): boolean => actual.length === expected.length
+    && expected.every(item => actual.some(condition => condition.owner === item.owner && condition.arm === item.arm));
+  const requireSetterConditions = (
+    call: HandlerSetterCall,
+    expected: readonly { owner: ts.Node; arm: string }[],
+    label: string,
+  ): void => {
+    if (!conditionsMatch(call.conditions, expected)) fail(call.node, `handleModelArchChange ${label} behavior has an unsupported enclosing runtime guard`);
+  };
+  const requireMutationConditions = (
+    mutation: ConfigMutation,
+    expected: readonly { owner: ts.Node; arm: string }[],
+    label: string,
+  ): void => {
+    if (!conditionsMatch(mutationConditions.get(mutation) ?? [], expected)) fail(mutation.node, `handleModelArchChange ${label} behavior has an unsupported enclosing runtime guard`);
+  };
   const valuePath = (
     expression: ts.Expression,
     substitutions: InvocationSubstitutions = new Map(),
@@ -8413,6 +8810,71 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     const value = unwrap(call.value);
     return ts.isIdentifier(value) && bindings.isBinding(value, declaration);
   };
+  const requireExactObjectCopy = (
+    copied: ts.Identifier,
+    sourceBinding: ts.Identifier,
+    label: string,
+  ): ts.CallExpression => {
+    const initializer = ts.isVariableDeclaration(copied.parent) && copied.parent.name === copied
+      ? copied.parent.initializer
+      : bindings.declarationInitializer(copied);
+    const call = initializer === undefined ? undefined : unwrap(initializer);
+    if (call === undefined || !ts.isCallExpression(call)) fail(copied, `handleModelArchChange ${label} requires objectCopy of the exact source identity`);
+    const invocation = normalizeInvocation(call, bindings);
+    const target = unwrap(invocation.target);
+    if (
+      invocation.unsupported !== undefined
+      || invocation.arguments?.length !== 1
+      || !ts.isIdentifier(target)
+      || !identifierResolvesToExactImport(target, 'objectCopy', '@/utils/basic', bindings)
+      || !aliasOriginReachesBinding(invocation.arguments[0], sourceBinding, bindings, new Map())
+    ) fail(call, `handleModelArchChange ${label} requires objectCopy of the exact source identity`);
+    return call;
+  };
+  const mutationReceiver = (mutation: ConfigMutation): ts.Expression | undefined => {
+    const target = ts.isDeleteExpression(mutation.node)
+      ? mutation.node.expression
+      : ts.isBinaryExpression(mutation.node)
+        ? assignmentTargetExpressions(mutation.node.left)[0]
+        : undefined;
+    if (target === undefined) return undefined;
+    let current = unwrap(target);
+    let member = staticMember(current);
+    while (member !== undefined) {
+      current = unwrap(member.base);
+      member = staticMember(current);
+    }
+    return current;
+  };
+  const mutationUsesCopiedAggregate = (mutation: ConfigMutation, copied: ts.Identifier): boolean => {
+    const receiver = mutationReceiver(mutation);
+    return receiver !== undefined && aliasOriginReachesBinding(receiver, copied, bindings, mutation.substitutions);
+  };
+  const requireExactMapperReturn = (
+    callback: ts.ArrowFunction,
+    copied: ts.Identifier,
+    label: string,
+  ): ts.ReturnStatement => {
+    if (!ts.isBlock(callback.body)) fail(callback, `handleModelArchChange ${label} requires a block mapper`);
+    const callbackBody = callback.body as ts.Block;
+    const returns: ts.ReturnStatement[] = [];
+    const inspect = (node: ts.Node): void => {
+      if (isStaticallyDead(node, bindings) || (node !== callback && ts.isFunctionLike(node))) return;
+      if (ts.isReturnStatement(node)) returns.push(node);
+      ts.forEachChild(node, inspect);
+    };
+    inspect(callbackBody);
+    const returned = returns.length === 1 ? returns[0] : undefined;
+    const value = returned?.expression === undefined ? undefined : unwrap(returned.expression);
+    if (
+      returned === undefined
+      || callbackBody.statements[callbackBody.statements.length - 1] !== returned
+      || value === undefined
+      || !ts.isIdentifier(value)
+      || !aliasOriginReachesBinding(value, copied, bindings, new Map())
+    ) fail(callback, `handleModelArchChange ${label} requires one final return of the defensively copied aggregate`);
+    return returned;
+  };
 
   const cleanedDeclaration = cleanupCalls[0].parent;
   if (!ts.isVariableDeclaration(cleanedDeclaration) || !ts.isIdentifier(cleanedDeclaration.name)) fail(cleanupCalls[0], 'handleModelArchChange behavior requires cleaned model binding');
@@ -8423,10 +8885,12 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
   const cleanupGuardLeft = cleanupCondition !== undefined && ts.isBinaryExpression(cleanupCondition) ? unwrap(cleanupCondition.left) : undefined;
   const cleanupGuardRight = cleanupCondition !== undefined && ts.isBinaryExpression(cleanupCondition) ? unwrap(cleanupCondition.right) : undefined;
   if (cleanupCondition === undefined || !ts.isBinaryExpression(cleanupCondition) || cleanupCondition.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsEqualsToken || cleanupGuardLeft === undefined || !ts.isIdentifier(cleanupGuardLeft) || !bindings.isBinding(cleanupGuardLeft, cleanedModel) || cleanupGuardRight === undefined || !ts.isIdentifier(cleanupGuardRight) || !bindings.isBinding(cleanupGuardRight, cleanupModelBinding)) fail(cleanupCommit.node, 'handleModelArchChange behavior requires exact changed-model cleanup guard');
+  requireSetterConditions(cleanupCommit, [{ owner: cleanupGuard!, arm: 'then' }], 'cleaned-model commit');
 
   const lowVram = takeSetter('config.process[*].model.low_vram');
   const lowGuard = enclosingIfWithin(lowVram.node, owner);
   if (lowGuard === undefined || !negatedSection(lowGuard.expression, nextArchitecture, 'model.low_vram', bindings) || !exactBoolean(lowVram.value, false)) fail(lowVram.node, 'handleModelArchChange low_vram behavior is unsupported');
+  requireSetterConditions(lowVram, [{ owner: lowGuard!, arm: 'then' }], 'low_vram');
 
   const layerOuter = ownerBody.statements.find(statement => ts.isIfStatement(statement) && negatedSection(statement.expression, nextArchitecture, 'model.layer_offloading', bindings));
   if (layerOuter === undefined || !ts.isIfStatement(layerOuter) || layerOuter.elseStatement === undefined) fail(owner, 'handleModelArchChange behavior requires layer-offloading support branches');
@@ -8434,14 +8898,22 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
   const inSupportedLayer = (node: ts.Node): boolean => branchContains(layerOuter.elseStatement!, node);
   const layerDeletePaths = ['layer_offloading', 'layer_offloading_text_encoder_percent', 'layer_offloading_transformer_percent'] as const;
   const layerDeletes = layerDeletePaths.map(path => takeMutation('delete', `config.process[*].model.${path}`, mutation => inUnsupportedLayer(mutation.node)));
-  const newModelDeclaration = directMutations.find(mutation => mutation.path === 'config.process[*].model.layer_offloading' && mutation.operation === 'delete')?.node;
-  if (newModelDeclaration === undefined) fail(layerOuter, 'handleModelArchChange behavior requires copied model deletions');
   const modelCommit = takeSetter('config.process[*].model', call => call !== cleanupCommit && inUnsupportedLayer(call.node));
   const modelValue = unwrap(modelCommit.value);
   if (!ts.isIdentifier(modelValue) || valuePath(modelValue) !== 'config.process[*].model') fail(modelCommit.node, 'handleModelArchChange behavior requires deleted model aggregate commit');
+  const copiedModel = bindings.bindingDeclaration(modelValue);
+  if (copiedModel === undefined) fail(modelValue, 'handleModelArchChange layer aggregate requires a bound copied-model identity');
+  const modelCopyCall = requireExactObjectCopy(copiedModel, cleanedModel, 'layer aggregate');
+  if (
+    layerDeletes.some(deletion => !mutationUsesCopiedAggregate(deletion, copiedModel))
+    || layerDeletes.some(deletion => modelCopyCall.getStart() >= deletion.node.getStart())
+    || layerDeletes.some(deletion => deletion.node.getStart() >= modelCommit.node.getStart())
+  ) fail(modelCommit.node, 'handleModelArchChange layer aggregate requires copy, deletions, then copied-model commit order');
   const layerPresenceIf = ts.isBlock(layerOuter.thenStatement) ? layerOuter.thenStatement.statements.find(ts.isIfStatement) : undefined;
   if (layerPresenceIf === undefined || !exactMembershipGuard(layerPresenceIf.expression, 'layer_offloading', 'config.process[*].model', configParameter, bindings)) fail(layerOuter, 'handleModelArchChange behavior requires unsupported layer presence guard');
   if (!layerDeletes.every(mutation => branchContains(layerPresenceIf.thenStatement, mutation.node)) || !branchContains(layerPresenceIf.thenStatement, modelCommit.node)) fail(layerPresenceIf, 'handleModelArchChange behavior requires layer mutations and aggregate commit inside the exact presence guard');
+  for (const deletion of layerDeletes) requireMutationConditions(deletion, [{ owner: layerOuter, arm: 'then' }, { owner: layerPresenceIf, arm: 'then' }], 'layer deletion');
+  requireSetterConditions(modelCommit, [{ owner: layerOuter, arm: 'then' }, { owner: layerPresenceIf, arm: 'then' }], 'layer aggregate commit');
   const supportedIf = (() => {
     const result: ts.IfStatement[] = [];
     const walk = (node: ts.Node): void => { if (ts.isIfStatement(node) && inSupportedLayer(node)) result.push(node); ts.forEachChild(node, walk); };
@@ -8453,10 +8925,12 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
   const textInit = takeSetter('config.process[*].model.layer_offloading_text_encoder_percent', call => inSupportedLayer(call.node));
   const transformerInit = takeSetter('config.process[*].model.layer_offloading_transformer_percent', call => inSupportedLayer(call.node));
   if (![layerInit, textInit, transformerInit].every(call => branchContains(supportedIf.thenStatement, call.node)) || !exactBoolean(layerInit.value, false) || !exactNumber(textInit.value, 1) || !exactNumber(transformerInit.value, 1)) fail(supportedIf, 'handleModelArchChange behavior requires exact layer initialization values');
+  for (const initialization of [layerInit, textInit, transformerInit]) requireSetterConditions(initialization, [{ owner: layerOuter, arm: 'else' }, { owner: supportedIf, arm: 'then' }], 'layer initialization');
 
   const architectureSetter = takeSetter('config.process[*].model.arch');
   const architectureValue = unwrap(architectureSetter.value);
   if (!ts.isIdentifier(architectureValue) || !bindings.isBinding(architectureValue, nextName)) fail(architectureSetter.node, 'handleModelArchChange behavior architecture-name requires exact selected architecture binding');
+  requireSetterConditions(architectureSetter, [], 'architecture-name commit');
 
   const topLevelMapDeclaration = (path: string): ts.VariableDeclaration | undefined => ownerBody.statements
     .flatMap(statement => ts.isVariableStatement(statement) ? [...statement.declarationList.declarations] : [])
@@ -8471,8 +8945,10 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     });
   const datasetsDeclaration = topLevelMapDeclaration('config.process[*].datasets');
   if (datasetsDeclaration === undefined || !ts.isIdentifier(datasetsDeclaration.name)) fail(owner, 'handleModelArchChange behavior requires exact dataset map binding');
-  takeSetter('config.process[*].datasets', call => setterValueBinding(call, datasetsDeclaration.name as ts.Identifier));
+  const datasetsCommit = takeSetter('config.process[*].datasets', call => setterValueBinding(call, datasetsDeclaration.name as ts.Identifier));
+  requireSetterConditions(datasetsCommit, [], 'dataset aggregate commit');
   const controlsMutation = takeMutation('write', 'config.process[*].datasets[*].controls', () => true);
+  requireMutationConditions(controlsMutation, [], 'dataset controls');
   const controlsValue = unwrap((controlsMutation.node as ts.BinaryExpression).right);
   if (!ts.isIdentifier(controlsValue)) fail(controlsMutation.node, 'handleModelArchChange behavior requires controls binding');
   const controlsInitializer = bindings.declarationInitializer(controlsValue);
@@ -8483,14 +8959,32 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
   const datasetMapCall = unwrap(datasetsDeclaration.initializer!);
   const datasetCallback = ts.isCallExpression(datasetMapCall) ? unwrap(datasetMapCall.arguments[0]) : undefined;
   if (datasetCallback === undefined || !ts.isArrowFunction(datasetCallback) || !ts.isBlock(datasetCallback.body)) fail(datasetsDeclaration, 'handleModelArchChange behavior requires block dataset mapper');
-  const multiStatement = datasetCallback.body.statements.find(statement => ts.isIfStatement(statement) && sectionFlag(statement.expression, nextArchitecture, bindings) === 'datasets.multi_control_paths');
-  if (multiStatement === undefined || !ts.isIfStatement(multiStatement)) fail(datasetCallback, 'handleModelArchChange behavior requires exact multi/single/no-control branches');
+  const exactDatasetCallback = datasetCallback as ts.ArrowFunction;
+  const datasetCallbackBody = exactDatasetCallback.body as ts.Block;
+  if ((ts.getCombinedModifierFlags(exactDatasetCallback) & ts.ModifierFlags.Async) !== 0) fail(exactDatasetCallback, 'handleModelArchChange behavior requires a synchronous non-generator dataset mapper');
+  const datasetParameter = exactDatasetCallback.parameters.length === 1 ? exactCallbackIdentifier(exactDatasetCallback.parameters[0]) : undefined;
+  const datasetReceiver = mutationReceiver(controlsMutation);
+  const copiedDataset = datasetReceiver !== undefined && ts.isIdentifier(datasetReceiver) ? bindings.bindingDeclaration(datasetReceiver) : undefined;
+  if (datasetParameter === undefined || copiedDataset === undefined) fail(exactDatasetCallback, 'handleModelArchChange behavior requires exact dataset mapper input and copied aggregate bindings');
+  const exactDatasetParameter = datasetParameter as ts.Identifier;
+  const exactCopiedDataset = copiedDataset as ts.Identifier;
+  const datasetCopyCall = requireExactObjectCopy(exactCopiedDataset, exactDatasetParameter, 'dataset mapper');
+  const datasetReturn = requireExactMapperReturn(exactDatasetCallback, exactCopiedDataset, 'dataset mapper');
+  const datasetMutations = directMutations.filter(mutation => branchContains(datasetCallbackBody, mutation.node) && mutation.path.startsWith('config.process[*].datasets[*].'));
+  if (
+    datasetMutations.some(mutation => !mutationUsesCopiedAggregate(mutation, exactCopiedDataset))
+    || datasetMutations.some(mutation => datasetCopyCall.getStart() >= mutation.node.getStart())
+    || datasetMutations.some(mutation => mutation.node.getStart() >= datasetReturn.getStart())
+    || datasetMapCall.getStart() >= datasetsCommit.node.getStart()
+  ) fail(exactDatasetCallback, 'handleModelArchChange dataset mapper requires copy, mutations, return, then aggregate commit order');
+  const multiStatement = datasetCallbackBody.statements.find(statement => ts.isIfStatement(statement) && sectionFlag(statement.expression, nextArchitecture, bindings) === 'datasets.multi_control_paths');
+  if (multiStatement === undefined || !ts.isIfStatement(multiStatement)) fail(exactDatasetCallback, 'handleModelArchChange behavior requires exact multi/single/no-control branches');
   const multiIf = multiStatement;
   const singleStatement = multiIf.elseStatement;
-  if (singleStatement === undefined || !ts.isIfStatement(singleStatement) || sectionFlag(singleStatement.expression, nextArchitecture, bindings) !== 'datasets.control_path' || singleStatement.elseStatement === undefined) fail(datasetCallback, 'handleModelArchChange behavior requires exact multi/single/no-control branches');
+  if (singleStatement === undefined || !ts.isIfStatement(singleStatement) || sectionFlag(singleStatement.expression, nextArchitecture, bindings) !== 'datasets.control_path' || singleStatement.elseStatement === undefined) fail(exactDatasetCallback, 'handleModelArchChange behavior requires exact multi/single/no-control branches');
   const singleIf = singleStatement;
   const noControlBranch = singleIf.elseStatement;
-  if (noControlBranch === undefined) fail(datasetCallback, 'handleModelArchChange behavior requires exact multi/single/no-control branches');
+  if (noControlBranch === undefined) fail(exactDatasetCallback, 'handleModelArchChange behavior requires exact multi/single/no-control branches');
   const branchRole = (node: ts.Node): 'multi' | 'single' | 'none' | undefined => branchContains(multiIf.thenStatement, node) ? 'multi' : branchContains(singleIf.thenStatement, node) ? 'single' : branchContains(noControlBranch, node) ? 'none' : undefined;
   const copyOrNull = (mutation: ConfigMutation, sourcePath: string): boolean => {
     const right = unwrap((mutation.node as ts.BinaryExpression).right);
@@ -8500,6 +8994,7 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     const path = `config.process[*].datasets[*].${suffix}`;
     const init = takeMutation('write', path, mutation => branchRole(mutation.node) === 'multi' && copyOrNull(mutation, path));
     if (init === undefined) fail(multiIf, `handleModelArchChange behavior requires ${suffix} initialization`);
+    requireMutationConditions(init, [{ owner: multiIf, arm: 'then' }], `${suffix} multi-control initialization`);
   }
   const multiCopy = takeMutation('write', 'config.process[*].datasets[*].control_path_1', mutation => branchRole(mutation.node) === 'multi' && valuePath((mutation.node as ts.BinaryExpression).right, mutation.substitutions) === 'config.process[*].datasets[*].control_path');
   const multiCopyGuards: ts.IfStatement[] = [];
@@ -8515,11 +9010,18 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     return ts.isPrefixUnaryExpression(condition) && valuePath(condition.operand, multiCopy.substitutions) === 'config.process[*].datasets[*].control_path_1';
   });
   if (!hasMultiSourceGuard || !hasMultiTargetGuard) fail(multiCopy.node, 'handleModelArchChange behavior requires source-nonempty target-empty multi copy guards');
+  requireMutationConditions(
+    multiCopy,
+    [{ owner: multiIf, arm: 'then' }, ...multiCopyGuards.map(owner => ({ owner, arm: 'then' }))],
+    'multi-control source copy',
+  );
   const multiSourceDelete = takeMutation('delete', 'config.process[*].datasets[*].control_path', mutation => branchRole(mutation.node) === 'multi');
+  requireMutationConditions(multiSourceDelete, [{ owner: multiIf, arm: 'then' }], 'multi-control source deletion');
   if (multiCopy.node.getStart() >= multiSourceDelete.node.getStart()) fail(multiSourceDelete.node, 'handleModelArchChange behavior requires multi-control copy before source deletion');
 
   const singleInit = takeMutation('write', 'config.process[*].datasets[*].control_path', mutation => branchRole(mutation.node) === 'single' && copyOrNull(mutation, 'config.process[*].datasets[*].control_path'));
   if (singleInit === undefined) fail(multiIf, 'handleModelArchChange behavior requires single control initialization');
+  requireMutationConditions(singleInit, [{ owner: multiIf, arm: 'else' }, { owner: singleIf, arm: 'then' }], 'single-control initialization');
   const singleCopy = takeMutation('write', 'config.process[*].datasets[*].control_path', mutation => branchRole(mutation.node) === 'single' && valuePath((mutation.node as ts.BinaryExpression).right, mutation.substitutions) === 'config.process[*].datasets[*].control_path_1');
   const singleCopyIf = enclosingIfWithin(singleCopy.node, owner);
   if (singleCopyIf === undefined || !flattenAnd(singleCopyIf.expression).every(part => {
@@ -8527,6 +9029,7 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     if (valuePath(value, singleCopy.substitutions) === 'config.process[*].datasets[*].control_path_1') return true;
     return ts.isBinaryExpression(value) && value.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken && valuePath(value.left, singleCopy.substitutions) === 'config.process[*].datasets[*].control_path_1' && exactString(value.right, '');
   })) fail(singleCopy.node, 'handleModelArchChange behavior requires nonempty single-control copy guard');
+  requireMutationConditions(singleCopy, [{ owner: multiIf, arm: 'else' }, { owner: singleIf, arm: 'then' }, { owner: singleCopyIf, arm: 'then' }], 'single-control source copy');
   const singleDeletions: ConfigMutation[] = [];
   for (const suffix of ['control_path_1', 'control_path_2', 'control_path_3'] as const) {
     const path = `config.process[*].datasets[*].${suffix}`;
@@ -8534,6 +9037,7 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     singleDeletions.push(deletion);
     const guard = enclosingIfWithin(deletion.node, owner);
     if (guard === undefined || !exactMembershipGuard(guard.expression, suffix, 'config.process[*].datasets[*]', configParameter, bindings, false, deletion.substitutions)) fail(deletion.node, `handleModelArchChange behavior requires ${suffix} single-control membership guard`);
+    requireMutationConditions(deletion, [{ owner: multiIf, arm: 'else' }, { owner: singleIf, arm: 'then' }, { owner: guard, arm: 'then' }], `${suffix} single-control deletion`);
   }
   if (singleDeletions.some(deletion => singleCopy.node.getStart() >= deletion.node.getStart())) fail(singleCopy.node, 'handleModelArchChange behavior requires single-control copy before source deletions');
   for (const suffix of ['control_path', 'control_path_1', 'control_path_2', 'control_path_3'] as const) {
@@ -8541,23 +9045,53 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     const deletion = takeMutation('delete', path, mutation => branchRole(mutation.node) === 'none');
     const guard = enclosingIfWithin(deletion.node, owner);
     if (guard === undefined || !exactMembershipGuard(guard.expression, suffix, 'config.process[*].datasets[*]', configParameter, bindings, false, deletion.substitutions)) fail(deletion.node, `handleModelArchChange behavior requires ${suffix} no-control membership guard`);
+    requireMutationConditions(deletion, [{ owner: multiIf, arm: 'else' }, { owner: singleIf, arm: 'else' }, { owner: guard, arm: 'then' }], `${suffix} no-control deletion`);
   }
   const numFrames = takeMutation('write', 'config.process[*].datasets[*].num_frames', () => true);
   const numFramesIf = enclosingIfWithin(numFrames.node, owner);
   const numFramesCondition = numFramesIf === undefined ? undefined : unwrap(numFramesIf.expression);
   if (numFramesCondition === undefined || !ts.isPrefixUnaryExpression(numFramesCondition) || sectionFlag(numFramesCondition.operand, nextArchitecture, bindings) !== 'datasets.num_frames' || !exactNumber((numFrames.node as ts.BinaryExpression).right, 1)) fail(numFrames.node, 'handleModelArchChange behavior requires unsupported num_frames reset');
+  requireMutationConditions(numFrames, [{ owner: numFramesIf!, arm: 'then' }], 'num_frames reset');
   const autoFrames = takeMutation('delete', 'config.process[*].datasets[*].auto_frame_count', () => true);
   const autoFramesIf = enclosingIfWithin(autoFrames.node, owner);
   const autoFramesCondition = autoFramesIf === undefined ? undefined : unwrap(autoFramesIf.expression);
   if (autoFramesCondition === undefined || !ts.isPrefixUnaryExpression(autoFramesCondition) || sectionFlag(autoFramesCondition.operand, nextArchitecture, bindings) !== 'datasets.auto_frame_count') fail(autoFrames.node, 'handleModelArchChange behavior requires unsupported auto_frame_count deletion');
+  requireMutationConditions(autoFrames, [{ owner: autoFramesIf!, arm: 'then' }], 'auto_frame_count deletion');
 
   const samplesDeclaration = topLevelMapDeclaration('config.process[*].sample.samples');
   if (samplesDeclaration === undefined || !ts.isIdentifier(samplesDeclaration.name)) fail(owner, 'handleModelArchChange behavior requires exact sample map binding');
-  takeSetter('config.process[*].sample.samples', call => setterValueBinding(call, samplesDeclaration.name as ts.Identifier));
+  const samplesCommit = takeSetter('config.process[*].sample.samples', call => setterValueBinding(call, samplesDeclaration.name as ts.Identifier));
+  requireSetterConditions(samplesCommit, [], 'sample aggregate commit');
+  const sampleMapCall = unwrap(samplesDeclaration.initializer!);
+  const sampleCallback = ts.isCallExpression(sampleMapCall) ? unwrap(sampleMapCall.arguments[0]) : undefined;
+  if (
+    sampleCallback === undefined
+    || !ts.isArrowFunction(sampleCallback)
+    || !ts.isBlock(sampleCallback.body)
+    || (ts.getCombinedModifierFlags(sampleCallback) & ts.ModifierFlags.Async) !== 0
+  ) fail(samplesDeclaration, 'handleModelArchChange behavior requires a synchronous non-generator block sample mapper');
+  const exactSampleCallback = sampleCallback as ts.ArrowFunction;
+  const sampleCallbackBody = exactSampleCallback.body as ts.Block;
   const ctrlImg = takeMutation('delete', 'config.process[*].sample.samples[*].ctrl_img', () => true);
   const ctrlIf = enclosingIfWithin(ctrlImg.node, owner);
   const ctrlCondition = ctrlIf === undefined ? undefined : unwrap(ctrlIf.expression);
   if (ctrlCondition === undefined || !ts.isPrefixUnaryExpression(ctrlCondition) || sectionFlag(ctrlCondition.operand, nextArchitecture, bindings) !== 'sample.ctrl_img') fail(ctrlImg.node, 'handleModelArchChange behavior requires unsupported sample ctrl_img deletion');
+  requireMutationConditions(ctrlImg, [{ owner: ctrlIf!, arm: 'then' }], 'sample ctrl_img deletion');
+  const sampleParameter = exactSampleCallback.parameters.length === 1 ? exactCallbackIdentifier(exactSampleCallback.parameters[0]) : undefined;
+  const sampleReceiver = mutationReceiver(ctrlImg);
+  const copiedSample = sampleReceiver !== undefined && ts.isIdentifier(sampleReceiver) ? bindings.bindingDeclaration(sampleReceiver) : undefined;
+  if (sampleParameter === undefined || copiedSample === undefined) fail(exactSampleCallback, 'handleModelArchChange behavior requires exact sample mapper input and copied aggregate bindings');
+  const exactSampleParameter = sampleParameter as ts.Identifier;
+  const exactCopiedSample = copiedSample as ts.Identifier;
+  const sampleCopyCall = requireExactObjectCopy(exactCopiedSample, exactSampleParameter, 'sample mapper');
+  const sampleReturn = requireExactMapperReturn(exactSampleCallback, exactCopiedSample, 'sample mapper');
+  const sampleMutations = directMutations.filter(mutation => branchContains(sampleCallbackBody, mutation.node) && mutation.path.startsWith('config.process[*].sample.samples[*].'));
+  if (
+    sampleMutations.some(mutation => !mutationUsesCopiedAggregate(mutation, exactCopiedSample))
+    || sampleMutations.some(mutation => sampleCopyCall.getStart() >= mutation.node.getStart())
+    || sampleMutations.some(mutation => mutation.node.getStart() >= sampleReturn.getStart())
+    || sampleMapCall.getStart() >= samplesCommit.node.getStart()
+  ) fail(exactSampleCallback, 'handleModelArchChange sample mapper requires copy, mutations, return, then aggregate commit order');
 
   const dynamicSetters = setterCalls.filter(call => call.path === undefined);
   if (dynamicSetters.length !== 2) fail(owner, 'handleModelArchChange behavior requires exact current/new default setters');
@@ -8573,16 +9107,24 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     if (!ts.isIdentifier(container) || !ts.isIdentifier(pathArgument) || !ts.isIdentifier(keyedDefaultsKey) || !bindings.sameBinding(keyedDefaultsKey, pathArgument)) fail(call.node, 'handleModelArchChange behavior requires bound dynamic default key/index');
     const index = Number(valueIndex.text);
     consumedSetters.add(call);
-    return { call, container, index };
+    return { call, container, pathArgument, index };
   });
   const currentDefaults = defaultInfo.find(item => item.index === 1);
   const newDefaults = defaultInfo.find(item => item.index === 0);
   if (currentDefaults === undefined || newDefaults === undefined || currentDefaults.call.node.getStart() >= newDefaults.call.node.getStart()) fail(owner, 'handleModelArchChange behavior requires current-default revert before next-default apply');
+  const requireExactDefaultLoop = (item: typeof currentDefaults, label: string): void => {
+    if (item === undefined || item.call.conditions.length !== 1) fail(owner, `handleModelArchChange ${label} behavior has an unsupported enclosing runtime guard`);
+    const condition = item.call.conditions[0];
+    if (!ts.isForInStatement(condition.owner) || condition.arm !== 'body') fail(item.call.node, `handleModelArchChange ${label} behavior requires the exact defaults iteration guard`);
+  };
+  requireExactDefaultLoop(currentDefaults, 'current-default commit');
+  requireExactDefaultLoop(newDefaults, 'next-default commit');
   const currentDefaultsInitializer = bindings.declarationInitializer(currentDefaults.container);
   const newDefaultsInitializer = bindings.declarationInitializer(newDefaults.container);
   const validateExpandedDefaults = (initializer: ts.Expression | undefined, architecture: ts.Identifier): boolean => {
     const call = initializer === undefined ? undefined : unwrap(initializer);
     if (call === undefined || !ts.isCallExpression(call) || !ts.isIdentifier(call.expression) || !invocationIdentifierResolvesTo(call.expression, expandDatasetDefaultsBinding, bindings, new Map()) || call.arguments.length !== 2) return false;
+    if (normalizeInvocation(call, bindings).unsupported !== undefined) return false;
     const defaults = unwrap(call.arguments[0]);
     if (!ts.isBinaryExpression(defaults) || defaults.operatorToken.kind !== ts.SyntaxKind.BarBarToken) return false;
     const fallback = unwrap(defaults.right);
