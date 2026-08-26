@@ -436,8 +436,12 @@ function isProjectedAliasCandidate(candidate: AliasCandidate): candidate is Proj
   return typeof candidate !== 'string' && (candidate as { kind: unknown }).kind === 'projection';
 }
 
-function isLexicalFunction(node: ts.Node): node is ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction | ts.MethodDeclaration {
-  return ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node) || ts.isMethodDeclaration(node);
+function isLexicalFunction(node: ts.Node): node is ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction | ts.MethodDeclaration | ts.ConstructorDeclaration {
+  return ts.isFunctionDeclaration(node)
+    || ts.isFunctionExpression(node)
+    || ts.isArrowFunction(node)
+    || ts.isMethodDeclaration(node)
+    || ts.isConstructorDeclaration(node);
 }
 
 function isLexicalScope(node: ts.Node): boolean {
@@ -5898,6 +5902,73 @@ function resolveAliasOrigin(
   return provenance.kind === 'exact' && !ts.isMethodDeclaration(provenance.origin) ? provenance.origin : expression;
 }
 
+function invocationCalleeDependsOnConstructorParameter(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  seen = new Set<ts.Node>(),
+): boolean {
+  expression = unwrap(expression);
+  if (seen.has(expression)) return false;
+  const nextSeen = new Set(seen).add(expression);
+  const directSubstitution = substitutions.get(expression);
+  if (directSubstitution !== undefined) {
+    if (
+      ts.isIdentifier(expression)
+      && ts.isParameter(expression.parent)
+      && ts.isConstructorDeclaration(expression.parent.parent)
+    ) return true;
+    return typeof directSubstitution !== 'string'
+      && invocationCalleeDependsOnConstructorParameter(directSubstitution, bindings, substitutions, nextSeen);
+  }
+  if (ts.isConditionalExpression(expression)) {
+    const truth = staticTruthValue(expression.condition, bindings);
+    return truth === undefined
+      ? invocationCalleeDependsOnConstructorParameter(expression.whenTrue, bindings, substitutions, nextSeen)
+        || invocationCalleeDependsOnConstructorParameter(expression.whenFalse, bindings, substitutions, nextSeen)
+      : invocationCalleeDependsOnConstructorParameter(
+        truth ? expression.whenTrue : expression.whenFalse,
+        bindings,
+        substitutions,
+        nextSeen,
+      );
+  }
+  if (!ts.isIdentifier(expression)) return false;
+  const declaration = bindings.bindingDeclaration(expression);
+  const declarationSubstitution = declaration === undefined ? undefined : substitutions.get(declaration);
+  if (declaration !== undefined && declarationSubstitution !== undefined) {
+    if (
+      ts.isParameter(declaration.parent)
+      && ts.isConstructorDeclaration(declaration.parent.parent)
+    ) return true;
+    return typeof declarationSubstitution !== 'string'
+      && invocationCalleeDependsOnConstructorParameter(
+        declarationSubstitution,
+        bindings,
+        substitutions,
+        new Set(nextSeen).add(declaration),
+      );
+  }
+  if (declaration === undefined || seen.has(declaration)) return false;
+  const lookup = bindings.provenanceCandidates(expression);
+  if (!lookup.found) return false;
+  const candidateDependsOnSubstitution = (candidate: AliasCandidate): boolean => {
+    if (typeof candidate === 'string' || candidate === declaration) return false;
+    if (isDefaultAliasCandidate(candidate)) {
+      return candidateDependsOnSubstitution(candidate.source)
+        || invocationCalleeDependsOnConstructorParameter(candidate.fallback, bindings, substitutions, nextSeen);
+    }
+    if (isProjectedAliasCandidate(candidate)) return candidateDependsOnSubstitution(candidate.source);
+    return invocationCalleeDependsOnConstructorParameter(
+      candidate,
+      bindings,
+      substitutions,
+      new Set(nextSeen).add(declaration),
+    );
+  };
+  return lookup.candidates.some(candidateDependsOnSubstitution);
+}
+
 function aliasOriginReachesBinding(
   expression: ts.Expression,
   target: ts.Identifier,
@@ -7977,20 +8048,54 @@ function localClassesFromExpression(
 
 const activeExecutableClassConstructions = new Set<ts.ClassDeclaration | ts.ClassExpression>();
 
-function visitExecutableClassConstructionNodes(
-  expression: ts.Expression,
-  argumentsToBind: readonly ts.Expression[] | undefined,
+type ExecutableNodeVisitor = (
+  node: ts.Node,
+  substitutions: InvocationSubstitutions,
+  execution: 'known' | 'unmodeled-callback',
+  sequence: number,
+  current: ts.FunctionLikeDeclaration,
+  conditions: readonly ConditionalExecutionContext[],
+) => void;
+
+function visitExecutableClassInstanceFieldNodes(
+  declaration: ts.ClassDeclaration | ts.ClassExpression,
   bindings: LexicalBindings,
   substitutions: InvocationSubstitutions,
   execution: 'known' | 'unmodeled-callback',
-  visitor: (
-    node: ts.Node,
-    substitutions: InvocationSubstitutions,
-    execution: 'known' | 'unmodeled-callback',
-    sequence: number,
-    current: ts.FunctionLikeDeclaration,
-    conditions: readonly ConditionalExecutionContext[],
-  ) => void,
+  visitor: ExecutableNodeVisitor,
+  runtimeClass: ts.ClassDeclaration | ts.ClassExpression,
+): void {
+  for (const member of declaration.members) {
+    if (
+      !ts.isPropertyDeclaration(member)
+      || member.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword)
+      || member.initializer === undefined
+    ) continue;
+    const owner = ts.factory.createArrowFunction(
+      undefined,
+      undefined,
+      [],
+      undefined,
+      ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      member.initializer,
+    );
+    visitExecutableFunctionNodes(
+      owner,
+      bindings,
+      visitor,
+      true,
+      { arguments: [], substitutions, execution, runtimeClass },
+    );
+  }
+}
+
+function visitExecutableClassConstructionNodes(
+  expression: ts.Expression,
+  argumentsToBind: readonly InvocationValue[] | undefined,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  execution: 'known' | 'unmodeled-callback',
+  visitor: ExecutableNodeVisitor,
   runtimeClass?: ts.ClassDeclaration | ts.ClassExpression,
 ): void {
   const resolution = localClassesFromExpression(expression, bindings, substitutions);
@@ -8006,10 +8111,11 @@ function visitExecutableClassConstructionNodes(
       const base = declaration.heritageClauses
         ?.find(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)
         ?.types[0]?.expression;
-      if (base !== undefined) {
+      const constructor = declaration.members.find(ts.isConstructorDeclaration);
+      if (base !== undefined && constructor === undefined) {
         visitExecutableClassConstructionNodes(
           base,
-          undefined,
+          argumentsToBind,
           bindings,
           substitutions,
           constructionExecution,
@@ -8017,29 +8123,16 @@ function visitExecutableClassConstructionNodes(
           receiverClass,
         );
       }
-      for (const member of declaration.members) {
-        if (
-          !ts.isPropertyDeclaration(member)
-          || member.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword)
-          || member.initializer === undefined
-        ) continue;
-        const owner = ts.factory.createArrowFunction(
-          undefined,
-          undefined,
-          [],
-          undefined,
-          ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-          member.initializer,
-        );
-        visitExecutableFunctionNodes(
-          owner,
+      if (base === undefined || constructor === undefined) {
+        visitExecutableClassInstanceFieldNodes(
+          declaration,
           bindings,
+          substitutions,
+          constructionExecution,
           visitor,
-          true,
-          { arguments: [], substitutions, execution: constructionExecution, runtimeClass: receiverClass },
+          receiverClass,
         );
       }
-      const constructor = declaration.members.find(ts.isConstructorDeclaration);
       if (constructor !== undefined) {
         visitExecutableFunctionNodes(
           constructor,
@@ -9046,6 +9139,52 @@ function visitExecutableFunctionNodes(
         },
       );
     }
+    if (ts.isCallExpression(node) && unwrap(node.expression).kind === ts.SyntaxKind.SuperKeyword) {
+      for (const argument of node.arguments) visit(argument, substitutions, current, execution);
+      const declaration = enclosingClassLike(node);
+      const base = declaration?.heritageClauses
+        ?.find(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)
+        ?.types[0]?.expression;
+      if (declaration === undefined || base === undefined) {
+        fail(node, 'unsupported super constructor invocation: missing exact local base class');
+      }
+      const runtimeClass = invocationRuntimeClasses.get(current) ?? declaration;
+      const replayVisitor: ExecutableNodeVisitor = (
+        invokedNode,
+        projected,
+        invokedExecution,
+        _nestedSequence,
+        invokedCurrent,
+        invokedConditions,
+      ) => {
+        visitor(
+          invokedNode,
+          projected,
+          invokedExecution,
+          sequence++,
+          invokedCurrent,
+          mergeConditions(conditions, invokedConditions),
+        );
+      };
+      visitExecutableClassConstructionNodes(
+        base,
+        finiteInvocationArgumentList(node.arguments, bindings),
+        bindings,
+        substitutions,
+        execution,
+        replayVisitor,
+        runtimeClass,
+      );
+      visitExecutableClassInstanceFieldNodes(
+        declaration,
+        bindings,
+        substitutions,
+        execution,
+        replayVisitor,
+        runtimeClass,
+      );
+      return;
+    }
     if (
       ts.isVariableDeclaration(node)
       && node.initializer !== undefined
@@ -9168,6 +9307,9 @@ function visitExecutableFunctionNodes(
         ?? activeForwardTarget
         ?? localFunctionFromExpression(invocation.target, bindings, substitutions, false);
       if (direct === undefined) direct = localFunctionFromExpression(invocation.target, bindings, substitutions);
+      if (direct === undefined && invocationCalleeDependsOnConstructorParameter(node.expression, bindings, substitutions)) {
+        fail(node, 'unsupported local invocation: unresolved callback parameter provenance');
+      }
       if (direct !== undefined) {
         if (invocation.arguments !== undefined) {
           invoke(

@@ -3263,6 +3263,188 @@ try {
 } catch {
   factualUiContractFailures.push('harmless loop-local assignment remains unrelated');
 }
+
+for (const [label, callback] of [
+  [
+    'direct constructor callback corrupts quantization carrier',
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              class Base { constructor(run) { run(); } }
+              new Base(() => { value = false; });
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'explicit derived super callback forwarding corrupts quantization carrier',
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              class Base { constructor(run) { run(); } }
+              class Derived extends Base { constructor(run) { super(run); } }
+              new Derived(() => { value = false; });
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'reordered finite super arguments forward corrupting callback',
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              class Base { constructor(ignored, run) { run(); } }
+              class Derived extends Base { constructor(run) { super('safe', run); } }
+              new Derived(() => { value = false; });
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'implicit derived constructor forwards corrupting callback',
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              class Base { constructor(run) { run(); } }
+              class Derived extends Base {}
+              new Derived(() => { value = false; });
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'constructor callback invalid quantize setter effect fails closed',
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              class Base { constructor(run) { run(); } }
+              new Base(() => setJobConfig('garbage', 'config.process[0].model.quantize'));
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /constructor|invocation|quantiz|qtype|selection|payload|provenance/i, `${label} must replay constructor callback effects`);
+  }
+}
+
+for (const [label, sourceText, symbol, projected] of [
+  [
+    'ordinary options mutation through constructor callback fails closed',
+    ordinaryClassEffectControl(
+      `class Base { constructor(run) { run(); } }`,
+      `new Base(() => modeOptions.push({ value: 'b', label: 'B' }));`,
+    ),
+    'Fixture',
+    false,
+  ],
+  [
+    'projected options mutation through constructor callback fails closed',
+    projectedOptionsControl(
+      `class Base { constructor(run) { run(); } }
+       new Base(() => groupedModelOptions.push({ value: 'stale', label: 'Stale' }));`,
+      '',
+      '',
+    ),
+    'SimpleJob',
+    true,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(sourceText, 'fixture.tsx', symbol, false, projected);
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /constructor|invocation|select.*options|accepted values|projected|provenance/i, `${label} must replay shared constructor effects`);
+  }
+}
+
+try {
+  collectVisibleControlClaimsFromSource(ordinaryClassEffectControl(
+    `class Base { constructor(run) { run(); } }`,
+    'new Base(externalCallback);',
+  ), 'fixture.tsx', 'Fixture');
+  factualUiContractFailures.push('unresolved constructor callback fails closed');
+} catch (error) {
+  assert.match(String(error), /constructor|callback|invocation|provenance/i, 'unresolved constructor callbacks must fail closed');
+}
+
+for (const [label, callback] of [
+  [
+    'safe invoked constructor callback remains harmless',
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              class Base { constructor(run) { run(); } }
+              new Base(() => undefined);
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'uninvoked corrupt constructor argument remains harmless',
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              class Base { constructor(run) { void run; } }
+              new Base(() => { value = false; });
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'constructor primitive arguments remain harmless',
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              class Base { constructor(kind, count) { void kind; void count; } }
+              new Base('safe', 1);
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'safe explicit constructor inheritance remains harmless',
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              class Base { constructor(run) { run(); } }
+              class Derived extends Base { constructor(run) { super(run); } }
+              new Derived(() => undefined);
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'safe recursive constructor callback terminates',
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              class Base { constructor(run) { run(); } }
+              const recursive = () => recursive();
+              new Base(recursive);
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'safe recursive constructor cycle terminates',
+    `onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              class Loop { constructor() { new Loop(); } }
+              new Loop();
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}`,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+  } catch {
+    factualUiContractFailures.push(label);
+  }
+}
 assert.deepEqual(factualUiContractFailures, [], 'shared factual UI contracts must remain exact');
 
 assert.throws(
