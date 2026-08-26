@@ -1430,6 +1430,70 @@ if (JSON.stringify((creatableSelect?.value_contract as unknown as Record<string,
   { kind: 'string', value: 'txt' },
   { kind: 'string', value: 'json' },
 ])) factualUiContractFailures.push('CreatableSelectInput finite suggestions');
+const aliasedSelectClaims = collectVisibleControlClaimsFromSource(`
+  const modeOptions = [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }];
+  function Fixture({ jobConfig, setJobConfig }) {
+    return <SelectInput
+      label="Mode"
+      value={jobConfig.config.process[0].train.mode}
+      onChange={value => setJobConfig(value, 'config.process[0].train.mode')}
+      options={modeOptions}
+    />;
+  }
+`, 'fixture.tsx', 'Fixture');
+if (JSON.stringify(aliasedSelectClaims[0]?.value_contract.accepted_values) !== JSON.stringify([
+  { kind: 'string', value: 'a' },
+  { kind: 'string', value: 'b' },
+])) factualUiContractFailures.push('ordinary SelectInput finite alias remains closed');
+try {
+  collectVisibleControlClaimsFromSource(`
+    function Fixture({ jobConfig, setJobConfig }) {
+      return <SelectInput
+        label="Mode"
+        value={jobConfig.config.process[0].train.mode}
+        onChange={value => setJobConfig(value, 'config.process[0].train.mode')}
+        options={unresolvedOptions}
+      />;
+    }
+  `, 'fixture.tsx', 'Fixture');
+  factualUiContractFailures.push('ordinary SelectInput unresolved options fail closed');
+} catch (error) {
+  assert.match(String(error), /select.*options|accepted values/i);
+}
+for (const [label, declarations] of [
+  [
+    'ordinary SelectInput reassigned options fail closed',
+    `let modeOptions = [{ value: 'a', label: 'A' }];
+     modeOptions = [{ value: 'b', label: 'B' }];`,
+  ],
+  [
+    'ordinary SelectInput branch-ambiguous options fail closed',
+    `let modeOptions = [{ value: 'a', label: 'A' }];
+     if (condition) modeOptions = [{ value: 'b', label: 'B' }];`,
+  ],
+  [
+    'ordinary SelectInput member-mutated options fail closed',
+    `const modeOptions = [{ value: 'a', label: 'A' }];
+     modeOptions.push({ value: 'b', label: 'B' });`,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(`
+      ${declarations}
+      function Fixture({ jobConfig, setJobConfig }) {
+        return <SelectInput
+          label="Mode"
+          value={jobConfig.config.process[0].train.mode}
+          onChange={value => setJobConfig(value, 'config.process[0].train.mode')}
+          options={modeOptions}
+        />;
+      }
+    `, 'fixture.tsx', 'Fixture');
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /select.*options|accepted values/i, `${label} must reject non-exact option provenance`);
+  }
+}
 
 const quantizationProjectionClaims = collectVisibleControlClaimsFromSource(`
   function Fixture({ jobConfig, setJobConfig }) {
@@ -1484,6 +1548,13 @@ if (layerScaleContract?.config_to_ui_scale !== 100 || layerScaleContract?.ui_to_
 for (const [label, mutated] of [
   ['config-to-UI multiplier drift', layerScaleSource.replace('* 100)', '* 10)')],
   ['UI-to-config multiplier drift', layerScaleSource.replace('value * 0.01', 'value * 0.1')],
+  [
+    'extra unscaled UI-to-config write',
+    layerScaleSource.replace(
+      "onChange={value => setJobConfig(value * 0.01, 'config.process[0].model.layer_offloading_transformer_percent')}",
+      "onChange={value => {\n        setJobConfig(value * 0.01, 'config.process[0].model.layer_offloading_transformer_percent');\n        setJobConfig(value, 'config.process[0].model.layer_offloading_transformer_percent');\n      }}",
+    ),
+  ],
 ] as const) {
   try {
     collectVisibleControlClaimsFromSource(mutated, 'fixture.tsx', 'Fixture');
@@ -1491,6 +1562,22 @@ for (const [label, mutated] of [
   } catch (error) {
     assert.match(String(error), /reciprocal|scale/i, `${label} must fail for the scale contract`);
   }
+}
+try {
+  const deadUnscaledLayerWrite = layerScaleSource.replace(
+    "onChange={value => setJobConfig(value * 0.01, 'config.process[0].model.layer_offloading_transformer_percent')}",
+    "onChange={value => {\n        if (false) setJobConfig(value, 'config.process[0].model.layer_offloading_transformer_percent');\n        setJobConfig(value * 0.01, 'config.process[0].model.layer_offloading_transformer_percent');\n      }}",
+  );
+  const deadWriteContract = collectVisibleControlClaimsFromSource(
+    deadUnscaledLayerWrite,
+    'fixture.tsx',
+    'Fixture',
+  )[0]?.value_contract as unknown as Record<string, unknown>;
+  if (deadWriteContract.config_to_ui_scale !== 100 || deadWriteContract.ui_to_config_scale !== 0.01) {
+    factualUiContractFailures.push('statically dead extra scale writes remain harmless');
+  }
+} catch {
+  factualUiContractFailures.push('statically dead extra scale writes remain harmless');
 }
 
 const guardedQuantizationSource = `
@@ -1568,6 +1655,31 @@ const swappedTextEncoderBooleanSource = guardedQuantizationSource.replace(
   "                if (value === '') setJobConfig(false, 'config.process[0].model.quantize_te');\n                else setJobConfig(true, 'config.process[0].model.quantize_te');",
   "                if (value === '') setJobConfig(true, 'config.process[0].model.quantize_te');\n                else setJobConfig(false, 'config.process[0].model.quantize_te');",
 );
+const nestedQuantizationControlsSource = guardedQuantizationSource
+  .replace(
+    '    return <>',
+    '    function QuantizationPanel() {\n      return <>',
+  )
+  .replace(
+    '    </>;\n  }',
+    '      </>;\n    }\n    return <QuantizationPanel />;\n  }',
+  );
+const unrelatedNestedFunctionSource = guardedQuantizationSource.replace(
+  '    return <>',
+  '    function UnrelatedPanel() { return null; }\n    return <>',
+);
+const deadTransformerBooleanSource = guardedQuantizationSource.replace(
+  "              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');\n              else setJobConfig(true, 'config.process[0].model.quantize');",
+  "              if (value === '') {\n                if (false) setJobConfig(false, 'config.process[0].model.quantize');\n              } else {\n                if (false) setJobConfig(true, 'config.process[0].model.quantize');\n              }",
+);
+const deadTextEncoderBooleanSource = guardedQuantizationSource.replace(
+  "                if (value === '') setJobConfig(false, 'config.process[0].model.quantize_te');\n                else setJobConfig(true, 'config.process[0].model.quantize_te');",
+  "                if (value === '') {\n                  if (false) setJobConfig(false, 'config.process[0].model.quantize_te');\n                } else {\n                  if (false) setJobConfig(true, 'config.process[0].model.quantize_te');\n                }",
+);
+const harmlessDeadBooleanWriteSource = guardedQuantizationSource.replace(
+  "              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');",
+  "              if (false) setJobConfig(true, 'config.process[0].model.quantize');\n              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');",
+);
 try {
   collectVisibleControlClaimsFromSource(
     guardedQuantizationSource,
@@ -1585,6 +1697,20 @@ try {
   );
 } catch {
   factualUiContractFailures.push('unrelated outer visibility guards remain independent');
+}
+for (const [label, positive] of [
+  ['unrelated nested functions remain independent', unrelatedNestedFunctionSource],
+  ['statically dead extra boolean writes remain harmless', harmlessDeadBooleanWriteSource],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      positive,
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+  } catch {
+    factualUiContractFailures.push(label);
+  }
 }
 for (const [label, mutated] of [
   [
@@ -1622,6 +1748,18 @@ for (const [label, mutated] of [
   [
     'Text Encoder empty/nonempty boolean mapping drift',
     swappedTextEncoderBooleanSource,
+  ],
+  [
+    'quantization controls moved to nested lexical owner',
+    nestedQuantizationControlsSource,
+  ],
+  [
+    'Transformer boolean evidence is statically unreachable',
+    deadTransformerBooleanSource,
+  ],
+  [
+    'Text Encoder boolean evidence is statically unreachable',
+    deadTextEncoderBooleanSource,
   ],
 ] as const) {
   try {
@@ -1743,6 +1881,7 @@ const architectureMediatorControl = `
       onChange={value => {
         handleModelArchChange(jobConfig.config.process[0].model.arch, value, jobConfig, setJobConfig);
       }}
+      options={[{ value: 'flux', label: 'Flux' }]}
     />;
   }
 `;

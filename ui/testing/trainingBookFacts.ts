@@ -2996,20 +2996,26 @@ function uiToConfigScale(
   const parameter = exactCallbackIdentifier(expression.parameters[0]);
   if (parameter === undefined) return undefined;
   const scales = new Set<number>();
+  let reachableWrites = 0;
+  let invalidWrite = false;
   const visit = (node: ts.Node): void => {
     if (
       ts.isCallExpression(node)
       && ts.isIdentifier(node.expression)
       && node.expression.text === 'setJobConfig'
       && exactLiteralSetterPath(node) === path
+      && !isStaticallyDead(node)
     ) {
+      reachableWrites += 1;
       requireComponentSetterBinding(node.expression, bindings);
       const scale = node.arguments[0] === undefined ? undefined : callbackValueScale(node.arguments[0], parameter, bindings);
       if (scale !== undefined) scales.add(scale);
+      else invalidWrite = true;
     }
     ts.forEachChild(node, visit);
   };
   visit(expression.body);
+  if (invalidWrite || reachableWrites > 1) fail(expression, `every reachable UI-to-config write must use one exact scale for ${path}`);
   if (scales.size > 1) fail(expression, `ambiguous UI-to-config scale for ${path}`);
   return [...scales][0];
 }
@@ -3041,7 +3047,12 @@ function secondaryBooleanSetterPaths(
   const values = new Map<string, Set<boolean>>();
   const invalid = new Set<string>();
   const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'setJobConfig') {
+    if (
+      ts.isCallExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === 'setJobConfig'
+      && !isStaticallyDead(node)
+    ) {
       const path = exactLiteralSetterPath(node);
       if (path !== undefined && path !== primaryPath) {
         requireComponentSetterBinding(node.expression, bindings);
@@ -3075,6 +3086,7 @@ function booleanSetterValuesForPath(
       && ts.isIdentifier(node.expression)
       && node.expression.text === 'setJobConfig'
       && exactLiteralSetterPath(node) === path
+      && !isStaticallyDead(node)
     ) {
       requireComponentSetterBinding(node.expression, bindings);
       const value = node.arguments[0] === undefined ? undefined : unwrap(node.arguments[0]);
@@ -3133,23 +3145,172 @@ function hasExactEmptySelectionBooleanMapping(
   return exactMappings === 1;
 }
 
-function literalSelectValues(expression: ts.Expression | undefined): TrainingBookValueFact[] | undefined {
+function selectOptionLiteralValue(item: ts.Expression): TrainingBookValueFact {
+  const option = unwrap(item);
+  if (!ts.isObjectLiteralExpression(option)) fail(option, 'select option must remain an exact object literal');
+  const value = objectProperties(option).get('value');
+  if (value === undefined) fail(option, 'select option is missing its accepted value');
+  const raw = unwrap(value);
+  if (ts.isStringLiteral(raw) || ts.isNoSubstitutionTemplateLiteral(raw)) return { kind: 'string', value: raw.text };
+  if (ts.isNumericLiteral(raw)) return { kind: 'number', value: Number(raw.text) };
+  if (raw.kind === ts.SyntaxKind.TrueKeyword || raw.kind === ts.SyntaxKind.FalseKeyword) {
+    return { kind: 'boolean', value: raw.kind === ts.SyntaxKind.TrueKeyword };
+  }
+  fail(raw, 'select option value must remain a scalar literal accepted value');
+}
+
+function selectRootIdentifier(expression: ts.Expression): ts.Identifier | undefined {
+  expression = unwrap(expression);
+  if (ts.isIdentifier(expression)) return expression;
+  if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+    return selectRootIdentifier(expression.expression);
+  }
+  return undefined;
+}
+
+function selectAliasMutatedBefore(
+  declaration: ts.Identifier,
+  reference: ts.Identifier,
+  bindings: LexicalBindings,
+): boolean {
+  const source = reference.getSourceFile();
+  const referenceOwner = enclosingLexicalFunction(reference);
+  let mutated = false;
+  const exactRoot = (expression: ts.Expression): boolean => {
+    const root = selectRootIdentifier(expression);
+    return root !== undefined && bindings.bindingDeclaration(root) === declaration;
+  };
+  const relevantOwner = (node: ts.Node): boolean => {
+    const owner = enclosingLexicalFunction(node);
+    return owner === undefined || owner === referenceOwner;
+  };
+  const visit = (node: ts.Node): void => {
+    if (mutated || node.getStart(source) >= reference.getStart(source)) return;
+    if (node.end <= declaration.end || isStaticallyDead(node)) return;
+    if (!relevantOwner(node)) return;
+    if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind) && exactRoot(node.left)) {
+      mutated = true;
+      return;
+    }
+    if (
+      (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node))
+      && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)
+      && exactRoot(node.operand)
+    ) {
+      mutated = true;
+      return;
+    }
+    if (ts.isDeleteExpression(node) && exactRoot(node.expression)) {
+      mutated = true;
+      return;
+    }
+    if (ts.isCallExpression(node)) {
+      const member = staticMember(node.expression);
+      if (member !== undefined && exactRoot(member.base)) {
+        mutated = true;
+        return;
+      }
+      if (node.arguments.some(argument => !ts.isSpreadElement(argument) && exactRoot(argument))) {
+        mutated = true;
+        return;
+      }
+    }
+    if (ts.isNewExpression(node) && node.arguments?.some(argument => !ts.isSpreadElement(argument) && exactRoot(argument))) {
+      mutated = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return mutated;
+}
+
+function literalSelectValues(
+  expression: ts.Expression | undefined,
+  bindings: LexicalBindings,
+  seen = new Set<ts.Identifier>(),
+): TrainingBookValueFact[] | undefined {
   if (expression === undefined) return undefined;
   expression = unwrap(expression);
-  if (!ts.isArrayLiteralExpression(expression) || expression.elements.some(item => ts.isSpreadElement(item))) return undefined;
-  const result: TrainingBookValueFact[] = [];
-  for (const item of expression.elements) {
-    const option = unwrap(item as ts.Expression);
-    if (!ts.isObjectLiteralExpression(option)) fail(option, 'select option must remain an exact object literal');
-    const value = objectProperties(option).get('value');
-    if (value === undefined) fail(option, 'select option is missing its accepted value');
-    const raw = unwrap(value);
-    if (ts.isStringLiteral(raw) || ts.isNoSubstitutionTemplateLiteral(raw)) result.push({ kind: 'string', value: raw.text });
-    else if (ts.isNumericLiteral(raw)) result.push({ kind: 'number', value: Number(raw.text) });
-    else if (raw.kind === ts.SyntaxKind.TrueKeyword || raw.kind === ts.SyntaxKind.FalseKeyword) result.push({ kind: 'boolean', value: raw.kind === ts.SyntaxKind.TrueKeyword });
-    else fail(raw, 'select option value must remain a scalar literal accepted value');
+  if (ts.isIdentifier(expression)) {
+    const lookup = bindings.lookup(expression);
+    const declaration = bindings.bindingDeclaration(expression);
+    if (
+      declaration === undefined
+      || lookup.found === false
+      || lookup.event?.kind !== 'declaration'
+      || seen.has(declaration)
+      || !ts.isVariableDeclaration(declaration.parent)
+      || declaration.parent.name !== declaration
+      || !ts.isVariableDeclarationList(declaration.parent.parent)
+      || (declaration.parent.parent.flags & ts.NodeFlags.Const) === 0
+      || selectAliasMutatedBefore(declaration, expression, bindings)
+    ) return undefined;
+    const initializer = lookup.event.initializer;
+    return initializer === undefined
+      ? undefined
+      : literalSelectValues(initializer, bindings, new Set(seen).add(declaration));
   }
-  return result;
+  if (!ts.isArrayLiteralExpression(expression) || expression.elements.some(item => ts.isSpreadElement(item))) return undefined;
+  return expression.elements.map(item => selectOptionLiteralValue(item as ts.Expression));
+}
+
+function exactProjectedSelectOptions(
+  node: ts.JsxOpeningLikeElement,
+  path: string,
+  expression: ts.Expression | undefined,
+  bindings: LexicalBindings,
+  allowArchitectureProjectedLabels: boolean,
+): boolean {
+  if (!allowArchitectureProjectedLabels || expression === undefined) return false;
+  expression = unwrap(expression);
+  if (!ts.isIdentifier(expression)) return false;
+  if (path === 'config.process[*].model.arch') {
+    return bindings.isExactNamedImport(expression, 'groupedModelOptions', './options');
+  }
+  if (path === 'config.process[*].model.qtype_te') {
+    return bindings.isExactNamedImport(expression, 'quantizationOptions', './options');
+  }
+  if (path !== 'config.process[*].model.qtype' || expression.text !== 'transformerQuantizationOptions') return false;
+  const lookup = bindings.lookup(expression);
+  const declaration = bindings.bindingDeclaration(expression);
+  if (
+    lookup.found === false
+    || lookup.event?.kind !== 'declaration'
+    || declaration === undefined
+    || !ts.isVariableDeclaration(declaration.parent)
+    || declaration.parent.name !== declaration
+    || enclosingLexicalFunction(declaration) !== enclosingLexicalFunction(node)
+  ) return false;
+  const initializer = declaration.parent.initializer === undefined ? undefined : unwrap(declaration.parent.initializer);
+  return initializer !== undefined
+    && ts.isCallExpression(initializer)
+    && ts.isIdentifier(initializer.expression)
+    && bindings.isExactNamedImport(initializer.expression, 'useMemo', 'react');
+}
+
+function exactDatasetSelectOptions(
+  node: ts.JsxOpeningLikeElement,
+  path: string,
+  expression: ts.Expression | undefined,
+  bindings: LexicalBindings,
+): boolean {
+  if (!/^config\.process\[\*\]\.datasets\[\*\]\.control_path(?:_[123])?$/.test(path) || expression === undefined) return false;
+  expression = unwrap(expression);
+  if (!ts.isArrayLiteralExpression(expression)) return false;
+  const spreads = expression.elements.filter(ts.isSpreadElement);
+  if (spreads.length !== 1) return false;
+  const spread = unwrap(spreads[0].expression);
+  if (!ts.isIdentifier(spread)) return false;
+  const binding = bindings.componentPropBinding(spread, 'datasetOptions');
+  if (binding === undefined) return false;
+  let current: ts.Node | undefined = node;
+  while (current !== undefined && current !== binding.owner) current = current.parent;
+  if (current !== binding.owner) return false;
+  for (const item of expression.elements) {
+    if (!ts.isSpreadElement(item)) selectOptionLiteralValue(item as ts.Expression);
+  }
+  return true;
 }
 
 function uniqueValues(values: TrainingBookValueFact[]): TrainingBookValueFact[] {
@@ -3203,6 +3364,15 @@ function semanticControlContract(
     contract.nullable = false;
   }
   return contract;
+}
+
+function enclosingLexicalFunction(node: ts.Node): ts.FunctionLikeDeclaration | undefined {
+  let current: ts.Node | undefined = node.parent;
+  while (current !== undefined) {
+    if (isLexicalFunction(current)) return current;
+    current = current.parent;
+  }
+  return undefined;
 }
 
 function lexicalComponentSymbol(node: ts.Node, fallback: string): string {
@@ -3298,6 +3468,9 @@ function validateQuantizationVisibilityGuards(source: ts.SourceFile, sourceName:
     visitSetters(onChange);
     if (owners.size !== 1) fail(onChange, `${label} quantization setters require one exact component owner`);
     const owner = [...owners][0];
+    if (enclosingLexicalFunction(control) !== owner) {
+      fail(control, `${label} quantization control and setters require the same lexical component owner`);
+    }
     if (componentOwner !== undefined && owner !== componentOwner) {
       fail(onChange, 'Transformer and Text Encoder quantization setters require the same component owner');
     }
@@ -3420,9 +3593,18 @@ export function collectVisibleControlClaimsFromSource(
                 optional: controlOptional(jsxAttributeNode(node, 'required')),
                 nullable: kind.nullable,
               };
-              const optionValues = component === 'SelectInput' || component === 'CreatableSelectInput'
-                ? literalSelectValues(jsxAttributeExpression(jsxAttributeNode(node, 'options')))
+              const optionsExpression = component === 'SelectInput' || component === 'CreatableSelectInput'
+                ? jsxAttributeExpression(jsxAttributeNode(node, 'options'))
                 : undefined;
+              const optionValues = component === 'SelectInput' || component === 'CreatableSelectInput'
+                ? literalSelectValues(optionsExpression, bindings)
+                : undefined;
+              if (
+                component === 'SelectInput'
+                && optionValues === undefined
+                && !exactProjectedSelectOptions(node, path, optionsExpression, bindings, allowArchitectureProjectedLabels)
+                && !exactDatasetSelectOptions(node, path, optionsExpression, bindings)
+              ) fail(optionsExpression ?? node, 'SelectInput options must resolve to closed accepted values or an exact projected options source');
               if (optionValues !== undefined && component === 'SelectInput') baseContract.accepted_values = optionValues;
               if (optionValues !== undefined && component === 'CreatableSelectInput') baseContract.suggested_values = optionValues;
               Object.assign(
