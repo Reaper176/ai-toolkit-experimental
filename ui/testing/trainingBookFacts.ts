@@ -2115,6 +2115,15 @@ class LexicalBindings {
     return lookup.found ? lookup.event?.name : undefined;
   }
 
+  uniqueLexicalDeclaration(identifier: ts.Identifier): ts.Identifier | undefined {
+    for (const scope of this.scopes(identifier)) {
+      const declarations = (this.eventsFor(scope).get(identifier.text) ?? []).filter(event => event.kind === 'declaration');
+      if (declarations.length === 0) continue;
+      return declarations.length === 1 ? declarations[0].name : undefined;
+    }
+    return undefined;
+  }
+
   sameBinding(left: ts.Identifier, right: ts.Identifier): boolean {
     const leftLookup = this.lookup(left);
     const rightLookup = this.lookup(right);
@@ -8837,6 +8846,60 @@ function visitExecutableFunctionNodes(
       : expression;
   };
   let sequence = 0;
+  const executableConstructorTargets = new Map<ts.Identifier, InvocationValue>();
+  const withExecutableConstructorTargets = (
+    substitutions: InvocationSubstitutions,
+  ): InvocationSubstitutions => {
+    if (executableConstructorTargets.size === 0) return substitutions;
+    const projected = new Map(substitutions);
+    for (const [declaration, value] of executableConstructorTargets) projected.set(declaration, value);
+    return projected;
+  };
+  const projectedExecutableValue = (
+    candidate: ts.Expression,
+    substitutions: InvocationSubstitutions,
+    seen = new Set<ts.Node>(),
+  ): InvocationValue => {
+    const expression = unwrap(candidate);
+    if (seen.has(expression)) return 'tainted';
+    const nextSeen = new Set(seen).add(expression);
+    const direct = substitutions.get(expression);
+    if (direct !== undefined) return typeof direct === 'string'
+      ? direct
+      : projectedExecutableValue(direct, substitutions, nextSeen);
+    if (!ts.isIdentifier(expression)) return expression;
+    const declaration = bindings.bindingDeclaration(expression);
+    if (declaration === undefined) return expression;
+    const substitution = substitutions.get(declaration);
+    if (substitution !== undefined) return typeof substitution === 'string'
+      ? substitution
+      : projectedExecutableValue(substitution, substitutions, new Set(nextSeen).add(declaration));
+    if (ts.isClassDeclaration(declaration.parent) && declaration.parent.name === declaration) return expression;
+    const initializer = bindings.uniqueLexicalInitializer(expression);
+    return initializer === undefined
+      ? expression
+      : projectedExecutableValue(initializer, substitutions, new Set(nextSeen).add(declaration));
+  };
+  const executableConstructorTargetBinding = (
+    candidate: ts.Expression,
+    substitutions: InvocationSubstitutions,
+  ): ts.Identifier | undefined => {
+    const expression = unwrap(candidate);
+    if (!ts.isIdentifier(expression)) return undefined;
+    const declaration = bindings.bindingDeclaration(expression)
+      ?? bindings.uniqueLexicalDeclaration(expression);
+    if (declaration === undefined) return undefined;
+    if (executableConstructorTargets.has(declaration)) return declaration;
+    if (
+      ts.isParameter(declaration.parent)
+      && ts.isConstructorDeclaration(declaration.parent.parent)
+    ) return declaration;
+    const initializer = bindings.uniqueLexicalInitializer(expression);
+    return initializer !== undefined
+      && invocationCalleeDependsOnConstructorParameter(initializer, bindings, substitutions)
+      ? declaration
+      : undefined;
+  };
   const replayedObjectSpreads = new Set<ts.SpreadAssignment>();
   const hasPotentialEffect = (target: ts.FunctionLikeDeclaration): boolean => {
     let found = false;
@@ -9002,12 +9065,27 @@ function visitExecutableFunctionNodes(
     execution: 'known' | 'unmodeled-callback',
   ): void => {
     if (isStaticallyDead(node, bindings)) return;
+    substitutions = withExecutableConstructorTargets(substitutions);
     if (node !== current && ts.isFunctionLike(node)) return;
     const conditions = mergeConditions(
       invocationConditions.get(current) ?? [],
       lexicalConditions(node, current, substitutions),
     );
     nodeConditions.set(node, conditions);
+    const assigned = assignedIdentifiers(node);
+    if (assigned.length > 0) {
+      const exactValue = (
+        execution === 'known'
+        && conditions.length === 0
+        && ts.isBinaryExpression(node)
+        && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+        && ts.isIdentifier(unwrap(node.left))
+      ) ? projectedExecutableValue(node.right, substitutions) : 'tainted';
+      for (const target of assigned) {
+        const declaration = executableConstructorTargetBinding(target, substitutions);
+        if (declaration !== undefined) executableConstructorTargets.set(declaration, exactValue);
+      }
+    }
     if (ts.isClassLike(node)) {
       visitor(node, substitutions, execution, sequence++, current, conditions);
       visitClassDefinitionEffects(node, effect => visit(effect, substitutions, current, execution));
@@ -9179,6 +9257,7 @@ function visitExecutableFunctionNodes(
     }
     visitor(node, substitutions, execution, sequence++, current, conditions);
     if (ts.isNewExpression(node)) {
+      const trackedTarget = executableConstructorTargetBinding(node.expression, substitutions) !== undefined;
       const resolved = visitExecutableClassConstructionNodes(
         node.expression,
         node.arguments === undefined ? [] : finiteInvocationArgumentList(node.arguments, bindings),
@@ -9196,7 +9275,10 @@ function visitExecutableFunctionNodes(
           );
         },
       );
-      if (!resolved && invocationCalleeDependsOnConstructorParameter(node.expression, bindings, substitutions)) {
+      if (!resolved && (
+        trackedTarget
+        || invocationCalleeDependsOnConstructorParameter(node.expression, bindings, substitutions)
+      )) {
         fail(node, 'unsupported class construction: unresolved constructor parameter provenance');
       }
     }

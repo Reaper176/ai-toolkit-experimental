@@ -3743,6 +3743,185 @@ for (const [label, callback] of [
     factualUiContractFailures.push(label);
   }
 }
+
+for (const [label, helperBody] of [
+  [
+    'direct invoked helper rewrites constructor target before quantization construction',
+    `const rewrite = () => { Ctor = Bad; };
+               rewrite();`,
+  ],
+  [
+    'aliased invoked helper rewrites constructor target before quantization construction',
+    `const rewrite = () => { Ctor = Bad; };
+               const invoke = rewrite;
+               invoke();`,
+  ],
+  [
+    'nested invoked helper rewrites constructor target before quantization construction',
+    `const outer = () => {
+                 const inner = () => { Ctor = Bad; };
+                 inner();
+               };
+               outer();`,
+  ],
+  [
+    'parameterized invoked helper rewrites constructor target before quantization construction',
+    `const rewrite = Next => { Ctor = Next; };
+               rewrite(Bad);`,
+  ],
+  [
+    'unresolved invoked helper rewrite of constructor target fails closed',
+    `const rewrite = () => { Ctor = externalCtor; };
+               rewrite();`,
+  ],
+] as const) {
+  const callback = `onChange={value => {
+            if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+            else setJobConfig(true, 'config.process[0].model.quantize');
+            class Safe {}
+            class Bad { constructor() { value = false; } }
+            class Base {
+              constructor(Ctor) {
+                ${helperBody}
+                new Ctor();
+              }
+            }
+            new Base(Safe);
+            setJobConfig(value, 'config.process[0].model.qtype');
+          }}`;
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /class|constructor|new|qtype|selection|payload|provenance|target/i, `${label} must use the target state at new`);
+  }
+}
+
+for (const [label, sourceText, symbol, projected] of [
+  [
+    'ordinary options mutation through helper-rewritten constructor target fails closed',
+    ordinaryClassEffectControl(
+      `class Safe {}
+       class Bad { constructor() { modeOptions.push({ value: 'b', label: 'B' }); } }
+       class Base {
+         constructor(Ctor) {
+           const rewrite = () => { Ctor = Bad; };
+           rewrite();
+           new Ctor();
+         }
+       }`,
+      'new Base(Safe);',
+    ),
+    'Fixture',
+    false,
+  ],
+  [
+    'projected options mutation through parameterized helper-rewritten constructor target fails closed',
+    projectedOptionsControl(
+      `class Safe {}
+       class Bad { constructor() { groupedModelOptions.push({ value: 'stale', label: 'Stale' }); } }
+       class Base {
+         constructor(Ctor) {
+           const rewrite = Next => { Ctor = Next; };
+           rewrite(Bad);
+           new Ctor();
+         }
+       }
+       new Base(Safe);`,
+      '',
+      '',
+    ),
+    'SimpleJob',
+    true,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(sourceText, 'fixture.tsx', symbol, false, projected);
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /class|constructor|new|select.*options|accepted values|projected|provenance|target/i, `${label} must use the target state at new`);
+  }
+}
+
+for (const [label, assignment] of [
+  ['direct constructor target reassignment remains closed', 'Ctor = Bad;'],
+  ['destructuring constructor target reassignment remains closed', '[Ctor] = [Bad];'],
+] as const) {
+  const callback = `onChange={value => {
+            if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+            else setJobConfig(true, 'config.process[0].model.quantize');
+            class Safe {}
+            class Bad { constructor() { value = false; } }
+            class Base { constructor(Ctor) { ${assignment} new Ctor(); } }
+            new Base(Safe);
+            setJobConfig(value, 'config.process[0].model.qtype');
+          }}`;
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /class|constructor|new|qtype|selection|payload|provenance|target/i, `${label} must not reuse the original constructor argument`);
+  }
+}
+
+for (const [label, helperBody] of [
+  [
+    'uninvoked helper constructor target rewrite remains harmless',
+    `const rewrite = () => { Ctor = Bad; };
+               void rewrite;`,
+  ],
+  [
+    'helper rewrite to the same safe constructor remains harmless',
+    `const rewrite = () => { Ctor = Safe; };
+               rewrite();`,
+  ],
+  [
+    'helper rewrite to another exact safe constructor remains harmless',
+    `class OtherSafe {}
+               const rewrite = () => { Ctor = OtherSafe; };
+               rewrite();`,
+  ],
+  [
+    'unrelated target rewrite and local construction remain harmless',
+    `class OtherSafe {}
+               let Other = Safe;
+               const rewrite = () => { Other = OtherSafe; };
+               rewrite();
+               new Other();`,
+  ],
+] as const) {
+  const callback = `onChange={value => {
+            if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+            else setJobConfig(true, 'config.process[0].model.quantize');
+            class Safe {}
+            class Bad { constructor() { value = false; } }
+            class Base {
+              constructor(Ctor) {
+                ${helperBody}
+                new Ctor();
+              }
+            }
+            new Base(Safe);
+            setJobConfig(value, 'config.process[0].model.qtype');
+          }}`;
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+  } catch {
+    factualUiContractFailures.push(label);
+  }
+}
 assert.deepEqual(factualUiContractFailures, [], 'shared factual UI contracts must remain exact');
 
 assert.throws(
