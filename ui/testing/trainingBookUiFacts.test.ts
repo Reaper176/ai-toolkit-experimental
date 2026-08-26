@@ -3701,6 +3701,62 @@ if (liveRoot !== undefined) {
     },
     'final provenance review covers access conversion effects, Proxy traps, local destructuring iteration, and exact static values',
   );
+  const definePropertiesAccessFailures = [
+    ['defineProperties executes outer descriptor getter', "  const descriptors = { get value() { jobConfig.config.process[0].train.steps = 99; return { value: 1 }; } };\n  Object.defineProperties({}, descriptors);\n  if (isMac()) {"],
+    ['defineProperties executes returned descriptor field getter', "  const descriptors = { get value() { return { get value() { jobConfig.config.process[0].train.steps = 99; return 1; } }; } };\n  Object.defineProperties({}, descriptors);\n  if (isMac()) {"],
+    ['defineProperties executes direct descriptor field getter', "  const descriptors = { value: { get value() { jobConfig.config.process[0].train.steps = 99; return 1; } } };\n  Object.defineProperties({}, descriptors);\n  if (isMac()) {"],
+    ['defineProperties executes returned descriptor getter through outer spread', "  const source = { get value() { return { get value() { jobConfig.config.process[0].train.steps = 99; return 1; } }; } };\n  Object.defineProperties({}, { ...source });\n  if (isMac()) {"],
+    ['defineProperties executes descriptor getter through inner spread', "  const fields = { get value() { jobConfig.config.process[0].train.steps = 99; return 1; } };\n  Object.defineProperties({}, { value: { ...fields } });\n  if (isMac()) {"],
+    ['defineProperties executes nonenumerable descriptor field getter', "  const descriptor = {};\n  Object.defineProperty(descriptor, 'value', { enumerable: false, get() { jobConfig.config.process[0].train.steps = 99; return 1; } });\n  Object.defineProperties({}, { value: descriptor });\n  if (isMac()) {"],
+    ['defineProperties preserves earlier outer getter effect before later throw', "  const descriptors = { get first() { jobConfig.config.process[0].train.steps = 99; return { value: 1 }; }, get second() { throw new Error('stop'); } };\n  Object.defineProperties({}, descriptors);\n  if (isMac()) {"],
+    ['defineProperties preserves earlier field getter effect before later throw', "  const descriptor = { get enumerable() { jobConfig.config.process[0].train.steps = 99; return true; }, get configurable() { throw new Error('stop'); } };\n  Object.defineProperties({}, { value: descriptor });\n  if (isMac()) {"],
+    ['defineProperties preserves inner spread getter effect before field throw', "  const fields = { get enumerable() { jobConfig.config.process[0].train.steps = 99; return true; } };\n  const descriptor = { ...fields, get value() { throw new Error('stop'); } };\n  Object.defineProperties({}, { value: descriptor });\n  if (isMac()) {"],
+    ['defineProperties preserves outer spread getter effect before returned field throw', "  const source = { get value() { jobConfig.config.process[0].train.steps = 99; return { get enumerable() { throw new Error('stop'); } }; } };\n  Object.defineProperties({}, { ...source });\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const objectAssignGetterValueFailures = [
+    ['Object.assign source getter return reaches target setter', "  const target = { set value(next) { dynamicConsumer(next); } };\n  const source = { get value() { return jobConfig; } };\n  Object.assign(target, source);\n  if (isMac()) {"],
+    ['Object.assign aliased getter return reaches target setter', "  const selected = jobConfig;\n  const target = { set value(next) { dynamicConsumer(next); } };\n  const source = { get value() { return selected; } };\n  Object.assign(target, source);\n  if (isMac()) {"],
+    ['Object.assign relevant first source is consumed before safe overwrite', "  const target = { set value(next) { dynamicConsumer(next); } };\n  Object.assign(target, { get value() { return jobConfig; } }, { get value() { return otherConfig; } });\n  if (isMac()) {"],
+    ['Object.assign relevant later source is consumed after safe write', "  const target = { set value(next) { dynamicConsumer(next); } };\n  Object.assign(target, { get value() { return otherConfig; } }, { get value() { return jobConfig; } });\n  if (isMac()) {"],
+    ['Object.assign getter result is consumed before later source throw', "  const target = { set value(next) { dynamicConsumer(next); } };\n  Object.assign(target, { get value() { return jobConfig; } }, { get stop() { throw new Error('stop'); } });\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const descriptorAndGetterValuePositiveFailures: string[] = [];
+  for (const [label, replacement] of [
+    ['defineProperties accepts data descriptors', "  Object.defineProperties({}, { value: { value: 1, enumerable: true } });\n  if (isMac()) {"],
+    ['defineProperties accepts harmless outer getter', "  const descriptors = { get value() { otherObject.value = 1; return { value: 1 }; } };\n  Object.defineProperties({}, descriptors);\n  if (isMac()) {"],
+    ['defineProperties skips nonenumerable outer descriptor getter', "  const descriptors = {};\n  Object.defineProperty(descriptors, 'value', { enumerable: false, get() { jobConfig.config.process[0].train.steps = 99; return { value: 1 }; } });\n  Object.defineProperties({}, descriptors);\n  if (isMac()) {"],
+    ['defineProperties skips unrelated descriptor field getter', "  const descriptor = { get other() { jobConfig.config.process[0].train.steps = 99; return 1; }, value: 1 };\n  Object.defineProperties({}, { value: descriptor });\n  if (isMac()) {"],
+    ['defineProperties throwing outer getter stops later outer getter', "  const descriptors = { get first() { throw new Error('stop'); }, get second() { jobConfig.config.process[0].train.steps = 99; return { value: 1 }; } };\n  Object.defineProperties({}, descriptors);\n  if (isMac()) {"],
+    ['defineProperties throwing field getter stops later field getter', "  const descriptor = { get enumerable() { throw new Error('stop'); }, get value() { jobConfig.config.process[0].train.steps = 99; return 1; } };\n  Object.defineProperties({}, { value: descriptor });\n  if (isMac()) {"],
+    ['defineProperties throwing inner spread getter stops later field getter', "  const fields = { get enumerable() { throw new Error('stop'); } };\n  const descriptor = { ...fields, get value() { jobConfig.config.process[0].train.steps = 99; return 1; } };\n  Object.defineProperties({}, { value: descriptor });\n  if (isMac()) {"],
+    ['defineProperties throwing outer spread getter stops later outer getter', "  const source = { get first() { throw new Error('stop'); } };\n  const descriptors = { ...source, get second() { jobConfig.config.process[0].train.steps = 99; return { value: 1 }; } };\n  Object.defineProperties({}, descriptors);\n  if (isMac()) {"],
+    ['Object.assign harmless getter return reaches consuming setter', "  const target = { set value(next) { dynamicConsumer(next); } };\n  const source = { get value() { return otherConfig; } };\n  Object.assign(target, source);\n  if (isMac()) {"],
+    ['Object.assign relevant getter return reaches harmless setter', "  const target = { set value(next) { otherObject.value = next; } };\n  const source = { get value() { return jobConfig; } };\n  Object.assign(target, source);\n  if (isMac()) {"],
+    ['Object.assign throwing getter stops target setter', "  const target = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  const source = { get value() { throw new Error('stop'); } };\n  Object.assign(target, source);\n  if (isMac()) {"],
+    ['Object.assign throwing source stops later relevant source', "  const target = { set value(next) { dynamicConsumer(next); } };\n  Object.assign(target, { get stop() { throw new Error('stop'); } }, { get value() { return jobConfig; } });\n  if (isMac()) {"],
+  ] as const) {
+    try {
+      assert.deepEqual(
+        collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)),
+        summaryMigrateFacts,
+      );
+    } catch {
+      descriptorAndGetterValuePositiveFailures.push(label);
+    }
+  }
+  assert.deepEqual(
+    {
+      definePropertiesAccessFailures,
+      objectAssignGetterValueFailures,
+      descriptorAndGetterValuePositiveFailures,
+    },
+    {
+      definePropertiesAccessFailures: [],
+      objectAssignGetterValueFailures: [],
+      descriptorAndGetterValuePositiveFailures: [],
+    },
+    'acceptance review covers defineProperties access order and Object.assign getter return provenance',
+  );
   assert.equal(summaryArchFacts.length, 30);
   assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));

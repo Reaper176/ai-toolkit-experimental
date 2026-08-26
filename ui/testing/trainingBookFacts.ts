@@ -5494,8 +5494,29 @@ function summarizeInvocationReturnProvenance(
   const target = localFunctionFromExpression(invocation.target, bindings, substitutions);
   if (target === undefined) return undefined;
   if (invocation.unsupported !== undefined || invocation.arguments === undefined) return { kind: 'tainted' };
+  return summarizeFunctionReturnProvenance(target, invocation.arguments, bindings, substitutions);
+}
+
+function summarizeFunctionReturnProvenance(
+  target: ts.FunctionLikeDeclaration,
+  argumentsToBind: readonly InvocationValue[],
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  thisValue: InvocationValue = 'absent',
+): AliasProvenance {
   if (activeInvocationSummaries.has(target)) return { kind: 'tainted' };
-  const next = projectInvocationParameters(target.parameters, invocation.arguments, bindings, substitutions);
+  const next = projectInvocationParameters(target.parameters, argumentsToBind, bindings, substitutions);
+  if (!ts.isArrowFunction(target) && target.body !== undefined) {
+    const bindThis = (node: ts.Node): void => {
+      if (node.kind === ts.SyntaxKind.ThisKeyword) {
+        next.set(node, thisValue);
+        return;
+      }
+      if (node !== target.body && ts.isFunctionLike(node) && !ts.isArrowFunction(node)) return;
+      ts.forEachChild(node, bindThis);
+    };
+    bindThis(target.body);
+  }
   activeInvocationSummaries.add(target);
   try {
     if (ts.isArrowFunction(target) && !ts.isBlock(target.body)) {
@@ -6042,6 +6063,56 @@ type FiniteCopyEntry = {
   value: InvocationValue;
 };
 
+function invocationValueFromProvenance(provenance: AliasProvenance): InvocationValue {
+  if (provenance.kind === 'absent') return 'absent';
+  if (provenance.kind === 'tainted' || ts.isMethodDeclaration(provenance.origin)) return 'tainted';
+  return provenance.origin;
+}
+
+type FiniteCopiedValue =
+  | { kind: 'present'; value: InvocationValue }
+  | { kind: 'absent' | 'unknown' };
+
+function finiteCopiedObjectValue(
+  expression: ts.Expression,
+  key: string,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  seen = new Set<ts.Expression>(),
+): FiniteCopiedValue {
+  const root = syntacticExactAliasOrigin(expression, bindings, substitutions);
+  if (root === undefined || seen.has(root)) return { kind: 'unknown' };
+  const object = unwrap(root);
+  if (!ts.isObjectLiteralExpression(object)) return { kind: 'unknown' };
+  const nextSeen = new Set(seen).add(root);
+  for (let index = object.properties.length - 1; index >= 0; index -= 1) {
+    const property = object.properties[index];
+    if (ts.isSpreadAssignment(property)) {
+      const nested = finiteCopiedObjectValue(property.expression, key, bindings, substitutions, nextSeen);
+      if (nested.kind !== 'absent') return nested;
+      continue;
+    }
+    const propertyKey = ts.isComputedPropertyName(property.name)
+      ? resolveStaticString(property.name.expression, bindings, substitutions)
+      : propertyName(property.name);
+    if (propertyKey === undefined) return { kind: 'unknown' };
+    if (propertyKey !== key) continue;
+    if (ts.isPropertyAssignment(property)) return { kind: 'present', value: property.initializer };
+    if (ts.isShorthandPropertyAssignment(property)) return { kind: 'present', value: property.name };
+    if (ts.isGetAccessorDeclaration(property)) {
+      return {
+        kind: 'present',
+        value: invocationValueFromProvenance(
+          summarizeFunctionReturnProvenance(property, [], bindings, substitutions, object),
+        ),
+      };
+    }
+    if (ts.isSetAccessorDeclaration(property)) return { kind: 'present', value: 'absent' };
+    return { kind: 'present', value: 'tainted' };
+  }
+  return { kind: 'absent' };
+}
+
 function finiteObjectCopyEntries(
   expression: ts.Expression,
   bindings: LexicalBindings,
@@ -6062,14 +6133,22 @@ function finiteObjectCopyEntries(
     if (descriptor.enumerable !== true) continue;
     if (descriptor.kind === 'accessor') {
       if (descriptor.getter === 'unknown') unknown = true;
-      else entries.push({ key, getter: descriptor.getter, value: 'tainted' });
+      else entries.push({
+        key,
+        getter: descriptor.getter,
+        value: descriptor.getter === undefined
+          ? 'absent'
+          : invocationValueFromProvenance(
+            summarizeFunctionReturnProvenance(descriptor.getter, [], bindings, substitutions, root),
+          ),
+      });
       continue;
     }
     let value: InvocationValue = 'tainted';
     if (ts.isObjectLiteralExpression(literal)) {
-      const projected = resolveObjectLiteralProperty(literal, key, bindings, substitutions, new Set());
-      if (projected.kind === 'absent') value = 'absent';
-      else if (projected.kind === 'exact' && !ts.isMethodDeclaration(projected.origin)) value = projected.origin;
+      const copied = finiteCopiedObjectValue(literal, key, bindings, substitutions);
+      if (copied.kind === 'absent') value = 'absent';
+      else if (copied.kind === 'present') value = copied.value;
     } else if (ts.isArrayLiteralExpression(literal) && /^\d+$/u.test(key)) {
       const element = literal.elements[Number(key)];
       if (element === undefined || ts.isOmittedExpression(element)) value = 'absent';
@@ -6207,6 +6286,7 @@ function visitExecutableFunctionNodes(
       : expression;
   };
   let sequence = 0;
+  const replayedObjectSpreads = new Set<ts.SpreadAssignment>();
   const hasPotentialEffect = (target: ts.FunctionLikeDeclaration): boolean => {
     let found = false;
     const inspect = (node: ts.Node): void => {
@@ -6345,7 +6425,7 @@ function visitExecutableFunctionNodes(
         && ts.isIdentifier(receiver)
         && !bindings.lookup(receiver).found
         && ((receiver.text === 'Reflect' && directApi?.key === 'set')
-          || (receiver.text === 'Object' && directApi?.key === 'defineProperty'));
+          || (receiver.text === 'Object' && (directApi?.key === 'defineProperty' || directApi?.key === 'defineProperties')));
       const exactOwnCallable = (expression: ts.Expression | undefined, key: string): ts.FunctionLikeDeclaration | undefined => {
         if (expression === undefined) return undefined;
         const root = syntacticExactAliasOrigin(expression, bindings, substitutions);
@@ -6384,6 +6464,78 @@ function visitExecutableFunctionNodes(
               return;
             }
             break;
+          }
+        }
+        if (receiver.text === 'Object' && directApi?.key === 'defineProperties' && node.arguments[1] !== undefined) {
+          type ConstructionEffect = {
+            target: ts.FunctionLikeDeclaration;
+            receiver: ts.Expression;
+            spread: ts.SpreadAssignment;
+          };
+          const constructionPlan = (
+            expression: ts.Expression,
+            seen = new Set<ts.Expression>(),
+          ): { effects: readonly ConstructionEffect[]; abrupt: boolean } => {
+            const root = syntacticExactAliasOrigin(expression, bindings, substitutions);
+            if (root === undefined || seen.has(root)) return { effects: [], abrupt: false };
+            const object = unwrap(root);
+            if (!ts.isObjectLiteralExpression(object)) return { effects: [], abrupt: false };
+            const nextSeen = new Set(seen).add(root);
+            const effects: ConstructionEffect[] = [];
+            for (const property of object.properties) {
+              if (ts.isPropertyAssignment(property) && ts.isObjectLiteralExpression(unwrap(property.initializer))) {
+                const nested = constructionPlan(property.initializer, nextSeen);
+                effects.push(...nested.effects);
+                if (nested.abrupt) return { effects, abrupt: true };
+                continue;
+              }
+              if (!ts.isSpreadAssignment(property)) continue;
+              if (ts.isObjectLiteralExpression(unwrap(property.expression))) {
+                const nested = constructionPlan(property.expression, nextSeen);
+                effects.push(...nested.effects);
+                if (nested.abrupt) return { effects, abrupt: true };
+              }
+              const copied = finiteObjectCopyEntries(property.expression, bindings, substitutions, node);
+              for (const entry of copied.entries) {
+                if (entry.getter === undefined || entry.getter === 'unknown') continue;
+                effects.push({ target: entry.getter, receiver: property.expression, spread: property });
+                if (functionDefinitelyThrows(entry.getter)) return { effects, abrupt: true };
+              }
+            }
+            return { effects, abrupt: false };
+          };
+          const mapConstruction = constructionPlan(node.arguments[1]);
+          if (ts.isObjectLiteralExpression(unwrap(node.arguments[1]))) {
+            for (const effect of mapConstruction.effects) {
+              replayedObjectSpreads.add(effect.spread);
+              invoke(node, effect.target, [], execution, substitutions, effect.receiver);
+            }
+          }
+          if (mapConstruction.abrupt) return;
+          const copied = finiteObjectCopyEntries(node.arguments[1], bindings, substitutions, node);
+          const pending: Array<{ target: ts.FunctionLikeDeclaration; receiver: ts.Expression }> = [];
+          for (const entry of copied.entries) {
+            if (entry.getter !== undefined && entry.getter !== 'unknown') {
+              pending.push({ target: entry.getter, receiver: node.arguments[1] });
+              if (functionDefinitelyThrows(entry.getter)) {
+                for (const effect of pending) invoke(node, effect.target, [], execution, substitutions, effect.receiver);
+                return;
+              }
+            }
+            if (typeof entry.value !== 'string' && !ts.isObjectLiteralExpression(unwrap(entry.value))) {
+              const priorConstruction = constructionPlan(entry.value);
+              if (priorConstruction.abrupt) return;
+            }
+            if (typeof entry.value === 'string' || definitelyPrimitiveExpression(entry.value, bindings, substitutions)) continue;
+            for (const field of ['enumerable', 'configurable', 'value', 'writable', 'get', 'set'] as const) {
+              const selected = finiteReachableDescriptorAt(entry.value, field, bindings, substitutions, node);
+              if (selected.kind !== 'accessor' || selected.getter === undefined || selected.getter === 'unknown') continue;
+              pending.push({ target: selected.getter, receiver: entry.value });
+              if (functionDefinitelyThrows(selected.getter)) {
+                for (const effect of pending) invoke(node, effect.target, [], execution, substitutions, effect.receiver);
+                return;
+              }
+            }
           }
         }
       }
@@ -6451,12 +6603,14 @@ function visitExecutableFunctionNodes(
       }
     }
     if (ts.isSpreadAssignment(node)) {
-      const access = finiteObjectSpreadGetters(node.expression, bindings, substitutions, node);
-      for (const getter of access.getters) invoke(node, getter, [], execution, substitutions, node.expression);
-      if (access.unknown && strictUnknownAccessEffects && relevantBindings.some(binding => (
-        expressionBindingReachability(node.expression, binding, bindings, substitutions) === 'relevant'
-      ))) {
-        fail(node, 'unsupported object spread: tainted accessor provenance may consume relevant identity');
+      if (!replayedObjectSpreads.has(node)) {
+        const access = finiteObjectSpreadGetters(node.expression, bindings, substitutions, node);
+        for (const getter of access.getters) invoke(node, getter, [], execution, substitutions, node.expression);
+        if (access.unknown && strictUnknownAccessEffects && relevantBindings.some(binding => (
+          expressionBindingReachability(node.expression, binding, bindings, substitutions) === 'relevant'
+        ))) {
+          fail(node, 'unsupported object spread: tainted accessor provenance may consume relevant identity');
+        }
       }
     }
     if (ts.isSpreadElement(node)) {
@@ -6548,6 +6702,27 @@ function visitExecutableFunctionNodes(
           relevantInvocationValue(value) || relevantExpression(targetExpression)
         )) fail(node, 'unsupported reachable mutation: exact setter has unknown descriptor provenance');
       };
+      const replayPropertyDescriptor = (value: InvocationValue): 'normal' | 'throw' => {
+        if (value === 'absent') return 'throw';
+        if (value === 'tainted') return 'normal';
+        if (definitelyPrimitiveExpression(value, bindings, substitutions)) return 'throw';
+        for (const field of ['enumerable', 'configurable', 'value', 'writable', 'get', 'set'] as const) {
+          const selected = finiteReachableDescriptorAt(value, field, bindings, substitutions, node);
+          if (selected.kind === 'accessor') {
+            if (selected.getter === 'unknown') {
+              if (strictUnknownAccessEffects && relevantExpression(value)) {
+                fail(node, `unsupported property descriptor ${field} getter provenance`);
+              }
+            } else if (selected.getter !== undefined) {
+              invoke(node, selected.getter, [], execution, substitutions, value);
+              if (functionDefinitelyThrows(selected.getter)) return 'throw';
+            }
+          } else if (selected.kind === 'unknown' && strictUnknownAccessEffects && relevantExpression(value)) {
+            fail(node, `unsupported property descriptor ${field} provenance`);
+          }
+        }
+        return 'normal';
+      };
       let propertyKeyAbrupt = false;
       if (
         mutationApi?.exactGlobal === true
@@ -6573,20 +6748,29 @@ function visitExecutableFunctionNodes(
         && invocation.arguments !== undefined
         && invocation.arguments[2] !== undefined
       ) {
-        for (const field of ['enumerable', 'configurable', 'value', 'writable', 'get', 'set'] as const) {
-          const selected = finiteReachableDescriptorAt(invocation.arguments[2], field, bindings, substitutions, node);
-          if (selected.kind === 'accessor') {
-            if (selected.getter === 'unknown') {
-              if (strictUnknownAccessEffects && relevantExpression(invocation.arguments[2])) {
-                fail(node, `unsupported property descriptor ${field} getter provenance`);
-              }
-            } else if (selected.getter !== undefined) {
-              invoke(node, selected.getter, [], execution, substitutions, invocation.arguments[2]);
-              if (functionDefinitelyThrows(selected.getter)) return;
+        if (replayPropertyDescriptor(invocation.arguments[2]) === 'throw') return;
+      }
+      if (
+        mutationApi?.exactGlobal === true
+        && mutationApi.receiver === 'Object'
+        && mutationApi.method === 'defineProperties'
+        && invocation.arguments !== undefined
+        && invocation.arguments[1] !== undefined
+      ) {
+        const copied = finiteObjectCopyEntries(invocation.arguments[1], bindings, substitutions, node);
+        if (copied.unknown && strictUnknownAccessEffects && relevantExpression(invocation.arguments[1])) {
+          fail(node, 'unsupported Object.defineProperties descriptor map provenance');
+        }
+        for (const entry of copied.entries) {
+          if (entry.getter === 'unknown') {
+            if (strictUnknownAccessEffects && relevantExpression(invocation.arguments[1])) {
+              fail(node, 'unsupported Object.defineProperties outer getter provenance');
             }
-          } else if (selected.kind === 'unknown' && strictUnknownAccessEffects && relevantExpression(invocation.arguments[2])) {
-            fail(node, `unsupported property descriptor ${field} provenance`);
+          } else if (entry.getter !== undefined) {
+            invoke(node, entry.getter, [], execution, substitutions, invocation.arguments[1]);
+            if (functionDefinitelyThrows(entry.getter)) return;
           }
+          if (replayPropertyDescriptor(entry.value) === 'throw') return;
         }
       }
       if (
