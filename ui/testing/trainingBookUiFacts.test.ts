@@ -1840,6 +1840,141 @@ for (const [label, projectedSource] of [
   }
 }
 
+for (const [label, sourceText, sourceName, symbol, projected] of [
+  [
+    'ordinary SelectInput derived override reached from base constructor fails closed',
+    ordinaryClassEffectControl(
+      `class BaseMutator {
+         constructor() { this.mutate(); }
+         mutate() {}
+       }
+       class IntermediateMutator extends BaseMutator {}
+       class DerivedMutator extends IntermediateMutator {
+         mutate() { modeOptions.push({ value: 'b', label: 'B' }); }
+       }
+       const MutatorAlias = DerivedMutator;`,
+      'new MutatorAlias();',
+    ),
+    'fixture.tsx',
+    'Fixture',
+    false,
+  ],
+  [
+    'projected options derived override reached from base constructor fails closed',
+    projectedOptionsControl(
+      `class BaseMutator {
+         constructor() { this.mutate(); }
+         mutate() {}
+       }
+       class IntermediateMutator extends BaseMutator {}
+       class DerivedMutator extends IntermediateMutator {
+         mutate() { groupedModelOptions.push({ value: 'stale', label: 'Stale' }); }
+       }
+       const MutatorAlias = DerivedMutator;
+       new MutatorAlias();`,
+      '',
+      '',
+    ),
+    'fixture.tsx',
+    'SimpleJob',
+    true,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(sourceText, sourceName, symbol, false, projected);
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /select.*options|accepted values|recursive|provenance/i, `${label} must honor runtime virtual dispatch`);
+  }
+}
+try {
+  const inheritedDispatchControl = collectVisibleControlClaimsFromSource(ordinaryClassEffectControl(
+    `class SafeBase {
+       constructor() { this.touch(); }
+       touch() { return 1; }
+     }
+     class SafeDerived extends SafeBase {
+       touch() { return super.touch(); }
+     }
+     const SafeAlias = SafeDerived;`,
+    'new SafeAlias();',
+  ), 'fixture.tsx', 'Fixture');
+  if (JSON.stringify(inheritedDispatchControl[0]?.value_contract.accepted_values) !== JSON.stringify([
+    { kind: 'string', value: 'a' },
+  ])) factualUiContractFailures.push('safe inherited override and super dispatch remain harmless');
+} catch {
+  factualUiContractFailures.push('safe inherited override and super dispatch remain harmless');
+}
+try {
+  collectVisibleControlClaimsFromSource(ordinaryClassEffectControl(
+    `class RecursiveBase {
+       constructor() { this.mutate(); }
+       mutate() {}
+     }
+     class RecursiveDerived extends RecursiveBase {
+       mutate() { this.mutate(); modeOptions.push({ value: 'b', label: 'B' }); }
+     }`,
+    'new RecursiveDerived();',
+  ), 'fixture.tsx', 'Fixture');
+  factualUiContractFailures.push('runtime-dispatched recursive override fails closed');
+} catch (error) {
+  assert.match(String(error), /recursive|provenance/i, 'runtime-dispatched recursive override must fail closed without hanging');
+}
+
+for (const [label, sourceText, symbol, projected] of [
+  [
+    'ordinary SelectInput unresolved conditional class branch fails closed',
+    `import { ExternalMutator } from './external';
+     const modeOptions = [{ value: 'a', label: 'A' }];
+     class Safe {}
+     const Selected = condition ? Safe : ExternalMutator;
+     new Selected();
+     function Fixture({ jobConfig, setJobConfig }) {
+       return <SelectInput
+         label="Mode"
+         value={jobConfig.config.process[0].train.mode}
+         onChange={value => setJobConfig(value, 'config.process[0].train.mode')}
+         options={modeOptions}
+       />;
+     }`,
+    'Fixture',
+    false,
+  ],
+  [
+    'projected options unresolved conditional class branch fails closed',
+    projectedOptionsControl(
+      `import { ExternalMutator } from './external';
+       class Safe {}
+       const Selected = condition ? Safe : ExternalMutator;
+       new Selected();`,
+      '',
+      '',
+    ),
+    'SimpleJob',
+    true,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(sourceText, 'fixture.tsx', symbol, false, projected);
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /class|constructor|select.*options|accepted values|provenance/i, `${label} must not discard an unresolved branch`);
+  }
+}
+try {
+  const finiteSafeClassBranches = collectVisibleControlClaimsFromSource(ordinaryClassEffectControl(
+    `class SafeA {}
+     class SafeB {}
+     const Selected = condition ? SafeA : SafeB;`,
+    'new Selected();',
+  ), 'fixture.tsx', 'Fixture');
+  if (JSON.stringify(finiteSafeClassBranches[0]?.value_contract.accepted_values) !== JSON.stringify([
+    { kind: 'string', value: 'a' },
+  ])) factualUiContractFailures.push('finite all-local safe class branches remain analyzable');
+} catch {
+  factualUiContractFailures.push('finite all-local safe class branches remain analyzable');
+}
+
 const quantizationProjectionClaims = collectVisibleControlClaimsFromSource(`
   function Fixture({ jobConfig, setJobConfig }) {
     return <SelectInput
@@ -1903,6 +2038,78 @@ for (const [label, primaryPath, secondaryPath] of [
     factualUiContractFailures.push(label);
   } catch (error) {
     assert.match(String(error), /quantiz|qtype|string|payload/i, `${label} must reject a non-string qtype write`);
+  }
+}
+
+const quantizationFallbackSource = (
+  primaryPath: string,
+  secondaryPath: string,
+  fallback: string,
+  imports = '',
+): string => `
+  ${imports}
+  function Fixture({ jobConfig, setJobConfig }) {
+    return <SelectInput
+      label="Quantization"
+      value={jobConfig.${secondaryPath} ? jobConfig.${primaryPath} : ''}
+      onChange={value => {
+        if (value === '') {
+          setJobConfig(false, '${secondaryPath}');
+          value = ${fallback};
+        } else {
+          setJobConfig(true, '${secondaryPath}');
+        }
+        setJobConfig(value, '${primaryPath}');
+      }}
+      options={[{ value: '', label: 'Disabled' }, { value: 'qfloat8', label: 'qfloat8' }]}
+    />;
+  }
+`;
+for (const [label, primaryPath, secondaryPath] of [
+  [
+    'Transformer arbitrary qtype fallback fails closed',
+    'config.process[0].model.qtype',
+    'config.process[0].model.quantize',
+  ],
+  [
+    'Text Encoder arbitrary qtype fallback fails closed',
+    'config.process[0].model.qtype_te',
+    'config.process[0].model.quantize_te',
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      quantizationFallbackSource(primaryPath, secondaryPath, "'garbage'"),
+      'fixture.tsx',
+      'Fixture',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /quantiz|qtype|string|accepted|fallback/i, `${label} must reject a non-option literal fallback`);
+  }
+}
+for (const [label, fallback, imports] of [
+  ['accepted qtype literal fallback remains valid', "'qfloat8'", ''],
+  ['exact defaultQtype fallback remains valid', 'defaultQtype', "import { defaultQtype } from './options';"],
+] as const) {
+  try {
+    const claims = collectVisibleControlClaimsFromSource(
+      quantizationFallbackSource(
+        'config.process[0].model.qtype',
+        'config.process[0].model.quantize',
+        fallback,
+        imports,
+      ),
+      'fixture.tsx',
+      'Fixture',
+    );
+    const qtype = claims.find(claim => claim.path === 'config.process[*].model.qtype');
+    if (JSON.stringify(qtype?.value_contract.accepted_values) !== JSON.stringify([
+      { kind: 'string', value: '' },
+      { kind: 'string', value: 'qfloat8' },
+    ])) factualUiContractFailures.push(label);
+  } catch {
+    factualUiContractFailures.push(label);
   }
 }
 
@@ -1991,6 +2198,47 @@ for (const [label, valueExpression] of [
     if (contract.config_to_ui_scale !== 100 || contract.ui_to_config_scale !== 0.01) {
       factualUiContractFailures.push(label);
     }
+  } catch {
+    factualUiContractFailures.push(label);
+  }
+}
+for (const [label, valueExpression] of [
+  [
+    'whole-expression division cannot masquerade as a 100x slider read scale',
+    `(${layerScaleReadPath} * 100) / 100`,
+  ],
+  [
+    'unknown whole-expression transform cannot masquerade as a 100x slider read scale',
+    `unscale(${layerScaleReadPath} * 100)`,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      layerScaleSource.replace(layerScaleValueExpression, valueExpression),
+      'fixture.tsx',
+      'Fixture',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /reciprocal|scale|transform|expression/i, `${label} must prove the complete reachable value expression`);
+  }
+}
+for (const [label, sourceText] of [
+  [
+    'parenthesized exact slider read scale remains provable',
+    layerScaleSource.replace(layerScaleValueExpression, `((${layerScaleReadPath}) * (100))`),
+  ],
+  [
+    'exact slider read alias remains provable',
+    layerScaleSource.replace(
+      'return <SliderInput',
+      `const displayedFraction = ${layerScaleReadPath};\n    return <SliderInput`,
+    ).replace(layerScaleValueExpression, 'displayedFraction * 100'),
+  ],
+] as const) {
+  try {
+    const contract = collectVisibleControlClaimsFromSource(sourceText, 'fixture.tsx', 'Fixture')[0]?.value_contract as unknown as Record<string, unknown>;
+    if (contract.config_to_ui_scale !== 100 || contract.ui_to_config_scale !== 0.01) factualUiContractFailures.push(label);
   } catch {
     factualUiContractFailures.push(label);
   }
@@ -2119,6 +2367,109 @@ for (const [label, corruptedCallback] of [
   } catch (error) {
     assert.match(String(error), /quantiz|selection|provenance|qtype/i, `${label} must reject stale selection dataflow`);
   }
+}
+for (const [label, corruptedCallback] of [
+  [
+    'invoked arrow helper overwrite invalidates quantization selection dataflow',
+    `onChange={value => {
+              let selected = value;
+              const overwrite = () => { selected = ''; };
+              overwrite();
+              if (selected === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              setJobConfig(selected, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'invoked function helper overwrite invalidates quantization selection dataflow',
+    `onChange={value => {
+              let selected = value;
+              function overwrite() { selected = ''; }
+              overwrite();
+              if (selected === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              setJobConfig(selected, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'invoked aliased helper overwrite invalidates quantization selection dataflow',
+    `onChange={value => {
+              let selected = value;
+              const overwrite = () => { selected = ''; };
+              const invokeOverwrite = overwrite;
+              invokeOverwrite();
+              if (selected === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              setJobConfig(selected, 'config.process[0].model.qtype');
+            }}`,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, corruptedCallback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /quantiz|selection|provenance|qtype|invocation/i, `${label} must include synchronous helper effects`);
+  }
+}
+for (const [label, callback] of [
+  [
+    'uninvoked selection-overwrite helper remains harmless',
+    `onChange={value => {
+              let selected = value;
+              const uninvoked = () => { selected = ''; };
+              if (selected === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              setJobConfig(selected, 'config.process[0].model.qtype');
+            }}`,
+  ],
+  [
+    'safe synchronously invoked helper alias preserves selection dataflow',
+    `onChange={value => {
+              let selected = value;
+              const preserve = () => { selected = value; };
+              const invokePreserve = preserve;
+              invokePreserve();
+              if (selected === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              setJobConfig(selected, 'config.process[0].model.qtype');
+            }}`,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+  } catch {
+    factualUiContractFailures.push(label);
+  }
+}
+try {
+  collectVisibleControlClaimsFromSource(
+    guardedQuantizationSource.replace(
+      exactTransformerQuantizationCallback,
+      `onChange={value => {
+              let selected = value;
+              const overwrite = () => { selected = ''; };
+              const preserve = () => { selected = value; };
+              const invoke = condition ? overwrite : preserve;
+              invoke();
+              if (selected === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              setJobConfig(selected, 'config.process[0].model.qtype');
+            }}`,
+    ),
+    'ui/src/app/jobs/new/SimpleJob.tsx',
+    'SimpleJob',
+  );
+  factualUiContractFailures.push('conditionally unresolved synchronous helper invocation fails closed');
+} catch (error) {
+  assert.match(String(error), /quantiz|selection|provenance|invocation|tainted/i, 'unresolved helper invocation must fail closed');
 }
 const detachedTextEncoderSource = guardedQuantizationSource
   .replace(

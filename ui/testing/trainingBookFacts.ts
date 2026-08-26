@@ -3014,22 +3014,17 @@ function configToUiScale(
   bindings: LexicalBindings,
 ): number | undefined {
   if (expression === undefined) return undefined;
-  const scales = new Set<number>();
-  const visit = (candidate: ts.Expression, inheritedScale = 1): void => {
+  const exactScales = (candidate: ts.Expression, seen = new Set<ts.Identifier>()): readonly number[] | undefined => {
     candidate = unwrap(candidate);
-    if (canonicalAccessPath(candidate, bindings) === path) {
-      scales.add(inheritedScale);
-      return;
-    }
+    if (canonicalAccessPath(candidate, bindings) === path) return [1];
     if (ts.isConditionalExpression(candidate)) {
       const truth = staticTruthValue(candidate.condition, bindings);
-      if (truth === undefined) {
-        visit(candidate.whenTrue, inheritedScale);
-        visit(candidate.whenFalse, inheritedScale);
-      } else {
-        visit(truth ? candidate.whenTrue : candidate.whenFalse, inheritedScale);
-      }
-      return;
+      const branches = truth === undefined
+        ? [candidate.whenTrue, candidate.whenFalse]
+        : [truth ? candidate.whenTrue : candidate.whenFalse];
+      const scales = branches.map(branch => exactScales(branch, seen));
+      if (scales.some(scale => scale === undefined)) return undefined;
+      return [...new Set(scales.flatMap(scale => scale!))];
     }
     if (
       ts.isBinaryExpression(candidate)
@@ -3038,49 +3033,50 @@ function configToUiScale(
       const primary = semanticPrimaryReadPaths(candidate.left, bindings).includes(path)
         ? candidate.left
         : candidate.right;
-      visit(primary, inheritedScale);
-      return;
+      return exactScales(primary, seen);
     }
-    if (ts.isBinaryExpression(candidate) && candidate.operatorToken.kind === ts.SyntaxKind.AsteriskToken) {
-      const leftScale = finiteNumericLiteral(candidate.left);
-      const rightScale = finiteNumericLiteral(candidate.right);
-      if (leftScale !== undefined && semanticPrimaryReadPaths(candidate.right, bindings).includes(path)) {
-        visit(candidate.right, inheritedScale * leftScale);
-        return;
+    if (ts.isBinaryExpression(candidate)) {
+      if (candidate.operatorToken.kind === ts.SyntaxKind.AsteriskToken) {
+        const leftScale = finiteNumericLiteral(candidate.left);
+        const rightScale = finiteNumericLiteral(candidate.right);
+        const scaled = leftScale !== undefined
+          ? exactScales(candidate.right, seen)?.map(scale => scale * leftScale)
+          : rightScale !== undefined
+            ? exactScales(candidate.left, seen)?.map(scale => scale * rightScale)
+            : undefined;
+        return scaled?.every(Number.isFinite) ? scaled : undefined;
       }
-      if (rightScale !== undefined && semanticPrimaryReadPaths(candidate.left, bindings).includes(path)) {
-        visit(candidate.left, inheritedScale * rightScale);
-        return;
+      if (candidate.operatorToken.kind === ts.SyntaxKind.SlashToken) {
+        const divisor = finiteNumericLiteral(candidate.right);
+        if (divisor === undefined || divisor === 0) return undefined;
+        const scales = exactScales(candidate.left, seen)?.map(scale => scale / divisor);
+        return scales?.every(Number.isFinite) ? scales : undefined;
       }
+      return undefined;
     }
     if (ts.isCallExpression(candidate)) {
-      if (
-        ts.isPropertyAccessExpression(candidate.expression)
-        && semanticPrimaryReadPaths(candidate.expression.expression, bindings).includes(path)
-      ) {
-        visit(candidate.expression.expression, inheritedScale);
-        return;
-      }
-      for (const argument of candidate.arguments) {
-        if (!ts.isSpreadElement(argument) && semanticPrimaryReadPaths(argument, bindings).includes(path)) {
-          visit(argument, inheritedScale);
-        }
-      }
-      return;
+      const member = staticMember(candidate.expression);
+      const receiver = member === undefined ? undefined : unwrap(member.base);
+      const exactMathRound = member?.key === 'round'
+        && receiver !== undefined
+        && ts.isIdentifier(receiver)
+        && receiver.text === 'Math'
+        && !bindings.lookup(receiver).found
+        && candidate.arguments.length === 1
+        && !ts.isSpreadElement(candidate.arguments[0]);
+      return exactMathRound ? exactScales(candidate.arguments[0], seen) : undefined;
     }
-    if (ts.isTemplateExpression(candidate)) {
-      for (const span of candidate.templateSpans) {
-        if (semanticPrimaryReadPaths(span.expression, bindings).includes(path)) visit(span.expression, inheritedScale);
-      }
-      return;
+    if (ts.isIdentifier(candidate)) {
+      const declaration = bindings.bindingDeclaration(candidate);
+      if (declaration === undefined || seen.has(declaration)) return undefined;
+      const initializer = bindings.declarationInitializer(candidate);
+      return initializer === undefined
+        ? undefined
+        : exactScales(initializer, new Set(seen).add(declaration));
     }
-    ts.forEachChild(candidate, child => {
-      if (ts.isExpression(child) && semanticPrimaryReadPaths(child, bindings).includes(path)) {
-        visit(child, inheritedScale);
-      }
-    });
+    return undefined;
   };
-  visit(expression);
+  const scales = new Set(exactScales(expression) ?? []);
   if (scales.size > 1) fail(expression, `ambiguous config-to-UI scale for ${path}`);
   const scale = [...scales][0];
   return scale === 1 ? undefined : scale;
@@ -3237,6 +3233,49 @@ function quantizationStringValue(
   });
 }
 
+function quantizationSelectedOrAcceptedValue(
+  expression: ts.Expression,
+  parameter: ts.Identifier,
+  bindings: LexicalBindings,
+  acceptedStrings: ReadonlySet<string> | undefined,
+  seen = new Set<ts.Identifier>(),
+): boolean {
+  expression = unwrap(expression);
+  if (selectedValueAtUse(expression, parameter, bindings)) return true;
+  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
+    return acceptedStrings?.has(expression.text) === true;
+  }
+  if (ts.isConditionalExpression(expression)) {
+    const truth = staticTruthValue(expression.condition, bindings);
+    const branches = truth === undefined
+      ? [expression.whenTrue, expression.whenFalse]
+      : [truth ? expression.whenTrue : expression.whenFalse];
+    return branches.every(branch => quantizationSelectedOrAcceptedValue(
+      branch,
+      parameter,
+      bindings,
+      acceptedStrings,
+      seen,
+    ));
+  }
+  if (!ts.isIdentifier(expression)) return false;
+  if (bindings.isExactNamedImport(expression, 'defaultQtype', './options')) return true;
+  const declaration = bindings.bindingDeclaration(expression);
+  if (declaration === undefined || seen.has(declaration)) return false;
+  const lookup = bindings.provenanceCandidates(expression);
+  if (!lookup.found || lookup.candidates.length === 0) return false;
+  const nextSeen = new Set(seen).add(declaration);
+  return lookup.candidates.every(candidate => {
+    if (candidate === declaration || candidate === 'absent' || candidate === 'tainted' || candidate === 'ambiguous-identity') return false;
+    if (isDefaultAliasCandidate(candidate) || isProjectedAliasCandidate(candidate)) {
+      const provenance = resolveAliasCandidate(candidate, bindings, new Map(), new Set());
+      return provenance.kind === 'exact' && !ts.isMethodDeclaration(provenance.origin)
+        && quantizationSelectedOrAcceptedValue(provenance.origin, parameter, bindings, acceptedStrings, nextSeen);
+    }
+    return quantizationSelectedOrAcceptedValue(candidate, parameter, bindings, acceptedStrings, nextSeen);
+  });
+}
+
 function booleanSetterValuesForPath(
   root: ts.Node,
   path: string,
@@ -3296,21 +3335,20 @@ function selectedValueAtUse(
   if (!exact) return false;
   const owner = enclosingLexicalFunction(expression);
   if (owner?.body === undefined) return exact;
-  const usePosition = expression.getStart();
-  const inspect = (node: ts.Node): void => {
-    if (!exact || node.getStart() >= usePosition || isStaticallyDead(node, bindings)) return;
-    if (node !== owner && ts.isFunctionLike(node)) return;
-    if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) {
-      const target = unwrap(node.left);
-      if (ts.isIdentifier(target) && bindings.hasLexicalDeclaration(target, declaration)) {
-        exact = node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-          && selectedValueAtUse(node.right, parameter, bindings, nextSeen);
-        if (!exact) return;
-      }
-    }
-    ts.forEachChild(node, inspect);
-  };
-  inspect(owner.body);
+  const timeline = bindings.executableFunctionTimeline(owner);
+  if (timeline === undefined) return false;
+  const useIndex = timeline.findIndex(item => item.node === expression);
+  if (useIndex < 0) return false;
+  for (const item of timeline.slice(0, useIndex)) {
+    const node = item.node;
+    if (!ts.isBinaryExpression(node) || !isAssignmentOperator(node.operatorToken.kind)) continue;
+    const target = unwrap(node.left);
+    if (!ts.isIdentifier(target) || !bindings.hasLexicalDeclaration(target, declaration)) continue;
+    exact = item.execution === 'known'
+      && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && selectedValueAtUse(node.right, parameter, bindings, nextSeen);
+    if (!exact) return false;
+  }
   return exact;
 }
 
@@ -3370,6 +3408,7 @@ function validateQuantizationCallbackDataflow(
   secondaryPath: string,
   bindings: LexicalBindings,
   label: string,
+  acceptedValues?: readonly TrainingBookValueFact[],
 ): void {
   const callback = unwrap(onChange);
   if (!ts.isArrowFunction(callback) && !ts.isFunctionExpression(callback)) {
@@ -3384,6 +3423,9 @@ function validateQuantizationCallbackDataflow(
   }
   const payloadExpression = unwrap(primaryWrites[0].arguments[0]);
   const payloadIsString = quantizationStringValue(payloadExpression, parameter, bindings);
+  const acceptedStrings = acceptedValues !== undefined && acceptedValues.every(value => value.kind === 'string')
+    ? new Set(acceptedValues.map(value => (value as Extract<TrainingBookValueFact, { kind: 'string' }>).value))
+    : undefined;
   let selectedCarrierAssignmentsAreStrings = true;
   visitExecutableFunctionNodes(callback, bindings, (node, _substitutions, execution, _sequence, current) => {
     if (
@@ -3399,7 +3441,10 @@ function validateQuantizationCallbackDataflow(
       selectedCarrierAssignmentsAreStrings = false;
       return;
     }
-    if (!quantizationStringValue(node.right, parameter, bindings)) {
+    if (
+      !quantizationStringValue(node.right, parameter, bindings)
+      || !quantizationSelectedOrAcceptedValue(node.right, parameter, bindings, acceptedStrings)
+    ) {
       selectedCarrierAssignmentsAreStrings = false;
     }
   });
@@ -3917,6 +3962,7 @@ export function collectVisibleControlClaimsFromSource(
                   expectedQuantizationSecondaryPath,
                   bindings,
                   label,
+                  optionValues,
                 );
               }
               Object.assign(
@@ -6773,6 +6819,7 @@ function classMethodFromExpression(
   expression: ts.Expression,
   bindings: LexicalBindings,
   substitutions: InvocationSubstitutions,
+  runtimeClass?: ts.ClassDeclaration | ts.ClassExpression,
 ): ts.MethodDeclaration | undefined {
   const member = staticMember(expression);
   if (member === undefined) return undefined;
@@ -6782,7 +6829,7 @@ function classMethodFromExpression(
   if (lexicalClass === undefined) return undefined;
   const staticContext = classContextIsStatic(expression, lexicalClass);
   if (receiver.kind === ts.SyntaxKind.ThisKeyword) {
-    return exactClassMethod(lexicalClass, member.key, staticContext, bindings, substitutions);
+    return exactClassMethod(runtimeClass ?? lexicalClass, member.key, staticContext, bindings, substitutions);
   }
   const base = lexicalClass.heritageClauses
     ?.find(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)
@@ -7623,26 +7670,39 @@ function finiteIteratorMethod(
   return undefined;
 }
 
+type LocalClassResolution = {
+  declarations: readonly (ts.ClassDeclaration | ts.ClassExpression)[];
+  complete: boolean;
+};
+
 function localClassesFromExpression(
   expression: ts.Expression,
   bindings: LexicalBindings,
   substitutions: InvocationSubstitutions,
   seen = new Set<ts.Identifier>(),
-): readonly (ts.ClassDeclaration | ts.ClassExpression)[] | undefined {
+): LocalClassResolution | undefined {
   expression = unwrap(expression);
-  if (ts.isClassExpression(expression)) return [expression];
+  if (ts.isClassExpression(expression)) return { declarations: [expression], complete: true };
   if (ts.isConditionalExpression(expression)) {
     const truth = staticTruthValue(expression.condition, bindings);
     const branches = truth === undefined
       ? [expression.whenTrue, expression.whenFalse]
       : [truth ? expression.whenTrue : expression.whenFalse];
-    const classes = branches.flatMap(branch => localClassesFromExpression(branch, bindings, substitutions, seen) ?? []);
-    return classes.length === 0 ? undefined : [...new Set(classes)];
+    const resolutions = branches.map(branch => localClassesFromExpression(branch, bindings, substitutions, seen));
+    const declarations = [...new Set(resolutions.flatMap(resolution => resolution?.declarations ?? []))];
+    return declarations.length === 0
+      ? undefined
+      : {
+        declarations,
+        complete: resolutions.every(resolution => resolution?.complete === true),
+      };
   }
   if (ts.isIdentifier(expression)) {
     const declaration = bindings.bindingDeclaration(expression);
     if (declaration !== undefined && !seen.has(declaration)) {
-      if (ts.isClassDeclaration(declaration.parent) && declaration.parent.name === declaration) return [declaration.parent];
+      if (ts.isClassDeclaration(declaration.parent) && declaration.parent.name === declaration) {
+        return { declarations: [declaration.parent], complete: true };
+      }
       const initializer = bindings.declarationInitializer(expression);
       if (initializer !== undefined) {
         const resolved = localClassesFromExpression(
@@ -7668,8 +7728,10 @@ function localClassFromExpression(
   bindings: LexicalBindings,
   substitutions: InvocationSubstitutions,
 ): ts.ClassDeclaration | ts.ClassExpression | undefined {
-  const classes = localClassesFromExpression(expression, bindings, substitutions);
-  return classes?.length === 1 ? classes[0] : undefined;
+  const resolution = localClassesFromExpression(expression, bindings, substitutions);
+  return resolution?.complete === true && resolution.declarations.length === 1
+    ? resolution.declarations[0]
+    : undefined;
 }
 
 const activeExecutableClassConstructions = new Set<ts.ClassDeclaration | ts.ClassExpression>();
@@ -7688,11 +7750,15 @@ function visitExecutableClassConstructionNodes(
     current: ts.FunctionLikeDeclaration,
     conditions: readonly ConditionalExecutionContext[],
   ) => void,
+  runtimeClass?: ts.ClassDeclaration | ts.ClassExpression,
 ): void {
-  const declarations = localClassesFromExpression(expression, bindings, substitutions);
-  if (declarations === undefined) return;
+  const resolution = localClassesFromExpression(expression, bindings, substitutions);
+  if (resolution === undefined) return;
+  if (!resolution.complete) fail(expression, 'unsupported class construction: incomplete local constructor provenance');
+  const declarations = resolution.declarations;
   const constructionExecution = declarations.length === 1 ? execution : 'unmodeled-callback';
   for (const declaration of declarations) {
+    const receiverClass = runtimeClass ?? declaration;
     if (activeExecutableClassConstructions.has(declaration)) continue;
     activeExecutableClassConstructions.add(declaration);
     try {
@@ -7700,7 +7766,15 @@ function visitExecutableClassConstructionNodes(
         ?.find(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)
         ?.types[0]?.expression;
       if (base !== undefined) {
-        visitExecutableClassConstructionNodes(base, undefined, bindings, substitutions, constructionExecution, visitor);
+        visitExecutableClassConstructionNodes(
+          base,
+          undefined,
+          bindings,
+          substitutions,
+          constructionExecution,
+          visitor,
+          receiverClass,
+        );
       }
       for (const member of declaration.members) {
         if (
@@ -7721,7 +7795,7 @@ function visitExecutableClassConstructionNodes(
           bindings,
           visitor,
           true,
-          { arguments: [], substitutions, execution: constructionExecution },
+          { arguments: [], substitutions, execution: constructionExecution, runtimeClass: receiverClass },
         );
       }
       const constructor = declaration.members.find(ts.isConstructorDeclaration);
@@ -7735,6 +7809,7 @@ function visitExecutableClassConstructionNodes(
             arguments: argumentsToBind ?? constructor.parameters.map(() => 'tainted' as const),
             substitutions,
             execution: argumentsToBind === undefined ? 'unmodeled-callback' : constructionExecution,
+            runtimeClass: receiverClass,
           },
         );
       }
@@ -7760,6 +7835,7 @@ function visitExecutableFunctionNodes(
     arguments: readonly InvocationValue[];
     substitutions: InvocationSubstitutions;
     execution: 'known' | 'unmodeled-callback';
+    runtimeClass?: ts.ClassDeclaration | ts.ClassExpression;
   },
   relevantBindings: readonly ts.Identifier[] = [],
   strictUnknownAccessEffects = false,
@@ -7768,6 +7844,8 @@ function visitExecutableFunctionNodes(
   const active = new Set<ts.FunctionLikeDeclaration>([owner]);
   const invocationConditions = new Map<ts.FunctionLikeDeclaration, readonly ConditionalExecutionContext[]>();
   const invocationFinallyOwners = new Map<ts.FunctionLikeDeclaration, ts.TryStatement>();
+  const invocationRuntimeClasses = new Map<ts.FunctionLikeDeclaration, ts.ClassDeclaration | ts.ClassExpression>();
+  if (initialInvocation?.runtimeClass !== undefined) invocationRuntimeClasses.set(owner, initialInvocation.runtimeClass);
   const nodeConditions = new WeakMap<ts.Node, readonly ConditionalExecutionContext[]>();
   const synchronousArrayCallbacks = new Set(['map', 'forEach']);
   const obviouslyNonThrowingExpression = (candidate: ts.Expression): boolean => {
@@ -8422,6 +8500,7 @@ function visitExecutableFunctionNodes(
     targetExecution: 'known' | 'unmodeled-callback',
     substitutions: InvocationSubstitutions,
     thisValue: InvocationValue = 'absent',
+    runtimeClass?: ts.ClassDeclaration | ts.ClassExpression,
   ): void => {
     if (target.body === undefined) return;
     if (active.has(target)) {
@@ -8499,6 +8578,9 @@ function visitExecutableFunctionNodes(
     const priorFinallyOwner = invocationFinallyOwners.get(target);
     if (inheritedFinallyOwner === undefined) invocationFinallyOwners.delete(target);
     else invocationFinallyOwners.set(target, inheritedFinallyOwner);
+    const priorRuntimeClass = invocationRuntimeClasses.get(target);
+    if (runtimeClass === undefined) invocationRuntimeClasses.delete(target);
+    else invocationRuntimeClasses.set(target, runtimeClass);
     active.add(target);
     try {
       for (const effect of accessEffects) invoke(site, effect.target, [], targetExecution, substitutions, effect.receiver);
@@ -8517,6 +8599,8 @@ function visitExecutableFunctionNodes(
       else invocationConditions.set(target, priorConditions);
       if (priorFinallyOwner === undefined) invocationFinallyOwners.delete(target);
       else invocationFinallyOwners.set(target, priorFinallyOwner);
+      if (priorRuntimeClass === undefined) invocationRuntimeClasses.delete(target);
+      else invocationRuntimeClasses.set(target, priorRuntimeClass);
     }
   };
   visit = (
@@ -8806,13 +8890,18 @@ function visitExecutableFunctionNodes(
     if (ts.isCallExpression(node)) {
       normalizedCall ??= computeNormalizedCall!();
       const { invocation, activeForwardTarget, mutationApi } = normalizedCall!;
-      let direct = classMethodFromExpression(node.expression, bindings, substitutions)
+      const runtimeClass = invocationRuntimeClasses.get(current);
+      const classMethod = classMethodFromExpression(node.expression, bindings, substitutions, runtimeClass);
+      let direct = classMethod
         ?? activeForwardTarget
         ?? localFunctionFromExpression(invocation.target, bindings, substitutions, false);
       if (direct === undefined) direct = localFunctionFromExpression(invocation.target, bindings, substitutions);
       if (direct !== undefined) {
-        if (invocation.arguments !== undefined) invoke(node, direct, invocation.arguments, execution, substitutions);
-        else if (invocation.unsupported !== undefined) invoke(node, direct, undefined, 'unmodeled-callback', substitutions);
+        if (invocation.arguments !== undefined) {
+          invoke(node, direct, invocation.arguments, execution, substitutions, 'absent', classMethod === undefined ? undefined : runtimeClass);
+        } else if (invocation.unsupported !== undefined) {
+          invoke(node, direct, undefined, 'unmodeled-callback', substitutions, 'absent', classMethod === undefined ? undefined : runtimeClass);
+        }
       }
       const relevantExpression = (expression: ts.Expression | undefined): boolean => expression !== undefined
         && relevantBindings.some(binding => (
