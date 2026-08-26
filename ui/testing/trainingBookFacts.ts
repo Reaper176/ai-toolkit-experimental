@@ -451,6 +451,27 @@ function isLexicalScope(node: ts.Node): boolean {
     || ts.isClassLike(node);
 }
 
+function visitClassDefinitionEffects(
+  declaration: ts.ClassDeclaration | ts.ClassExpression,
+  visit: (node: ts.Node) => void,
+): void {
+  for (const heritage of declaration.heritageClauses ?? []) {
+    for (const type of heritage.types) visit(type.expression);
+  }
+  for (const member of declaration.members) {
+    if (member.name !== undefined && ts.isComputedPropertyName(member.name)) visit(member.name.expression);
+    if (ts.isClassStaticBlockDeclaration(member)) {
+      visit(member.body);
+      continue;
+    }
+    if (
+      ts.isPropertyDeclaration(member)
+      && member.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword)
+      && member.initializer !== undefined
+    ) visit(member.initializer);
+  }
+}
+
 function isAssignmentOperator(kind: ts.SyntaxKind): boolean {
   return kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
 }
@@ -800,21 +821,7 @@ class LexicalBindings {
       if (isStaticallyDead(node, this)) return;
       result.push({ node, substitutions: new Map(), execution: 'known', current: this.source });
       if (node !== this.source && ts.isClassLike(node)) {
-        for (const heritage of node.heritageClauses ?? []) {
-          for (const type of heritage.types) visit(type.expression);
-        }
-        for (const member of node.members) {
-          if (member.name !== undefined && ts.isComputedPropertyName(member.name)) visit(member.name.expression);
-          if (ts.isClassStaticBlockDeclaration(member)) {
-            visit(member.body);
-            continue;
-          }
-          if (
-            ts.isPropertyDeclaration(member)
-            && member.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword)
-            && member.initializer !== undefined
-          ) visit(member.initializer);
-        }
+        visitClassDefinitionEffects(node, visit);
         return;
       }
       if (ts.isCallExpression(node)) {
@@ -863,6 +870,18 @@ class LexicalBindings {
             );
           }
         }
+      }
+      if (ts.isNewExpression(node)) {
+        visitExecutableClassConstructionNodes(
+          node.expression,
+          node.arguments === undefined ? [] : finiteInvocationArgumentList(node.arguments, this),
+          this,
+          new Map(),
+          'known',
+          (invokedNode, projected, execution, _sequence, current) => {
+            result.push({ node: invokedNode, substitutions: projected, execution, current });
+          },
+        );
       }
       ts.forEachChild(node, visit);
     };
@@ -7303,6 +7322,98 @@ function finiteIteratorMethod(
   return undefined;
 }
 
+function localClassFromExpression(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  seen = new Set<ts.Identifier>(),
+): ts.ClassDeclaration | ts.ClassExpression | undefined {
+  expression = unwrap(expression);
+  if (ts.isClassExpression(expression)) return expression;
+  const provenance = resolveAliasProvenance(expression, bindings, substitutions);
+  if (provenance.kind === 'exact' && !ts.isMethodDeclaration(provenance.origin)) {
+    const origin = unwrap(provenance.origin);
+    if (ts.isClassExpression(origin)) return origin;
+    if (origin !== expression) return localClassFromExpression(origin, bindings, substitutions, seen);
+  }
+  if (!ts.isIdentifier(expression)) return undefined;
+  const declaration = bindings.bindingDeclaration(expression);
+  if (declaration === undefined || seen.has(declaration)) return undefined;
+  if (ts.isClassDeclaration(declaration.parent) && declaration.parent.name === declaration) return declaration.parent;
+  const initializer = bindings.declarationInitializer(expression);
+  return initializer === undefined
+    ? undefined
+    : localClassFromExpression(initializer, bindings, substitutions, new Set(seen).add(declaration));
+}
+
+const activeExecutableClassConstructions = new Set<ts.ClassDeclaration | ts.ClassExpression>();
+
+function visitExecutableClassConstructionNodes(
+  expression: ts.Expression,
+  argumentsToBind: readonly ts.Expression[] | undefined,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  execution: 'known' | 'unmodeled-callback',
+  visitor: (
+    node: ts.Node,
+    substitutions: InvocationSubstitutions,
+    execution: 'known' | 'unmodeled-callback',
+    sequence: number,
+    current: ts.FunctionLikeDeclaration,
+    conditions: readonly ConditionalExecutionContext[],
+  ) => void,
+): void {
+  const declaration = localClassFromExpression(expression, bindings, substitutions);
+  if (declaration === undefined || activeExecutableClassConstructions.has(declaration)) return;
+  activeExecutableClassConstructions.add(declaration);
+  try {
+    const base = declaration.heritageClauses
+      ?.find(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)
+      ?.types[0]?.expression;
+    if (base !== undefined) {
+      visitExecutableClassConstructionNodes(base, undefined, bindings, substitutions, execution, visitor);
+    }
+    for (const member of declaration.members) {
+      if (
+        !ts.isPropertyDeclaration(member)
+        || member.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword)
+        || member.initializer === undefined
+      ) continue;
+      const owner = ts.factory.createArrowFunction(
+        undefined,
+        undefined,
+        [],
+        undefined,
+        ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+        member.initializer,
+      );
+      visitExecutableFunctionNodes(
+        owner,
+        bindings,
+        visitor,
+        true,
+        { arguments: [], substitutions, execution },
+      );
+    }
+    const constructor = declaration.members.find(ts.isConstructorDeclaration);
+    if (constructor !== undefined) {
+      visitExecutableFunctionNodes(
+        constructor,
+        bindings,
+        visitor,
+        true,
+        {
+          arguments: argumentsToBind ?? constructor.parameters.map(() => 'tainted' as const),
+          substitutions,
+          execution: argumentsToBind === undefined ? 'unmodeled-callback' : execution,
+        },
+      );
+    }
+  } finally {
+    activeExecutableClassConstructions.delete(declaration);
+  }
+}
+
 function visitExecutableFunctionNodes(
   owner: ts.FunctionLikeDeclaration,
   bindings: LexicalBindings,
@@ -8091,6 +8202,11 @@ function visitExecutableFunctionNodes(
       lexicalConditions(node, current, substitutions),
     );
     nodeConditions.set(node, conditions);
+    if (ts.isClassLike(node)) {
+      visitor(node, substitutions, execution, sequence++, current, conditions);
+      visitClassDefinitionEffects(node, effect => visit(effect, substitutions, current, execution));
+      return;
+    }
     let normalizedCall: {
       invocation: NormalizedInvocation;
       activeForwardTarget?: ts.FunctionLikeDeclaration;
@@ -8256,6 +8372,25 @@ function visitExecutableFunctionNodes(
       }
     }
     visitor(node, substitutions, execution, sequence++, current, conditions);
+    if (ts.isNewExpression(node)) {
+      visitExecutableClassConstructionNodes(
+        node.expression,
+        node.arguments === undefined ? [] : finiteInvocationArgumentList(node.arguments, bindings),
+        bindings,
+        substitutions,
+        execution,
+        (invokedNode, projected, invokedExecution, _nestedSequence, invokedCurrent, invokedConditions) => {
+          visitor(
+            invokedNode,
+            projected,
+            invokedExecution,
+            sequence++,
+            invokedCurrent,
+            mergeConditions(conditions, invokedConditions),
+          );
+        },
+      );
+    }
     if (
       ts.isVariableDeclaration(node)
       && node.initializer !== undefined

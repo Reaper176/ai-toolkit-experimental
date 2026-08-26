@@ -1569,6 +1569,8 @@ try {
     const modeOptions = [{ value: 'a', label: 'A' }];
     const uninvoked = () => modeOptions.push({ value: 'b', label: 'B' });
     class Uninstantiated {
+      changed = modeOptions.push({ value: 'field', label: 'Field' });
+      constructor() { modeOptions.push({ value: 'constructor', label: 'Constructor' }); }
       mutate() { modeOptions.push({ value: 'c', label: 'C' }); }
       static mutate() { modeOptions.push({ value: 'd', label: 'D' }); }
     }
@@ -1586,6 +1588,66 @@ try {
   ])) factualUiContractFailures.push('uninvoked option callbacks and class methods remain harmless');
 } catch {
   factualUiContractFailures.push('uninvoked option callbacks and class methods remain harmless');
+}
+try {
+  const harmlessLocalClassClaims = collectVisibleControlClaimsFromSource(`
+    const modeOptions = [{ value: 'a', label: 'A' }];
+    function Fixture({ jobConfig, setJobConfig }) {
+      class Uninstantiated {
+        changed = modeOptions.push({ value: 'field', label: 'Field' });
+        constructor() { modeOptions.push({ value: 'constructor', label: 'Constructor' }); }
+      }
+      return <SelectInput
+        label="Mode"
+        value={jobConfig.config.process[0].train.mode}
+        onChange={value => setJobConfig(value, 'config.process[0].train.mode')}
+        options={modeOptions}
+      />;
+    }
+  `, 'fixture.tsx', 'Fixture');
+  if (JSON.stringify(harmlessLocalClassClaims[0]?.value_contract.accepted_values) !== JSON.stringify([
+    { kind: 'string', value: 'a' },
+  ])) factualUiContractFailures.push('uninstantiated render-local class remains harmless');
+} catch {
+  factualUiContractFailures.push('uninstantiated render-local class remains harmless');
+}
+
+for (const [label, classSource, constructionSite] of [
+  [
+    'ordinary SelectInput module constructor option mutation fails closed',
+    `class OptionMutator {
+       constructor() { modeOptions.push({ value: 'b', label: 'B' }); }
+     }`,
+    'new OptionMutator();',
+  ],
+  [
+    'ordinary SelectInput render instance-field option mutation fails closed',
+    `class OptionMutator {
+       changed = modeOptions.push({ value: 'b', label: 'B' });
+     }`,
+    '',
+  ],
+] as const) {
+  const constructDuringRender = constructionSite === '';
+  try {
+    collectVisibleControlClaimsFromSource(`
+      const modeOptions = [{ value: 'a', label: 'A' }];
+      ${classSource}
+      ${constructDuringRender ? '' : constructionSite}
+      function Fixture({ jobConfig, setJobConfig }) {
+        ${constructDuringRender ? 'new OptionMutator();' : ''}
+        return <SelectInput
+          label="Mode"
+          value={jobConfig.config.process[0].train.mode}
+          onChange={value => setJobConfig(value, 'config.process[0].train.mode')}
+          options={modeOptions}
+        />;
+      }
+    `, 'fixture.tsx', 'Fixture');
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /select.*options|accepted values/i, `${label} must replay construction effects`);
+  }
 }
 
 const projectedOptionsControl = (before: string, during: string, after: string): string => `
@@ -1616,6 +1678,27 @@ for (const [label, projectedSource] of [
     factualUiContractFailures.push(label);
   } catch (error) {
     assert.match(String(error), /select.*options|accepted values|projected/i, `${label} must reject mutable imported options`);
+  }
+}
+const projectedConstructor = `class ProjectedMutator {
+  changed = groupedModelOptions.push({ value: 'field', label: 'Field' });
+  constructor() { groupedModelOptions.push({ value: 'constructor', label: 'Constructor' }); }
+}`;
+for (const [label, projectedSource] of [
+  [
+    'projected options module constructor mutation fails closed',
+    projectedOptionsControl(`${projectedConstructor}\nnew ProjectedMutator();`, '', ''),
+  ],
+  [
+    'projected options render constructor mutation fails closed',
+    projectedOptionsControl(projectedConstructor, 'new ProjectedMutator();', ''),
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(projectedSource, 'fixture.tsx', 'SimpleJob', false, true);
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /select.*options|accepted values|projected/i, `${label} must replay construction effects`);
   }
 }
 
