@@ -706,6 +706,19 @@
           "default": null,
           "title": "Ui Accepted Values"
         },
+        "ui_suggested_values": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Suggested Values"
+        },
         "ui_range": {
           "anyOf": [
             {
@@ -716,6 +729,36 @@
             }
           ],
           "default": null
+        },
+        "config_to_ui_scale": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Config To Ui Scale"
+        },
+        "ui_to_config_scale": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui To Config Scale"
         },
         "example_type": {
           "enum": [
@@ -2339,6 +2382,55 @@
           "default": null,
           "title": "Accepted Values"
         },
+        "suggested_values": {
+          "anyOf": [
+            {
+              "items": {
+                "discriminator": {
+                  "mapping": {
+                    "array": "#/$defs/UiArrayValue",
+                    "boolean": "#/$defs/UiBooleanValue",
+                    "null": "#/$defs/UiNullValue",
+                    "number": "#/$defs/UiNumberValue",
+                    "object": "#/$defs/UiObjectValue",
+                    "string": "#/$defs/UiStringValue",
+                    "undefined": "#/$defs/UiUndefinedValue"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/UiUndefinedValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiNullValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiBooleanValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiNumberValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiStringValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiArrayValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiObjectValue"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggested Values"
+        },
         "minimum": {
           "anyOf": [
             {
@@ -2368,6 +2460,36 @@
           ],
           "default": null,
           "title": "Maximum"
+        },
+        "config_to_ui_scale": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Config To Ui Scale"
+        },
+        "ui_to_config_scale": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui To Config Scale"
         }
       },
       "required": [

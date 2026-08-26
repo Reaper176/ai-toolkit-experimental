@@ -148,8 +148,11 @@ export interface UiSourceClaim {
     optional: boolean;
     nullable: boolean;
     accepted_values?: TrainingBookValueFact[];
+    suggested_values?: TrainingBookValueFact[];
     minimum?: number;
     maximum?: number;
+    config_to_ui_scale?: number;
+    ui_to_config_scale?: number;
   };
   behavior_contract?: UiBehaviorContract;
 }
@@ -2916,6 +2919,138 @@ function literalNumberAttribute(attribute: ts.JsxAttribute | undefined, name: st
   return result;
 }
 
+function finiteNumericLiteral(expression: ts.Expression): number | undefined {
+  expression = unwrap(expression);
+  let value: number | undefined;
+  if (ts.isNumericLiteral(expression)) value = Number(expression.text);
+  else if (
+    ts.isPrefixUnaryExpression(expression)
+    && [ts.SyntaxKind.MinusToken, ts.SyntaxKind.PlusToken].includes(expression.operator)
+    && ts.isNumericLiteral(expression.operand)
+  ) value = Number(expression.operand.text) * (expression.operator === ts.SyntaxKind.MinusToken ? -1 : 1);
+  if (value !== undefined && !Number.isFinite(value)) fail(expression, 'UI scale factors must be finite');
+  return value;
+}
+
+function configToUiScale(
+  expression: ts.Expression | undefined,
+  path: string,
+  bindings: LexicalBindings,
+): number | undefined {
+  if (expression === undefined) return undefined;
+  const scales = new Set<number>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AsteriskToken) {
+      const leftScale = finiteNumericLiteral(node.left);
+      const rightScale = finiteNumericLiteral(node.right);
+      if (leftScale !== undefined && semanticPrimaryReadPaths(node.right, bindings).includes(path)) scales.add(leftScale);
+      if (rightScale !== undefined && semanticPrimaryReadPaths(node.left, bindings).includes(path)) scales.add(rightScale);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(expression);
+  if (scales.size > 1) fail(expression, `ambiguous config-to-UI scale for ${path}`);
+  return [...scales][0];
+}
+
+function exactLiteralSetterPath(call: ts.CallExpression): string | undefined {
+  const path = call.arguments[1] === undefined ? undefined : unwrap(call.arguments[1]);
+  if (path === undefined || (!ts.isStringLiteral(path) && !ts.isNoSubstitutionTemplateLiteral(path))) return undefined;
+  return normalizePath(path.text, {});
+}
+
+function callbackValueScale(
+  expression: ts.Expression,
+  parameter: ts.Identifier,
+  bindings: LexicalBindings,
+): number | undefined {
+  expression = unwrap(expression);
+  if (!ts.isBinaryExpression(expression) || expression.operatorToken.kind !== ts.SyntaxKind.AsteriskToken) return undefined;
+  const left = unwrap(expression.left);
+  const right = unwrap(expression.right);
+  const leftScale = finiteNumericLiteral(left);
+  const rightScale = finiteNumericLiteral(right);
+  if (leftScale !== undefined && ts.isIdentifier(right) && bindings.isBinding(right, parameter)) return leftScale;
+  if (rightScale !== undefined && ts.isIdentifier(left) && bindings.isBinding(left, parameter)) return rightScale;
+  return undefined;
+}
+
+function uiToConfigScale(
+  expression: ts.Expression | undefined,
+  path: string,
+  bindings: LexicalBindings,
+): number | undefined {
+  expression = expression === undefined ? undefined : unwrap(expression);
+  if (expression === undefined || (!ts.isArrowFunction(expression) && !ts.isFunctionExpression(expression))) return undefined;
+  const parameter = exactCallbackIdentifier(expression.parameters[0]);
+  if (parameter === undefined) return undefined;
+  const scales = new Set<number>();
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === 'setJobConfig'
+      && exactLiteralSetterPath(node) === path
+    ) {
+      requireComponentSetterBinding(node.expression, bindings);
+      const scale = node.arguments[0] === undefined ? undefined : callbackValueScale(node.arguments[0], parameter, bindings);
+      if (scale !== undefined) scales.add(scale);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(expression.body);
+  if (scales.size > 1) fail(expression, `ambiguous UI-to-config scale for ${path}`);
+  return [...scales][0];
+}
+
+function scaledControlContract(
+  node: ts.JsxOpeningLikeElement,
+  component: string,
+  path: string,
+  boundExpression: ts.Expression | undefined,
+  onChange: ts.Expression | undefined,
+  bindings: LexicalBindings,
+): Pick<UiSourceClaim['value_contract'], 'config_to_ui_scale' | 'ui_to_config_scale'> {
+  if (component !== 'SliderInput') return {};
+  const readScale = configToUiScale(boundExpression, path, bindings);
+  const writeScale = uiToConfigScale(onChange, path, bindings);
+  if (readScale === undefined && writeScale === undefined) return {};
+  if (readScale === undefined || writeScale === undefined) fail(node, 'UI scale factors must be a paired contract');
+  if (readScale === 0 || writeScale === 0) fail(node, 'UI scale factors must be nonzero');
+  if (Math.abs(readScale * writeScale - 1) > 1e-12) fail(node, 'UI scale factors must be reciprocal');
+  return { config_to_ui_scale: readScale, ui_to_config_scale: writeScale };
+}
+
+function secondaryBooleanSetterPaths(
+  onChange: ts.Expression | undefined,
+  primaryPath: string,
+  bindings: LexicalBindings,
+): string[] {
+  if (onChange === undefined) return [];
+  const values = new Map<string, Set<boolean>>();
+  const invalid = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'setJobConfig') {
+      const path = exactLiteralSetterPath(node);
+      if (path !== undefined && path !== primaryPath) {
+        requireComponentSetterBinding(node.expression, bindings);
+        const value = node.arguments[0] === undefined ? undefined : unwrap(node.arguments[0]);
+        if (value?.kind === ts.SyntaxKind.TrueKeyword || value?.kind === ts.SyntaxKind.FalseKeyword) {
+          const existing = values.get(path) ?? new Set<boolean>();
+          existing.add(value.kind === ts.SyntaxKind.TrueKeyword);
+          values.set(path, existing);
+        } else invalid.add(path);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(onChange);
+  return [...values]
+    .filter(([path, observed]) => !invalid.has(path) && observed.has(false) && observed.has(true))
+    .map(([path]) => path)
+    .sort(compareCodePoint);
+}
+
 function literalSelectValues(expression: ts.Expression | undefined): TrainingBookValueFact[] | undefined {
   if (expression === undefined) return undefined;
   expression = unwrap(expression);
@@ -3004,6 +3139,145 @@ function normalizedDynamicLabel(attribute: ts.JsxAttribute): string {
   return `<dynamic-label:${expression.getText(attribute.getSourceFile()).replace(/\s+/g, ' ').trim()}>`;
 }
 
+function isDisableSectionsIncludes(
+  expression: ts.Expression,
+  key: string,
+  bindings: LexicalBindings,
+  componentOwner: ts.FunctionLikeDeclaration,
+): boolean {
+  expression = unwrap(expression);
+  if (
+    !ts.isCallExpression(expression)
+    || expression.arguments.length !== 1
+    || !ts.isPropertyAccessExpression(expression.expression)
+    || expression.expression.name.text !== 'includes'
+  ) return false;
+  const receiver = unwrap(expression.expression.expression);
+  const argument = unwrap(expression.arguments[0]);
+  if (
+    !ts.isIdentifier(receiver)
+    || !(ts.isStringLiteral(argument) || ts.isNoSubstitutionTemplateLiteral(argument))
+    || argument.text !== key
+  ) return false;
+  let declarationOwner: ts.Node | undefined = bindings.bindingDeclaration(receiver);
+  while (declarationOwner !== undefined && !isLexicalFunction(declarationOwner)) declarationOwner = declarationOwner.parent;
+  return declarationOwner === componentOwner;
+}
+
+function validateQuantizationVisibilityGuards(source: ts.SourceFile, sourceName: string): void {
+  if (sourceName !== 'ui/src/app/jobs/new/SimpleJob.tsx') return;
+  const controls = new Map<string, ts.JsxOpeningLikeElement>();
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node))
+      && ts.isIdentifier(node.tagName)
+      && node.tagName.text === 'SelectInput'
+    ) {
+      const label = staticControlLabel(jsxAttributeNode(node, 'label'));
+      if (label === 'Transformer' || label === 'Text Encoder') {
+        if (controls.has(label)) fail(node, `duplicate ${label} quantization control`);
+        controls.set(label, node);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  if (controls.size === 0) return;
+  for (const label of ['Transformer', 'Text Encoder']) {
+    if (!controls.has(label)) fail(source, `missing ${label} quantization control`);
+  }
+  const bindings = new LexicalBindings(source);
+  let componentOwner: ts.FunctionLikeDeclaration | undefined;
+  for (const [label, primaryPath, secondaryPath] of [
+    ['Transformer', 'config.process[*].model.qtype', 'config.process[*].model.quantize'],
+    ['Text Encoder', 'config.process[*].model.qtype_te', 'config.process[*].model.quantize_te'],
+  ] as const) {
+    const control = controls.get(label)!;
+    const onChange = jsxAttributeExpression(jsxAttributeNode(control, 'onChange'));
+    if (onChange === undefined) fail(control, `${label} quantization control requires an exact onChange setter`);
+    const setterPaths = canonicalSetterPathsFromAst(source, onChange, bindings);
+    const expectedSetterPaths = [primaryPath, secondaryPath].sort(compareCodePoint);
+    if (JSON.stringify(setterPaths) !== JSON.stringify(expectedSetterPaths)) {
+      fail(onChange, `${label} quantization control must write only its exact qtype and Boolean setter paths`);
+    }
+    if (JSON.stringify(secondaryBooleanSetterPaths(onChange, primaryPath, bindings)) !== JSON.stringify([secondaryPath])) {
+      fail(onChange, `${label} quantization control must write exact false and true values to its Boolean setter path`);
+    }
+    const owners = new Set<ts.FunctionLikeDeclaration>();
+    const visitSetters = (node: ts.Node): void => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'setJobConfig') {
+        owners.add(requireComponentSetterBinding(node.expression, bindings));
+      }
+      ts.forEachChild(node, visitSetters);
+    };
+    visitSetters(onChange);
+    if (owners.size !== 1) fail(onChange, `${label} quantization setters require one exact component owner`);
+    const owner = [...owners][0];
+    if (componentOwner !== undefined && owner !== componentOwner) {
+      fail(onChange, 'Transformer and Text Encoder quantization setters require the same component owner');
+    }
+    componentOwner = owner;
+  }
+  if (componentOwner === undefined) fail(source, 'quantization controls require an exact component owner');
+
+  const transformer = controls.get('Transformer')!;
+  let card: ts.JsxElement | undefined;
+  let current: ts.Node | undefined = transformer;
+  while (current !== undefined) {
+    if (
+      ts.isJsxElement(current)
+      && ts.isIdentifier(current.openingElement.tagName)
+      && current.openingElement.tagName.text === 'Card'
+      && jsxAttribute(current.openingElement, 'title') === 'Quantize / Compile'
+    ) {
+      card = current;
+      break;
+    }
+    current = current.parent;
+  }
+  if (card === undefined) fail(transformer, 'Transformer quantization control must remain inside the Quantize / Compile card');
+  let cardGuarded = false;
+  current = card;
+  while (current !== undefined) {
+    if (
+      ts.isConditionalExpression(current)
+      && unwrap(current.whenFalse) === card
+      && unwrap(current.whenTrue).kind === ts.SyntaxKind.NullKeyword
+      && isDisableSectionsIncludes(current.condition, 'model.quantize', bindings, componentOwner)
+    ) {
+      cardGuarded = true;
+      break;
+    }
+    current = current.parent;
+  }
+  if (!cardGuarded) fail(card, 'Quantize / Compile visibility requires the exact model.quantize disableSections guard');
+
+  const textEncoder = controls.get('Text Encoder')!;
+  current = textEncoder;
+  while (current !== undefined && current !== card) current = current.parent;
+  if (current !== card) fail(textEncoder, 'Text Encoder quantization control must remain inside the Transformer Quantize / Compile card');
+  let textEncoderGuarded = false;
+  current = textEncoder;
+  while (current !== undefined) {
+    if (
+      ts.isBinaryExpression(current)
+      && current.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+    ) {
+      const condition = unwrap(current.left);
+      if (
+        ts.isPrefixUnaryExpression(condition)
+        && condition.operator === ts.SyntaxKind.ExclamationToken
+        && isDisableSectionsIncludes(condition.operand, 'model.quantize_te', bindings, componentOwner)
+      ) {
+        textEncoderGuarded = true;
+        break;
+      }
+    }
+    current = current.parent;
+  }
+  if (!textEncoderGuarded) fail(textEncoder, 'Text Encoder visibility requires the exact model.quantize_te disableSections guard');
+}
+
 export function collectVisibleControlClaimsFromSource(
   sourceText: string,
   sourceName = 'fixture.tsx',
@@ -3054,26 +3328,54 @@ export function collectVisibleControlClaimsFromSource(
                 optional: controlOptional(jsxAttributeNode(node, 'required')),
                 nullable: kind.nullable,
               };
-              const acceptedValues = component === 'SelectInput' || component === 'CreatableSelectInput'
+              const optionValues = component === 'SelectInput' || component === 'CreatableSelectInput'
                 ? literalSelectValues(jsxAttributeExpression(jsxAttributeNode(node, 'options')))
                 : undefined;
-              if (acceptedValues !== undefined) baseContract.accepted_values = acceptedValues;
-              const claim: UiSourceClaim = {
-                source_path: sourceName,
-                symbol: `${lexicalSymbol}::${component}::${path}::${label}`,
+              if (optionValues !== undefined && component === 'SelectInput') baseContract.accepted_values = optionValues;
+              if (optionValues !== undefined && component === 'CreatableSelectInput') baseContract.suggested_values = optionValues;
+              Object.assign(
+                baseContract,
+                scaledControlContract(node, component, path, boundExpression, onChange, bindings),
+              );
+              const pathContracts: Array<{ path: string; contract: UiSourceClaim['value_contract'] }> = [{
                 path,
-                kind: 'setting',
-                ui_label: resolved ? presence({ kind: 'string', value: label }) : { present: false },
-                value_contract: semanticControlContract(node, component, path, baseContract),
-              };
+                contract: semanticControlContract(node, component, path, baseContract),
+              }];
+              if (component === 'SelectInput') {
+                for (const secondaryPath of secondaryBooleanSetterPaths(onChange, path, bindings)) {
+                  pathContracts.push({
+                    path: secondaryPath,
+                    contract: {
+                      ui_type: 'boolean',
+                      widget_kind: 'select',
+                      optional: controlOptional(jsxAttributeNode(node, 'required')),
+                      nullable: false,
+                      accepted_values: [
+                        { kind: 'boolean', value: false },
+                        { kind: 'boolean', value: true },
+                      ],
+                    },
+                  });
+                }
+              }
               const minimum = literalNumberAttribute(jsxAttributeNode(node, 'min'), 'min');
               const maximum = literalNumberAttribute(jsxAttributeNode(node, 'max'), 'max');
-              if (minimum !== undefined) claim.value_contract.minimum = minimum;
-              if (maximum !== undefined) claim.value_contract.maximum = maximum;
-              const identity = `${claim.source_path}\0${claim.symbol}\0${claim.path}\0${claim.kind}`;
-              const existing = claims.get(identity);
-              if (existing !== undefined) fail(node, `duplicate visible control ${claim.symbol}`);
-              claims.set(identity, claim);
+              for (const projected of pathContracts) {
+                const claim: UiSourceClaim = {
+                  source_path: sourceName,
+                  symbol: `${lexicalSymbol}::${component}::${projected.path}::${label}`,
+                  path: projected.path,
+                  kind: 'setting',
+                  ui_label: resolved ? presence({ kind: 'string', value: label }) : { present: false },
+                  value_contract: projected.contract,
+                };
+                if (projected.path === path && minimum !== undefined) claim.value_contract.minimum = minimum;
+                if (projected.path === path && maximum !== undefined) claim.value_contract.maximum = maximum;
+                const identity = `${claim.source_path}\0${claim.symbol}\0${claim.path}\0${claim.kind}`;
+                const existing = claims.get(identity);
+                if (existing !== undefined) fail(node, `duplicate visible control ${claim.symbol}`);
+                claims.set(identity, claim);
+              }
             }
           }
         }
@@ -3082,6 +3384,7 @@ export function collectVisibleControlClaimsFromSource(
     ts.forEachChild(node, visit);
   };
   visit(source);
+  validateQuantizationVisibilityGuards(source, sourceName);
   return [...claims.values()].sort((left, right) => compareCodePoint(`${left.path}\0${left.symbol}`, `${right.path}\0${right.symbol}`));
 }
 
@@ -3824,6 +4127,12 @@ function architectureProjectedSettingClaims(
   includeCustomModelOptions: boolean,
 ): UiSourceClaim[] {
   const claims: UiSourceClaim[] = [];
+  const normalizedQuantizationValues = uniqueValues(quantizationValues.map(value =>
+    value.kind === 'string' && value.value === '' ? { kind: 'string' as const, value: 'qfloat8' } : value));
+  const booleanSelectValues: TrainingBookValueFact[] = [
+    { kind: 'boolean', value: false },
+    { kind: 'boolean', value: true },
+  ];
   for (const architecture of architectures) {
     if (includeSampleTags && architecture.sample_tags.present && architecture.sample_tags.value?.kind === 'object') {
       for (const tag of architecture.sample_tags.value.entries) {
@@ -3904,6 +4213,50 @@ function architectureProjectedSettingClaims(
             value.kind === 'string' && value.value === '' ? { kind: 'string', value: 'qfloat8' } : value)),
         },
       });
+      claims.push({
+        source_path: sourcePath,
+        symbol: `SimpleJob::SelectInput::config.process[*].model.quantize::Transformer::architecture=${architecture.name}`,
+        path: 'config.process[*].model.quantize',
+        kind: 'setting',
+        ui_label: presence({ kind: 'string', value: 'Transformer' }),
+        value_contract: {
+          ui_type: 'boolean',
+          widget_kind: 'select',
+          optional: true,
+          nullable: false,
+          accepted_values: booleanSelectValues,
+        },
+      });
+      if (!architecture.disable_sections.includes('model.quantize_te')) {
+        claims.push({
+          source_path: sourcePath,
+          symbol: `SimpleJob::SelectInput::config.process[*].model.qtype_te::Text Encoder::architecture=${architecture.name}`,
+          path: 'config.process[*].model.qtype_te',
+          kind: 'setting',
+          ui_label: presence({ kind: 'string', value: 'Text Encoder' }),
+          value_contract: {
+            ui_type: 'string',
+            widget_kind: 'select',
+            optional: true,
+            nullable: false,
+            accepted_values: normalizedQuantizationValues,
+          },
+        });
+        claims.push({
+          source_path: sourcePath,
+          symbol: `SimpleJob::SelectInput::config.process[*].model.quantize_te::Text Encoder::architecture=${architecture.name}`,
+          path: 'config.process[*].model.quantize_te',
+          kind: 'setting',
+          ui_label: presence({ kind: 'string', value: 'Text Encoder' }),
+          value_contract: {
+            ui_type: 'boolean',
+            widget_kind: 'select',
+            optional: true,
+            nullable: false,
+            accepted_values: booleanSelectValues,
+          },
+        });
+      }
     }
   }
   return claims;
@@ -3926,11 +4279,14 @@ function visibleSettingClaims(root: string, architectures: ModelArchitectureFact
     'SimpleJob',
     false,
     true,
-  ).filter(claim => claim.path !== 'config.process[*].model.qtype');
+  ).filter(claim => ![
+    'config.process[*].model.qtype',
+    'config.process[*].model.quantize',
+    'config.process[*].model.qtype_te',
+    'config.process[*].model.quantize_te',
+  ].includes(claim.path));
   for (const claim of directClaims) {
     if (claim.path === 'config.process[*].model.arch') claim.value_contract.accepted_values = architectureModelOptionValues(architectures);
-    if (claim.path === 'config.process[*].model.qtype_te') claim.value_contract.accepted_values = uniqueValues(quantizationValues.map(value =>
-      value.kind === 'string' && value.value === '' ? { kind: 'string', value: 'qfloat8' } : value));
   }
   return [
     ...directClaims,
@@ -11199,7 +11555,14 @@ function validatePredicate(value: unknown, label: string): void {
 }
 
 function validateValueContract(value: unknown, label: string): void {
-  requireKeys(value, ['ui_type', 'widget_kind', 'optional', 'nullable'], label, ['accepted_values', 'minimum', 'maximum']);
+  requireKeys(value, ['ui_type', 'widget_kind', 'optional', 'nullable'], label, [
+    'accepted_values',
+    'suggested_values',
+    'minimum',
+    'maximum',
+    'config_to_ui_scale',
+    'ui_to_config_scale',
+  ]);
   const semantic = [null, 'boolean', 'integer', 'number', 'string', 'path', 'boolean-list', 'integer-list', 'number-list', 'string-list', 'object', 'object-list'];
   const widgets = [null, 'checkbox', 'number', 'text', 'multiline', 'path', 'select', 'json', 'read-only'];
   if (!semantic.includes(value.ui_type as never)) throw new FactsError(`${label}.ui_type is unsupported`);
@@ -11209,8 +11572,20 @@ function validateValueContract(value: unknown, label: string): void {
     if (!Array.isArray(value.accepted_values)) throw new FactsError(`${label}.accepted_values must be an array`);
     value.accepted_values.forEach((item, index) => validateValue(item, `${label}.accepted_values[${index}]`));
   }
-  for (const key of ['minimum', 'maximum'] as const) if (value[key] !== undefined && (typeof value[key] !== 'number' || !Number.isFinite(value[key]))) throw new FactsError(`${label}.${key} must be finite`);
+  if (value.suggested_values !== undefined) {
+    if (!Array.isArray(value.suggested_values)) throw new FactsError(`${label}.suggested_values must be an array`);
+    value.suggested_values.forEach((item, index) => validateValue(item, `${label}.suggested_values[${index}]`));
+  }
+  for (const key of ['minimum', 'maximum', 'config_to_ui_scale', 'ui_to_config_scale'] as const) if (value[key] !== undefined && (typeof value[key] !== 'number' || !Number.isFinite(value[key]))) throw new FactsError(`${label}.${key} must be finite`);
   if (typeof value.minimum === 'number' && typeof value.maximum === 'number' && value.minimum > value.maximum) throw new FactsError(`${label} minimum exceeds maximum`);
+  const hasConfigScale = typeof value.config_to_ui_scale === 'number';
+  const hasUiScale = typeof value.ui_to_config_scale === 'number';
+  if (hasConfigScale !== hasUiScale) throw new FactsError(`${label} scale factors must be a paired contract`);
+  if (hasConfigScale && hasUiScale) {
+    if (value.config_to_ui_scale === 0 || value.ui_to_config_scale === 0) throw new FactsError(`${label} scale factors must be nonzero`);
+    if (!['integer', 'number'].includes(String(value.ui_type))) throw new FactsError(`${label} scale factors require a numeric UI contract`);
+    if (Math.abs((value.config_to_ui_scale as number) * (value.ui_to_config_scale as number) - 1) > 1e-12) throw new FactsError(`${label} scale factors must be reciprocal`);
+  }
 }
 
 function validateBehaviorPayload(value: unknown, label: string): void {

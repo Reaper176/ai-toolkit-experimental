@@ -589,6 +589,49 @@ class CatalogContractTests(unittest.TestCase):
 
         self.assertEqual(catalog.settings[0].persistence, "browser-storage")
 
+    def test_catalog_contract_models_non_authoritative_suggestions_and_reciprocal_ui_scales(self):
+        entry = self.valid_catalog_entry()
+        entry["contract"].update({
+            "ui_suggested_values": [1000, 3000],
+            "config_to_ui_scale": 100,
+            "ui_to_config_scale": 0.01,
+        })
+
+        catalog = validate_settings_catalog(
+            {"schema_version": 1, "settings": [entry]},
+            self.discovered_steps(),
+        )
+
+        contract = catalog.settings[0].contract
+        self.assertEqual(contract.ui_suggested_values, (1000, 3000))
+        self.assertEqual(contract.config_to_ui_scale, 100)
+        self.assertEqual(contract.ui_to_config_scale, 0.01)
+        self.assertIsNone(
+            contract.ui_accepted_values,
+            "suggestions must not become authoritative accepted values",
+        )
+
+        invalid_contracts = []
+        missing_pair = deepcopy(entry)
+        del missing_pair["contract"]["ui_to_config_scale"]
+        invalid_contracts.append((missing_pair, "paired"))
+        zero_scale = deepcopy(entry)
+        zero_scale["contract"]["ui_to_config_scale"] = 0
+        invalid_contracts.append((zero_scale, "nonzero"))
+        nonreciprocal = deepcopy(entry)
+        nonreciprocal["contract"]["config_to_ui_scale"] = 10
+        invalid_contracts.append((nonreciprocal, "reciprocal"))
+        nonnumeric = deepcopy(entry)
+        nonnumeric["contract"]["ui_type"] = "string"
+        invalid_contracts.append((nonnumeric, "numeric UI"))
+        for payload, message in invalid_contracts:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(CatalogError, message):
+                    validate_settings_catalog(
+                        {"schema_version": 1, "settings": [payload]},
+                        self.discovered_steps(),
+                    )
+
     def test_catalog_allows_source_less_environment_setting_with_atomic_ts_owner(self):
         entry = self.valid_catalog_entry()
         entry.update({
@@ -1842,6 +1885,66 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         self.assertEqual(facts.model_architectures[0].name, "fixture")
         self.assertEqual(facts.config_claims[0].value_contract.ui_type, "number")
 
+    def test_ui_facts_contract_models_suggestions_and_reciprocal_numeric_scales(self):
+        suggested = self.valid_facts()
+        suggested_contract = suggested["config_claims"][0]["value_contract"]
+        suggested_contract.update({
+            "ui_type": "string",
+            "widget_kind": "select",
+            "suggested_values": [
+                {"kind": "string", "value": "txt"},
+                {"kind": "string", "value": "json"},
+            ],
+        })
+        suggested_contract.pop("minimum")
+        suggested_facts = validate_training_book_ui_facts(suggested)
+        self.assertEqual(
+            tuple(
+                value.value
+                for value in suggested_facts.config_claims[
+                    0
+                ].value_contract.suggested_values
+            ),
+            ("txt", "json"),
+        )
+        self.assertIsNone(
+            suggested_facts.config_claims[0].value_contract.accepted_values
+        )
+
+        scaled = self.valid_facts()
+        scaled["config_claims"][0]["value_contract"].update({
+            "config_to_ui_scale": 100,
+            "ui_to_config_scale": 0.01,
+        })
+        scaled_facts = validate_training_book_ui_facts(scaled)
+        scaled_contract = scaled_facts.config_claims[0].value_contract
+        self.assertEqual(scaled_contract.config_to_ui_scale, 100)
+        self.assertEqual(scaled_contract.ui_to_config_scale, 0.01)
+
+        invalid_contracts = []
+        missing_pair = deepcopy(scaled)
+        del missing_pair["config_claims"][0]["value_contract"][
+            "ui_to_config_scale"
+        ]
+        invalid_contracts.append((missing_pair, "paired"))
+        zero_scale = deepcopy(scaled)
+        zero_scale["config_claims"][0]["value_contract"][
+            "ui_to_config_scale"
+        ] = 0
+        invalid_contracts.append((zero_scale, "nonzero"))
+        nonreciprocal = deepcopy(scaled)
+        nonreciprocal["config_claims"][0]["value_contract"][
+            "config_to_ui_scale"
+        ] = 10
+        invalid_contracts.append((nonreciprocal, "reciprocal"))
+        nonnumeric = deepcopy(scaled)
+        nonnumeric["config_claims"][0]["value_contract"]["ui_type"] = "string"
+        invalid_contracts.append((nonnumeric, "numeric UI"))
+        for payload, message in invalid_contracts:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(CatalogError, message):
+                    validate_training_book_ui_facts(payload)
+
     def test_ui_facts_contract_accepts_only_exact_tagged_behavior_claims(self):
         data = self.valid_facts()
         behavior = {
@@ -2522,6 +2625,59 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
                 facts, optional_catalog, (), scope="ui-defaults-transitions"
             )
 
+    def test_ui_setting_owner_treats_creatable_suggestions_as_non_authoritative(self):
+        fact_data = self.valid_facts()
+        fact_data["config_claims"][0].update({
+            "kind": "setting",
+            "ui_label": {
+                "present": True,
+                "value": {"kind": "string", "value": "Caption Extension"},
+            },
+            "value_contract": {
+                "ui_type": "string",
+                "widget_kind": "select",
+                "optional": True,
+                "nullable": False,
+                "suggested_values": [
+                    {"kind": "string", "value": "txt"},
+                    {"kind": "string", "value": "json"},
+                ],
+            },
+        })
+        facts = validate_training_book_ui_facts(fact_data)
+        projected = catalog_module.project_training_book_ui_facts(facts)
+        entry = CatalogContractTests().valid_catalog_entry()
+        entry["ui_label"] = "Caption Extension"
+        entry["contract"].update({
+            "ui_type": "string",
+            "ui_optional": True,
+            "ui_nullable": False,
+            "ui_accepted_values": None,
+            "ui_suggested_values": ["txt", "json"],
+            "ui_range": None,
+        })
+        data = self.ownership_catalog_data(projected, train_entry=entry)
+        catalog = validate_settings_catalog(
+            data, CatalogContractTests().discovered_steps()
+        )
+        catalog_module.validate_ui_fact_ownership(
+            facts, catalog, (), scope="ui-defaults-transitions"
+        )
+
+        stale_restriction = deepcopy(data)
+        stale_restriction["settings"][0]["contract"][
+            "ui_accepted_values"
+        ] = ["txt", "json"]
+        stale_catalog = validate_settings_catalog(
+            stale_restriction, CatalogContractTests().discovered_steps()
+        )
+        with self.assertRaisesRegex(
+            CatalogError, "accepted_values mismatch"
+        ):
+            catalog_module.validate_ui_fact_ownership(
+                facts, stale_catalog, (), scope="ui-defaults-transitions"
+            )
+
     def test_ui_setting_owner_compares_nested_accepted_values_and_fails_on_undefined(self):
         fact_data = self.valid_facts()
         claim = fact_data["config_claims"][0]
@@ -3058,7 +3214,7 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         exclusions = load_ui_exclusions(
             REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
         )
-        self.assertEqual(len(catalog.ui_claims), 2322)
+        self.assertEqual(len(catalog.ui_claims), 2466)
         self.assertEqual(len(exclusions), 109)
         self.assertEqual(
             {exclusion.reason for exclusion in exclusions},
@@ -3069,6 +3225,158 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
                 "transient-ui-state",
             },
         )
+
+    def test_production_creatable_quantization_and_layer_scale_contracts_are_exact(self):
+        facts = load_production_training_book_ui_facts()
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+
+        caption = settings["dataset.caption_ext"]
+        self.assertIsNone(caption.contract.accepted_values)
+        self.assertIsNone(caption.contract.ui_accepted_values)
+        self.assertEqual(
+            caption.contract.ui_suggested_values,
+            ("txt", "json", "caption"),
+        )
+        caption_claims = [
+            claim for claim in facts.config_claims
+            if claim.kind == "setting"
+            and claim.path == "config.process[*].datasets[*].caption_ext"
+        ]
+        self.assertEqual(len(caption_claims), 1)
+        self.assertIsNone(caption_claims[0].value_contract.accepted_values)
+        self.assertEqual(
+            tuple(
+                value.value
+                for value in caption_claims[0].value_contract.suggested_values
+            ),
+            ("txt", "json", "caption"),
+        )
+
+        visible_architectures = {
+            architecture.name
+            for architecture in facts.model_architectures
+            if "model.quantize" not in architecture.disable_sections
+        }
+        visible_te_architectures = {
+            architecture.name
+            for architecture in facts.model_architectures
+            if "model.quantize" not in architecture.disable_sections
+            and "model.quantize_te" not in architecture.disable_sections
+        }
+        self.assertEqual(len(visible_architectures), 49)
+        self.assertEqual(len(visible_te_architectures), 48)
+        expected_projections = {
+            "config.process[*].model.qtype": (
+                visible_architectures, "string", "Transformer"
+            ),
+            "config.process[*].model.quantize": (
+                visible_architectures, "boolean", "Transformer"
+            ),
+            "config.process[*].model.qtype_te": (
+                visible_te_architectures, "string", "Text Encoder"
+            ),
+            "config.process[*].model.quantize_te": (
+                visible_te_architectures, "boolean", "Text Encoder"
+            ),
+        }
+        for path, (expected_architectures, ui_type, label) in (
+            expected_projections.items()
+        ):
+            with self.subTest(path=path):
+                projected = [
+                    claim for claim in facts.config_claims
+                    if claim.kind == "setting"
+                    and claim.path == path
+                    and "::architecture=" in claim.symbol
+                ]
+                self.assertEqual(len(projected), len(expected_architectures))
+                self.assertEqual(
+                    {
+                        claim.symbol.rsplit("::architecture=", 1)[1]
+                        for claim in projected
+                    },
+                    expected_architectures,
+                )
+                self.assertTrue(all(
+                    claim.value_contract.ui_type == ui_type
+                    and claim.value_contract.widget_kind == "select"
+                    and claim.ui_label.present
+                    and claim.ui_label.value.value == label
+                    for claim in projected
+                ))
+                if ui_type == "boolean":
+                    self.assertTrue(all(
+                        tuple(
+                            value.value
+                            for value in claim.value_contract.accepted_values
+                        ) == (False, True)
+                        for claim in projected
+                    ))
+                else:
+                    self.assertTrue(all(
+                        all(
+                            value.kind == "string"
+                            for value in claim.value_contract.accepted_values
+                        )
+                        for claim in projected
+                    ))
+
+        for setting_id, label in (
+            ("model.quantize", "Transformer"),
+            ("model.quantize_te", "Text Encoder"),
+        ):
+            setting = settings[setting_id]
+            self.assertIn("simple-ui", setting.surfaces)
+            self.assertEqual(setting.ui_label, label)
+            self.assertEqual(setting.contract.ui_type, "boolean")
+            self.assertEqual(setting.contract.ui_accepted_values, (False, True))
+
+        scale_teaching = (
+            "The Simple UI multiplies the stored 0–1 fraction by 100 for "
+            "display and multiplies the 0–100 slider value by 0.01 before "
+            "storing it."
+        )
+        for setting_id, path in (
+            (
+                "model.layer_offloading_transformer_percent",
+                "config.process[*].model.layer_offloading_transformer_percent",
+            ),
+            (
+                "model.layer_offloading_text_encoder_percent",
+                "config.process[*].model.layer_offloading_text_encoder_percent",
+            ),
+        ):
+            with self.subTest(setting=setting_id):
+                contract = settings[setting_id].contract
+                self.assertEqual(contract.config_to_ui_scale, 100)
+                self.assertEqual(contract.ui_to_config_scale, 0.01)
+                self.assertIn(
+                    scale_teaching,
+                    {
+                        item.description
+                        for item in settings[setting_id].normalizations
+                    },
+                )
+                visible = [
+                    claim for claim in facts.config_claims
+                    if claim.kind == "setting"
+                    and claim.path == path
+                    and claim.behavior_contract is None
+                    and claim.source_path
+                    == "ui/src/app/jobs/new/SimpleJob.tsx"
+                ]
+                self.assertEqual(len(visible), 1)
+                self.assertEqual(
+                    visible[0].value_contract.config_to_ui_scale, 100
+                )
+                self.assertEqual(
+                    visible[0].value_contract.ui_to_config_scale, 0.01
+                )
 
     def test_production_global_gpu_selector_is_user_database_state(self):
         catalog = load_settings_catalog(

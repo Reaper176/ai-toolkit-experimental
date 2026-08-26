@@ -154,6 +154,36 @@ def _require_finite_json(value: Any) -> Any:
     raise ValueError("default values must contain only finite JSON values")
 
 
+def _validate_ui_scales(
+    ui_type: str | None,
+    config_to_ui_scale: int | float | None,
+    ui_to_config_scale: int | float | None,
+) -> None:
+    supplied = (
+        config_to_ui_scale is not None,
+        ui_to_config_scale is not None,
+    )
+    if supplied == (False, False):
+        return
+    if supplied != (True, True):
+        raise ValueError("UI scale factors must be supplied as a paired contract")
+    assert config_to_ui_scale is not None
+    assert ui_to_config_scale is not None
+    _require_finite_number(config_to_ui_scale)
+    _require_finite_number(ui_to_config_scale)
+    if config_to_ui_scale == 0 or ui_to_config_scale == 0:
+        raise ValueError("UI scale factors must be nonzero")
+    if ui_type not in {"integer", "number"}:
+        raise ValueError("UI scale factors require a numeric UI contract")
+    if not math.isclose(
+        config_to_ui_scale * ui_to_config_scale,
+        1.0,
+        rel_tol=1e-12,
+        abs_tol=1e-12,
+    ):
+        raise ValueError("UI scale factors must be reciprocal")
+
+
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -258,7 +288,10 @@ class SettingContract(_StrictModel):
     ui_optional: StrictBool | None = None
     ui_nullable: StrictBool | None = None
     ui_accepted_values: tuple[Any, ...] | None = None
+    ui_suggested_values: tuple[Any, ...] | None = None
     ui_range: NumericRange | None = None
+    config_to_ui_scale: _Numeric | None = None
+    ui_to_config_scale: _Numeric | None = None
     example_type: _SemanticType
     accepted_values: tuple[Any, ...] | None
     accepted_types: tuple[_SemanticType, ...] | None = None
@@ -266,7 +299,9 @@ class SettingContract(_StrictModel):
     range: NumericRange | None
     null: Literal["accepted", "rejected", "normalized-to-absent"]
 
-    @field_validator("accepted_values", "ui_accepted_values")
+    @field_validator(
+        "accepted_values", "ui_accepted_values", "ui_suggested_values"
+    )
     @classmethod
     def _finite_accepted_values(
         cls, values: tuple[Any, ...] | None
@@ -278,6 +313,11 @@ class SettingContract(_StrictModel):
 
     @model_validator(mode="after")
     def _accepted_values_and_range(self) -> "SettingContract":
+        _validate_ui_scales(
+            self.ui_type,
+            self.config_to_ui_scale,
+            self.ui_to_config_scale,
+        )
         if self.accepted_types is not None:
             if not self.accepted_types or len(self.accepted_types) != len(
                 set(self.accepted_types)
@@ -744,10 +784,15 @@ class UiValueContract(_StrictModel):
     optional: StrictBool
     nullable: StrictBool
     accepted_values: tuple[UiValue, ...] | None = None
+    suggested_values: tuple[UiValue, ...] | None = None
     minimum: _Numeric | None = None
     maximum: _Numeric | None = None
+    config_to_ui_scale: _Numeric | None = None
+    ui_to_config_scale: _Numeric | None = None
 
-    @field_validator("minimum", "maximum")
+    @field_validator(
+        "minimum", "maximum", "config_to_ui_scale", "ui_to_config_scale"
+    )
     @classmethod
     def _finite(cls, value: int | float | None) -> int | float | None:
         if value is not None:
@@ -756,6 +801,11 @@ class UiValueContract(_StrictModel):
 
     @model_validator(mode="after")
     def _ordered(self) -> "UiValueContract":
+        _validate_ui_scales(
+            self.ui_type,
+            self.config_to_ui_scale,
+            self.ui_to_config_scale,
+        )
         if (
             self.minimum is not None and self.maximum is not None
             and self.minimum > self.maximum
@@ -1419,22 +1469,49 @@ def _validate_setting_source_contract(
             f"{contract.ui_nullable!r}"
         )
 
-    if emitted.accepted_values is None:
-        emitted_values: tuple[object, ...] | None = None
-    else:
+    def emitted_json_values(
+        values: tuple[UiValue, ...] | None,
+        label: str,
+    ) -> tuple[object, ...] | None:
+        if values is None:
+            return None
         converted = tuple(
-            _ui_value_as_json(value) for value in emitted.accepted_values
+            _ui_value_as_json(value) for value in values
         )
         if _UNREPRESENTABLE_UI_VALUE in converted:
             raise CatalogError(
                 f"UI owner {setting.id!r} has unrepresentable tagged undefined "
-                "accepted_values"
+                f"{label}"
             )
-        emitted_values = converted
+        return converted
+
+    emitted_values = emitted_json_values(
+        emitted.accepted_values, "accepted_values"
+    )
     if contract.ui_accepted_values != emitted_values:
         raise CatalogError(
             f"UI owner {setting.id!r} accepted_values mismatch: emitted "
             f"{emitted_values!r}, catalog {contract.ui_accepted_values!r}"
+        )
+    emitted_suggestions = emitted_json_values(
+        emitted.suggested_values, "suggested_values"
+    )
+    if contract.ui_suggested_values != emitted_suggestions:
+        raise CatalogError(
+            f"UI owner {setting.id!r} suggested_values mismatch: emitted "
+            f"{emitted_suggestions!r}, catalog "
+            f"{contract.ui_suggested_values!r}"
+        )
+    if (
+        contract.config_to_ui_scale != emitted.config_to_ui_scale
+        or contract.ui_to_config_scale != emitted.ui_to_config_scale
+    ):
+        raise CatalogError(
+            f"UI owner {setting.id!r} scale mismatch: emitted "
+            f"config_to_ui={emitted.config_to_ui_scale!r}, "
+            f"ui_to_config={emitted.ui_to_config_scale!r}; catalog "
+            f"config_to_ui={contract.config_to_ui_scale!r}, "
+            f"ui_to_config={contract.ui_to_config_scale!r}"
         )
 
     if emitted.minimum is None and emitted.maximum is None:

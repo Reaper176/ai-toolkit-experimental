@@ -1395,6 +1395,189 @@ assert.deepEqual(visibleControlClaims, [
     },
   },
 ]);
+
+const factualUiContractFailures: string[] = [];
+const finiteChoiceClaims = collectVisibleControlClaimsFromSource(`
+  function Fixture({ jobConfig, setJobConfig }) {
+    return <>
+      <SelectInput
+        label="Mode"
+        value={jobConfig.config.process[0].train.mode}
+        onChange={value => setJobConfig(value, 'config.process[0].train.mode')}
+        options={[{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }]}
+      />
+      {jobConfig.config.process[0].datasets.map((dataset, i) => (
+        <CreatableSelectInput
+          label="Caption Extension"
+          value={dataset.caption_ext}
+          onChange={value => setJobConfig(value, \`config.process[0].datasets[\${i}].caption_ext\`)}
+          options={[{ value: 'txt', label: 'txt' }, { value: 'json', label: 'json' }]}
+        />
+      ))}
+    </>;
+  }
+`, 'fixture.tsx', 'Fixture');
+const closedSelect = finiteChoiceClaims.find(item => item.path === 'config.process[*].train.mode');
+const creatableSelect = finiteChoiceClaims.find(item => item.path === 'config.process[*].datasets[*].caption_ext');
+if (JSON.stringify(closedSelect?.value_contract.accepted_values) !== JSON.stringify([
+  { kind: 'string', value: 'a' },
+  { kind: 'string', value: 'b' },
+])) factualUiContractFailures.push('ordinary SelectInput closed accepted values');
+if (creatableSelect?.value_contract.accepted_values !== undefined) {
+  factualUiContractFailures.push('CreatableSelectInput has no closed accepted values');
+}
+if (JSON.stringify((creatableSelect?.value_contract as unknown as Record<string, unknown>)?.suggested_values) !== JSON.stringify([
+  { kind: 'string', value: 'txt' },
+  { kind: 'string', value: 'json' },
+])) factualUiContractFailures.push('CreatableSelectInput finite suggestions');
+
+const quantizationProjectionClaims = collectVisibleControlClaimsFromSource(`
+  function Fixture({ jobConfig, setJobConfig }) {
+    return <SelectInput
+      label="Transformer"
+      value={jobConfig.config.process[0].model.quantize ? jobConfig.config.process[0].model.qtype : ''}
+      onChange={value => {
+        if (value === '') {
+          setJobConfig(false, 'config.process[0].model.quantize');
+          value = 'qfloat8';
+        } else {
+          setJobConfig(true, 'config.process[0].model.quantize');
+        }
+        setJobConfig(value, 'config.process[0].model.qtype');
+      }}
+      options={[{ value: '', label: 'Disabled' }, { value: 'qfloat8', label: 'qfloat8' }]}
+    />;
+  }
+`, 'fixture.tsx', 'Fixture');
+const qtypeProjection = quantizationProjectionClaims.find(item => item.path === 'config.process[*].model.qtype');
+const quantizeProjection = quantizationProjectionClaims.find(item => item.path === 'config.process[*].model.quantize');
+if (JSON.stringify(qtypeProjection?.value_contract.accepted_values) !== JSON.stringify([
+  { kind: 'string', value: '' },
+  { kind: 'string', value: 'qfloat8' },
+])) factualUiContractFailures.push('primary qtype strings remain string accepted values');
+if (
+  quantizeProjection?.value_contract.ui_type !== 'boolean'
+  || quantizeProjection.value_contract.widget_kind !== 'select'
+  || JSON.stringify(quantizeProjection.value_contract.accepted_values) !== JSON.stringify([
+    { kind: 'boolean', value: false },
+    { kind: 'boolean', value: true },
+  ])
+) factualUiContractFailures.push('secondary quantize writes have boolean select semantics');
+
+const layerScaleSource = `
+  function Fixture({ jobConfig, setJobConfig }) {
+    return <SliderInput
+      label="Transformer Offload %"
+      value={Math.round((jobConfig.config.process[0].model.layer_offloading_transformer_percent ?? 1) * 100)}
+      onChange={value => setJobConfig(value * 0.01, 'config.process[0].model.layer_offloading_transformer_percent')}
+      min={0}
+      max={100}
+      step={1}
+    />;
+  }
+`;
+const layerScaleClaim = collectVisibleControlClaimsFromSource(layerScaleSource, 'fixture.tsx', 'Fixture')[0];
+const layerScaleContract = layerScaleClaim?.value_contract as unknown as Record<string, unknown>;
+if (layerScaleContract?.config_to_ui_scale !== 100 || layerScaleContract?.ui_to_config_scale !== 0.01) {
+  factualUiContractFailures.push('layer offload read/write scale contract');
+}
+for (const [label, mutated] of [
+  ['config-to-UI multiplier drift', layerScaleSource.replace('* 100)', '* 10)')],
+  ['UI-to-config multiplier drift', layerScaleSource.replace('value * 0.01', 'value * 0.1')],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(mutated, 'fixture.tsx', 'Fixture');
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /reciprocal|scale/i, `${label} must fail for the scale contract`);
+  }
+}
+
+const guardedQuantizationSource = `
+  function SimpleJob({ jobConfig, setJobConfig, disableSections }) {
+    return <>
+      {disableSections.includes('model.quantize') ? null : (
+        <Card title="Quantize / Compile">
+          <SelectInput
+            label="Transformer"
+            value={jobConfig.config.process[0].model.quantize ? jobConfig.config.process[0].model.qtype : ''}
+            onChange={value => {
+              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+              else setJobConfig(true, 'config.process[0].model.quantize');
+              setJobConfig(value, 'config.process[0].model.qtype');
+            }}
+            options={[{ value: '', label: 'Disabled' }, { value: 'qfloat8', label: 'qfloat8' }]}
+          />
+          {!disableSections.includes('model.quantize_te') && (
+            <SelectInput
+              label="Text Encoder"
+              value={jobConfig.config.process[0].model.quantize_te ? jobConfig.config.process[0].model.qtype_te : ''}
+              onChange={value => {
+                if (value === '') setJobConfig(false, 'config.process[0].model.quantize_te');
+                else setJobConfig(true, 'config.process[0].model.quantize_te');
+                setJobConfig(value, 'config.process[0].model.qtype_te');
+              }}
+              options={[{ value: '', label: 'Disabled' }, { value: 'qfloat8', label: 'qfloat8' }]}
+            />
+          )}
+        </Card>
+      )}
+    </>;
+  }
+`;
+const detachedTextEncoderSource = guardedQuantizationSource
+  .replace(
+    "          {!disableSections.includes('model.quantize_te') && (",
+    "        </Card>\n      )}\n      {!disableSections.includes('model.quantize_te') && (",
+  )
+  .replace(
+    "          )}\n        </Card>\n      )}\n    </>;",
+    "      )}\n    </>;",
+  );
+try {
+  collectVisibleControlClaimsFromSource(
+    guardedQuantizationSource,
+    'ui/src/app/jobs/new/SimpleJob.tsx',
+    'SimpleJob',
+  );
+} catch {
+  factualUiContractFailures.push('exact quantization visibility guards');
+}
+for (const [label, mutated] of [
+  [
+    'outer model.quantize visibility guard drift',
+    guardedQuantizationSource.replace("disableSections.includes('model.quantize') ? null", "disableSections.includes('model.quantize_te') ? null"),
+  ],
+  [
+    'nested model.quantize_te visibility guard drift',
+    guardedQuantizationSource.replace("!disableSections.includes('model.quantize_te')", "!disableSections.includes('model.quantize')"),
+  ],
+  [
+    'Text Encoder detached from outer quantization card',
+    detachedTextEncoderSource,
+  ],
+  [
+    'Transformer secondary boolean setter drift',
+    guardedQuantizationSource.replaceAll("model.quantize');", "model.low_vram');"),
+  ],
+  [
+    'Text Encoder secondary boolean setter drift',
+    guardedQuantizationSource.replaceAll("model.quantize_te');", "model.low_vram');"),
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      mutated,
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /quantiz|disableSections|visibility/i, `${label} must fail closed`);
+  }
+}
+assert.deepEqual(factualUiContractFailures, [], 'shared factual UI contracts must remain exact');
+
 assert.throws(
   () => collectVisibleControlClaimsFromSource(`
     function Fixture({ jobConfig, setJobConfig }) { return <NumberInput
@@ -6087,7 +6270,7 @@ ${architectureCommit}`,
   const settingClaims = liveFacts.config_claims.filter(
     item => item.kind === 'setting' && item.behavior_contract === undefined,
   );
-  assert.equal(settingClaims.length, 172, 'every current directly bound or architecture-projected config control must emit');
+  assert.equal(settingClaims.length, 316, 'every current directly bound or architecture-projected config control must emit');
   assert.ok(settingClaims.every(item => item.ui_label.present), 'all current visible config controls must resolve an exact label');
   assert.deepEqual(
     settingClaims
@@ -6262,13 +6445,25 @@ ${architectureCommit}`,
   }
   const modelArchitectureClaim = settingClaims.find(item => item.path === 'config.process[*].model.arch');
   assert.equal(modelArchitectureClaim?.value_contract.accepted_values?.length, 51);
-  const textEncoderQuantization = settingClaims.find(item => item.path === 'config.process[*].model.qtype_te');
-  assert.equal(textEncoderQuantization?.value_contract.accepted_values?.length, 18);
+  const textEncoderQuantization = settingClaims.filter(item => item.path === 'config.process[*].model.qtype_te');
+  assert.equal(textEncoderQuantization.length, 48, 'the nested Text Encoder selector must honor both quantization guards');
+  assert.ok(textEncoderQuantization.every(item => item.value_contract.accepted_values?.length === 18));
   const transformerQuantization = settingClaims.filter(item => item.path === 'config.process[*].model.qtype');
   assert.equal(transformerQuantization.length, 49, 'architectures hiding model.quantize must not emit a Transformer control');
   assert.ok(transformerQuantization.every(item =>
     item.value_contract.accepted_values?.every(value => value.kind !== 'string' || value.value !== '')),
   'empty Transformer selection writes the default qtype, not an empty string');
+  const transformerQuantizeToggles = settingClaims.filter(item => item.path === 'config.process[*].model.quantize');
+  const textEncoderQuantizeToggles = settingClaims.filter(item => item.path === 'config.process[*].model.quantize_te');
+  assert.equal(transformerQuantizeToggles.length, 49);
+  assert.equal(textEncoderQuantizeToggles.length, 48);
+  for (const claim of [...transformerQuantizeToggles, ...textEncoderQuantizeToggles]) {
+    assert.equal(claim.value_contract.ui_type, 'boolean');
+    assert.deepEqual(claim.value_contract.accepted_values, [
+      { kind: 'boolean', value: false },
+      { kind: 'boolean', value: true },
+    ], 'boolean quantization claims must not inherit qtype string options');
+  }
   const lokrFactor = settingClaims.find(item => item.path === 'config.process[*].network.lokr_factor');
   assert.equal(lokrFactor?.value_contract.ui_type, 'integer');
   assert.deepEqual(lokrFactor?.value_contract.accepted_values, [-1, 4, 8, 16, 32].map(value => ({ kind: 'number', value })));
