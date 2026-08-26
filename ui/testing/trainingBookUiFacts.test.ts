@@ -3612,6 +3612,95 @@ if (liveRoot !== undefined) {
     },
     'final bounded review covers defineProperties order, Reflect receivers, aggregate escapes, indirect module calls, and rest/iterator access effects',
   );
+  const conversionAndAccessEffectFailures = [
+    ['Object.assign executes source getter', "  const source = { get value() { jobConfig.config.process[0].train.steps = 99; return 1; } };\n  Object.assign({}, source);\n  if (isMac()) {"],
+    ['Object.assign executes target setter', "  const target = { set value(next) { jobConfig.config.process[0].train.steps = next; } };\n  Object.assign(target, { value: 99 });\n  if (isMac()) {"],
+    ['Object.assign target setter consumes relevant source value', "  const target = { set value(next) { dynamicConsumer(next); } };\n  Object.assign(target, { value: jobConfig });\n  if (isMac()) {"],
+    ['Reflect.set executes key coercion', "  const key = { toString() { jobConfig.config.process[0].train.steps = 99; return 'value'; } };\n  Reflect.set({}, key, 1);\n  if (isMac()) {"],
+    ['Object.defineProperty executes key coercion', "  const key = { toString() { jobConfig.config.process[0].train.steps = 99; return 'value'; } };\n  Object.defineProperty({}, key, { value: 1 });\n  if (isMac()) {"],
+    ['Object.defineProperty executes descriptor value getter', "  const descriptor = { get value() { jobConfig.config.process[0].train.steps = 99; return 1; } };\n  Object.defineProperty({}, 'value', descriptor);\n  if (isMac()) {"],
+    ['Object.defineProperty executes inherited descriptor getter', "  const fields = { get value() { jobConfig.config.process[0].train.steps = 99; return 1; } };\n  const descriptor = { __proto__: fields };\n  Object.defineProperty({}, 'value', descriptor);\n  if (isMac()) {"],
+    ['Object.assign executes relevant getter before later throw', "  const source = { get first() { jobConfig.config.process[0].train.steps = 99; return 1; }, get second() { throw new Error('stop'); } };\n  Object.assign({}, source);\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const proxyTrapFailures = [
+    ['Reflect.set Proxy trap consumes relevant value', "  const proxy = new Proxy({}, { set(target, key, value) { dynamicConsumer(value); return true; } });\n  Reflect.set(proxy, 'value', jobConfig);\n  if (isMac()) {"],
+    ['Reflect.set Proxy trap captures relevant config', "  const proxy = new Proxy({}, { set() { jobConfig.config.process[0].train.steps = 99; return true; } });\n  Reflect.set(proxy, 'value', 1);\n  if (isMac()) {"],
+    ['Object.assign Proxy set trap consumes relevant value', "  const proxy = new Proxy({}, { set(target, key, value) { dynamicConsumer(value); return true; } });\n  Object.assign(proxy, { value: jobConfig });\n  if (isMac()) {"],
+    ['Object.defineProperty Proxy trap consumes relevant descriptor', "  const proxy = new Proxy({}, { defineProperty(target, key, descriptor) { dynamicConsumer(descriptor.value); return true; } });\n  Object.defineProperty(proxy, 'value', { value: jobConfig });\n  if (isMac()) {"],
+    ['Reflect.set unknown Proxy handler fails closed', "  const proxy = new Proxy({}, runtimeHandler);\n  Reflect.set(proxy, 'value', jobConfig);\n  if (isMac()) {"],
+    ['Object.assign unknown Proxy set trap fails closed', "  const proxy = new Proxy({}, { set: runtimeTrap });\n  Object.assign(proxy, { value: jobConfig });\n  if (isMac()) {"],
+    ['Object.defineProperty unknown Proxy trap fails closed', "  const proxy = new Proxy({}, { defineProperty: runtimeTrap });\n  Object.defineProperty(proxy, 'value', { value: jobConfig });\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const localAccessEffectFailures = [
+    ['local object destructuring executes getter', "  const source = { get value() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } };\n  const { value } = source;\n  if (isMac()) {"],
+    ['local object rest executes getter', "  const source = { get value() { jobConfig.config.process[0].train.steps = 99; return otherConfig; } };\n  const { ...rest } = source;\n  if (isMac()) {"],
+    ['local array destructuring executes custom iterator', "  const iterable = { [Symbol.iterator]() { jobConfig.config.process[0].train.steps = 99; return [otherConfig][Symbol.iterator](); } };\n  const [value] = iterable;\n  if (isMac()) {"],
+    ['for-of executes custom iterator', "  const iterable = { [Symbol.iterator]() { jobConfig.config.process[0].train.steps = 99; return [otherConfig][Symbol.iterator](); } };\n  for (const value of iterable) { break; }\n  if (isMac()) {"],
+    ['absent object property executes destructuring default', "  const source = {};\n  const { value = (jobConfig.config.process[0].train.steps = 99) } = source;\n  if (isMac()) {"],
+    ['undefined object property executes destructuring default', "  const source = { value: undefined };\n  const { value = (jobConfig.config.process[0].train.steps = 99) } = source;\n  if (isMac()) {"],
+    ['absent array element executes destructuring default', "  const source = [];\n  const [value = (jobConfig.config.process[0].train.steps = 99)] = source;\n  if (isMac()) {"],
+    ['recursive custom iterator is bounded and fails closed', "  const iterable = { [Symbol.iterator]() { return iterable[Symbol.iterator](); } };\n  const [value] = iterable;\n  value.config.process[0].train.steps = 99;\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const staticValueFailures = [
+    ['live 1n and branch', "  1n && (jobConfig.config.process[0].train.steps = 99);\n  if (isMac()) {"],
+    ['live 0n or branch', "  0n || (jobConfig.config.process[0].train.steps = 99);\n  if (isMac()) {"],
+    ['live RegExp and branch', "  /x/ && (jobConfig.config.process[0].train.steps = 99);\n  if (isMac()) {"],
+    ['live class expression and branch', "  (class {}) && (jobConfig.config.process[0].train.steps = 99);\n  if (isMac()) {"],
+    ['live class declaration alias branch', "  class Flag {}\n  Flag && (jobConfig.config.process[0].train.steps = 99);\n  if (isMac()) {"],
+    ['rebound RegExp alias remains live', "  let flag = /x/;\n  flag = runtimeFlag;\n  flag || (jobConfig.config.process[0].train.steps = 99);\n  if (isMac()) {"],
+  ].map(([label, replacement]) => boundedFactsRejection(label, () => collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)))).filter((failure): failure is string => failure !== undefined);
+  const finalProvenancePositiveFailures: string[] = [];
+  for (const [label, replacement] of [
+    ['Object.assign harmless source getter', "  const source = { get value() { otherObject.value = 1; return 1; } };\n  Object.assign({}, source);\n  if (isMac()) {"],
+    ['Object.assign skips nonenumerable source getter', "  const source = {};\n  Object.defineProperty(source, 'value', { enumerable: false, get() { jobConfig.config.process[0].train.steps = 99; return 1; } });\n  Object.assign({}, source);\n  if (isMac()) {"],
+    ['Object.assign skips nonmatching target setter', "  const target = { set value(next) { jobConfig.config.process[0].train.steps = next; } };\n  Object.assign(target, { other: 1 });\n  if (isMac()) {"],
+    ['Object.assign throw stops later source getter', "  const source = { get first() { throw new Error('stop'); }, get second() { jobConfig.config.process[0].train.steps = 99; return 1; } };\n  Object.assign({}, source);\n  if (isMac()) {"],
+    ['Reflect.set throwing key stops target setter', "  const key = { toString() { throw new Error('stop'); } };\n  const target = { set value(next) { jobConfig.config.process[0].train.steps = 99; } };\n  Reflect.set(target, key, 1);\n  if (isMac()) {"],
+    ['Object.defineProperty throwing key stops descriptor getter', "  const key = { toString() { throw new Error('stop'); } };\n  const descriptor = { get value() { jobConfig.config.process[0].train.steps = 99; return 1; } };\n  Object.defineProperty({}, key, descriptor);\n  if (isMac()) {"],
+    ['Object.defineProperty throwing descriptor field stops later getter', "  const descriptor = { get enumerable() { throw new Error('stop'); }, get value() { jobConfig.config.process[0].train.steps = 99; return 1; } };\n  Object.defineProperty({}, 'value', descriptor);\n  if (isMac()) {"],
+    ['Reflect.set harmless Proxy trap', "  const proxy = new Proxy({}, { set(target, key, value) { otherObject.value = value; return true; } });\n  Reflect.set(proxy, 'value', 1);\n  if (isMac()) {"],
+    ['Object.assign harmless Proxy trap', "  const proxy = new Proxy({}, { set(target, key, value) { otherObject.value = value; return true; } });\n  Object.assign(proxy, { value: 1 });\n  if (isMac()) {"],
+    ['Object.defineProperty harmless Proxy trap', "  const proxy = new Proxy({}, { defineProperty(target, key, descriptor) { otherObject.value = descriptor.value; return true; } });\n  Object.defineProperty(proxy, 'value', { value: 1 });\n  if (isMac()) {"],
+    ['unused unknown Proxy is harmless', "  const proxy = new Proxy({}, runtimeHandler);\n  proxy;\n  if (isMac()) {"],
+    ['local harmless object getter', "  const source = { get value() { otherObject.value = 1; return otherConfig; } };\n  const { value } = source;\n  if (isMac()) {"],
+    ['local harmless custom iterator', "  const iterable = { [Symbol.iterator]() { otherObject.value = 1; return [otherConfig][Symbol.iterator](); } };\n  const [value] = iterable;\n  if (isMac()) {"],
+    ['present object property skips destructuring default', "  const source = { value: otherConfig };\n  const { value = (jobConfig.config.process[0].train.steps = 99) } = source;\n  if (isMac()) {"],
+    ['null object property skips destructuring default', "  const source = { value: null };\n  const { value = (jobConfig.config.process[0].train.steps = 99) } = source;\n  if (isMac()) {"],
+    ['present array element skips destructuring default', "  const source = [otherConfig];\n  const [value = (jobConfig.config.process[0].train.steps = 99)] = source;\n  if (isMac()) {"],
+    ['dead 0n and branch', "  0n && (jobConfig.config.process[0].train.steps = 99);\n  if (isMac()) {"],
+    ['dead 1n or branch', "  1n || (jobConfig.config.process[0].train.steps = 99);\n  if (isMac()) {"],
+    ['0n is present for nullish branch', "  0n ?? (jobConfig.config.process[0].train.steps = 99);\n  if (isMac()) {"],
+    ['dead RegExp or branch', "  /x/ || (jobConfig.config.process[0].train.steps = 99);\n  if (isMac()) {"],
+    ['dead class expression or branch', "  (class {}) || (jobConfig.config.process[0].train.steps = 99);\n  if (isMac()) {"],
+    ['dead class declaration alias branch', "  class Flag {}\n  Flag || (jobConfig.config.process[0].train.steps = 99);\n  if (isMac()) {"],
+    ['dead const RegExp alias branch', "  const flag = /x/;\n  flag || (jobConfig.config.process[0].train.steps = 99);\n  if (isMac()) {"],
+  ] as const) {
+    try {
+      assert.deepEqual(
+        collectMigrateJobConfigBehaviorClaimsFromSource(summaryMigrateSource.replace('  if (isMac()) {', replacement)),
+        summaryMigrateFacts,
+      );
+    } catch {
+      finalProvenancePositiveFailures.push(label);
+    }
+  }
+  assert.deepEqual(
+    {
+      conversionAndAccessEffectFailures,
+      proxyTrapFailures,
+      localAccessEffectFailures,
+      staticValueFailures,
+      finalProvenancePositiveFailures,
+    },
+    {
+      conversionAndAccessEffectFailures: [],
+      proxyTrapFailures: [],
+      localAccessEffectFailures: [],
+      staticValueFailures: [],
+      finalProvenancePositiveFailures: [],
+    },
+    'final provenance review covers access conversion effects, Proxy traps, local destructuring iteration, and exact static values',
+  );
   assert.equal(summaryArchFacts.length, 30);
   assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));

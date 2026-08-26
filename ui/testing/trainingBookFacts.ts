@@ -507,6 +507,11 @@ function staticTruthValue(
     if (declaration === undefined || seen.has(declaration)) return undefined;
     const lookup = bindings.provenanceCandidates(expression);
     if (!lookup.found || lookup.candidates.length === 0) return undefined;
+    if (
+      ts.isClassDeclaration(declaration.parent)
+      && declaration.parent.name === declaration
+      && lookup.candidates.every(candidate => candidate === 'absent')
+    ) return true;
     const nextSeen = new Set(seen).add(declaration);
     const values = lookup.candidates.map(candidate => {
       if (candidate === 'absent') return false;
@@ -518,8 +523,16 @@ function staticTruthValue(
       : values[0];
   }
   if (ts.isNumericLiteral(expression)) return Number(expression.text) !== 0;
+  if (ts.isBigIntLiteral(expression)) return BigInt(expression.text.slice(0, -1).replace(/_/gu, '')) !== 0n;
   if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text.length !== 0;
-  if (ts.isArrayLiteralExpression(expression) || ts.isObjectLiteralExpression(expression) || ts.isFunctionExpression(expression) || ts.isArrowFunction(expression)) return true;
+  if (
+    ts.isArrayLiteralExpression(expression)
+    || ts.isObjectLiteralExpression(expression)
+    || ts.isFunctionExpression(expression)
+    || ts.isArrowFunction(expression)
+    || ts.isRegularExpressionLiteral(expression)
+    || ts.isClassExpression(expression)
+  ) return true;
   if (ts.isPrefixUnaryExpression(expression) && expression.operator === ts.SyntaxKind.ExclamationToken) {
     const operand = staticTruthValue(expression.operand, bindings, seen);
     return operand === undefined ? undefined : !operand;
@@ -541,6 +554,11 @@ function staticNullishValue(
     if (declaration === undefined || seen.has(declaration)) return undefined;
     const lookup = bindings.provenanceCandidates(expression);
     if (!lookup.found || lookup.candidates.length === 0) return undefined;
+    if (
+      ts.isClassDeclaration(declaration.parent)
+      && declaration.parent.name === declaration
+      && lookup.candidates.every(candidate => candidate === 'absent')
+    ) return false;
     const nextSeen = new Set(seen).add(declaration);
     const values = lookup.candidates.map(candidate => {
       if (candidate === 'absent') return true;
@@ -555,12 +573,15 @@ function staticNullishValue(
     expression.kind === ts.SyntaxKind.TrueKeyword
     || expression.kind === ts.SyntaxKind.FalseKeyword
     || ts.isNumericLiteral(expression)
+    || ts.isBigIntLiteral(expression)
     || ts.isStringLiteral(expression)
     || ts.isNoSubstitutionTemplateLiteral(expression)
     || ts.isArrayLiteralExpression(expression)
     || ts.isObjectLiteralExpression(expression)
     || ts.isFunctionExpression(expression)
     || ts.isArrowFunction(expression)
+    || ts.isRegularExpressionLiteral(expression)
+    || ts.isClassExpression(expression)
   ) return false;
   return undefined;
 }
@@ -3941,6 +3962,8 @@ function isStaticallyDead(node: ts.Node, bindings?: LexicalBindings): boolean {
     if (value.kind === ts.SyntaxKind.FalseKeyword) return false;
     if (value.kind === ts.SyntaxKind.TrueKeyword) return true;
     if (ts.isNumericLiteral(value)) return Number(value.text) !== 0;
+    if (ts.isBigIntLiteral(value)) return BigInt(value.text.slice(0, -1).replace(/_/gu, '')) !== 0n;
+    if (ts.isRegularExpressionLiteral(value) || ts.isClassExpression(value)) return true;
     return undefined;
   };
   const staticNullish = (expression: ts.Expression): boolean | undefined => bindings === undefined
@@ -3962,6 +3985,13 @@ function isStaticallyDead(node: ts.Node, bindings?: LexicalBindings): boolean {
       || expression.kind === ts.SyntaxKind.NullKeyword
     ) return true;
     if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) return true;
+    if (ts.isClassExpression(expression)) {
+      return expression.heritageClauses === undefined
+        && expression.members.every(member => (
+          !ts.isClassStaticBlockDeclaration(member)
+          && (member.name === undefined || !ts.isComputedPropertyName(member.name))
+        ));
+    }
     if (ts.isArrayLiteralExpression(expression)) {
       return expression.elements.every(element => (
         ts.isOmittedExpression(element)
@@ -5215,7 +5245,7 @@ type InvocationAccessEffect = {
 };
 
 function projectInvocationParameters(
-  parameters: readonly ts.ParameterDeclaration[],
+  parameters: readonly Pick<ts.ParameterDeclaration, 'name' | 'dotDotDotToken' | 'initializer'>[],
   argumentValues: readonly InvocationValue[],
   bindings: LexicalBindings,
   inherited: InvocationSubstitutions,
@@ -5306,7 +5336,9 @@ function projectInvocationParameters(
     }
     if (ts.isObjectBindingPattern(name)) {
       if (ts.isObjectLiteralExpression(aggregate)) {
-        const restAccess = finiteObjectSpreadGetters(aggregate, bindings, projected, accessAt);
+        const restAccess = name.elements.some(element => element.dotDotDotToken !== undefined)
+          ? finiteObjectSpreadGetters(aggregate, bindings, projected, accessAt)
+          : { getters: [], properties: new Map<string, ts.FunctionLikeDeclaration | undefined>(), unknown: false };
         const excluded = new Set<string>();
         for (const element of name.elements) {
           if (element.dotDotDotToken !== undefined) {
@@ -5346,7 +5378,9 @@ function projectInvocationParameters(
           ? element.name.text
           : element.propertyName === undefined
             ? undefined
-            : propertyName(element.propertyName);
+            : ts.isComputedPropertyName(element.propertyName)
+              ? resolveStaticString(element.propertyName.expression, bindings, projected)
+              : propertyName(element.propertyName);
         if (key === undefined) {
           taint(element.name);
           continue;
@@ -5431,6 +5465,24 @@ function statementDefinitelyReturns(statement: ts.Statement): boolean {
       && (statement.catchClause === undefined || statementDefinitelyReturns(statement.catchClause.block));
   }
   return false;
+}
+
+function functionDefinitelyThrows(target: ts.FunctionLikeDeclaration): boolean {
+  if (target.body === undefined || !ts.isBlock(target.body)) return false;
+  const statementThrows = (statement: ts.Statement): boolean => {
+    if (ts.isThrowStatement(statement)) return true;
+    if (ts.isBlock(statement)) return statement.statements.some(statementThrows);
+    if (ts.isIfStatement(statement)) {
+      const truth = staticTruthValue(statement.expression);
+      if (truth === true) return statementThrows(statement.thenStatement);
+      if (truth === false) return statement.elseStatement !== undefined && statementThrows(statement.elseStatement);
+      return statement.elseStatement !== undefined
+        && statementThrows(statement.thenStatement)
+        && statementThrows(statement.elseStatement);
+    }
+    return false;
+  };
+  return target.body.statements.some(statementThrows);
 }
 
 function summarizeInvocationReturnProvenance(
@@ -5941,6 +5993,93 @@ function finiteReachableDescriptorAt(
   return key === '__proto__' ? { kind: 'builtin-proto-setter' } : { kind: 'absent' };
 }
 
+type FiniteProxyInfo = {
+  target: ts.Expression;
+  handler?: ts.ObjectLiteralExpression;
+  unknownHandler: boolean;
+};
+
+function finiteProxyInfo(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+): FiniteProxyInfo | undefined {
+  const root = syntacticExactAliasOrigin(expression, bindings, substitutions);
+  if (root === undefined) return undefined;
+  const candidate = unwrap(root);
+  if (!ts.isNewExpression(candidate) || candidate.arguments?.length !== 2) return undefined;
+  const callee = unwrap(candidate.expression);
+  if (!ts.isIdentifier(callee) || callee.text !== 'Proxy' || bindings.lookup(callee).found) return undefined;
+  const handlerProvenance = resolveAliasProvenance(candidate.arguments[1], bindings, substitutions);
+  const handler = handlerProvenance.kind === 'exact' && !ts.isMethodDeclaration(handlerProvenance.origin)
+    ? unwrap(handlerProvenance.origin)
+    : undefined;
+  return {
+    target: candidate.arguments[0],
+    ...(handler !== undefined && ts.isObjectLiteralExpression(handler) ? { handler } : {}),
+    unknownHandler: handler === undefined || !ts.isObjectLiteralExpression(handler),
+  };
+}
+
+function finiteProxyTrap(
+  proxy: FiniteProxyInfo,
+  trap: 'set' | 'defineProperty',
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+): ts.FunctionLikeDeclaration | 'unknown' | undefined {
+  if (proxy.unknownHandler || proxy.handler === undefined) return 'unknown';
+  const value = resolveObjectLiteralProperty(proxy.handler, trap, bindings, substitutions, new Set());
+  if (value.kind === 'absent') return undefined;
+  if (value.kind !== 'exact') return 'unknown';
+  if (ts.isMethodDeclaration(value.origin)) return value.origin;
+  if (definitelyUndefinedOrigin(value.origin, bindings)) return undefined;
+  return localFunctionFromExpression(value.origin, bindings, substitutions, false) ?? 'unknown';
+}
+
+type FiniteCopyEntry = {
+  key: string;
+  getter?: FiniteAccessorTarget;
+  value: InvocationValue;
+};
+
+function finiteObjectCopyEntries(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  substitutions: InvocationSubstitutions,
+  at: ts.Node,
+): { entries: readonly FiniteCopyEntry[]; unknown: boolean } {
+  const root = syntacticExactAliasOrigin(expression, bindings, substitutions);
+  if (root === undefined) return { entries: [], unknown: true };
+  const descriptors = finiteOwnDescriptorsAt(root, bindings, substitutions, at);
+  const literal = unwrap(root);
+  const entries: FiniteCopyEntry[] = [];
+  let unknown = descriptors.unknown;
+  for (const [key, descriptor] of descriptors.properties) {
+    if (descriptor.kind === 'unknown' || descriptor.enumerable === 'unknown') {
+      unknown = true;
+      continue;
+    }
+    if (descriptor.enumerable !== true) continue;
+    if (descriptor.kind === 'accessor') {
+      if (descriptor.getter === 'unknown') unknown = true;
+      else entries.push({ key, getter: descriptor.getter, value: 'tainted' });
+      continue;
+    }
+    let value: InvocationValue = 'tainted';
+    if (ts.isObjectLiteralExpression(literal)) {
+      const projected = resolveObjectLiteralProperty(literal, key, bindings, substitutions, new Set());
+      if (projected.kind === 'absent') value = 'absent';
+      else if (projected.kind === 'exact' && !ts.isMethodDeclaration(projected.origin)) value = projected.origin;
+    } else if (ts.isArrayLiteralExpression(literal) && /^\d+$/u.test(key)) {
+      const element = literal.elements[Number(key)];
+      if (element === undefined || ts.isOmittedExpression(element)) value = 'absent';
+      else if (!ts.isSpreadElement(element)) value = element;
+    }
+    entries.push({ key, value });
+  }
+  return { entries, unknown };
+}
+
 function finiteObjectSpreadGetters(
   expression: ts.Expression,
   bindings: LexicalBindings,
@@ -6199,7 +6338,97 @@ function visitExecutableFunctionNodes(
   ): void => {
     if (isStaticallyDead(node, bindings)) return;
     if (node !== current && ts.isFunctionLike(node)) return;
+    if (ts.isCallExpression(node)) {
+      const directApi = staticMember(node.expression);
+      const receiver = directApi === undefined ? undefined : unwrap(directApi.base);
+      const exactGlobalApi = receiver !== undefined
+        && ts.isIdentifier(receiver)
+        && !bindings.lookup(receiver).found
+        && ((receiver.text === 'Reflect' && directApi?.key === 'set')
+          || (receiver.text === 'Object' && directApi?.key === 'defineProperty'));
+      const exactOwnCallable = (expression: ts.Expression | undefined, key: string): ts.FunctionLikeDeclaration | undefined => {
+        if (expression === undefined) return undefined;
+        const root = syntacticExactAliasOrigin(expression, bindings, substitutions);
+        if (root === undefined || !ts.isObjectLiteralExpression(unwrap(root))) return undefined;
+        const object = unwrap(root) as ts.ObjectLiteralExpression;
+        for (let index = object.properties.length - 1; index >= 0; index -= 1) {
+          const property = object.properties[index];
+          if (ts.isSpreadAssignment(property)) break;
+          const propertyKey = ts.isComputedPropertyName(property.name)
+            ? resolveStaticString(property.name.expression, bindings, substitutions)
+            : propertyName(property.name);
+          if (propertyKey === undefined) break;
+          if (propertyKey !== key) continue;
+          if (ts.isGetAccessorDeclaration(property) || ts.isMethodDeclaration(property)) return property;
+          if (ts.isPropertyAssignment(property)) return localFunctionFromExpression(property.initializer, bindings, substitutions, false);
+          return undefined;
+        }
+        const selected = resolveObjectLiteralProperty(object, key, bindings, substitutions, new Set());
+        if (selected.kind !== 'exact') return undefined;
+        return ts.isMethodDeclaration(selected.origin)
+          ? selected.origin
+          : localFunctionFromExpression(selected.origin, bindings, substitutions, false);
+      };
+      if (exactGlobalApi && node.arguments[0] !== undefined && !definitelyPrimitiveExpression(node.arguments[0], bindings, substitutions)) {
+        const keyCoercion = exactOwnCallable(node.arguments[1], 'toString');
+        if (keyCoercion !== undefined && functionDefinitelyThrows(keyCoercion)) {
+          invoke(node, keyCoercion, [], execution, substitutions, node.arguments[1]);
+          return;
+        }
+        if (receiver.text === 'Object' && directApi?.key === 'defineProperty') {
+          for (const field of ['enumerable', 'configurable', 'value', 'writable', 'get', 'set'] as const) {
+            const fieldGetter = exactOwnCallable(node.arguments[2], field);
+            if (fieldGetter === undefined) continue;
+            if (functionDefinitelyThrows(fieldGetter)) {
+              invoke(node, fieldGetter, [], execution, substitutions, node.arguments[2]);
+              return;
+            }
+            break;
+          }
+        }
+      }
+    }
     visitor(node, substitutions, execution, sequence++, current);
+    if (
+      ts.isVariableDeclaration(node)
+      && node.initializer !== undefined
+      && (ts.isObjectBindingPattern(node.name) || ts.isArrayBindingPattern(node.name))
+      && !node.name.elements.some(element => (
+        !ts.isOmittedExpression(element)
+        && (ts.isObjectBindingPattern(element.name) || ts.isArrayBindingPattern(element.name))
+      ))
+    ) {
+      visit(node.initializer, substitutions, current, execution);
+      const defaultEffects: InvocationDefaultEffect[] = [];
+      const accessEffects: InvocationAccessEffect[] = [];
+      projectInvocationParameters(
+        [{ name: node.name, dotDotDotToken: undefined, initializer: undefined }],
+        [node.initializer],
+        bindings,
+        substitutions,
+        defaultEffects,
+        accessEffects,
+        node,
+      );
+      for (const effect of accessEffects) invoke(node, effect.target, [], execution, substitutions, effect.receiver);
+      for (const effect of defaultEffects) {
+        visit(
+          effect.expression,
+          effect.substitutions,
+          current,
+          effect.selection === 'maybe' ? 'unmodeled-callback' : execution,
+        );
+      }
+      return;
+    }
+    if (ts.isForOfStatement(node)) {
+      visit(node.expression, substitutions, current, execution);
+      const iterator = finiteIteratorMethod(node.expression, bindings, substitutions);
+      if (iterator !== undefined && iterator !== 'unknown') invoke(node, iterator, [], execution, substitutions, node.expression);
+      visit(node.initializer, substitutions, current, execution);
+      visit(node.statement, substitutions, current, execution);
+      return;
+    }
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
       const member = staticMember(node.left);
       if (member?.key === '__proto__') {
@@ -6263,21 +6492,188 @@ function visitExecutableFunctionNodes(
         else if (invocation.unsupported !== undefined) invoke(node, direct, undefined, 'unmodeled-callback', substitutions);
       }
       const mutationApi = resolveMutationApiIdentity(invocation.target, bindings, substitutions);
+      const relevantExpression = (expression: ts.Expression | undefined): boolean => expression !== undefined
+        && relevantBindings.some(binding => (
+          expressionBindingReachability(expression, binding, bindings, substitutions) !== 'unrelated'
+        ));
+      const relevantInvocationValue = (value: InvocationValue): boolean => typeof value !== 'string'
+        && relevantExpression(value);
+      const replayToPropertyKey = (expression: ts.Expression | undefined): 'normal' | 'throw' | 'unknown' => {
+        if (expression === undefined || definitelyPrimitiveExpression(expression, bindings, substitutions)) return 'normal';
+        const root = syntacticExactAliasOrigin(expression, bindings, substitutions);
+        if (root === undefined || !ts.isObjectLiteralExpression(unwrap(root))) return 'unknown';
+        const method = resolveObjectLiteralProperty(unwrap(root) as ts.ObjectLiteralExpression, 'toString', bindings, substitutions, new Set());
+        if (method.kind === 'absent') return 'normal';
+        const target = method.kind === 'exact'
+          ? ts.isMethodDeclaration(method.origin)
+            ? method.origin
+            : localFunctionFromExpression(method.origin, bindings, substitutions, false)
+          : undefined;
+        if (target === undefined) return 'unknown';
+        invoke(node, target, [], execution, substitutions, expression);
+        return functionDefinitelyThrows(target) ? 'throw' : 'normal';
+      };
+      const replayProxyTrap = (
+        targetExpression: ts.Expression,
+        trapName: 'set' | 'defineProperty',
+        trapArguments: readonly InvocationValue[],
+      ): 'not-proxy' | 'forward' | 'handled' => {
+        const proxy = finiteProxyInfo(targetExpression, bindings, substitutions);
+        if (proxy === undefined) return 'not-proxy';
+        const trap = finiteProxyTrap(proxy, trapName, bindings, substitutions);
+        if (trap === 'unknown') {
+          if (strictUnknownAccessEffects && trapArguments.some(relevantInvocationValue)) {
+            fail(node, `unsupported Proxy ${trapName} trap: tainted callable provenance`);
+          }
+          return 'handled';
+        }
+        if (trap === undefined) return 'forward';
+        invoke(node, trap, trapArguments, execution, substitutions, proxy.handler ?? targetExpression);
+        return 'handled';
+      };
+      const replayOrdinarySetter = (
+        targetExpression: ts.Expression,
+        key: string,
+        value: InvocationValue,
+        receiver: InvocationValue = targetExpression,
+      ): void => {
+        const selected = finiteReachableDescriptorAt(targetExpression, key, bindings, substitutions, node);
+        if (selected.kind === 'accessor') {
+          if (selected.setter === 'unknown') {
+            if (strictUnknownAccessEffects && (relevantInvocationValue(value) || relevantExpression(targetExpression))) {
+              fail(node, 'unsupported reachable mutation: exact setter has tainted callable provenance');
+            }
+          } else if (selected.setter !== undefined) invoke(node, selected.setter, [value], execution, substitutions, receiver);
+        } else if (selected.kind === 'unknown' && strictUnknownAccessEffects && (
+          relevantInvocationValue(value) || relevantExpression(targetExpression)
+        )) fail(node, 'unsupported reachable mutation: exact setter has unknown descriptor provenance');
+      };
+      let propertyKeyAbrupt = false;
+      if (
+        mutationApi?.exactGlobal === true
+        && invocation.arguments !== undefined
+        && invocation.arguments[0] !== undefined
+        && (
+          (mutationApi.receiver === 'Reflect' && mutationApi.method === 'set')
+          || (mutationApi.receiver === 'Object' && mutationApi.method === 'defineProperty')
+        )
+        && !definitelyPrimitiveExpression(invocation.arguments[0], bindings, substitutions)
+      ) {
+        const keyEffect = replayToPropertyKey(invocation.arguments[1]);
+        if (keyEffect === 'unknown' && strictUnknownAccessEffects && relevantExpression(invocation.arguments[1])) {
+          fail(node, 'unsupported property key coercion: tainted callable provenance');
+        }
+        propertyKeyAbrupt = keyEffect === 'throw';
+      }
+      if (propertyKeyAbrupt) return;
+      if (
+        mutationApi?.exactGlobal === true
+        && mutationApi.receiver === 'Object'
+        && mutationApi.method === 'defineProperty'
+        && invocation.arguments !== undefined
+        && invocation.arguments[2] !== undefined
+      ) {
+        for (const field of ['enumerable', 'configurable', 'value', 'writable', 'get', 'set'] as const) {
+          const selected = finiteReachableDescriptorAt(invocation.arguments[2], field, bindings, substitutions, node);
+          if (selected.kind === 'accessor') {
+            if (selected.getter === 'unknown') {
+              if (strictUnknownAccessEffects && relevantExpression(invocation.arguments[2])) {
+                fail(node, `unsupported property descriptor ${field} getter provenance`);
+              }
+            } else if (selected.getter !== undefined) {
+              invoke(node, selected.getter, [], execution, substitutions, invocation.arguments[2]);
+              if (functionDefinitelyThrows(selected.getter)) return;
+            }
+          } else if (selected.kind === 'unknown' && strictUnknownAccessEffects && relevantExpression(invocation.arguments[2])) {
+            fail(node, `unsupported property descriptor ${field} provenance`);
+          }
+        }
+      }
+      if (
+        mutationApi?.exactGlobal === true
+        && mutationApi.receiver === 'Object'
+        && mutationApi.method === 'assign'
+        && invocation.arguments !== undefined
+        && invocation.arguments[0] !== undefined
+      ) {
+        const target = invocation.arguments[0];
+        objectAssignSources: for (const source of invocation.arguments.slice(1)) {
+          const copied = finiteObjectCopyEntries(source, bindings, substitutions, node);
+          if (copied.unknown && strictUnknownAccessEffects && relevantExpression(source)) {
+            fail(node, 'unsupported Object.assign source descriptor provenance');
+          }
+          for (const entry of copied.entries) {
+            if (entry.getter === 'unknown') {
+              if (strictUnknownAccessEffects && relevantExpression(source)) fail(node, 'unsupported Object.assign source getter provenance');
+            } else if (entry.getter !== undefined) {
+              invoke(node, entry.getter, [], execution, substitutions, source);
+              if (functionDefinitelyThrows(entry.getter)) break objectAssignSources;
+            }
+            const proxy = finiteProxyInfo(target, bindings, substitutions);
+            const proxyResult = replayProxyTrap(
+              target,
+              'set',
+              [proxy?.target ?? target, ts.factory.createStringLiteral(entry.key), entry.value, target],
+            );
+            if (proxyResult === 'handled') continue;
+            replayOrdinarySetter(proxyResult === 'forward' && proxy !== undefined ? proxy.target : target, entry.key, entry.value, target);
+          }
+        }
+      }
+      let reflectSetHandled = false;
+      let reflectSetTarget = invocation.arguments?.[0];
       if (
         mutationApi?.exactGlobal === true
         && mutationApi.receiver === 'Reflect'
         && mutationApi.method === 'set'
         && invocation.arguments !== undefined
         && invocation.arguments[0] !== undefined
+      ) {
+        const proxy = finiteProxyInfo(invocation.arguments[0], bindings, substitutions);
+        if (proxy !== undefined) {
+          const proxyResult = replayProxyTrap(
+            invocation.arguments[0],
+            'set',
+            [proxy.target, invocation.arguments[1] ?? 'absent', invocation.arguments[2] ?? 'absent', invocation.arguments[3] ?? invocation.arguments[0]],
+          );
+          reflectSetHandled = proxyResult === 'handled';
+          if (proxyResult === 'forward') reflectSetTarget = proxy.target;
+        }
+      }
+      if (
+        mutationApi?.exactGlobal === true
+        && mutationApi.receiver === 'Object'
+        && mutationApi.method === 'defineProperty'
+        && invocation.arguments !== undefined
+        && invocation.arguments[0] !== undefined
+      ) {
+        replayProxyTrap(
+          invocation.arguments[0],
+          'defineProperty',
+          [
+            finiteProxyInfo(invocation.arguments[0], bindings, substitutions)?.target ?? invocation.arguments[0],
+            invocation.arguments[1] ?? 'absent',
+            invocation.arguments[2] ?? 'absent',
+          ],
+        );
+      }
+      if (
+        mutationApi?.exactGlobal === true
+        && mutationApi.receiver === 'Reflect'
+        && mutationApi.method === 'set'
+        && invocation.arguments !== undefined
+        && invocation.arguments[0] !== undefined
+        && reflectSetTarget !== undefined
+        && !reflectSetHandled
         && !definitelyPrimitiveExpression(invocation.arguments[0], bindings, substitutions)
       ) {
         const memberKey = resolveStaticString(invocation.arguments[1], bindings, substitutions);
         if (memberKey !== undefined) {
-          const targetRoot = syntacticExactAliasOrigin(invocation.arguments[0], bindings, substitutions);
+          const targetRoot = syntacticExactAliasOrigin(reflectSetTarget, bindings, substitutions);
           const finiteTarget = targetRoot !== undefined
             && (ts.isObjectLiteralExpression(unwrap(targetRoot)) || ts.isArrayLiteralExpression(unwrap(targetRoot)));
           if (finiteTarget) {
-            const possible = finiteReachableSettersAt(invocation.arguments[0], bindings, substitutions, node);
+            const possible = finiteReachableSettersAt(reflectSetTarget, bindings, substitutions, node);
             if (possible.unknown && strictUnknownAccessEffects) fail(node, 'unsupported Reflect.set: exact key has unknown descriptor or prototype state');
             const setter = possible.setters.get(memberKey);
             if (setter !== undefined) {
@@ -6292,11 +6688,11 @@ function visitExecutableFunctionNodes(
             }
           }
         } else {
-          const targetRoot = syntacticExactAliasOrigin(invocation.arguments[0], bindings, substitutions);
+          const targetRoot = syntacticExactAliasOrigin(reflectSetTarget, bindings, substitutions);
           const finiteTarget = targetRoot !== undefined
             && (ts.isObjectLiteralExpression(unwrap(targetRoot)) || ts.isArrayLiteralExpression(unwrap(targetRoot)));
           if (finiteTarget) {
-            const possible = finiteReachableSettersAt(invocation.arguments[0], bindings, substitutions, node);
+            const possible = finiteReachableSettersAt(reflectSetTarget, bindings, substitutions, node);
             if (possible.unknown && strictUnknownAccessEffects) fail(node, 'unsupported Reflect.set: dynamic key has unknown descriptor or prototype state');
             for (const setter of possible.setters.values()) {
               invoke(
