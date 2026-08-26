@@ -4074,6 +4074,177 @@ for (const [label, sourceText, symbol, projected] of [
     assert.match(String(error), /class|constructor|new|select.*options|accepted values|projected|provenance|target|condition/i, `${label} must honor the reachable constructor target branch`);
   }
 }
+
+const conditionalConstructorCallback = (
+  constructorParameters: string,
+  constructorBody: string,
+  constructionArguments: string,
+): string => `onChange={value => {
+            if (value === '') setJobConfig(false, 'config.process[0].model.quantize');
+            else setJobConfig(true, 'config.process[0].model.quantize');
+            class Base { constructor(${constructorParameters}) { ${constructorBody} } }
+            new Base(${constructionArguments});
+            setJobConfig(value, 'config.process[0].model.qtype');
+          }}`;
+
+for (const [label, callback] of [
+  [
+    'true constructor parameter selects safe ternary callback',
+    conditionalConstructorCallback(
+      'useSafe, holder',
+      'const invoke = useSafe ? (() => undefined) : holder.run; invoke();',
+      'true, { run: () => { value = false; } }',
+    ),
+  ],
+  [
+    'aliased true constructor parameter selects safe logical callback',
+    conditionalConstructorCallback(
+      'useSafe, holder',
+      'const selected = useSafe; const safe = () => undefined; const invoke = (selected && safe) || holder.run; invoke();',
+      'true, { run: () => { value = false; } }',
+    ),
+  ],
+  [
+    'present constructor parameter selects safe nullish callback',
+    conditionalConstructorCallback(
+      'preferred, holder',
+      'const invoke = preferred ?? holder.run; invoke();',
+      '() => undefined, { run: () => { value = false; } }',
+    ),
+  ],
+  [
+    'true constructor parameter selects safe ternary class',
+    conditionalConstructorQuantizationCallback(
+      'const Selected = useSafe ? Safe : Bad; new Selected();',
+      'new Base(undefined, true);',
+    ),
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+  } catch {
+    factualUiContractFailures.push(label);
+  }
+}
+
+for (const [label, callback] of [
+  [
+    'false constructor parameter selects corrupt ternary callback',
+    conditionalConstructorCallback(
+      'useSafe, holder',
+      'const invoke = useSafe ? (() => undefined) : holder.run; invoke();',
+      'false, { run: () => { value = false; } }',
+    ),
+  ],
+  [
+    'aliased false constructor parameter selects corrupt logical callback',
+    conditionalConstructorCallback(
+      'useSafe, holder',
+      'const selected = useSafe; const safe = () => undefined; const invoke = (selected && safe) || holder.run; invoke();',
+      'false, { run: () => { value = false; } }',
+    ),
+  ],
+  [
+    'null constructor parameter selects corrupt nullish callback',
+    conditionalConstructorCallback(
+      'preferred, holder',
+      'const invoke = preferred ?? holder.run; invoke();',
+      'null, { run: () => { value = false; } }',
+    ),
+  ],
+  [
+    'false constructor parameter selects corrupt ternary class',
+    conditionalConstructorQuantizationCallback(
+      'const Selected = useSafe ? Safe : Bad; new Selected();',
+      'new Base(undefined, false);',
+    ),
+  ],
+  [
+    'unknown constructor parameter ternary class fails closed',
+    conditionalConstructorQuantizationCallback(
+      'const Selected = useSafe ? Safe : Bad; new Selected();',
+      'new Base(undefined, externalFlag);',
+    ),
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /class|constructor|new|qtype|selection|payload|provenance|target|condition|callback/i, `${label} must honor exact conditional provenance`);
+  }
+}
+
+for (const [label, sourceText, symbol, projected, shouldAccept] of [
+  [
+    'true constructor parameter selects safe ordinary options class',
+    ordinaryClassEffectControl(
+      `class Safe {}
+       class Bad { constructor() { modeOptions.push({ value: 'b', label: 'B' }); } }
+       class Base { constructor(useSafe) { const Selected = useSafe ? Safe : Bad; new Selected(); } }`,
+      'new Base(true);',
+    ),
+    'Fixture',
+    false,
+    true,
+  ],
+  [
+    'false constructor parameter selects corrupt ordinary options class',
+    ordinaryClassEffectControl(
+      `class Safe {}
+       class Bad { constructor() { modeOptions.push({ value: 'b', label: 'B' }); } }
+       class Base { constructor(useSafe) { const Selected = useSafe ? Safe : Bad; new Selected(); } }`,
+      'new Base(false);',
+    ),
+    'Fixture',
+    false,
+    false,
+  ],
+  [
+    'true constructor parameter selects safe projected options class',
+    projectedOptionsControl(
+      `class Safe {}
+       class Bad { constructor() { groupedModelOptions.push({ value: 'stale', label: 'Stale' }); } }
+       class Base { constructor(useSafe) { const Selected = useSafe ? Safe : Bad; new Selected(); } }
+       new Base(true);`,
+      '',
+      '',
+    ),
+    'SimpleJob',
+    true,
+    true,
+  ],
+  [
+    'false constructor parameter selects corrupt projected options class',
+    projectedOptionsControl(
+      `class Safe {}
+       class Bad { constructor() { groupedModelOptions.push({ value: 'stale', label: 'Stale' }); } }
+       class Base { constructor(useSafe) { const Selected = useSafe ? Safe : Bad; new Selected(); } }
+       new Base(false);`,
+      '',
+      '',
+    ),
+    'SimpleJob',
+    true,
+    false,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(sourceText, 'fixture.tsx', symbol, false, projected);
+    if (!shouldAccept) factualUiContractFailures.push(label);
+  } catch (error) {
+    if (shouldAccept) factualUiContractFailures.push(label);
+    else assert.match(String(error), /class|constructor|new|select.*options|accepted values|projected|provenance|target|condition/i, `${label} must honor exact conditional provenance`);
+  }
+}
 assert.deepEqual(factualUiContractFailures, [], 'shared factual UI contracts must remain exact');
 
 assert.throws(

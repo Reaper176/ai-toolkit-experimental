@@ -525,7 +525,7 @@ function assignedIdentifiers(node: ts.Node): ts.Identifier[] {
   return [];
 }
 
-function staticTruthValue(
+function lexicalStaticTruthValue(
   expression: ts.Expression,
   bindings?: LexicalBindings,
   seen = new Set<ts.Identifier>(),
@@ -549,7 +549,7 @@ function staticTruthValue(
     const values = lookup.candidates.map(candidate => {
       if (candidate === 'absent') return false;
       if (candidate === 'tainted' || candidate === 'ambiguous-identity' || isDefaultAliasCandidate(candidate) || isProjectedAliasCandidate(candidate)) return undefined;
-      return staticTruthValue(candidate, bindings, nextSeen);
+      return lexicalStaticTruthValue(candidate, bindings, nextSeen);
     });
     return values.some(value => value === undefined) || values.some(value => value !== values[0])
       ? undefined
@@ -567,14 +567,14 @@ function staticTruthValue(
     || ts.isClassExpression(expression)
   ) return true;
   if (ts.isPrefixUnaryExpression(expression) && expression.operator === ts.SyntaxKind.ExclamationToken) {
-    const operand = staticTruthValue(expression.operand, bindings, seen);
+    const operand = lexicalStaticTruthValue(expression.operand, bindings, seen);
     return operand === undefined ? undefined : !operand;
   }
   if (ts.isVoidExpression(expression)) return false;
   return undefined;
 }
 
-function staticNullishValue(
+function lexicalStaticNullishValue(
   expression: ts.Expression,
   bindings?: LexicalBindings,
   seen = new Set<ts.Identifier>(),
@@ -596,7 +596,7 @@ function staticNullishValue(
     const values = lookup.candidates.map(candidate => {
       if (candidate === 'absent') return true;
       if (candidate === 'tainted' || candidate === 'ambiguous-identity' || isDefaultAliasCandidate(candidate) || isProjectedAliasCandidate(candidate)) return undefined;
-      return staticNullishValue(candidate, bindings, nextSeen);
+      return lexicalStaticNullishValue(candidate, bindings, nextSeen);
     });
     return values.some(value => value === undefined) || values.some(value => value !== values[0])
       ? undefined
@@ -617,6 +617,90 @@ function staticNullishValue(
     || ts.isClassExpression(expression)
   ) return false;
   return undefined;
+}
+
+type StaticValueQuery = 'truth' | 'nullish';
+
+function substitutionAwareStaticValue(
+  query: StaticValueQuery,
+  candidate: ts.Expression,
+  bindings?: LexicalBindings,
+  substitutions: InvocationSubstitutions = new Map(),
+  seen = new Set<ts.Node>(),
+): boolean | undefined {
+  const lexical = query === 'truth' ? lexicalStaticTruthValue : lexicalStaticNullishValue;
+  if (bindings === undefined || substitutions.size === 0) return lexical(candidate, bindings);
+  const expression = unwrap(candidate);
+  if (seen.has(expression)) return undefined;
+  const nextSeen = new Set(seen).add(expression);
+  const evaluate = (value: ts.Expression, valueSeen = nextSeen): boolean | undefined => (
+    substitutionAwareStaticValue(query, value, bindings, substitutions, valueSeen)
+  );
+  const projected = substitutions.get(expression);
+  if (projected !== undefined) return typeof projected === 'string'
+    ? projected === 'absent' ? query === 'nullish' : undefined
+    : evaluate(projected);
+  if (ts.isIdentifier(expression)) {
+    const declaration = bindings.uniqueLexicalDeclaration(expression)
+      ?? bindings.bindingDeclaration(expression);
+    if (declaration !== undefined && !nextSeen.has(declaration)) {
+      if (ts.isClassDeclaration(declaration.parent) && declaration.parent.name === declaration) {
+        return query === 'truth';
+      }
+      const substitution = substitutions.get(declaration);
+      if (substitution !== undefined) return typeof substitution === 'string'
+        ? substitution === 'absent' ? query === 'nullish' : undefined
+        : evaluate(substitution, new Set(nextSeen).add(declaration));
+      const provenance = resolveAliasProvenance(expression, bindings, substitutions);
+      if (provenance.kind === 'tainted') return undefined;
+      if (provenance.kind === 'absent') return query === 'nullish';
+      if (provenance.kind === 'exact' && !ts.isMethodDeclaration(provenance.origin)) {
+        const origin = unwrap(provenance.origin);
+        if (origin !== expression) return evaluate(origin, new Set(nextSeen).add(declaration));
+      }
+    }
+  }
+  if (ts.isConditionalExpression(expression)) {
+    const condition = substitutionAwareStaticValue('truth', expression.condition, bindings, substitutions, nextSeen);
+    if (condition !== undefined) return evaluate(condition ? expression.whenTrue : expression.whenFalse);
+    const branches = [evaluate(expression.whenTrue), evaluate(expression.whenFalse)];
+    return branches[0] !== undefined && branches[0] === branches[1] ? branches[0] : undefined;
+  }
+  if (query === 'truth' && ts.isPrefixUnaryExpression(expression) && expression.operator === ts.SyntaxKind.ExclamationToken) {
+    const operand = substitutionAwareStaticValue('truth', expression.operand, bindings, substitutions, nextSeen);
+    return operand === undefined ? undefined : !operand;
+  }
+  if (ts.isBinaryExpression(expression)) {
+    const operator = expression.operatorToken.kind;
+    const leftTruth = substitutionAwareStaticValue('truth', expression.left, bindings, substitutions, nextSeen);
+    if (operator === ts.SyntaxKind.AmpersandAmpersandToken && leftTruth !== undefined) {
+      return leftTruth ? evaluate(expression.right) : evaluate(expression.left);
+    }
+    if (operator === ts.SyntaxKind.BarBarToken && leftTruth !== undefined) {
+      return leftTruth ? evaluate(expression.left) : evaluate(expression.right);
+    }
+    if (operator === ts.SyntaxKind.QuestionQuestionToken) {
+      const leftNullish = substitutionAwareStaticValue('nullish', expression.left, bindings, substitutions, nextSeen);
+      if (leftNullish !== undefined) return leftNullish ? evaluate(expression.right) : evaluate(expression.left);
+    }
+  }
+  return lexical(expression, bindings);
+}
+
+function staticTruthValue(
+  expression: ts.Expression,
+  bindings?: LexicalBindings,
+  substitutions: InvocationSubstitutions = new Map(),
+): boolean | undefined {
+  return substitutionAwareStaticValue('truth', expression, bindings, substitutions);
+}
+
+function staticNullishValue(
+  expression: ts.Expression,
+  bindings?: LexicalBindings,
+  substitutions: InvocationSubstitutions = new Map(),
+): boolean | undefined {
+  return substitutionAwareStaticValue('nullish', expression, bindings, substitutions);
 }
 
 class LexicalBindings {
@@ -5813,7 +5897,7 @@ function resolveAliasProvenance(
     return summarizeInvocationReturnProvenance(expression, bindings, substitutions) ?? { kind: 'exact', origin: expression };
   }
   if (ts.isConditionalExpression(expression)) {
-    const truth = staticTruthValue(expression.condition, bindings);
+    const truth = staticTruthValue(expression.condition, bindings, substitutions);
     if (truth !== undefined) return resolveAliasProvenance(truth ? expression.whenTrue : expression.whenFalse, bindings, substitutions, seen);
     return joinAliasProvenance([
       resolveAliasProvenance(expression.whenTrue, bindings, substitutions, seen),
@@ -5821,8 +5905,8 @@ function resolveAliasProvenance(
     ], bindings);
   }
   if (ts.isBinaryExpression(expression) && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(expression.operatorToken.kind)) {
-    const truth = staticTruthValue(expression.left, bindings);
-    const nullish = staticNullishValue(expression.left, bindings);
+    const truth = staticTruthValue(expression.left, bindings, substitutions);
+    const nullish = staticNullishValue(expression.left, bindings, substitutions);
     if (expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && truth !== undefined) return resolveAliasProvenance(truth ? expression.right : expression.left, bindings, substitutions, seen);
     if (expression.operatorToken.kind === ts.SyntaxKind.BarBarToken && truth !== undefined) return resolveAliasProvenance(truth ? expression.left : expression.right, bindings, substitutions, seen);
     if (expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken && nullish !== undefined) return resolveAliasProvenance(nullish ? expression.right : expression.left, bindings, substitutions, seen);
@@ -5931,7 +6015,7 @@ function invocationCalleeDependsOnConstructorParameter(
       && invocationCalleeDependsOnConstructorParameter(directSubstitution, bindings, substitutions, nextSeen);
   }
   if (ts.isConditionalExpression(expression)) {
-    const truth = staticTruthValue(expression.condition, bindings);
+    const truth = staticTruthValue(expression.condition, bindings, substitutions);
     return truth === undefined
       ? invocationCalleeDependsOnConstructorParameter(expression.whenTrue, bindings, substitutions, nextSeen)
         || invocationCalleeDependsOnConstructorParameter(expression.whenFalse, bindings, substitutions, nextSeen)
@@ -5982,6 +6066,34 @@ function invocationCalleeDependsOnConstructorParameter(
   if (ts.isBinaryExpression(expression)) {
     if (expression.operatorToken.kind === ts.SyntaxKind.CommaToken) {
       return invocationCalleeDependsOnConstructorParameter(expression.right, bindings, substitutions, nextSeen);
+    }
+    if ([ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(expression.operatorToken.kind)) {
+      const truth = staticTruthValue(expression.left, bindings, substitutions);
+      const nullish = staticNullishValue(expression.left, bindings, substitutions);
+      if (expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && truth !== undefined) {
+        return invocationCalleeDependsOnConstructorParameter(
+          truth ? expression.right : expression.left,
+          bindings,
+          substitutions,
+          nextSeen,
+        );
+      }
+      if (expression.operatorToken.kind === ts.SyntaxKind.BarBarToken && truth !== undefined) {
+        return invocationCalleeDependsOnConstructorParameter(
+          truth ? expression.left : expression.right,
+          bindings,
+          substitutions,
+          nextSeen,
+        );
+      }
+      if (expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken && nullish !== undefined) {
+        return invocationCalleeDependsOnConstructorParameter(
+          nullish ? expression.right : expression.left,
+          bindings,
+          substitutions,
+          nextSeen,
+        );
+      }
     }
     return invocationCalleeDependsOnConstructorParameter(expression.left, bindings, substitutions, nextSeen)
       || invocationCalleeDependsOnConstructorParameter(expression.right, bindings, substitutions, nextSeen);
@@ -6171,7 +6283,7 @@ function expressionBindingReachability(
       : 'unrelated';
   }
   if (ts.isConditionalExpression(expression)) {
-    const truth = staticTruthValue(expression.condition, bindings);
+    const truth = staticTruthValue(expression.condition, bindings, substitutions);
     if (truth !== undefined) return expressionBindingReachability(
       truth ? expression.whenTrue : expression.whenFalse,
       target,
@@ -6185,8 +6297,8 @@ function expressionBindingReachability(
     ]);
   }
   if (ts.isBinaryExpression(expression) && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(expression.operatorToken.kind)) {
-    const truth = staticTruthValue(expression.left, bindings);
-    const nullish = staticNullishValue(expression.left, bindings);
+    const truth = staticTruthValue(expression.left, bindings, substitutions);
+    const nullish = staticNullishValue(expression.left, bindings, substitutions);
     if (expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && truth !== undefined) {
       return expressionBindingReachability(truth ? expression.right : expression.left, target, bindings, substitutions, nextSeen);
     }
@@ -7078,7 +7190,7 @@ function localInstanceClassesFromExpression(
   expression = unwrap(expression);
   if (ts.isNewExpression(expression)) return localClassesFromExpression(expression.expression, bindings, substitutions);
   if (ts.isConditionalExpression(expression)) {
-    const truth = staticTruthValue(expression.condition, bindings);
+    const truth = staticTruthValue(expression.condition, bindings, substitutions);
     const branches = truth === undefined
       ? [expression.whenTrue, expression.whenFalse]
       : [truth ? expression.whenTrue : expression.whenFalse];
@@ -8064,7 +8176,7 @@ function localClassesFromExpression(
     : localClassesFromExpression(directSubstitution, bindings, substitutions, seen);
   if (ts.isClassExpression(expression)) return { declarations: [expression], complete: true };
   if (ts.isConditionalExpression(expression)) {
-    const truth = staticTruthValue(expression.condition, bindings);
+    const truth = staticTruthValue(expression.condition, bindings, substitutions);
     const branches = truth === undefined
       ? [expression.whenTrue, expression.whenFalse]
       : [truth ? expression.whenTrue : expression.whenFalse];
@@ -8734,89 +8846,6 @@ function visitExecutableFunctionNodes(
     }
     return false;
   };
-  const invocationStaticTruthValue = (
-    candidate: ts.Expression,
-    substitutions: InvocationSubstitutions,
-    seen = new Set<ts.Node>(),
-  ): boolean | undefined => {
-    if (substitutions.size === 0) return staticTruthValue(candidate, bindings);
-    const expression = unwrap(candidate);
-    if (seen.has(expression)) return undefined;
-    const nextSeen = new Set(seen).add(expression);
-    const direct = substitutions.get(expression);
-    if (direct !== undefined) return typeof direct === 'string'
-      ? direct === 'absent' ? false : undefined
-      : invocationStaticTruthValue(direct, substitutions, nextSeen);
-    if (ts.isIdentifier(expression)) {
-      const declaration = bindings.uniqueLexicalDeclaration(expression)
-        ?? bindings.bindingDeclaration(expression);
-      if (declaration !== undefined && !nextSeen.has(declaration)) {
-        if (ts.isClassDeclaration(declaration.parent) && declaration.parent.name === declaration) return true;
-        const substituted = substitutions.get(declaration);
-        if (substituted !== undefined) return typeof substituted === 'string'
-          ? substituted === 'absent' ? false : undefined
-          : invocationStaticTruthValue(substituted, substitutions, new Set(nextSeen).add(declaration));
-        const provenance = resolveAliasProvenance(expression, bindings, substitutions);
-        if (provenance.kind === 'tainted') return undefined;
-        if (provenance.kind === 'absent') return false;
-        if (provenance.kind === 'exact' && !ts.isMethodDeclaration(provenance.origin)) {
-          const origin = unwrap(provenance.origin);
-          if (origin !== expression) {
-            return invocationStaticTruthValue(origin, substitutions, new Set(nextSeen).add(declaration));
-          }
-        }
-      }
-    }
-    if (ts.isPrefixUnaryExpression(expression) && expression.operator === ts.SyntaxKind.ExclamationToken) {
-      const operand = invocationStaticTruthValue(expression.operand, substitutions, nextSeen);
-      return operand === undefined ? undefined : !operand;
-    }
-    if (ts.isBinaryExpression(expression)) {
-      const left = invocationStaticTruthValue(expression.left, substitutions, nextSeen);
-      if (expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && left !== undefined) {
-        return left ? invocationStaticTruthValue(expression.right, substitutions, nextSeen) : false;
-      }
-      if (expression.operatorToken.kind === ts.SyntaxKind.BarBarToken && left !== undefined) {
-        return left ? true : invocationStaticTruthValue(expression.right, substitutions, nextSeen);
-      }
-    }
-    return staticTruthValue(expression, bindings);
-  };
-  const invocationStaticNullishValue = (
-    candidate: ts.Expression,
-    substitutions: InvocationSubstitutions,
-    seen = new Set<ts.Node>(),
-  ): boolean | undefined => {
-    if (substitutions.size === 0) return staticNullishValue(candidate, bindings);
-    const expression = unwrap(candidate);
-    if (seen.has(expression)) return undefined;
-    const nextSeen = new Set(seen).add(expression);
-    const direct = substitutions.get(expression);
-    if (direct !== undefined) return typeof direct === 'string'
-      ? direct === 'absent' ? true : undefined
-      : invocationStaticNullishValue(direct, substitutions, nextSeen);
-    if (ts.isIdentifier(expression)) {
-      const declaration = bindings.uniqueLexicalDeclaration(expression)
-        ?? bindings.bindingDeclaration(expression);
-      if (declaration !== undefined && !nextSeen.has(declaration)) {
-        if (ts.isClassDeclaration(declaration.parent) && declaration.parent.name === declaration) return false;
-        const substituted = substitutions.get(declaration);
-        if (substituted !== undefined) return typeof substituted === 'string'
-          ? substituted === 'absent' ? true : undefined
-          : invocationStaticNullishValue(substituted, substitutions, new Set(nextSeen).add(declaration));
-        const provenance = resolveAliasProvenance(expression, bindings, substitutions);
-        if (provenance.kind === 'tainted') return undefined;
-        if (provenance.kind === 'absent') return true;
-        if (provenance.kind === 'exact' && !ts.isMethodDeclaration(provenance.origin)) {
-          const origin = unwrap(provenance.origin);
-          if (origin !== expression) {
-            return invocationStaticNullishValue(origin, substitutions, new Set(nextSeen).add(declaration));
-          }
-        }
-      }
-    }
-    return staticNullishValue(expression, bindings);
-  };
   const lexicalConditions = (
     node: ts.Node,
     current: ts.FunctionLikeDeclaration,
@@ -8831,12 +8860,12 @@ function visitExecutableFunctionNodes(
     while (child !== current && child.parent !== undefined) {
       const parent = child.parent;
       if (ts.isIfStatement(parent)) {
-        const truth = invocationStaticTruthValue(parent.expression, substitutions);
+        const truth = staticTruthValue(parent.expression, bindings, substitutions);
         if (truth === undefined) {
           if (child === parent.thenStatement) conditions.push({ owner: parent, arm: 'then', substitutions });
           else if (child === parent.elseStatement) conditions.push({ owner: parent, arm: 'else', substitutions });
         }
-      } else if (ts.isConditionalExpression(parent) && invocationStaticTruthValue(parent.condition, substitutions) === undefined) {
+      } else if (ts.isConditionalExpression(parent) && staticTruthValue(parent.condition, bindings, substitutions) === undefined) {
         if (child === parent.whenTrue) conditions.push({ owner: parent, arm: 'true', substitutions });
         else if (child === parent.whenFalse) conditions.push({ owner: parent, arm: 'false', substitutions });
       } else if (
@@ -8844,8 +8873,8 @@ function visitExecutableFunctionNodes(
         && child === parent.right
         && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(parent.operatorToken.kind)
       ) {
-        const truth = invocationStaticTruthValue(parent.left, substitutions);
-        const nullish = invocationStaticNullishValue(parent.left, substitutions);
+        const truth = staticTruthValue(parent.left, bindings, substitutions);
+        const nullish = staticNullishValue(parent.left, bindings, substitutions);
         const conditional = (parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && truth === undefined)
           || (parent.operatorToken.kind === ts.SyntaxKind.BarBarToken && truth === undefined)
           || (parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken && nullish === undefined);
@@ -8864,10 +8893,10 @@ function visitExecutableFunctionNodes(
       ) {
         conditions.push({ owner: parent, arm: 'body', substitutions });
       } else if (ts.isForStatement(parent) && child === parent.statement) {
-        const truth = parent.condition === undefined ? true : invocationStaticTruthValue(parent.condition, substitutions);
+        const truth = parent.condition === undefined ? true : staticTruthValue(parent.condition, bindings, substitutions);
         if (truth !== false && !loopBodyExecutesExactlyOnce(parent)) conditions.push({ owner: parent, arm: 'body', substitutions });
       } else if (ts.isWhileStatement(parent) && child === parent.statement) {
-        if (invocationStaticTruthValue(parent.expression, substitutions) !== false && !loopBodyExecutesExactlyOnce(parent)) {
+        if (staticTruthValue(parent.expression, bindings, substitutions) !== false && !loopBodyExecutesExactlyOnce(parent)) {
           conditions.push({ owner: parent, arm: 'body', substitutions });
         }
       } else if (ts.isDoStatement(parent) && child === parent.statement) {
@@ -8911,30 +8940,30 @@ function visitExecutableFunctionNodes(
     while (child !== current && child.parent !== undefined) {
       const parent = child.parent;
       if (ts.isIfStatement(parent)) {
-        const truth = invocationStaticTruthValue(parent.expression, substitutions);
+        const truth = staticTruthValue(parent.expression, bindings, substitutions);
         if (truth === false && child === parent.thenStatement) return true;
         if (truth === true && child === parent.elseStatement) return true;
       } else if (ts.isConditionalExpression(parent)) {
-        const truth = invocationStaticTruthValue(parent.condition, substitutions);
+        const truth = staticTruthValue(parent.condition, bindings, substitutions);
         if (truth === false && child === parent.whenTrue) return true;
         if (truth === true && child === parent.whenFalse) return true;
       } else if (ts.isBinaryExpression(parent) && child === parent.right) {
-        const truth = invocationStaticTruthValue(parent.left, substitutions);
+        const truth = staticTruthValue(parent.left, bindings, substitutions);
         if (parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && truth === false) return true;
         if (parent.operatorToken.kind === ts.SyntaxKind.BarBarToken && truth === true) return true;
         if (
           parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
-          && invocationStaticNullishValue(parent.left, substitutions) === false
+          && staticNullishValue(parent.left, bindings, substitutions) === false
         ) return true;
       } else if (
         ts.isWhileStatement(parent)
-        && invocationStaticTruthValue(parent.expression, substitutions) === false
+        && staticTruthValue(parent.expression, bindings, substitutions) === false
       ) return true;
       else if (
         ts.isForStatement(parent)
         && parent.condition !== undefined
         && child === parent.statement
-        && invocationStaticTruthValue(parent.condition, substitutions) === false
+        && staticTruthValue(parent.condition, bindings, substitutions) === false
       ) return true;
       child = parent;
     }
