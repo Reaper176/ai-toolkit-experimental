@@ -1530,6 +1530,94 @@ for (const [label, sourceText] of [
     assert.match(String(error), /select.*options|accepted values/i, `${label} must reject stale option values`);
   }
 }
+for (const [label, moduleEffect] of [
+  [
+    'ordinary SelectInput class static option mutation fails closed',
+    `class OptionMutator {
+       static changed = modeOptions.push({ value: 'b', label: 'B' });
+     }`,
+  ],
+  [
+    'ordinary SelectInput synchronous forEach option mutation fails closed',
+    `[1].forEach(() => modeOptions.push({ value: 'b', label: 'B' }));`,
+  ],
+  [
+    'ordinary SelectInput synchronous map option mutation fails closed',
+    `[1].map(() => modeOptions.push({ value: 'b', label: 'B' }));`,
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(`
+      const modeOptions = [{ value: 'a', label: 'A' }];
+      ${moduleEffect}
+      function Fixture({ jobConfig, setJobConfig }) {
+        return <SelectInput
+          label="Mode"
+          value={jobConfig.config.process[0].train.mode}
+          onChange={value => setJobConfig(value, 'config.process[0].train.mode')}
+          options={modeOptions}
+        />;
+      }
+    `, 'fixture.tsx', 'Fixture');
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /select.*options|accepted values/i, `${label} must reject executed module effects`);
+  }
+}
+try {
+  const harmlessUninvokedOptionClaims = collectVisibleControlClaimsFromSource(`
+    const modeOptions = [{ value: 'a', label: 'A' }];
+    const uninvoked = () => modeOptions.push({ value: 'b', label: 'B' });
+    class Uninstantiated {
+      mutate() { modeOptions.push({ value: 'c', label: 'C' }); }
+      static mutate() { modeOptions.push({ value: 'd', label: 'D' }); }
+    }
+    function Fixture({ jobConfig, setJobConfig }) {
+      return <SelectInput
+        label="Mode"
+        value={jobConfig.config.process[0].train.mode}
+        onChange={value => setJobConfig(value, 'config.process[0].train.mode')}
+        options={modeOptions}
+      />;
+    }
+  `, 'fixture.tsx', 'Fixture');
+  if (JSON.stringify(harmlessUninvokedOptionClaims[0]?.value_contract.accepted_values) !== JSON.stringify([
+    { kind: 'string', value: 'a' },
+  ])) factualUiContractFailures.push('uninvoked option callbacks and class methods remain harmless');
+} catch {
+  factualUiContractFailures.push('uninvoked option callbacks and class methods remain harmless');
+}
+
+const projectedOptionsControl = (before: string, during: string, after: string): string => `
+  import { groupedModelOptions } from './options';
+  import { handleModelArchChange } from './utils';
+  ${before}
+  function SimpleJob({ jobConfig, setJobConfig }) {
+    ${during}
+    return <SelectInput
+      label="Model Architecture"
+      value={jobConfig.config.process[0].model.arch}
+      onChange={value => {
+        handleModelArchChange(jobConfig.config.process[0].model.arch, value, jobConfig, setJobConfig);
+      }}
+      options={groupedModelOptions}
+    />;
+  }
+  ${after}
+`;
+const projectedMutation = `groupedModelOptions.push({ value: 'stale', label: 'Stale' });`;
+for (const [label, projectedSource] of [
+  ['projected options mutation before component fails closed', projectedOptionsControl(projectedMutation, '', '')],
+  ['projected options mutation after component fails closed', projectedOptionsControl('', '', projectedMutation)],
+  ['projected options mutation during render fails closed', projectedOptionsControl('', projectedMutation, '')],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(projectedSource, 'fixture.tsx', 'SimpleJob', false, true);
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /select.*options|accepted values|projected/i, `${label} must reject mutable imported options`);
+  }
+}
 
 const quantizationProjectionClaims = collectVisibleControlClaimsFromSource(`
   function Fixture({ jobConfig, setJobConfig }) {

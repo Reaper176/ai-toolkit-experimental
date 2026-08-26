@@ -796,9 +796,27 @@ class LexicalBindings {
     // identities still fail closed through the active provenance guard.
     this.activeModuleExecutableTimeline = result;
     const visit = (node: ts.Node): void => {
-      if (node !== this.source && (ts.isFunctionLike(node) || ts.isClassLike(node))) return;
+      if (node !== this.source && ts.isFunctionLike(node)) return;
       if (isStaticallyDead(node, this)) return;
       result.push({ node, substitutions: new Map(), execution: 'known', current: this.source });
+      if (node !== this.source && ts.isClassLike(node)) {
+        for (const heritage of node.heritageClauses ?? []) {
+          for (const type of heritage.types) visit(type.expression);
+        }
+        for (const member of node.members) {
+          if (member.name !== undefined && ts.isComputedPropertyName(member.name)) visit(member.name.expression);
+          if (ts.isClassStaticBlockDeclaration(member)) {
+            visit(member.body);
+            continue;
+          }
+          if (
+            ts.isPropertyDeclaration(member)
+            && member.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword)
+            && member.initializer !== undefined
+          ) visit(member.initializer);
+        }
+        return;
+      }
       if (ts.isCallExpression(node)) {
         const substitutions = new Map<ts.Node, InvocationValue>();
         const invocation = normalizeInvocation(node, this, substitutions);
@@ -817,6 +835,33 @@ class LexicalBindings {
               execution: invocation.arguments === undefined ? 'unmodeled-callback' : 'known',
             },
           );
+        }
+        const member = staticMember(node.expression);
+        const callback = node.arguments[0];
+        const callbackTarget = member !== undefined
+          && ['map', 'forEach'].includes(member.key)
+          && callback !== undefined
+          ? localFunctionFromExpression(callback, this, substitutions, false)
+          : undefined;
+        if (member !== undefined && callbackTarget !== undefined) {
+          const elements = finiteInvocationArguments(member.base, this);
+          const invocations: Array<{ arguments: readonly InvocationValue[]; execution: 'known' | 'unmodeled-callback' }> = elements === undefined
+            ? [{ arguments: ['tainted', 'tainted', member.base], execution: 'unmodeled-callback' }]
+            : elements.map((element, index) => ({
+              arguments: [element, ts.factory.createNumericLiteral(index), member.base],
+              execution: 'known',
+            }));
+          for (const replay of invocations) {
+            visitExecutableFunctionNodes(
+              callbackTarget,
+              this,
+              (invokedNode, projected, execution, _sequence, current) => {
+                result.push({ node: invokedNode, substitutions: projected, execution, current });
+              },
+              true,
+              { arguments: replay.arguments, substitutions, execution: replay.execution },
+            );
+          }
         }
       }
       ts.forEachChild(node, visit);
@@ -3161,41 +3206,76 @@ function selectOptionLiteralValue(item: ts.Expression): TrainingBookValueFact {
   fail(raw, 'select option value must remain a scalar literal accepted value');
 }
 
-function selectAliasHasReachableMutation(
-  declaration: ts.Identifier,
+function selectOptionsHaveReachableMutation(
   reference: ts.Identifier,
   bindings: LexicalBindings,
+  reachesOptions: (expression: ts.Expression, substitutions: InvocationSubstitutions) => boolean,
 ): boolean {
   const referenceOwner = enclosingLexicalFunction(reference);
-  const reachesAlias = (expression: ts.Expression, substitutions: InvocationSubstitutions): boolean => {
-    try {
-      return aliasOriginReachesBinding(expression, declaration, bindings, substitutions);
-    } catch (error) {
-      if (!(error instanceof FactsError)) throw error;
-      return true;
-    }
-  };
   const mutationAt = (node: ts.Node, substitutions: InvocationSubstitutions): boolean => {
-    if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind) && reachesAlias(node.left, substitutions)) return true;
+    if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind) && reachesOptions(node.left, substitutions)) return true;
     if (
       (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node))
       && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)
-      && reachesAlias(node.operand, substitutions)
+      && reachesOptions(node.operand, substitutions)
     ) return true;
-    if (ts.isDeleteExpression(node) && reachesAlias(node.expression, substitutions)) return true;
+    if (ts.isDeleteExpression(node) && reachesOptions(node.expression, substitutions)) return true;
     if (ts.isCallExpression(node)) {
       const member = staticMember(node.expression);
-      if (member !== undefined && reachesAlias(member.base, substitutions)) return true;
-      if (node.arguments.some(argument => !ts.isSpreadElement(argument) && reachesAlias(argument, substitutions))) return true;
+      if (member !== undefined && reachesOptions(member.base, substitutions)) return true;
+      if (member !== undefined) {
+        let receiver: AliasProvenance | undefined;
+        try {
+          receiver = resolveAliasProvenance(member.base, bindings, substitutions);
+        } catch (error) {
+          if (!(error instanceof FactsError)) throw error;
+        }
+        if (receiver?.kind === 'exact' && !ts.isMethodDeclaration(receiver.origin) && ts.isArrayLiteralExpression(unwrap(receiver.origin))) {
+          return false;
+        }
+      }
+      if (node.arguments.some(argument => !ts.isSpreadElement(argument) && reachesOptions(argument, substitutions))) return true;
     }
     return ts.isNewExpression(node)
-      && node.arguments?.some(argument => !ts.isSpreadElement(argument) && reachesAlias(argument, substitutions)) === true;
+      && node.arguments?.some(argument => !ts.isSpreadElement(argument) && reachesOptions(argument, substitutions)) === true;
   };
   if (bindings.executableModuleNodes().some(item => mutationAt(item.node, item.substitutions))) return true;
   if (referenceOwner === undefined) return false;
   const functionTimeline = bindings.executableFunctionTimeline(referenceOwner);
   return functionTimeline === undefined
     || functionTimeline.some(item => mutationAt(item.node, item.substitutions));
+}
+
+function selectAliasHasReachableMutation(
+  declaration: ts.Identifier,
+  reference: ts.Identifier,
+  bindings: LexicalBindings,
+): boolean {
+  return selectOptionsHaveReachableMutation(reference, bindings, (expression, substitutions) => (
+    expressionBindingReachability(expression, declaration, bindings, substitutions) !== 'unrelated'
+  ));
+}
+
+function importedSelectOptionsHaveReachableMutation(
+  reference: ts.Identifier,
+  importedName: string,
+  moduleName: string,
+  bindings: LexicalBindings,
+): boolean {
+  const reachesImport = (expression: ts.Expression, substitutions: InvocationSubstitutions): boolean => {
+    let provenance: AliasProvenance;
+    try {
+      provenance = resolveAliasProvenance(expression, bindings, substitutions);
+    } catch (error) {
+      if (!(error instanceof FactsError)) throw error;
+      return false;
+    }
+    if (provenance.kind !== 'exact' || ts.isMethodDeclaration(provenance.origin)) return false;
+    let origin = unwrap(provenance.origin);
+    while (ts.isPropertyAccessExpression(origin) || ts.isElementAccessExpression(origin)) origin = unwrap(origin.expression);
+    return ts.isIdentifier(origin) && bindings.isExactNamedImport(origin, importedName, moduleName);
+  };
+  return selectOptionsHaveReachableMutation(reference, bindings, reachesImport);
 }
 
 function literalSelectValues(
@@ -3239,10 +3319,12 @@ function exactProjectedSelectOptions(
   expression = unwrap(expression);
   if (!ts.isIdentifier(expression)) return false;
   if (path === 'config.process[*].model.arch') {
-    return bindings.isExactNamedImport(expression, 'groupedModelOptions', './options');
+    return bindings.isExactNamedImport(expression, 'groupedModelOptions', './options')
+      && !importedSelectOptionsHaveReachableMutation(expression, 'groupedModelOptions', './options', bindings);
   }
   if (path === 'config.process[*].model.qtype_te') {
-    return bindings.isExactNamedImport(expression, 'quantizationOptions', './options');
+    return bindings.isExactNamedImport(expression, 'quantizationOptions', './options')
+      && !importedSelectOptionsHaveReachableMutation(expression, 'quantizationOptions', './options', bindings);
   }
   if (path !== 'config.process[*].model.qtype' || expression.text !== 'transformerQuantizationOptions') return false;
   const lookup = bindings.lookup(expression);
@@ -3259,7 +3341,8 @@ function exactProjectedSelectOptions(
   return initializer !== undefined
     && ts.isCallExpression(initializer)
     && ts.isIdentifier(initializer.expression)
-    && bindings.isExactNamedImport(initializer.expression, 'useMemo', 'react');
+    && bindings.isExactNamedImport(initializer.expression, 'useMemo', 'react')
+    && !selectAliasHasReachableMutation(declaration, expression, bindings);
 }
 
 function exactDatasetSelectOptions(
