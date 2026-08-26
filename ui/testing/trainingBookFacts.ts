@@ -1986,6 +1986,17 @@ class LexicalBindings {
     return lookup.found && lookup.event?.name === declaration;
   }
 
+  hasLexicalDeclaration(identifier: ts.Identifier, declaration: ts.Identifier): boolean {
+    for (const scope of this.scopes(identifier)) {
+      const events = this.eventsFor(scope).get(identifier.text);
+      if (events === undefined) continue;
+      const declarations = events.filter(event => event.kind === 'declaration');
+      if (declarations.length === 0) continue;
+      return declarations.length === 1 && declarations[0].name === declaration;
+    }
+    return false;
+  }
+
   bindingDeclaration(identifier: ts.Identifier): ts.Identifier | undefined {
     const lookup = this.lookup(identifier);
     return lookup.found ? lookup.event?.name : undefined;
@@ -3051,6 +3062,77 @@ function secondaryBooleanSetterPaths(
     .sort(compareCodePoint);
 }
 
+function booleanSetterValuesForPath(
+  root: ts.Node,
+  path: string,
+  bindings: LexicalBindings,
+): boolean[] | undefined {
+  const values: boolean[] = [];
+  let exact = true;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === 'setJobConfig'
+      && exactLiteralSetterPath(node) === path
+    ) {
+      requireComponentSetterBinding(node.expression, bindings);
+      const value = node.arguments[0] === undefined ? undefined : unwrap(node.arguments[0]);
+      if (value?.kind === ts.SyntaxKind.TrueKeyword || value?.kind === ts.SyntaxKind.FalseKeyword) {
+        values.push(value.kind === ts.SyntaxKind.TrueKeyword);
+      } else exact = false;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(root);
+  return exact ? values : undefined;
+}
+
+function isExactEmptySelectionCondition(
+  expression: ts.Expression,
+  parameter: ts.Identifier,
+  bindings: LexicalBindings,
+): boolean {
+  expression = unwrap(expression);
+  if (!ts.isBinaryExpression(expression) || expression.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken) return false;
+  const left = unwrap(expression.left);
+  const right = unwrap(expression.right);
+  const isEmpty = (value: ts.Expression): boolean =>
+    (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) && value.text === '';
+  const isParameter = (value: ts.Expression): boolean =>
+    ts.isIdentifier(value) && bindings.hasLexicalDeclaration(value, parameter);
+  return (isParameter(left) && isEmpty(right)) || (isEmpty(left) && isParameter(right));
+}
+
+function hasExactEmptySelectionBooleanMapping(
+  onChange: ts.Expression,
+  path: string,
+  bindings: LexicalBindings,
+): boolean {
+  onChange = unwrap(onChange);
+  if (!ts.isArrowFunction(onChange) && !ts.isFunctionExpression(onChange)) return false;
+  const parameter = exactCallbackIdentifier(onChange.parameters[0]);
+  if (parameter === undefined) return false;
+  const allValues = booleanSetterValuesForPath(onChange.body, path, bindings);
+  if (allValues === undefined || allValues.length !== 2) return false;
+  let exactMappings = 0;
+  const visit = (node: ts.Node): void => {
+    if (ts.isIfStatement(node) && isExactEmptySelectionCondition(node.expression, parameter, bindings)) {
+      const emptyValues = booleanSetterValuesForPath(node.thenStatement, path, bindings);
+      const nonemptyValues = node.elseStatement === undefined
+        ? undefined
+        : booleanSetterValuesForPath(node.elseStatement, path, bindings);
+      if (
+        JSON.stringify(emptyValues) === JSON.stringify([false])
+        && JSON.stringify(nonemptyValues) === JSON.stringify([true])
+      ) exactMappings += 1;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(onChange.body);
+  return exactMappings === 1;
+}
+
 function literalSelectValues(expression: ts.Expression | undefined): TrainingBookValueFact[] | undefined {
   if (expression === undefined) return undefined;
   expression = unwrap(expression);
@@ -3203,6 +3285,9 @@ function validateQuantizationVisibilityGuards(source: ts.SourceFile, sourceName:
     if (JSON.stringify(secondaryBooleanSetterPaths(onChange, primaryPath, bindings)) !== JSON.stringify([secondaryPath])) {
       fail(onChange, `${label} quantization control must write exact false and true values to its Boolean setter path`);
     }
+    if (!hasExactEmptySelectionBooleanMapping(onChange, secondaryPath, bindings)) {
+      fail(onChange, `${label} quantization control must map empty selection to false and nonempty selection to true`);
+    }
     const owners = new Set<ts.FunctionLikeDeclaration>();
     const visitSetters = (node: ts.Node): void => {
       if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'setJobConfig') {
@@ -3256,26 +3341,33 @@ function validateQuantizationVisibilityGuards(source: ts.SourceFile, sourceName:
   current = textEncoder;
   while (current !== undefined && current !== card) current = current.parent;
   if (current !== card) fail(textEncoder, 'Text Encoder quantization control must remain inside the Transformer Quantize / Compile card');
-  let textEncoderGuarded = false;
-  current = textEncoder;
-  while (current !== undefined) {
+  const textEncoderChecks: ts.CallExpression[] = [];
+  const visitTextEncoderChecks = (node: ts.Node): void => {
     if (
-      ts.isBinaryExpression(current)
-      && current.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
-    ) {
-      const condition = unwrap(current.left);
-      if (
-        ts.isPrefixUnaryExpression(condition)
-        && condition.operator === ts.SyntaxKind.ExclamationToken
-        && isDisableSectionsIncludes(condition.operand, 'model.quantize_te', bindings, componentOwner)
-      ) {
-        textEncoderGuarded = true;
-        break;
-      }
-    }
-    current = current.parent;
+      ts.isCallExpression(node)
+      && isDisableSectionsIncludes(node, 'model.quantize_te', bindings, componentOwner)
+    ) textEncoderChecks.push(node);
+    ts.forEachChild(node, visitTextEncoderChecks);
+  };
+  visitTextEncoderChecks(source);
+  if (textEncoderChecks.length !== 1) {
+    fail(textEncoder, 'Text Encoder visibility requires exactly one model.quantize_te disableSections guard');
   }
-  if (!textEncoderGuarded) fail(textEncoder, 'Text Encoder visibility requires the exact model.quantize_te disableSections guard');
+  const negation = textEncoderChecks[0].parent;
+  const textEncoderGuard = ts.isPrefixUnaryExpression(negation)
+    && negation.operator === ts.SyntaxKind.ExclamationToken
+    && unwrap(negation.operand) === textEncoderChecks[0]
+    && ts.isBinaryExpression(negation.parent)
+    && negation.parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+    && unwrap(negation.parent.left) === negation
+    && unwrap(negation.parent.right) === textEncoder
+    ? negation.parent
+    : undefined;
+  current = textEncoder;
+  while (current !== undefined && current !== card && current !== textEncoderGuard) current = current.parent;
+  if (textEncoderGuard === undefined || current !== textEncoderGuard) {
+    fail(textEncoder, 'Text Encoder visibility guard must wrap only its control inside the Quantize / Compile card');
+  }
 }
 
 export function collectVisibleControlClaimsFromSource(

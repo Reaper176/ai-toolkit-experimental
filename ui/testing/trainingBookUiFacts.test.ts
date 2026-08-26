@@ -1534,6 +1534,40 @@ const detachedTextEncoderSource = guardedQuantizationSource
     "          )}\n        </Card>\n      )}\n    </>;",
     "      )}\n    </>;",
   );
+const overbroadTextEncoderGuardSource = guardedQuantizationSource
+  .replace(
+    "          <SelectInput\n            label=\"Transformer\"",
+    "          {!disableSections.includes('model.quantize_te') && (\n            <>\n          <SelectInput\n            label=\"Transformer\"",
+  )
+  .replace(
+    "          {!disableSections.includes('model.quantize_te') && (\n            <SelectInput\n              label=\"Text Encoder\"",
+    "            <SelectInput\n              label=\"Text Encoder\"",
+  )
+  .replace(
+    "          )}\n        </Card>",
+    "            </>\n          )}\n        </Card>",
+  );
+const redundantOverbroadTextEncoderGuardSource = guardedQuantizationSource
+  .replace(
+    "          <SelectInput\n            label=\"Transformer\"",
+    "          {!disableSections.includes('model.quantize_te') && (\n            <>\n          <SelectInput\n            label=\"Transformer\"",
+  )
+  .replace(
+    "          )}\n        </Card>",
+    "          )}\n            </>\n          )}\n        </Card>",
+  );
+const unrelatedOuterGuardSource = redundantOverbroadTextEncoderGuardSource.replace(
+  "!disableSections.includes('model.quantize_te')",
+  "!disableSections.includes('model.low_vram')",
+);
+const swappedTransformerBooleanSource = guardedQuantizationSource.replace(
+  "              if (value === '') setJobConfig(false, 'config.process[0].model.quantize');\n              else setJobConfig(true, 'config.process[0].model.quantize');",
+  "              if (value === '') setJobConfig(true, 'config.process[0].model.quantize');\n              else setJobConfig(false, 'config.process[0].model.quantize');",
+);
+const swappedTextEncoderBooleanSource = guardedQuantizationSource.replace(
+  "                if (value === '') setJobConfig(false, 'config.process[0].model.quantize_te');\n                else setJobConfig(true, 'config.process[0].model.quantize_te');",
+  "                if (value === '') setJobConfig(true, 'config.process[0].model.quantize_te');\n                else setJobConfig(false, 'config.process[0].model.quantize_te');",
+);
 try {
   collectVisibleControlClaimsFromSource(
     guardedQuantizationSource,
@@ -1542,6 +1576,15 @@ try {
   );
 } catch {
   factualUiContractFailures.push('exact quantization visibility guards');
+}
+try {
+  collectVisibleControlClaimsFromSource(
+    unrelatedOuterGuardSource,
+    'ui/src/app/jobs/new/SimpleJob.tsx',
+    'SimpleJob',
+  );
+} catch {
+  factualUiContractFailures.push('unrelated outer visibility guards remain independent');
 }
 for (const [label, mutated] of [
   [
@@ -1557,12 +1600,28 @@ for (const [label, mutated] of [
     detachedTextEncoderSource,
   ],
   [
+    'model.quantize_te guard wraps more than Text Encoder',
+    overbroadTextEncoderGuardSource,
+  ],
+  [
+    'additional model.quantize_te guard also wraps Transformer',
+    redundantOverbroadTextEncoderGuardSource,
+  ],
+  [
     'Transformer secondary boolean setter drift',
     guardedQuantizationSource.replaceAll("model.quantize');", "model.low_vram');"),
   ],
   [
     'Text Encoder secondary boolean setter drift',
     guardedQuantizationSource.replaceAll("model.quantize_te');", "model.low_vram');"),
+  ],
+  [
+    'Transformer empty/nonempty boolean mapping drift',
+    swappedTransformerBooleanSource,
+  ],
+  [
+    'Text Encoder empty/nonempty boolean mapping drift',
+    swappedTextEncoderBooleanSource,
   ],
 ] as const) {
   try {
