@@ -4370,6 +4370,91 @@ for (const [label, callback] of [
     factualUiContractFailures.push(label);
   }
 }
+
+for (const [label, callback] of [
+  [
+    'unshadowed global undefined is an exact safe recursive construction state',
+    recursiveConstructionQuantizationCallback(
+      'class Loop { constructor(state) { state ?? new Loop(true); if (state) void state; } }',
+      'new Loop(undefined);',
+    ),
+  ],
+  [
+    'void zero remains an exact safe recursive construction state',
+    recursiveConstructionQuantizationCallback(
+      'class Loop { constructor(state) { state ?? new Loop(true); if (state) void state; } }',
+      'new Loop(void 0);',
+    ),
+  ],
+  [
+    'omitted argument remains an exact safe recursive construction state',
+    recursiveConstructionQuantizationCallback(
+      'class Loop { constructor(state) { state ?? new Loop(true); if (state) void state; } }',
+      'new Loop();',
+    ),
+  ],
+  [
+    'shadowed undefined follows its exact true binding',
+    recursiveConstructionQuantizationCallback(
+      'const undefined = true; class Loop { constructor(state) { if (!state) new Loop(undefined); } }',
+      'new Loop(undefined);',
+    ),
+  ],
+] as const) {
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+  } catch {
+    factualUiContractFailures.push(label);
+  }
+}
+
+for (const [label, callback] of [
+  [
+    'shadowed undefined follows its exact false binding',
+    recursiveConstructionQuantizationCallback(
+      'const undefined = false; class Loop { constructor(state) { if (!state) new Loop(undefined); } }',
+      'new Loop(undefined);',
+    ),
+  ],
+  [
+    'unknown identifier recursive state remains fail closed',
+    recursiveConstructionQuantizationCallback(
+      'class Loop { constructor(state) { state ?? new Loop(true); if (state) void state; } }',
+      'new Loop(externalState);',
+    ),
+  ],
+  [
+    'undefined-state recursion still exposes a corrupt inner state',
+    recursiveConstructionQuantizationCallback(
+      'class Loop { constructor(state) { state ?? new Loop(true); if (state) value = false; } }',
+      'new Loop(undefined);',
+    ),
+  ],
+  [
+    'same undefined state recursion remains fail closed',
+    recursiveConstructionQuantizationCallback(
+      'class Loop { constructor(state) { new Loop(undefined); } }',
+      'new Loop(undefined);',
+    ),
+  ],
+] as const) {
+  const started = Date.now();
+  try {
+    collectVisibleControlClaimsFromSource(
+      guardedQuantizationSource.replace(exactTransformerQuantizationCallback, callback),
+      'ui/src/app/jobs/new/SimpleJob.tsx',
+      'SimpleJob',
+    );
+    factualUiContractFailures.push(label);
+  } catch (error) {
+    assert.match(String(error), /class|constructor|construction|recursive|cycle|qtype|selection|payload|provenance|tainted|unsupported/i, `${label} must preserve binding provenance or fail closed`);
+  }
+  assert.ok(Date.now() - started < 2_000, `${label} must terminate within two seconds`);
+}
 assert.deepEqual(factualUiContractFailures, [], 'shared factual UI contracts must remain exact');
 
 assert.throws(

@@ -8274,6 +8274,7 @@ function canonicalExecutableConstructionValue(
   if (provenance.kind === 'tainted') return undefined;
   if (provenance.kind === 'absent') return 'absent';
   const origin = ts.isMethodDeclaration(provenance.origin) ? provenance.origin : unwrap(provenance.origin);
+  if (definitelyUndefinedOrigin(origin, bindings)) return 'absent';
   if (origin.kind === ts.SyntaxKind.TrueKeyword) return 'boolean:true';
   if (origin.kind === ts.SyntaxKind.FalseKeyword) return 'boolean:false';
   if (origin.kind === ts.SyntaxKind.NullKeyword) return 'null';
