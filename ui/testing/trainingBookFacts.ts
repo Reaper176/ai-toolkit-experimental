@@ -12111,8 +12111,6 @@ const SERVER_STATE_TYPES: Readonly<Record<string, NonNullable<UiSourceClaim['val
   status: 'string',
   stop: 'boolean',
 };
-const NULLABLE_SERVER_STATE_FIELDS = new Set(['pid']);
-
 function literalAcceptedValue(
   expression: ts.Expression,
   bindings?: LexicalBindings,
@@ -12134,13 +12132,28 @@ function literalAcceptedValue(
   return undefined;
 }
 
+function sameGuardedValue(
+  left: ts.Expression,
+  right: ts.Expression,
+  bindings: LexicalBindings,
+): boolean {
+  left = unwrap(left);
+  right = unwrap(right);
+  if (ts.isIdentifier(left) && ts.isIdentifier(right)) return bindings.sameBinding(left, right);
+  const leftMember = staticMember(left);
+  const rightMember = staticMember(right);
+  return leftMember !== undefined
+    && rightMember !== undefined
+    && leftMember.key === rightMember.key
+    && sameGuardedValue(leftMember.base, rightMember.base, bindings);
+}
+
 function guardedNonNullWrite(
   expression: ts.Expression,
   node: ts.Node,
   bindings: LexicalBindings,
 ): boolean {
   expression = unwrap(expression);
-  if (!ts.isIdentifier(expression)) return false;
   let child: ts.Node = node;
   for (let parent = node.parent; parent !== undefined; child = parent, parent = parent.parent) {
     if (!ts.isIfStatement(parent)) continue;
@@ -12148,15 +12161,14 @@ function guardedNonNullWrite(
     const inElse = parent.elseStatement !== undefined && branchContains(parent.elseStatement, child);
     if (!inThen && !inElse) continue;
     const condition = unwrap(parent.expression);
-    if (ts.isIdentifier(condition) && bindings.sameBinding(condition, expression)) return inThen;
+    if (ts.isExpression(condition) && sameGuardedValue(condition, expression, bindings)) return inThen;
     if (!ts.isBinaryExpression(condition)) continue;
     const left = unwrap(condition.left);
     const right = unwrap(condition.right);
-    const identifier = ts.isIdentifier(left) ? left : ts.isIdentifier(right) ? right : undefined;
-    const other = identifier === left ? right : left;
+    const candidate = left.kind === ts.SyntaxKind.NullKeyword ? right : left;
+    const other = candidate === left ? right : left;
     if (
-      identifier === undefined
-      || !bindings.sameBinding(identifier, expression)
+      !sameGuardedValue(candidate, expression, bindings)
       || other.kind !== ts.SyntaxKind.NullKeyword
     ) continue;
     const unequal = condition.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsToken
@@ -12166,6 +12178,139 @@ function guardedNonNullWrite(
     if ((inThen && unequal) || (inElse && equal)) return true;
   }
   return false;
+}
+
+function primitiveTypeNullability(type: ts.TypeNode | undefined): boolean | undefined {
+  if (type === undefined) return undefined;
+  if ([
+    ts.SyntaxKind.StringKeyword,
+    ts.SyntaxKind.NumberKeyword,
+    ts.SyntaxKind.BooleanKeyword,
+  ].includes(type.kind)) return false;
+  if (!ts.isUnionTypeNode(type)) return undefined;
+  let nullable = false;
+  for (const member of type.types) {
+    if (
+      member.kind === ts.SyntaxKind.NullKeyword
+      || member.kind === ts.SyntaxKind.UndefinedKeyword
+    ) nullable = true;
+    else if (primitiveTypeNullability(member) !== false) return undefined;
+  }
+  return nullable;
+}
+
+function exactBindingType(
+  declaration: ts.Identifier,
+): { type: ts.TypeNode; optional: boolean } | undefined {
+  const direct = declaration.parent;
+  if (
+    (ts.isParameter(direct) || ts.isVariableDeclaration(direct))
+    && direct.name === declaration
+    && direct.type !== undefined
+  ) return { type: direct.type, optional: false };
+  let current: ts.Node = direct;
+  const path: string[] = [];
+  while (ts.isBindingElement(current)) {
+    const element = current;
+    const key = propertyName(element.propertyName ?? element.name as ts.PropertyName);
+    path.unshift(key);
+    const pattern = element.parent;
+    const owner = pattern.parent;
+    if (
+      (ts.isParameter(owner) || ts.isVariableDeclaration(owner))
+      && owner.name === pattern
+      && owner.type !== undefined
+    ) {
+      let type: ts.TypeNode = owner.type;
+      let optional = false;
+      for (const part of path) {
+        if (!ts.isTypeLiteralNode(type)) return undefined;
+        const member = type.members.find(candidate =>
+          ts.isPropertySignature(candidate) && propertyName(candidate.name) === part
+        );
+        if (member === undefined || !ts.isPropertySignature(member) || member.type === undefined) return undefined;
+        optional ||= member.questionToken !== undefined;
+        type = member.type;
+      }
+      return { type, optional };
+    }
+    current = owner;
+  }
+  return undefined;
+}
+
+function exactExpressionType(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+): { type: ts.TypeNode; optional: boolean } | undefined {
+  expression = unwrap(expression);
+  if (ts.isAwaitExpression(expression)) return exactExpressionType(expression.expression, bindings);
+  if (ts.isIdentifier(expression)) {
+    const declaration = bindings.bindingDeclaration(expression);
+    return declaration === undefined ? undefined : exactBindingType(declaration);
+  }
+  if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) {
+    return undefined;
+  }
+  const member = staticMember(expression);
+  if (member === undefined) return undefined;
+  const binding = exactExpressionType(member.base, bindings);
+  if (binding === undefined || !ts.isTypeLiteralNode(binding.type)) return undefined;
+  const property = binding.type.members.find(candidate =>
+    ts.isPropertySignature(candidate) && propertyName(candidate.name) === member.key
+  );
+  return property !== undefined && ts.isPropertySignature(property) && property.type !== undefined
+    ? { type: property.type, optional: binding.optional || property.questionToken !== undefined }
+    : undefined;
+}
+
+function hasExactContextualMethodProjection(
+  expression: ts.PropertyAccessExpression | ts.ElementAccessExpression,
+  declaration: ts.Identifier,
+  bindings: LexicalBindings,
+): boolean {
+  const parameter = declaration.parent;
+  if (!ts.isParameter(parameter)) return false;
+  const method = parameter.parent;
+  if (!ts.isMethodDeclaration(method) || !ts.isObjectLiteralExpression(method.parent)) return false;
+  const object = method.parent;
+  const context = object.parent;
+  let contextual = ts.isCallExpression(context) && context.arguments.includes(object);
+  if (ts.isReturnStatement(context)) {
+    let owner: ts.Node | undefined = context.parent;
+    while (owner !== undefined && !isLexicalFunction(owner)) owner = owner.parent;
+    contextual ||= owner !== undefined && isLexicalFunction(owner) && owner.type !== undefined;
+  }
+  if (!contextual) return false;
+  const original = resolveAliasOrigin(expression, bindings);
+  const originalMember = staticMember(original);
+  const expressionMember = staticMember(expression);
+  return bindings.isStableMemberProjection(original)
+    && originalMember !== undefined
+    && expressionMember !== undefined
+    && originalMember.key === expressionMember.key;
+}
+
+function exactFunctionReturnNullability(
+  call: ts.CallExpression,
+  bindings: LexicalBindings,
+): boolean | undefined {
+  const callee = unwrap(call.expression);
+  if (!ts.isIdentifier(callee)) return undefined;
+  const declaration = bindings.bindingDeclaration(callee);
+  if (declaration === undefined) return undefined;
+  const owner = declaration.parent;
+  if (ts.isFunctionDeclaration(owner) && owner.name === declaration) {
+    return primitiveTypeNullability(owner.type);
+  }
+  if (ts.isVariableDeclaration(owner) && owner.name === declaration) {
+    const initializer = owner.initializer === undefined ? undefined : unwrap(owner.initializer);
+    return initializer !== undefined
+      && (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer))
+      ? primitiveTypeNullability(initializer.type)
+      : undefined;
+  }
+  return undefined;
 }
 
 function databaseWriteNullable(
@@ -12217,101 +12362,31 @@ function databaseWriteNullable(
         );
       }
     }
-    const declaredPrimitive = new RegExp(
-      `\\b${expression.text}\\s*:\\s*(string|number|boolean)\\b`, 'gu',
-    );
-    const primitiveTypes = [...node.getSourceFile().text.matchAll(declaredPrimitive)]
-      .map(match => match[1]);
-    if (primitiveTypes.length > 0 && new Set(primitiveTypes).size === 1) {
-      return false;
-    }
+    const declared = declaration === undefined ? undefined : exactBindingType(declaration);
+    const nullable = declared === undefined ? undefined : primitiveTypeNullability(declared.type);
+    if (nullable !== undefined) return declared!.optional || nullable;
   }
   if (
-    ts.isPropertyAccessExpression(expression)
-    && expression.questionDotToken === undefined
-    && SERVER_STATE_TYPES[expression.name.text] !== undefined
-  ) return NULLABLE_SERVER_STATE_FIELDS.has(expression.name.text);
-  if (
-    ts.isPropertyAccessExpression(expression)
+    (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression))
     && expression.questionDotToken === undefined
   ) {
-    const receiver = unwrap(expression.expression);
-    if (ts.isIdentifier(receiver)) {
-      let declaration: ts.Node | undefined = bindings.bindingDeclaration(receiver);
-      while (
-        declaration !== undefined
-        && !ts.isParameter(declaration)
-        && !ts.isSourceFile(declaration)
-      ) declaration = declaration.parent;
-      const type = declaration !== undefined && ts.isParameter(declaration)
-        ? declaration.type
-        : undefined;
-      if (type !== undefined && ts.isTypeLiteralNode(type)) {
-        const member = type.members.find(candidate =>
-          ts.isPropertySignature(candidate)
-          && propertyName(candidate.name) === expression.name.text
-        );
-        if (
-          member !== undefined
-          && ts.isPropertySignature(member)
-          && member.questionToken === undefined
-          && member.type !== undefined
-          && [
-            ts.SyntaxKind.StringKeyword,
-            ts.SyntaxKind.NumberKeyword,
-            ts.SyntaxKind.BooleanKeyword,
-          ].includes(member.type.kind)
-        ) return false;
-      }
-    }
-    const declaredProperty = new RegExp(
-      `\\b${expression.name.text}\\s*:\\s*(string|number|boolean)\\b`,
-      'gu',
-    );
-    const propertyTypes = [...node.getSourceFile().text.matchAll(declaredProperty)]
-      .map(match => match[1]);
-    if (propertyTypes.length > 0 && new Set(propertyTypes).size === 1) {
-      return false;
-    }
-  }
-  if (
-    ts.isElementAccessExpression(expression)
-    && expression.questionDotToken === undefined
-    && expression.argumentExpression !== undefined
-  ) {
-    const key = unwrap(expression.argumentExpression);
-    if (ts.isStringLiteral(key)) {
-      if (SERVER_STATE_TYPES[key.text] !== undefined) {
-        return NULLABLE_SERVER_STATE_FIELDS.has(key.text);
-      }
-      const declaredProperty = new RegExp(
-        `\\b${key.text}\\s*:\\s*(string|number|boolean)\\b`, 'gu',
-      );
-      const propertyTypes = [
-        ...node.getSourceFile().text.matchAll(declaredProperty),
-      ].map(match => match[1]);
-      if (propertyTypes.length > 0 && new Set(propertyTypes).size === 1) {
-        return false;
-      }
-    }
+    if (guardedNonNullWrite(expression, node, bindings)) return false;
+    const member = exactExpressionType(expression, bindings);
+    const nullable = member === undefined ? undefined : primitiveTypeNullability(member.type);
+    if (nullable !== undefined) return member!.optional || nullable;
+    const staticAccess = staticMember(expression);
+    const base = staticAccess === undefined ? undefined : unwrap(staticAccess.base);
+    const declaration = base !== undefined && ts.isIdentifier(base)
+      ? bindings.bindingDeclaration(base)
+      : undefined;
+    if (
+      declaration !== undefined
+      && hasExactContextualMethodProjection(expression, declaration, bindings)
+    ) return false;
   }
   if (ts.isCallExpression(expression)) {
-    const callee = unwrap(expression.expression);
-    if (ts.isIdentifier(callee)) {
-      const candidates: ts.FunctionDeclaration[] = [];
-      const inspect = (candidate: ts.Node): void => {
-        if (
-          ts.isFunctionDeclaration(candidate)
-          && candidate.name?.text === callee.text
-        ) candidates.push(candidate);
-        ts.forEachChild(candidate, inspect);
-      };
-      inspect(node.getSourceFile());
-      if (
-        candidates.length > 0
-        && candidates.every(candidate => candidate.type?.getText() === 'string')
-      ) return false;
-    }
+    const nullable = exactFunctionReturnNullability(expression, bindings);
+    if (nullable !== undefined) return nullable;
   }
   const nullish = staticNullishValue(expression, bindings);
   if (nullish !== undefined) return nullish;

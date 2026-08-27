@@ -466,6 +466,113 @@ for (const [label, expression] of [
     `${label} fails closed`,
   );
 }
+for (const [label, source] of [
+  ['unrelated parameter annotation', `
+    function unrelated(info: string) { return info; }
+    async function bad(info) { await prisma.job.update({ data: { info } }); }
+  `],
+  ['unrelated same-name function declaration', `
+    const makeInfo = unknownFactory;
+    async function bad() { await prisma.job.update({ data: { info: makeInfo() } }); }
+    function makeInfo(): string { return 'unrelated'; }
+  `],
+  ['conflicting declarations', `
+    function unrelated(info: string) { return info; }
+    function other(info: number) { return info; }
+    async function bad(info) { await prisma.job.update({ data: { info } }); }
+  `],
+] as const) {
+  assert.throws(
+    () => collectDeclaredServerGlobalClaimsFromSource('ui/src/server/binding-identity-negative.ts', source),
+    /database write nullability is unproven/,
+    `${label} cannot prove database write nullability`,
+  );
+}
+const exactBindingWrite = (source: string) => collectDeclaredServerGlobalClaimsFromSource(
+  'ui/src/server/binding-identity-positive.ts', source,
+).find(item => item.path === 'job.info' || item.path === 'job.gpu_ids')?.value_contract.nullable;
+assert.equal(
+  exactBindingWrite('async function good(info: string) { await prisma.job.update({ data: { info } }); }'),
+  false,
+  'the exact typed parameter binding proves a nonnullable write',
+);
+assert.equal(
+  exactBindingWrite(`
+    function unrelated(info: number) { return info; }
+    function alsoUnrelated(info: boolean) { return info; }
+    async function good(info: string) { await prisma.job.update({ data: { info } }); }
+  `),
+  false,
+  'unrelated same-name annotations do not affect the exact typed binding',
+);
+assert.equal(
+  exactBindingWrite(`
+    function makeInfo(): string { return 'ready'; }
+    async function good() { await prisma.job.update({ data: { info: makeInfo() } }); }
+  `),
+  false,
+  'the exact local function declaration proves its return boundary',
+);
+assert.equal(
+  exactBindingWrite(`
+    const makeInfo = (): string => 'ready';
+    async function good() { await prisma.job.update({ data: { info: makeInfo() } }); }
+  `),
+  false,
+  'the exact local arrow binding proves its return boundary',
+);
+assert.equal(
+  exactBindingWrite(`
+    function makeInfo(): number { return 1; }
+    async function good() {
+      function makeInfo(): string { return 'inner'; }
+      await prisma.job.update({ data: { info: makeInfo() } });
+    }
+  `),
+  false,
+  'a shadowed exact inner function resolves independently of its outer namesake',
+);
+assert.equal(
+  exactBindingWrite(`
+    async function good(attempt: { gpu_ids: string }) {
+      await prisma.job.update({ data: { gpu_ids: attempt.gpu_ids } });
+    }
+  `),
+  false,
+  'a required member on the exact base binding proves a nonnullable write',
+);
+assert.equal(
+  exactBindingWrite(`
+    async function good(attempt: { gpu_ids?: string }) {
+      await prisma.job.update({ data: { gpu_ids: attempt.gpu_ids } });
+    }
+  `),
+  true,
+  'an optional member remains nullable without narrowing',
+);
+assert.equal(
+  exactBindingWrite(`
+    async function good(attempt: { gpu_ids?: string }) {
+      if (attempt.gpu_ids != null) {
+        await prisma.job.update({ data: { gpu_ids: attempt.gpu_ids } });
+      }
+    }
+  `),
+  false,
+  'an optional member narrowed by a non-null guard is nonnullable',
+);
+assert.equal(
+  exactBindingWrite(`
+    async function GET(
+      request: Request,
+      { params: { queueID: renamed } }: { params: { queueID: string } },
+    ) {
+      await prisma.job.update({ data: { info: renamed } });
+    }
+  `),
+  false,
+  'a renamed destructured route parameter retains its exact structural type proof',
+);
 assert.deepEqual(
   collectDeclaredServerGlobalClaimsFromSource('ui/cron/actions/startJob.ts', `
     import { getHFToken } from '../paths';
