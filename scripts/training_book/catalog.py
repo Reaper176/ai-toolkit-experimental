@@ -2256,12 +2256,196 @@ def _predicates_overlap(
     return False
 
 
+def _intersect_dispatch_predicates(
+    left: Applicability,
+    right: Applicability,
+    dimension: str,
+) -> dict[str, str] | None:
+    fields = (
+        dimension,
+        f"{dimension}_prefix",
+        f"{dimension}_suffix",
+        f"{dimension}_exclude_prefix",
+    )
+    left_values = {field: getattr(left, field) for field in fields}
+    right_values = {field: getattr(right, field) for field in fields}
+    if not any(left_values.values()):
+        return {field: value for field, value in right_values.items() if value}
+    if not any(right_values.values()):
+        return {field: value for field, value in left_values.items() if value}
+
+    left_exact = left_values[dimension]
+    right_exact = right_values[dimension]
+    if left_exact is not None or right_exact is not None:
+        exact = left_exact or right_exact
+        assert exact is not None
+        if left_exact is not None and right_exact is not None:
+            return {dimension: exact} if left_exact == right_exact else None
+        pattern = right if left_exact is not None else left
+        return (
+            {dimension: exact}
+            if _dispatch_pattern_matches(pattern, dimension, exact)
+            else None
+        )
+
+    prefixes = tuple(
+        value for value in (
+            left_values[f"{dimension}_prefix"],
+            right_values[f"{dimension}_prefix"],
+        ) if value is not None
+    )
+    prefix = max(prefixes, key=len) if prefixes else None
+    if prefix is not None and any(
+        not prefix.startswith(value) for value in prefixes
+    ):
+        return None
+    suffixes = tuple(
+        value for value in (
+            left_values[f"{dimension}_suffix"],
+            right_values[f"{dimension}_suffix"],
+        ) if value is not None
+    )
+    suffix = max(suffixes, key=len) if suffixes else None
+    if suffix is not None and any(
+        not suffix.endswith(value) for value in suffixes
+    ):
+        return None
+
+    exclusions = tuple(
+        value for value in (
+            left_values[f"{dimension}_exclude_prefix"],
+            right_values[f"{dimension}_exclude_prefix"],
+        ) if value is not None
+    )
+    active_exclusions = tuple(
+        value for value in exclusions
+        if prefix is None or value.startswith(prefix) or prefix.startswith(value)
+    )
+    if prefix is not None and any(
+        prefix.startswith(value) for value in active_exclusions
+    ):
+        return None
+    exclusion = None
+    if active_exclusions:
+        exclusion = min(active_exclusions, key=len)
+        if any(not value.startswith(exclusion) for value in active_exclusions):
+            raise CatalogError(
+                f"mediator interaction applicability has an unrepresentable "
+                f"{dimension} intersection"
+            )
+
+    result = {}
+    for field, value in (
+        (f"{dimension}_prefix", prefix),
+        (f"{dimension}_suffix", suffix),
+        (f"{dimension}_exclude_prefix", exclusion),
+    ):
+        if value is not None:
+            result[field] = value
+    return result
+
+
+def _intersect_applicability_clauses(
+    left: Applicability, right: Applicability
+) -> Applicability | None:
+    data: dict[str, str] = {}
+    for field in (
+        "job_type", "process_type", "network_type", "ui_architecture",
+        "engine_architecture",
+    ):
+        left_value = getattr(left, field)
+        right_value = getattr(right, field)
+        if (
+            left_value is not None
+            and right_value is not None
+            and left_value != right_value
+        ):
+            return None
+        value = left_value or right_value
+        if value is not None:
+            data[field] = value
+    for dimension in ("optimizer", "scheduler"):
+        dispatch = _intersect_dispatch_predicates(left, right, dimension)
+        if dispatch is None:
+            return None
+        data.update(dispatch)
+    return Applicability.model_validate(data)
+
+
+def _exact_mediator_intersection(
+    mediator: Setting, target: Setting
+) -> tuple[Applicability, ...]:
+    if not mediator.applicability or not target.applicability:
+        raise CatalogError(
+            f"mediator interaction applicability for {mediator.id!r} and "
+            f"{target.id!r} is empty or unproven"
+        )
+    clauses = tuple(
+        intersection
+        for source_clause in mediator.applicability
+        for target_clause in target.applicability
+        if (
+            intersection := _intersect_applicability_clauses(
+                source_clause, target_clause
+            )
+        ) is not None
+    )
+    if not clauses:
+        raise CatalogError(
+            f"mediator interaction applicability for {mediator.id!r} and "
+            f"{target.id!r} has an empty intersection"
+        )
+    identities = tuple(_applicability_identity(clause) for clause in clauses)
+    if len(identities) != len(set(identities)):
+        raise CatalogError(
+            f"mediator interaction applicability for {mediator.id!r} and "
+            f"{target.id!r} has duplicate or ambiguous intersections"
+        )
+    for index, clause in enumerate(clauses):
+        if any(
+            _predicates_overlap((clause,), (previous,))
+            for previous in clauses[:index]
+        ):
+            raise CatalogError(
+                f"mediator interaction applicability for {mediator.id!r} and "
+                f"{target.id!r} has duplicate or ambiguous intersections"
+            )
+    return clauses
+
+
+def _validate_mediator_interactions(
+    mediator: Setting, settings: dict[str, Setting]
+) -> None:
+    if mediator.ui_projection is None:
+        return
+    for interaction in mediator.interactions:
+        target = settings.get(interaction.setting)
+        if target is None:
+            continue
+        expected = _exact_mediator_intersection(mediator, target)
+        actual = tuple(
+            _applicability_identity(clause)
+            for clause in interaction.applicability
+        )
+        expected_identities = tuple(
+            _applicability_identity(clause) for clause in expected
+        )
+        if actual != expected_identities:
+            raise CatalogError(
+                f"mediator interaction applicability for {mediator.id!r} -> "
+                f"{target.id!r} must equal the exact logical intersection"
+            )
+
+
 def _validate_catalog_relationships(catalog: SettingsCatalog) -> None:
     by_id: dict[str, Setting] = {}
     for setting in catalog.settings:
         if setting.id in by_id:
             raise CatalogError(f"duplicate stable id {setting.id!r}")
         by_id[setting.id] = setting
+
+    for setting in catalog.settings:
+        _validate_mediator_interactions(setting, by_id)
 
     claimed_locations: dict[tuple[str, str], list[Setting]] = {}
     for setting in catalog.settings:

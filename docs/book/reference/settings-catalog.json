@@ -58985,7 +58985,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "ace_step_15_xl"
+          "ui_architecture": "ace_step_15_xl",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -59029,7 +59030,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "ace_step_15_xl"
+              "ui_architecture": "ace_step_15_xl",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -59065,7 +59067,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "ace_step_15"
+          "ui_architecture": "ace_step_15",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -59109,7 +59112,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "ace_step_15"
+              "ui_architecture": "ace_step_15",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -59207,7 +59211,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "anima"
+          "ui_architecture": "anima",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -59251,7 +59256,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "anima"
+              "ui_architecture": "anima",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -59411,7 +59417,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "boogu_image_edit"
+          "ui_architecture": "boogu_image_edit",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -59455,7 +59462,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "boogu_image_edit"
+              "ui_architecture": "boogu_image_edit",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -59491,7 +59499,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "boogu_image"
+          "ui_architecture": "boogu_image",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -59535,7 +59544,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "boogu_image"
+              "ui_architecture": "boogu_image",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -59633,7 +59643,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "chroma"
+          "ui_architecture": "chroma",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -59677,7 +59688,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "chroma"
+              "ui_architecture": "chroma",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -59775,7 +59787,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "ernie_image"
+          "ui_architecture": "ernie_image",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -59819,7 +59832,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "ernie_image"
+              "ui_architecture": "ernie_image",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -59917,7 +59931,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "flex1"
+          "ui_architecture": "flex1",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -59961,7 +59976,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "flex1"
+              "ui_architecture": "flex1",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -60059,7 +60075,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "flex2"
+          "ui_architecture": "flex2",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -60103,7 +60120,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "flex2"
+              "ui_architecture": "flex2",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -60263,7 +60281,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "flux_kontext"
+          "ui_architecture": "flux_kontext",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -60307,7 +60326,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "flux_kontext"
+              "ui_architecture": "flux_kontext",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -60343,7 +60363,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "flux"
+          "ui_architecture": "flux",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -60387,7 +60408,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "flux"
+              "ui_architecture": "flux",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -60547,7 +60569,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "flux2_klein_4b"
+          "ui_architecture": "flux2_klein_4b",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -60591,7 +60614,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "flux2_klein_4b"
+              "ui_architecture": "flux2_klein_4b",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -60689,7 +60713,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "flux2_klein_9b"
+          "ui_architecture": "flux2_klein_9b",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -60733,7 +60758,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "flux2_klein_9b"
+              "ui_architecture": "flux2_klein_9b",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -60769,7 +60795,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "flux2"
+          "ui_architecture": "flux2",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -60813,7 +60840,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "flux2"
+              "ui_architecture": "flux2",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -60973,7 +61001,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "hidream_e1"
+          "ui_architecture": "hidream_e1",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -61017,7 +61046,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "hidream_e1"
+              "ui_architecture": "hidream_e1",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -61115,7 +61145,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "hidream_o1"
+          "ui_architecture": "hidream_o1",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -61159,7 +61190,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "hidream_o1"
+              "ui_architecture": "hidream_o1",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -61195,7 +61227,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "hidream"
+          "ui_architecture": "hidream",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -61240,7 +61273,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "hidream"
+              "ui_architecture": "hidream",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -61338,7 +61372,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "ideogram4"
+          "ui_architecture": "ideogram4",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -61382,7 +61417,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "ideogram4"
+              "ui_architecture": "ideogram4",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -61604,7 +61640,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "krea2:o_edit_turbo"
+          "ui_architecture": "krea2:o_edit_turbo",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -61648,7 +61685,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "krea2:o_edit_turbo"
+              "ui_architecture": "krea2:o_edit_turbo",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -61684,7 +61722,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "krea2:o_edit"
+          "ui_architecture": "krea2:o_edit",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -61728,7 +61767,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "krea2:o_edit"
+              "ui_architecture": "krea2:o_edit",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -61826,7 +61866,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "krea2:turbo"
+          "ui_architecture": "krea2:turbo",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -61870,7 +61911,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "krea2:turbo"
+              "ui_architecture": "krea2:turbo",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -61906,7 +61948,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "krea2"
+          "ui_architecture": "krea2",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -61950,7 +61993,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "krea2"
+              "ui_architecture": "krea2",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -62110,7 +62154,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "ltx2.3"
+          "ui_architecture": "ltx2.3",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -62154,7 +62199,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "ltx2.3"
+              "ui_architecture": "ltx2.3",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -62252,7 +62298,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "ltx2.5"
+          "ui_architecture": "ltx2.5",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -62296,7 +62343,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "ltx2.5"
+              "ui_architecture": "ltx2.5",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -62332,7 +62380,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "ltx2"
+          "ui_architecture": "ltx2",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -62376,7 +62425,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "ltx2"
+              "ui_architecture": "ltx2",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -62474,7 +62524,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "lumina2"
+          "ui_architecture": "lumina2",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -62518,7 +62569,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "lumina2"
+              "ui_architecture": "lumina2",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -62678,7 +62730,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "mageflow_edit"
+          "ui_architecture": "mageflow_edit",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -62722,7 +62775,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "mageflow_edit"
+              "ui_architecture": "mageflow_edit",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -62758,7 +62812,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "mageflow"
+          "ui_architecture": "mageflow",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -62802,7 +62857,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "mageflow"
+              "ui_architecture": "mageflow",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -62900,7 +62956,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "minimax_h3"
+          "ui_architecture": "minimax_h3",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -62944,7 +63001,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "minimax_h3"
+              "ui_architecture": "minimax_h3",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -63042,7 +63100,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "nucleus_image"
+          "ui_architecture": "nucleus_image",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -63086,7 +63145,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "nucleus_image"
+              "ui_architecture": "nucleus_image",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -63184,7 +63244,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "omnigen2"
+          "ui_architecture": "omnigen2",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -63228,7 +63289,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "omnigen2"
+              "ui_architecture": "omnigen2",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -63326,7 +63388,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "prx_pixel"
+          "ui_architecture": "prx_pixel",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -63370,7 +63433,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "prx_pixel"
+              "ui_architecture": "prx_pixel",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -63530,7 +63594,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "qwen_image:2512"
+          "ui_architecture": "qwen_image:2512",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -63576,7 +63641,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "qwen_image:2512"
+              "ui_architecture": "qwen_image:2512",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -63798,7 +63864,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "qwen_image_edit_plus:2511"
+          "ui_architecture": "qwen_image_edit_plus:2511",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -63843,7 +63910,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "qwen_image_edit_plus:2511"
+              "ui_architecture": "qwen_image_edit_plus:2511",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -63879,7 +63947,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "qwen_image_edit_plus"
+          "ui_architecture": "qwen_image_edit_plus",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -63924,7 +63993,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "qwen_image_edit_plus"
+              "ui_architecture": "qwen_image_edit_plus",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -63960,7 +64030,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "qwen_image_edit"
+          "ui_architecture": "qwen_image_edit",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -64005,7 +64076,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "qwen_image_edit"
+              "ui_architecture": "qwen_image_edit",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -64041,7 +64113,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "qwen_image"
+          "ui_architecture": "qwen_image",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -64086,7 +64159,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "qwen_image"
+              "ui_architecture": "qwen_image",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -64308,7 +64382,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "wan21:14b"
+          "ui_architecture": "wan21:14b",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -64352,7 +64427,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "wan21:14b"
+              "ui_architecture": "wan21:14b",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -64450,7 +64526,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "wan21:1b"
+          "ui_architecture": "wan21:1b",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -64494,7 +64571,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "wan21:1b"
+              "ui_architecture": "wan21:1b",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -64592,7 +64670,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "wan21_i2v:14b"
+          "ui_architecture": "wan21_i2v:14b",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -64636,7 +64715,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "wan21_i2v:14b"
+              "ui_architecture": "wan21_i2v:14b",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -64734,7 +64814,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "wan21_i2v:14b480p"
+          "ui_architecture": "wan21_i2v:14b480p",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -64778,7 +64859,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "wan21_i2v:14b480p"
+              "ui_architecture": "wan21_i2v:14b480p",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -64876,7 +64958,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "wan22_14b_i2v"
+          "ui_architecture": "wan22_14b_i2v",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -64921,7 +65004,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "wan22_14b_i2v"
+              "ui_architecture": "wan22_14b_i2v",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -65019,7 +65103,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "wan22_14b:t2v"
+          "ui_architecture": "wan22_14b:t2v",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -65064,7 +65149,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "wan22_14b:t2v"
+              "ui_architecture": "wan22_14b:t2v",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -65162,7 +65248,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "wan22_5b"
+          "ui_architecture": "wan22_5b",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -65206,7 +65293,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "wan22_5b"
+              "ui_architecture": "wan22_5b",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -65304,7 +65392,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "zeta_chroma"
+          "ui_architecture": "zeta_chroma",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -65348,7 +65437,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "zeta_chroma"
+              "ui_architecture": "zeta_chroma",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -65508,7 +65598,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "zimage:deturbo"
+          "ui_architecture": "zimage:deturbo",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -65552,7 +65643,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "zimage:deturbo"
+              "ui_architecture": "zimage:deturbo",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -65650,7 +65742,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "zimage_l2p"
+          "ui_architecture": "zimage_l2p",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -65694,7 +65787,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "zimage_l2p"
+              "ui_architecture": "zimage_l2p",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -65792,7 +65886,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "zimage:turbo"
+          "ui_architecture": "zimage:turbo",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -65836,7 +65931,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "zimage:turbo"
+              "ui_architecture": "zimage:turbo",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -65872,7 +65968,8 @@
       "lifecycle": "supported",
       "applicability": [
         {
-          "ui_architecture": "zimage"
+          "ui_architecture": "zimage",
+          "process_type": "diffusion_trainer"
         }
       ],
       "contract": {
@@ -65916,7 +66013,8 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "zimage"
+              "ui_architecture": "zimage",
+              "process_type": "diffusion_trainer"
             }
           ]
         }
@@ -66580,24 +66678,6 @@
             },
             {
               "ui_architecture": "qwen_image_edit_plus:2511"
-            },
-            {
-              "ui_architecture": "boogu_image_edit"
-            },
-            {
-              "ui_architecture": "flux2"
-            },
-            {
-              "ui_architecture": "krea2"
-            },
-            {
-              "ui_architecture": "krea2:turbo"
-            },
-            {
-              "ui_architecture": "krea2:o_edit"
-            },
-            {
-              "ui_architecture": "krea2:o_edit_turbo"
             }
           ]
         },
@@ -66607,28 +66687,7 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "qwen_image_edit_plus"
-            },
-            {
-              "ui_architecture": "qwen_image_edit_plus:2511"
-            },
-            {
               "ui_architecture": "boogu_image_edit"
-            },
-            {
-              "ui_architecture": "flux2"
-            },
-            {
-              "ui_architecture": "krea2"
-            },
-            {
-              "ui_architecture": "krea2:turbo"
-            },
-            {
-              "ui_architecture": "krea2:o_edit"
-            },
-            {
-              "ui_architecture": "krea2:o_edit_turbo"
             }
           ]
         },
@@ -66638,28 +66697,7 @@
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
             {
-              "ui_architecture": "qwen_image_edit_plus"
-            },
-            {
-              "ui_architecture": "qwen_image_edit_plus:2511"
-            },
-            {
-              "ui_architecture": "boogu_image_edit"
-            },
-            {
               "ui_architecture": "flux2"
-            },
-            {
-              "ui_architecture": "krea2"
-            },
-            {
-              "ui_architecture": "krea2:turbo"
-            },
-            {
-              "ui_architecture": "krea2:o_edit"
-            },
-            {
-              "ui_architecture": "krea2:o_edit_turbo"
             }
           ]
         },
@@ -66668,18 +66706,6 @@
           "kind": "affects",
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
-            {
-              "ui_architecture": "qwen_image_edit_plus"
-            },
-            {
-              "ui_architecture": "qwen_image_edit_plus:2511"
-            },
-            {
-              "ui_architecture": "boogu_image_edit"
-            },
-            {
-              "ui_architecture": "flux2"
-            },
             {
               "ui_architecture": "krea2"
             },
@@ -66787,34 +66813,6 @@
             {
               "process_type": "diffusion_trainer",
               "optimizer": "adafactor"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "adam8"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "adamw8"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic2"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic3"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagicexperiment"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer_prefix": "prodigy8bit"
             }
           ]
         },
@@ -66825,35 +66823,11 @@
           "applicability": [
             {
               "process_type": "diffusion_trainer",
-              "optimizer": "adafactor"
-            },
-            {
-              "process_type": "diffusion_trainer",
               "optimizer": "adam8"
             },
             {
               "process_type": "diffusion_trainer",
               "optimizer": "adamw8"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic2"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic3"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagicexperiment"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer_prefix": "prodigy8bit"
             }
           ]
         },
@@ -66864,35 +66838,7 @@
           "applicability": [
             {
               "process_type": "diffusion_trainer",
-              "optimizer": "adafactor"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "adam8"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "adamw8"
-            },
-            {
-              "process_type": "diffusion_trainer",
               "optimizer": "automagic"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic2"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic3"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagicexperiment"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer_prefix": "prodigy8bit"
             }
           ]
         },
@@ -66903,35 +66849,7 @@
           "applicability": [
             {
               "process_type": "diffusion_trainer",
-              "optimizer": "adafactor"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "adam8"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "adamw8"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic"
-            },
-            {
-              "process_type": "diffusion_trainer",
               "optimizer": "automagic2"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic3"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagicexperiment"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer_prefix": "prodigy8bit"
             }
           ]
         },
@@ -66942,35 +66860,7 @@
           "applicability": [
             {
               "process_type": "diffusion_trainer",
-              "optimizer": "adafactor"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "adam8"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "adamw8"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic2"
-            },
-            {
-              "process_type": "diffusion_trainer",
               "optimizer": "automagic3"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagicexperiment"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer_prefix": "prodigy8bit"
             }
           ]
         },
@@ -66981,35 +66871,7 @@
           "applicability": [
             {
               "process_type": "diffusion_trainer",
-              "optimizer": "adafactor"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "adam8"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "adamw8"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic2"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic3"
-            },
-            {
-              "process_type": "diffusion_trainer",
               "optimizer": "automagicexperiment"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer_prefix": "prodigy8bit"
             }
           ]
         },
@@ -67018,34 +66880,6 @@
           "kind": "affects",
           "description": "Writes the exact discriminator-selected runtime setting.",
           "applicability": [
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "adafactor"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "adam8"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "adamw8"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic2"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagic3"
-            },
-            {
-              "process_type": "diffusion_trainer",
-              "optimizer": "automagicexperiment"
-            },
             {
               "process_type": "diffusion_trainer",
               "optimizer_prefix": "prodigy8bit"

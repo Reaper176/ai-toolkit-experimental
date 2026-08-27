@@ -3069,6 +3069,149 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             ["ui-state"],
         )
 
+    def mediator_intersection_catalog(
+        self,
+        *,
+        source_applicability,
+        target_applicability,
+        interaction_applicability,
+    ):
+        fact_data = self.valid_facts()
+        fact_data["config_claims"][0]["kind"] = "setting"
+        facts = validate_training_book_ui_facts(fact_data)
+        projected = catalog_module.project_training_book_ui_facts(facts)
+        target = CatalogContractTests().valid_catalog_entry()
+        target["applicability"] = target_applicability
+        mediator = CatalogContractTests().valid_catalog_entry()
+        mediator.update({
+            "id": "ui.train.steps-control",
+            "scope": "ui-state",
+            "locations": [{"kind": "ui-state", "path": "ui.controls.steps"}],
+            "surfaces": ["simple-ui"],
+            "persistence": "transient",
+            "authority": "ui-derived",
+            "source_claims": [],
+            "ui_projection": "discriminator-control",
+            "applicability": source_applicability,
+            "interactions": [{
+                "setting": "train.steps",
+                "kind": "affects",
+                "description": "Writes the exact runtime steps field.",
+                "applicability": interaction_applicability,
+            }],
+        })
+        data = self.ownership_catalog_data(projected, train_entry=target)
+        data["settings"].append(mediator)
+        source_claim = next(
+            claim for claim in data["ui_claims"]
+            if claim["fact"]["fact_type"] == "source-claim"
+        )
+        source_claim["setting_id"] = mediator["id"]
+        return data
+
+    def test_mediator_interaction_rejects_under_and_overbroad_applicability(self):
+        source = [{
+            "process_type": "diffusion_trainer",
+            "optimizer_prefix": "prodigy",
+        }]
+        target = [{
+            "process_type": "diffusion_trainer",
+            "optimizer": "prodigy8bit",
+        }]
+        invalid_intersections = (
+            [{"process_type": "diffusion_trainer"}],
+            [{
+                "process_type": "diffusion_trainer",
+                "network_type": "lora",
+                "optimizer": "prodigy8bit",
+            }],
+        )
+        for interaction in invalid_intersections:
+            with self.subTest(interaction=interaction):
+                with self.assertRaisesRegex(
+                    CatalogError, "mediator interaction applicability"
+                ):
+                    validate_settings_catalog(
+                        self.mediator_intersection_catalog(
+                            source_applicability=source,
+                            target_applicability=target,
+                            interaction_applicability=interaction,
+                        ),
+                        CatalogContractTests().discovered_steps(),
+                    )
+
+    def test_mediator_interaction_uses_exact_dispatch_over_matching_prefix(self):
+        catalog = validate_settings_catalog(
+            self.mediator_intersection_catalog(
+                source_applicability=[{
+                    "process_type": "diffusion_trainer",
+                    "optimizer_prefix": "prodigy",
+                }],
+                target_applicability=[{
+                    "process_type": "diffusion_trainer",
+                    "optimizer": "prodigy8bit",
+                }],
+                interaction_applicability=[{
+                    "process_type": "diffusion_trainer",
+                    "optimizer": "prodigy8bit",
+                }],
+            ),
+            CatalogContractTests().discovered_steps(),
+        )
+
+        interaction = catalog.settings[2].interactions[0]
+        self.assertEqual(interaction.applicability[0].optimizer, "prodigy8bit")
+        self.assertIsNone(interaction.applicability[0].optimizer_prefix)
+
+    def test_mediator_interaction_rejects_empty_or_unproven_intersections(self):
+        cases = (
+            ([], [{"process_type": "diffusion_trainer"}], []),
+            (
+                [{"optimizer": "adam"}],
+                [{"optimizer": "adafactor"}],
+                [{"optimizer": "adam"}],
+            ),
+        )
+        for source, target, interaction in cases:
+            with self.subTest(source=source, target=target):
+                with self.assertRaisesRegex(
+                    CatalogError, "mediator interaction applicability"
+                ):
+                    validate_settings_catalog(
+                        self.mediator_intersection_catalog(
+                            source_applicability=source,
+                            target_applicability=target,
+                            interaction_applicability=interaction,
+                        ),
+                        CatalogContractTests().discovered_steps(),
+                    )
+
+    def test_mediator_interaction_rejects_duplicate_or_ambiguous_intersections(self):
+        source = [
+            {"optimizer_prefix": "prodigy"},
+            {"optimizer": "prodigy8bit"},
+        ]
+        target = [{"optimizer": "prodigy8bit"}]
+        for interaction in (
+            [{"optimizer": "prodigy8bit"}],
+            [
+                {"optimizer": "prodigy8bit"},
+                {"optimizer": "prodigy8bit"},
+            ],
+        ):
+            with self.subTest(interaction=interaction):
+                with self.assertRaisesRegex(
+                    CatalogError, "mediator interaction applicability"
+                ):
+                    validate_settings_catalog(
+                        self.mediator_intersection_catalog(
+                            source_applicability=source,
+                            target_applicability=target,
+                            interaction_applicability=interaction,
+                        ),
+                        CatalogContractTests().discovered_steps(),
+                    )
+
     def test_architecture_projected_control_exclusion_requires_owned_exact_metadata(self):
         fact_data = self.valid_facts()
         fact_data["model_architectures"][0]["sample_tags"] = {
@@ -3458,7 +3601,14 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         )
         mediators = qtype_controls + [
             settings[setting_id] for setting_id in sorted(resolution_ids)
-        ] + [settings["ui.optimizer.weight-decay-control"]]
+        ] + [
+            settings["ui.model.match-target-res-control"],
+            settings["ui.optimizer.weight-decay-control"],
+        ]
+        self.assertEqual(len(mediators), 59)
+        self.assertEqual(
+            sum(len(setting.interactions) for setting in mediators), 68
+        )
         self.assertTrue(
             all(
                 setting.source_claims == ()
@@ -3467,6 +3617,21 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
                 for setting in mediators
             )
         )
+        for mediator in mediators:
+            for interaction in mediator.interactions:
+                with self.subTest(
+                    mediator=mediator.id, target=interaction.setting
+                ):
+                    expected = catalog_module._exact_mediator_intersection(
+                        mediator, settings[interaction.setting]
+                    )
+                    self.assertEqual(interaction.applicability, expected)
+        self.assertTrue(all(
+            clause.process_type == "diffusion_trainer"
+            and clause.ui_architecture is not None
+            for setting in qtype_controls
+            for clause in setting.applicability
+        ))
         weight_targets = {
             interaction.setting
             for interaction in settings[
