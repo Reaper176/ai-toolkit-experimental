@@ -716,9 +716,15 @@ class CatalogContractTests(unittest.TestCase):
             "ui_label": {"present": False},
             "value_contract": {
                 "ui_type": "string",
-                "widget_kind": "read-only",
+                "widget_kind": None,
                 "optional": True,
-                "nullable": True,
+                "nullable": False,
+            },
+            "server_state_contract": {
+                "operation": "read",
+                "provenance": "environment",
+                "authority": "user",
+                "persistence": "runtime",
             },
         })
 
