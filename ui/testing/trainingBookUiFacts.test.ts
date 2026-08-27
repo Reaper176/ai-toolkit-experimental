@@ -52,6 +52,25 @@ assert.deepEqual(
   'executable environment, persistence, and authorization boundaries are discovered structurally',
 );
 assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/env-types.ts', `
+    function envTypes() {
+      return [process.env.PORT, process.env.FILE_SERVER_WORKERS,
+        process.env.MODELS_PATH, process.env.CACHE_FOLDER,
+        process.env.DATA_ROOT, process.env.ARBITRARY_VALUE];
+    }
+  `).map(item => [item.path, item.value_contract.ui_type,
+    item.value_contract.optional, item.value_contract.nullable]),
+  [
+    ['ARBITRARY_VALUE', 'string', true, false],
+    ['CACHE_FOLDER', 'string', true, false],
+    ['DATA_ROOT', 'string', true, false],
+    ['FILE_SERVER_WORKERS', 'string', true, false],
+    ['MODELS_PATH', 'string', true, false],
+    ['PORT', 'string', true, false],
+  ],
+  'all process.env reads retain their string-or-undefined source boundary',
+);
+assert.deepEqual(
   structuralServerFacts.map(item => [
     item.symbol,
     item.value_contract.widget_kind,
@@ -364,6 +383,89 @@ assert.deepEqual(
   [['loadCustomSetting::settings.CUSTOM_ROOT', 'settings.CUSTOM_ROOT', 'path']],
   'a new executable database settings key is discovered from its lexical binding',
 );
+const databaseWriteNullability = collectDeclaredServerGlobalClaimsFromSource(
+  'ui/src/server/write-nullability.ts', `
+    async function writeState(pid: number | null) {
+      const message = \`launch failed\`;
+      const status = 'error';
+      const alias = status;
+      await prisma.job.update({ data: { info: message, status: alias } });
+      if (pid != null) await prisma.job.update({ data: { pid } });
+      await prisma.job.update({ data: { pid: null } });
+    }
+  `,
+);
+assert.deepEqual(
+  databaseWriteNullability.map(item => [
+    item.symbol, item.value_contract.nullable,
+    item.value_contract.accepted_values,
+  ]),
+  [
+    ['writeState::job.info', false, [{ kind: 'string', value: 'launch failed' }]],
+    ['writeState::job.pid', true, [{ kind: 'null' }]],
+    ['writeState::job.pid::role=job-update-pid-derived/guard:if-then:pid!=null', false, undefined],
+    ['writeState::job.pid::role=job-update-pid-{"kind":"null"}', true, [{ kind: 'null' }]],
+    ['writeState::job.status', false, [{ kind: 'string', value: 'error' }]],
+  ],
+  'database write nullability follows proven expression flow independently of literals',
+);
+assert.throws(
+  () => collectDeclaredServerGlobalClaimsFromSource(
+    'ui/src/server/unknown-write.ts',
+    'async function writeUnknown() { await prisma.job.update({ data: { info: unknownValue() } }); }',
+  ),
+  /database write nullability is unproven/,
+  'unknown database write expressions fail closed',
+);
+const databaseWriteControlFlow = collectDeclaredServerGlobalClaimsFromSource(
+  'ui/src/server/write-control-flow.ts', `
+    async function writeState(pid: number | null, flag: boolean) {
+      let info: string;
+      info = 'assigned';
+      await prisma.job.update({ data: { info } });
+      if (pid == null) {
+        await prisma.job.update({ data: { pid: null } });
+      } else {
+        await prisma.job.update({ data: { pid } });
+      }
+      await prisma.job.update({ data: { status: flag ? null : 'ready' } });
+    }
+  `,
+);
+assert.equal(
+  databaseWriteControlFlow.find(item => item.path === 'job.info')?.value_contract.nullable,
+  false,
+  'a definite assignment before use proves a nonnullable write',
+);
+assert.equal(
+  databaseWriteControlFlow.find(item => item.symbol.includes('guard:if-else:pid==null'))?.value_contract.nullable,
+  false,
+  'the else branch of an equality-to-null guard proves a nonnullable write',
+);
+assert.equal(
+  databaseWriteControlFlow.find(item => item.path === 'job.status')?.value_contract.nullable,
+  true,
+  'a genuine nullable union remains nullable',
+);
+for (const [label, expression] of [
+  ['shadowed unknown initializer', `
+    async function writeShadowed() {
+      const info: string = 'outer';
+      { const info = unknownValue(); await prisma.job.update({ data: { info } }); }
+    }
+  `],
+  ['optional chaining', `
+    async function writeOptional(attempt?: { gpu_ids: string }) {
+      await prisma.job.update({ data: { gpu_ids: attempt?.gpu_ids } });
+    }
+  `],
+] as const) {
+  assert.throws(
+    () => collectDeclaredServerGlobalClaimsFromSource('ui/src/server/unsupported-write.ts', expression),
+    /database write nullability is unproven/,
+    `${label} fails closed`,
+  );
+}
 assert.deepEqual(
   collectDeclaredServerGlobalClaimsFromSource('ui/cron/actions/startJob.ts', `
     import { getHFToken } from '../paths';
@@ -381,7 +483,7 @@ assert.deepEqual(
     }
   `).map(item => [item.symbol, item.path, item.value_contract.ui_type, item.value_contract.accepted_values]),
   [
-    ['mutateState::job.pid', 'job.pid', 'integer', undefined],
+    ['mutateState::job.pid', 'job.pid', 'integer', [{ kind: 'null' }]],
     ['mutateState::job.status', 'job.status', 'string', [{ kind: 'string', value: 'queued' }]],
     ['mutateState::job.stop', 'job.stop', 'boolean', [{ kind: 'boolean', value: false }]],
     ['mutateState::queue.is_running', 'queue.is_running', 'boolean', [{ kind: 'boolean', value: true }]],

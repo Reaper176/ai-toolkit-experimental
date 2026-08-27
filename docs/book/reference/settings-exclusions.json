@@ -3520,7 +3520,12 @@
           "ui_type": "integer",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "null"
+            }
+          ]
         },
         "server_state_contract": {
           "operation": "write",
@@ -3545,7 +3550,12 @@
           "ui_type": "integer",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "null"
+            }
+          ]
         },
         "server_state_contract": {
           "operation": "write",
@@ -3667,7 +3677,7 @@
           "ui_type": "string",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": false
         },
         "server_state_contract": {
           "operation": "write",
@@ -3841,7 +3851,7 @@
           "ui_type": "string",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": false
         },
         "server_state_contract": {
           "operation": "write",
@@ -3866,7 +3876,7 @@
           "ui_type": "string",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": false
         },
         "server_state_contract": {
           "operation": "write",
@@ -3922,7 +3932,7 @@
           "ui_type": "string",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": false
         },
         "server_state_contract": {
           "operation": "write",
@@ -3947,7 +3957,12 @@
           "ui_type": "integer",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "null"
+            }
+          ]
         },
         "server_state_contract": {
           "operation": "write",
@@ -3962,7 +3977,7 @@
     {
       "fact": {
         "source_path": "ui/cron/actions/startJob.ts",
-        "symbol": "launchAndWatchJob::job.pid::role=job-update-pid-derived/arg:subprocess.once:error[1]/callback:subprocess.once:error[1]",
+        "symbol": "launchAndWatchJob::job.pid::role=job-update-pid-{\"kind\":\"null\"}/arg:subprocess.once:error[1]/callback:subprocess.once:error[1]",
         "path": "job.pid",
         "kind": "server-state",
         "ui_label": {
@@ -3972,7 +3987,12 @@
           "ui_type": "integer",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "null"
+            }
+          ]
         },
         "server_state_contract": {
           "operation": "write",
@@ -3997,7 +4017,7 @@
           "ui_type": "integer",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": false
         },
         "server_state_contract": {
           "operation": "write",
@@ -4012,7 +4032,7 @@
     {
       "fact": {
         "source_path": "ui/cron/actions/startJob.ts",
-        "symbol": "launchAndWatchJob::job.pid::role=job-updateMany-pid-derived/arg:subprocess.once:exit[1]/callback:subprocess.once:exit[1]/guard:if-else:isWindows",
+        "symbol": "launchAndWatchJob::job.pid::role=job-updateMany-pid-{\"kind\":\"null\"}/arg:subprocess.once:exit[1]/callback:subprocess.once:exit[1]/guard:if-else:isWindows",
         "path": "job.pid",
         "kind": "server-state",
         "ui_label": {
@@ -4022,7 +4042,12 @@
           "ui_type": "integer",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "null"
+            }
+          ]
         },
         "server_state_contract": {
           "operation": "write",
@@ -4370,7 +4395,7 @@
           "ui_type": "string",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": false
         },
         "server_state_contract": {
           "operation": "write",
@@ -4395,7 +4420,12 @@
           "ui_type": "integer",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "null"
+            }
+          ]
         },
         "server_state_contract": {
           "operation": "write",
@@ -4517,7 +4547,7 @@
           "ui_type": "string",
           "widget_kind": null,
           "optional": false,
-          "nullable": true,
+          "nullable": false,
           "accepted_values": [
             {
               "kind": "string",
@@ -4770,7 +4800,7 @@
           "ui_type": "string",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": false
         },
         "server_state_contract": {
           "operation": "write",
@@ -4795,7 +4825,12 @@
           "ui_type": "integer",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "null"
+            }
+          ]
         },
         "server_state_contract": {
           "operation": "write",
@@ -4848,7 +4883,7 @@
           "present": false
         },
         "value_contract": {
-          "ui_type": "integer",
+          "ui_type": "string",
           "widget_kind": null,
           "optional": true,
           "nullable": false
@@ -4873,7 +4908,7 @@
           "present": false
         },
         "value_contract": {
-          "ui_type": "integer",
+          "ui_type": "string",
           "widget_kind": null,
           "optional": true,
           "nullable": false
@@ -5187,7 +5222,7 @@
           "ui_type": "integer",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": false
         },
         "server_state_contract": {
           "operation": "write",
@@ -5305,7 +5340,7 @@
           "ui_type": "string",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": false
         },
         "server_state_contract": {
           "operation": "write",
@@ -5769,7 +5804,7 @@
           "ui_type": "string",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": false
         },
         "server_state_contract": {
           "operation": "write",
@@ -5794,7 +5829,7 @@
           "ui_type": "string",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": false
         },
         "server_state_contract": {
           "operation": "write",
@@ -5819,7 +5854,7 @@
           "ui_type": "string",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": false
         },
         "server_state_contract": {
           "operation": "write",
@@ -5844,7 +5879,7 @@
           "ui_type": "integer",
           "widget_kind": null,
           "optional": false,
-          "nullable": true
+          "nullable": false
         },
         "server_state_contract": {
           "operation": "write",

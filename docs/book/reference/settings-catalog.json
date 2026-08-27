@@ -118253,7 +118253,7 @@
           "present": false
         },
         "value_contract": {
-          "ui_type": "integer",
+          "ui_type": "string",
           "widget_kind": null,
           "optional": true,
           "nullable": false
@@ -118278,7 +118278,7 @@
           "present": false
         },
         "value_contract": {
-          "ui_type": "path",
+          "ui_type": "string",
           "widget_kind": null,
           "optional": true,
           "nullable": false
@@ -118303,7 +118303,7 @@
           "present": false
         },
         "value_contract": {
-          "ui_type": "path",
+          "ui_type": "string",
           "widget_kind": null,
           "optional": true,
           "nullable": false
@@ -119316,7 +119316,7 @@
           "present": false
         },
         "value_contract": {
-          "ui_type": "path",
+          "ui_type": "string",
           "widget_kind": null,
           "optional": true,
           "nullable": false
@@ -119341,7 +119341,7 @@
           "present": false
         },
         "value_contract": {
-          "ui_type": "path",
+          "ui_type": "string",
           "widget_kind": null,
           "optional": true,
           "nullable": false
@@ -119366,7 +119366,7 @@
           "present": false
         },
         "value_contract": {
-          "ui_type": "path",
+          "ui_type": "string",
           "widget_kind": null,
           "optional": true,
           "nullable": false
@@ -120266,7 +120266,7 @@
           "present": false
         },
         "value_contract": {
-          "ui_type": "path",
+          "ui_type": "string",
           "widget_kind": null,
           "optional": true,
           "nullable": false
@@ -120291,7 +120291,7 @@
           "present": false
         },
         "value_contract": {
-          "ui_type": "path",
+          "ui_type": "string",
           "widget_kind": null,
           "optional": true,
           "nullable": false
@@ -120316,7 +120316,7 @@
           "present": false
         },
         "value_contract": {
-          "ui_type": "path",
+          "ui_type": "string",
           "widget_kind": null,
           "optional": true,
           "nullable": false

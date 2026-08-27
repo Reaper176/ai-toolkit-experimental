@@ -12111,16 +12111,214 @@ const SERVER_STATE_TYPES: Readonly<Record<string, NonNullable<UiSourceClaim['val
   status: 'string',
   stop: 'boolean',
 };
+const NULLABLE_SERVER_STATE_FIELDS = new Set(['pid']);
 
-function literalAcceptedValue(expression: ts.Expression): TrainingBookValueFact | undefined {
+function literalAcceptedValue(
+  expression: ts.Expression,
+  bindings?: LexicalBindings,
+  seen = new Set<ts.Identifier>(),
+): TrainingBookValueFact | undefined {
   expression = unwrap(expression);
   if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return { kind: 'string', value: expression.text };
   if (ts.isNumericLiteral(expression)) return { kind: 'number', value: Number(expression.text) };
   if (expression.kind === ts.SyntaxKind.TrueKeyword || expression.kind === ts.SyntaxKind.FalseKeyword) return { kind: 'boolean', value: expression.kind === ts.SyntaxKind.TrueKeyword };
+  if (expression.kind === ts.SyntaxKind.NullKeyword) return { kind: 'null' };
+  if (bindings !== undefined && ts.isIdentifier(expression)) {
+    const declaration = bindings.bindingDeclaration(expression);
+    if (declaration === undefined || seen.has(declaration)) return undefined;
+    const initializer = bindings.declarationInitializer(expression);
+    return initializer === undefined
+      ? undefined
+      : literalAcceptedValue(initializer, bindings, new Set(seen).add(declaration));
+  }
   return undefined;
 }
 
-function stateWrites(node: ts.CallExpression): Array<{ entity: 'job' | 'queue'; method: string; key: string; value?: TrainingBookValueFact }> {
+function guardedNonNullWrite(
+  expression: ts.Expression,
+  node: ts.Node,
+  bindings: LexicalBindings,
+): boolean {
+  expression = unwrap(expression);
+  if (!ts.isIdentifier(expression)) return false;
+  let child: ts.Node = node;
+  for (let parent = node.parent; parent !== undefined; child = parent, parent = parent.parent) {
+    if (!ts.isIfStatement(parent)) continue;
+    const inThen = branchContains(parent.thenStatement, child);
+    const inElse = parent.elseStatement !== undefined && branchContains(parent.elseStatement, child);
+    if (!inThen && !inElse) continue;
+    const condition = unwrap(parent.expression);
+    if (ts.isIdentifier(condition) && bindings.sameBinding(condition, expression)) return inThen;
+    if (!ts.isBinaryExpression(condition)) continue;
+    const left = unwrap(condition.left);
+    const right = unwrap(condition.right);
+    const identifier = ts.isIdentifier(left) ? left : ts.isIdentifier(right) ? right : undefined;
+    const other = identifier === left ? right : left;
+    if (
+      identifier === undefined
+      || !bindings.sameBinding(identifier, expression)
+      || other.kind !== ts.SyntaxKind.NullKeyword
+    ) continue;
+    const unequal = condition.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsToken
+      || condition.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken;
+    const equal = condition.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken
+      || condition.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken;
+    if ((inThen && unequal) || (inElse && equal)) return true;
+  }
+  return false;
+}
+
+function databaseWriteNullable(
+  expression: ts.Expression,
+  node: ts.Node,
+  bindings: LexicalBindings,
+  seen = new Set<ts.Identifier>(),
+): boolean {
+  expression = unwrap(expression);
+  if (
+    ts.isStringLiteral(expression)
+    || ts.isNumericLiteral(expression)
+    || ts.isNoSubstitutionTemplateLiteral(expression)
+    || ts.isTemplateExpression(expression)
+    || expression.kind === ts.SyntaxKind.TrueKeyword
+    || expression.kind === ts.SyntaxKind.FalseKeyword
+  ) return false;
+  if (expression.kind === ts.SyntaxKind.NullKeyword) return true;
+  if (ts.isConditionalExpression(expression)) {
+    return databaseWriteNullable(expression.whenTrue, node, bindings, new Set(seen))
+      || databaseWriteNullable(expression.whenFalse, node, bindings, new Set(seen));
+  }
+  if (
+    ts.isBinaryExpression(expression)
+    && (
+      expression.operatorToken.kind === ts.SyntaxKind.BarBarToken
+      || expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
+    )
+  ) {
+    return databaseWriteNullable(expression.left, node, bindings, new Set(seen))
+      && databaseWriteNullable(expression.right, node, bindings, new Set(seen));
+  }
+  if (
+    ts.isBinaryExpression(expression)
+    && [
+      ts.SyntaxKind.PlusToken, ts.SyntaxKind.MinusToken,
+      ts.SyntaxKind.AsteriskToken, ts.SyntaxKind.SlashToken,
+      ts.SyntaxKind.PercentToken,
+    ].includes(expression.operatorToken.kind)
+  ) return false;
+  if (ts.isIdentifier(expression)) {
+    if (guardedNonNullWrite(expression, node, bindings)) return false;
+    const declaration = bindings.bindingDeclaration(expression);
+    if (declaration !== undefined && !seen.has(declaration)) {
+      const initializer = bindings.declarationInitializer(expression);
+      if (initializer !== undefined) {
+        return databaseWriteNullable(
+          initializer, node, bindings, new Set(seen).add(declaration),
+        );
+      }
+    }
+    const declaredPrimitive = new RegExp(
+      `\\b${expression.text}\\s*:\\s*(string|number|boolean)\\b`, 'gu',
+    );
+    const primitiveTypes = [...node.getSourceFile().text.matchAll(declaredPrimitive)]
+      .map(match => match[1]);
+    if (primitiveTypes.length > 0 && new Set(primitiveTypes).size === 1) {
+      return false;
+    }
+  }
+  if (
+    ts.isPropertyAccessExpression(expression)
+    && expression.questionDotToken === undefined
+    && SERVER_STATE_TYPES[expression.name.text] !== undefined
+  ) return NULLABLE_SERVER_STATE_FIELDS.has(expression.name.text);
+  if (
+    ts.isPropertyAccessExpression(expression)
+    && expression.questionDotToken === undefined
+  ) {
+    const receiver = unwrap(expression.expression);
+    if (ts.isIdentifier(receiver)) {
+      let declaration: ts.Node | undefined = bindings.bindingDeclaration(receiver);
+      while (
+        declaration !== undefined
+        && !ts.isParameter(declaration)
+        && !ts.isSourceFile(declaration)
+      ) declaration = declaration.parent;
+      const type = declaration !== undefined && ts.isParameter(declaration)
+        ? declaration.type
+        : undefined;
+      if (type !== undefined && ts.isTypeLiteralNode(type)) {
+        const member = type.members.find(candidate =>
+          ts.isPropertySignature(candidate)
+          && propertyName(candidate.name) === expression.name.text
+        );
+        if (
+          member !== undefined
+          && ts.isPropertySignature(member)
+          && member.questionToken === undefined
+          && member.type !== undefined
+          && [
+            ts.SyntaxKind.StringKeyword,
+            ts.SyntaxKind.NumberKeyword,
+            ts.SyntaxKind.BooleanKeyword,
+          ].includes(member.type.kind)
+        ) return false;
+      }
+    }
+    const declaredProperty = new RegExp(
+      `\\b${expression.name.text}\\s*:\\s*(string|number|boolean)\\b`,
+      'gu',
+    );
+    const propertyTypes = [...node.getSourceFile().text.matchAll(declaredProperty)]
+      .map(match => match[1]);
+    if (propertyTypes.length > 0 && new Set(propertyTypes).size === 1) {
+      return false;
+    }
+  }
+  if (
+    ts.isElementAccessExpression(expression)
+    && expression.questionDotToken === undefined
+    && expression.argumentExpression !== undefined
+  ) {
+    const key = unwrap(expression.argumentExpression);
+    if (ts.isStringLiteral(key)) {
+      if (SERVER_STATE_TYPES[key.text] !== undefined) {
+        return NULLABLE_SERVER_STATE_FIELDS.has(key.text);
+      }
+      const declaredProperty = new RegExp(
+        `\\b${key.text}\\s*:\\s*(string|number|boolean)\\b`, 'gu',
+      );
+      const propertyTypes = [
+        ...node.getSourceFile().text.matchAll(declaredProperty),
+      ].map(match => match[1]);
+      if (propertyTypes.length > 0 && new Set(propertyTypes).size === 1) {
+        return false;
+      }
+    }
+  }
+  if (ts.isCallExpression(expression)) {
+    const callee = unwrap(expression.expression);
+    if (ts.isIdentifier(callee)) {
+      const candidates: ts.FunctionDeclaration[] = [];
+      const inspect = (candidate: ts.Node): void => {
+        if (
+          ts.isFunctionDeclaration(candidate)
+          && candidate.name?.text === callee.text
+        ) candidates.push(candidate);
+        ts.forEachChild(candidate, inspect);
+      };
+      inspect(node.getSourceFile());
+      if (
+        candidates.length > 0
+        && candidates.every(candidate => candidate.type?.getText() === 'string')
+      ) return false;
+    }
+  }
+  const nullish = staticNullishValue(expression, bindings);
+  if (nullish !== undefined) return nullish;
+  fail(node, `database write nullability is unproven (${ts.SyntaxKind[expression.kind]})`);
+}
+
+function stateWrites(node: ts.CallExpression, bindings: LexicalBindings): Array<{ entity: 'job' | 'queue'; method: string; key: string; value: TrainingBookValueFact | undefined; nullable: boolean }> {
   const call = unwrap(node.expression);
   if (!ts.isPropertyAccessExpression(call) || !['create', 'update', 'updateMany', 'upsert'].includes(call.name.text)) return [];
   const receiver = unwrap(call.expression);
@@ -12130,7 +12328,7 @@ function stateWrites(node: ts.CallExpression): Array<{ entity: 'job' | 'queue'; 
   const data = objectProperties(argument).get('data');
   const dataObject = data === undefined ? undefined : unwrap(data);
   if (dataObject === undefined || !ts.isObjectLiteralExpression(dataObject)) return [];
-  const writes: Array<{ entity: 'job' | 'queue'; method: string; key: string; value?: TrainingBookValueFact }> = [];
+  const writes: Array<{ entity: 'job' | 'queue'; method: string; key: string; value: TrainingBookValueFact | undefined; nullable: boolean }> = [];
   for (const property of dataObject.properties) {
     let key: string | undefined;
     let value: ts.Expression | undefined;
@@ -12139,8 +12337,18 @@ function stateWrites(node: ts.CallExpression): Array<{ entity: 'job' | 'queue'; 
       value = property.initializer;
     } else if (ts.isShorthandPropertyAssignment(property)) {
       key = property.name.text;
+      value = property.name;
     }
-    if (key !== undefined && SERVER_STATE_TYPES[key] !== undefined) writes.push({ entity: receiver.name.text, method: call.name.text, key, value: value === undefined ? undefined : literalAcceptedValue(value) });
+    if (key !== undefined && SERVER_STATE_TYPES[key] !== undefined) {
+      if (value === undefined) fail(property, 'database write value is unresolved');
+      writes.push({
+        entity: receiver.name.text,
+        method: call.name.text,
+        key,
+        value: literalAcceptedValue(value, bindings),
+        nullable: databaseWriteNullable(value, node, bindings),
+      });
+    }
   }
   return writes;
 }
@@ -12695,6 +12903,9 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
       if (existing === undefined) summaries.set(identity, { claim: summary, occurrences: 1 });
       else {
         existing.occurrences += 1;
+        existing.claim.value_contract.nullable =
+          existing.claim.value_contract.nullable
+          || summary.value_contract.nullable;
         const acceptedValues = uniqueValues([
           ...(existing.claim.value_contract.accepted_values ?? []),
           ...(summary.value_contract.accepted_values ?? []),
@@ -12713,7 +12924,7 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
           sourcePath,
           `${owner}::process.env.${key}`,
           key,
-          /(?:PORT|WORKERS)$/.test(key) ? 'integer' : key === 'LD_LIBRARY_PATH' ? 'string' : /(?:PATH|FOLDER|ROOT)$/.test(key) ? 'path' : 'string',
+          'string',
           environmentReadContract(key),
         ), node, 'environment-read', owner);
       }
@@ -12799,7 +13010,7 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
           userDatabaseRead,
         ), node, `settings-hydrate-${key}`, owner);
       }
-      for (const write of stateWrites(node)) {
+      for (const write of stateWrites(node, bindings)) {
         addOwned(serverStateClaim(
           sourcePath,
           `${owner}::${write.entity}.${write.key}`,
@@ -12808,7 +13019,7 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
           {
             operation: 'write', provenance: 'database', authority: 'server-overwritten',
             persistence: 'database', optional: false,
-            nullable: write.value === undefined,
+            nullable: write.nullable,
           },
           write.value === undefined ? undefined : [write.value],
         ), node, `${write.entity}-${write.method}-${write.key}-${write.value === undefined ? 'derived' : JSON.stringify(write.value)}`, owner);
@@ -13015,6 +13226,7 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
       ...group[0].claim,
       value_contract: {
         ...group[0].claim.value_contract,
+        nullable: group.some(event => event.claim.value_contract.nullable),
         ...(aggregateValues.length === 0 ? {} : { accepted_values: aggregateValues }),
       },
     };
@@ -13032,6 +13244,8 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
     const existing = claims.get(identity);
     if (existing === undefined) claims.set(identity, claim);
     else {
+      existing.value_contract.nullable =
+        existing.value_contract.nullable || claim.value_contract.nullable;
       const acceptedValues = uniqueValues([
         ...(existing.value_contract.accepted_values ?? []),
         ...(claim.value_contract.accepted_values ?? []),

@@ -3889,6 +3889,21 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             settings["settings.data-root"].contract.example_type,
             "path",
         )
+        facts = load_production_training_book_ui_facts()
+        environment_reads = [
+            fact for fact in facts.global_settings
+            if fact.kind == "server-state"
+            and fact.server_state_contract.operation == "read"
+            and fact.server_state_contract.provenance == "environment"
+            and fact.path != "process.env.inherited"
+        ]
+        self.assertTrue(environment_reads)
+        self.assertTrue(all(
+            fact.value_contract.ui_type == "string"
+            and fact.value_contract.optional
+            and not fact.value_contract.nullable
+            for fact in environment_reads
+        ))
 
     def test_production_global_gpu_selector_is_user_database_state(self):
         catalog = load_settings_catalog(

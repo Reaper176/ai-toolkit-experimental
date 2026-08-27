@@ -1478,6 +1478,12 @@ def _validate_server_state_owner(
         state.provenance == "config"
         and aggregate_type == "integer"
         and emitted_type == "number"
+    ) or (
+        setting.scope == "environment"
+        and state.operation == "read"
+        and state.provenance == "environment"
+        and emitted_type == "string"
+        and aggregate_type in {"integer", "path"}
     )
     if not compatible:
         raise CatalogError(
