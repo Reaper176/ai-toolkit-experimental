@@ -274,8 +274,8 @@ def load_exclusions(path: Path) -> tuple[Exclusion, ...]:
         {"schema_version", "exclusions", "ui_exclusions"},
         "settings exclusions",
     )
-    if type(data["schema_version"]) is not int or data["schema_version"] != 1:
-        raise DiscoveryError("settings exclusions schema_version must equal 1")
+    if type(data["schema_version"]) is not int or data["schema_version"] != 2:
+        raise DiscoveryError("settings exclusions schema_version must equal 2")
     values = data["exclusions"]
     if type(values) is not list:
         raise DiscoveryError("exclusions must be an array")

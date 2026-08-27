@@ -3503,8 +3503,8 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         exclusions = load_ui_exclusions(
             REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
         )
-        self.assertEqual(len(catalog.ui_claims), 2466)
-        self.assertEqual(len(exclusions), 109)
+        self.assertEqual(len(catalog.ui_claims), 2461)
+        self.assertEqual(len(exclusions), 114)
         self.assertEqual(
             {exclusion.reason for exclusion in exclusions},
             {
@@ -13799,7 +13799,7 @@ def build(network_kwargs):
         exclusions_path.write_text(
             json.dumps(
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "exclusions": [
                         {
                             "source": "core/config.py",
@@ -13883,7 +13883,7 @@ def build(network_kwargs):
                     load_source_catalog(sources_path)
 
         bad_exclusion = {
-            "schema_version": 1,
+            "schema_version": 2,
             "exclusions": [
                 {
                     "source": "core/config.py",
@@ -13897,6 +13897,18 @@ def build(network_kwargs):
         exclusions_path.write_text(json.dumps(bad_exclusion), encoding="utf-8")
         with self.assertRaisesRegex(DiscoveryError, "approved category"):
             load_exclusions(exclusions_path)
+
+        for version in (1, 3):
+            with self.subTest(exclusions_schema_version=version):
+                bad_version = deepcopy(bad_exclusion)
+                bad_version["schema_version"] = version
+                exclusions_path.write_text(
+                    json.dumps(bad_version), encoding="utf-8"
+                )
+                with self.assertRaisesRegex(
+                    DiscoveryError, "schema_version must equal 2"
+                ):
+                    load_exclusions(exclusions_path)
 
     def test_discovery_canonical_union_defers_ui_claims_to_the_ts_collector(self):
         catalog = load_source_catalog(
