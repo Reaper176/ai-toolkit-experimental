@@ -46,10 +46,29 @@ assert.deepEqual(
     ['Example::localStorage.setItem(panel)', 'browser.localStorage.panel', 'string'],
     ['Example::process.env.EXAMPLE_BRACKET', 'EXAMPLE_BRACKET', 'string'],
     ['Example::process.env.EXAMPLE_DOT', 'EXAMPLE_DOT', 'string'],
-    ['Example::sessionStorage.removeItem(draft)', 'browser.sessionStorage.draft', 'string'],
+    ['Example::sessionStorage.removeItem(draft)', 'browser.sessionStorage.draft', null],
     ['Example::status=401', 'auth.is_authorized', 'boolean'],
   ],
   'executable environment, persistence, and authorization boundaries are discovered structurally',
+);
+assert.deepEqual(
+  structuralServerFacts.map(item => [
+    item.symbol,
+    item.value_contract.widget_kind,
+    item.value_contract.optional,
+    item.value_contract.nullable,
+    item.server_state_contract,
+  ]),
+  [
+    ['Example::Authorization.bearer', null, false, false, { operation: 'write', provenance: 'http', authority: 'user', persistence: 'transient' }],
+    ['Example::localStorage.getItem(panel)', null, false, true, { operation: 'read', provenance: 'browser-storage', authority: 'user', persistence: 'browser-storage' }],
+    ['Example::localStorage.setItem(panel)', null, false, false, { operation: 'write', provenance: 'browser-storage', authority: 'user', persistence: 'browser-storage' }],
+    ['Example::process.env.EXAMPLE_BRACKET', null, true, false, { operation: 'read', provenance: 'environment', authority: 'runtime-forced', persistence: 'runtime' }],
+    ['Example::process.env.EXAMPLE_DOT', null, true, false, { operation: 'read', provenance: 'environment', authority: 'runtime-forced', persistence: 'runtime' }],
+    ['Example::sessionStorage.removeItem(draft)', null, false, false, { operation: 'delete', provenance: 'browser-storage', authority: 'user', persistence: 'browser-storage' }],
+    ['Example::status=401', null, false, false, { operation: 'derive', provenance: 'runtime', authority: 'ui-derived', persistence: 'transient' }],
+  ],
+  'server-state claims expose exact operation, provenance, authority, persistence, and presence semantics',
 );
 assert.deepEqual(
   collectDeclaredServerGlobalClaimsFromSource('ui/src/empty.ts', `
@@ -4768,7 +4787,7 @@ let baselineArchitecture: ReturnType<typeof collectTrainingBookUiFacts>['model_a
 try {
   const facts = collectTrainingBookUiFacts(root);
   baselineArchitecture = facts.model_architectures[0];
-  assert.equal(facts.schema_version, 1);
+  assert.equal(facts.schema_version, 2);
   assert.deepEqual(facts.model_architectures.map(item => item.name), ['fixture']);
   const architecture = facts.model_architectures[0];
   assert.deepEqual(architecture.model_path, {
@@ -4866,6 +4885,62 @@ try {
   const serialized = JSON.parse(readFileSync(output, 'utf8'));
   assert.deepEqual(serialized, facts);
   validateTrainingBookUiFacts(serialized);
+  const serverContractFacts = structuredClone(serialized);
+  serverContractFacts.schema_version = 2;
+  serverContractFacts.global_settings = [{
+    source_path: 'ui/src/example.ts',
+    symbol: 'Example::process.env.TOKEN',
+    path: 'TOKEN',
+    kind: 'server-state',
+    ui_label: { present: false },
+    value_contract: {
+      ui_type: 'string',
+      widget_kind: null,
+      optional: true,
+      nullable: false,
+    },
+    server_state_contract: {
+      operation: 'read',
+      provenance: 'environment',
+      authority: 'user',
+      persistence: 'runtime',
+    },
+  }];
+  validateTrainingBookUiFacts(serverContractFacts);
+  for (const [label, mutate, error] of [
+    ['missing contract', (item: any) => { delete item.server_state_contract; }, /server-state.*requires server_state_contract/],
+    ['read-only widget', (item: any) => { item.value_contract.widget_kind = 'read-only'; }, /server-state.*widget_kind.*null/],
+    ['unknown operation', (item: any) => { item.server_state_contract.operation = 'rename'; }, /operation/],
+    ['unknown provenance', (item: any) => { item.server_state_contract.provenance = 'cookie'; }, /provenance/],
+    ['unknown authority', (item: any) => { item.server_state_contract.authority = 'sometimes-user'; }, /authority/],
+    ['unknown persistence', (item: any) => { item.server_state_contract.persistence = 'forever'; }, /persistence/],
+    ['extra contract field', (item: any) => { item.server_state_contract.extra = true; }, /unexpected field.*extra/],
+  ] as const) {
+    const invalid = structuredClone(serverContractFacts);
+    mutate(invalid.global_settings[0]);
+    assert.throws(
+      () => validateTrainingBookUiFacts(invalid),
+      error,
+      `server-state contracts reject ${label}`,
+    );
+  }
+  const nonServerContract = structuredClone(serverContractFacts);
+  nonServerContract.config_claims[0].server_state_contract = structuredClone(
+    serverContractFacts.global_settings[0].server_state_contract,
+  );
+  assert.throws(
+    () => validateTrainingBookUiFacts(nonServerContract),
+    /forbids server_state_contract/,
+  );
+  for (const schemaVersion of [1, 3]) {
+    const invalidVersion = structuredClone(serverContractFacts);
+    (invalidVersion as any).schema_version = schemaVersion;
+    assert.throws(
+      () => validateTrainingBookUiFacts(invalidVersion),
+      /schema_version/,
+      `facts schema rejects version ${schemaVersion}`,
+    );
+  }
   const behaviorFacts = structuredClone(serialized);
   behaviorFacts.config_claims[0].behavior_contract = {
     guard: 'property-absent',
@@ -9323,6 +9398,16 @@ ${architectureCommit}`,
       `missing exact server/global fact ${identity}`,
     );
   }
+  const importedDeviceClaims = liveFacts.global_settings.filter(
+    item => item.path === 'config.process[*].device'
+      && item.kind === 'server-state'
+      && item.symbol.includes('::import::'),
+  );
+  assert.equal(importedDeviceClaims.length, 2);
+  assert.ok(importedDeviceClaims.every(item => item.server_state_contract?.operation === 'write'));
+  assert.ok(importedDeviceClaims.every(item => item.server_state_contract?.provenance === 'config'));
+  assert.ok(importedDeviceClaims.every(item => item.server_state_contract?.authority === 'ui-derived'));
+  assert.ok(importedDeviceClaims.every(item => item.server_state_contract?.persistence === 'config'));
   const modelArchitectureClaim = settingClaims.find(item => item.path === 'config.process[*].model.arch');
   assert.equal(modelArchitectureClaim?.value_contract.accepted_values?.length, 51);
   const textEncoderQuantization = settingClaims.filter(item => item.path === 'config.process[*].model.qtype_te');

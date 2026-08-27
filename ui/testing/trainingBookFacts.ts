@@ -115,6 +115,13 @@ export interface UiBehaviorContract {
   payload: UiBehaviorPayload;
 }
 
+export interface UiServerStateContract {
+  operation: 'read' | 'write' | 'delete' | 'derive';
+  provenance: 'browser-storage' | 'database' | 'environment' | 'config' | 'http' | 'runtime';
+  authority: 'user' | 'ui-derived' | 'server-overwritten' | 'runtime-forced';
+  persistence: 'config' | 'job-json' | 'database' | 'runtime' | 'transient' | 'browser-storage';
+}
+
 export interface UiSourceClaim {
   source_path: string;
   symbol: string;
@@ -155,6 +162,7 @@ export interface UiSourceClaim {
     ui_to_config_scale?: number;
   };
   behavior_contract?: UiBehaviorContract;
+  server_state_contract?: UiServerStateContract;
 }
 
 export interface ArchitectureTransitionFact {
@@ -165,7 +173,7 @@ export interface ArchitectureTransitionFact {
 }
 
 export interface TrainingBookUiFacts {
-  schema_version: 1;
+  schema_version: 2;
   model_architectures: ModelArchitectureFact[];
   defaults: UiDefaultFact[];
   config_claims: UiSourceClaim[];
@@ -5458,8 +5466,10 @@ function serverStateClaim(
   symbol: string,
   path: string,
   uiType: UiSourceClaim['value_contract']['ui_type'],
+  stateContract: UiServerStateContract & { optional: boolean; nullable: boolean },
   acceptedValues?: TrainingBookValueFact[],
 ): UiSourceClaim {
+  const { optional, nullable, ...serverStateContract } = stateContract;
   return {
     source_path: sourcePath,
     symbol,
@@ -5468,13 +5478,67 @@ function serverStateClaim(
     ui_label: { present: false },
     value_contract: {
       ui_type: uiType,
-      widget_kind: 'read-only',
-      optional: true,
-      nullable: true,
+      widget_kind: null,
+      optional,
+      nullable,
       ...(acceptedValues === undefined ? {} : { accepted_values: acceptedValues }),
     },
+    server_state_contract: serverStateContract,
   };
 }
+
+type UiServerStateClaimOptions = UiServerStateContract & {
+  optional: boolean;
+  nullable: boolean;
+};
+
+const userEnvironmentKeys = new Set([
+  'AI_TOOLKIT_AUTH',
+  'AI_TOOLKIT_DB_JOURNAL_MODE',
+  'AI_TOOLKIT_FILE_SERVER_WORKERS',
+  'MODELS_PATH',
+  'OSTRIS_CLOUD_API_KEY',
+  'OSTRIS_CLOUD_APP_URL',
+]);
+
+function environmentReadContract(key: string): UiServerStateClaimOptions {
+  return {
+    operation: 'read',
+    provenance: 'environment',
+    authority: userEnvironmentKeys.has(key) ? 'user' : 'runtime-forced',
+    persistence: 'runtime',
+    optional: true,
+    nullable: false,
+  };
+}
+
+function browserStorageContract(
+  operation: 'read' | 'write' | 'delete',
+): UiServerStateClaimOptions {
+  return {
+    operation,
+    provenance: 'browser-storage',
+    authority: 'user',
+    persistence: 'browser-storage',
+    optional: false,
+    nullable: operation === 'read',
+  };
+}
+
+const userDatabaseRead: UiServerStateClaimOptions = {
+  operation: 'read', provenance: 'database', authority: 'user',
+  persistence: 'database', optional: false, nullable: false,
+};
+
+const userDatabaseWrite: UiServerStateClaimOptions = {
+  operation: 'write', provenance: 'database', authority: 'user',
+  persistence: 'database', optional: false, nullable: false,
+};
+
+const runtimeForcedRuntimeRead: UiServerStateClaimOptions = {
+  operation: 'read', provenance: 'runtime', authority: 'runtime-forced',
+  persistence: 'runtime', optional: false, nullable: false,
+};
 
 function behaviorSettingClaim(
   sourcePath: string,
@@ -12010,7 +12074,10 @@ function staticStringValues(expression: ts.Expression, bindings: LexicalBindings
   return [];
 }
 
-function settingsDatabaseKeys(node: ts.CallExpression, bindings: LexicalBindings): string[] {
+function settingsDatabaseKeys(
+  node: ts.CallExpression,
+  bindings: LexicalBindings,
+): Array<{ key: string; operation: 'read' | 'write' }> {
   const call = unwrap(node.expression);
   if (!ts.isPropertyAccessExpression(call)) return [];
   const receiver = unwrap(call.expression);
@@ -12025,7 +12092,11 @@ function settingsDatabaseKeys(node: ts.CallExpression, bindings: LexicalBindings
     ts.forEachChild(child, visit);
   };
   for (const argument of node.arguments) visit(argument);
-  return [...new Set(keys.filter(key => /^[A-Z][A-Z0-9_]+$/.test(key)))];
+  const operation = ['create', 'update', 'updateMany', 'upsert', 'delete', 'deleteMany'].includes(call.name.text)
+    ? 'write'
+    : 'read';
+  return [...new Set(keys.filter(key => /^[A-Z][A-Z0-9_]+$/.test(key)))]
+    .map(key => ({ key, operation }));
 }
 
 const SERVER_STATE_TYPES: Readonly<Record<string, NonNullable<UiSourceClaim['value_contract']['ui_type']>>> = {
@@ -12477,7 +12548,12 @@ function injectedScriptStorageClaims(node: ts.JsxAttribute, sourcePath: string):
         sourcePath,
         `${owner}::${storage.storage}.${storage.method}(${storage.key})`,
         `browser.${storage.storage}.${storage.key}`,
-        'string',
+        storage.method === 'removeItem' ? null : 'string',
+        browserStorageContract(
+          storage.method === 'getItem'
+            ? 'read'
+            : storage.method === 'setItem' ? 'write' : 'delete',
+        ),
       ));
     }
     ts.forEachChild(child, visit);
@@ -12633,7 +12709,13 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
       const key = environmentKey(node, bindings);
       if (key !== undefined) {
         const owner = factSymbol(node, sourcePath);
-        addOwned(serverStateClaim(sourcePath, `${owner}::process.env.${key}`, key, /(?:PORT|WORKERS)$/.test(key) ? 'integer' : key === 'LD_LIBRARY_PATH' ? 'string' : /(?:PATH|FOLDER|ROOT)$/.test(key) ? 'path' : 'string'), node, 'environment-read', owner);
+        addOwned(serverStateClaim(
+          sourcePath,
+          `${owner}::process.env.${key}`,
+          key,
+          /(?:PORT|WORKERS)$/.test(key) ? 'integer' : key === 'LD_LIBRARY_PATH' ? 'string' : /(?:PATH|FOLDER|ROOT)$/.test(key) ? 'path' : 'string',
+          environmentReadContract(key),
+        ), node, 'environment-read', owner);
       }
     }
     if (ts.isCallExpression(node)) {
@@ -12642,15 +12724,40 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
       const storage = storageCall(node, bindings, persistedReads.length > 0 || persistedWrites.length > 0);
       if (storage !== undefined) {
         const owner = factSymbol(node, sourcePath);
-        addOwned(serverStateClaim(sourcePath, `${owner}::${storage.storage}.${storage.method}(${storage.key})`, `browser.${storage.storage}.${storage.key}`, 'string'), node, `storage-${storage.method}`, owner);
+        addOwned(serverStateClaim(
+          sourcePath,
+          `${owner}::${storage.storage}.${storage.method}(${storage.key})`,
+          `browser.${storage.storage}.${storage.key}`,
+          storage.method === 'removeItem' ? null : 'string',
+          browserStorageContract(
+            storage.method === 'getItem'
+              ? 'read'
+              : storage.method === 'setItem' ? 'write' : 'delete',
+          ),
+        ), node, `storage-${storage.method}`, owner);
       }
       for (const persisted of persistedReads) {
         const owner = factSymbol(node, sourcePath);
-        addOwned(serverStateClaim(sourcePath, `${owner}::hydrate::${persisted.key}`, `browser.localStorage.jobLossGraph.${persisted.key}`, persisted.uiType), node, `persisted-hydrate-${persisted.key}`, owner);
+        addOwned(serverStateClaim(
+          sourcePath,
+          `${owner}::hydrate::${persisted.key}`,
+          `browser.localStorage.jobLossGraph.${persisted.key}`,
+          persisted.uiType,
+          {
+            operation: 'read', provenance: 'browser-storage', authority: 'user',
+            persistence: 'browser-storage', optional: true, nullable: false,
+          },
+        ), node, `persisted-hydrate-${persisted.key}`, owner);
       }
       for (const persisted of persistedWrites) {
         const owner = factSymbol(node, sourcePath);
-        addOwned(serverStateClaim(sourcePath, `${owner}::persist::${persisted.key}`, `browser.localStorage.jobLossGraph.${persisted.key}`, persisted.uiType), node, `persisted-write-${persisted.key}`, owner);
+        addOwned(serverStateClaim(
+          sourcePath,
+          `${owner}::persist::${persisted.key}`,
+          `browser.localStorage.jobLossGraph.${persisted.key}`,
+          persisted.uiType,
+          browserStorageContract('write'),
+        ), node, `persisted-write-${persisted.key}`, owner);
       }
       const owner = factSymbol(node, sourcePath);
       const getterKey = importedSettingGetterKey(node, settingGetters);
@@ -12659,17 +12766,38 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
           ? defaultExportedFunctionName(source) ?? owner
           : owner;
         addOwned(
-          serverStateClaim(sourcePath, `${operationOwner}::settings.${getterKey}`, `settings.${getterKey}`, settingValueType(getterKey)),
+          serverStateClaim(
+            sourcePath,
+            `${operationOwner}::settings.${getterKey}`,
+            `settings.${getterKey}`,
+            settingValueType(getterKey),
+            userDatabaseRead,
+          ),
           node,
           `settings-getter-${getterKey}-${lexicalFactSymbol(node)}`,
           operationOwner,
         );
       }
-      for (const key of settingsDatabaseKeys(node, bindings)) {
-        addOwned(serverStateClaim(sourcePath, `${owner}::settings.${key}`, `settings.${key}`, settingValueType(key)), node, `settings-${accessParts(node.expression)?.at(-1) ?? 'call'}`, owner);
+      for (const database of settingsDatabaseKeys(node, bindings)) {
+        const contract: UiServerStateClaimOptions = database.operation === 'write'
+          ? userDatabaseWrite
+          : { ...userDatabaseRead, optional: true };
+        addOwned(serverStateClaim(
+          sourcePath,
+          `${owner}::settings.${database.key}`,
+          `settings.${database.key}`,
+          settingValueType(database.key),
+          contract,
+        ), node, `settings-${accessParts(node.expression)?.at(-1) ?? 'call'}`, owner);
       }
       for (const key of settingsHydrationKeys(node)) {
-        addOwned(serverStateClaim(sourcePath, `${owner}::hydrate::settings.${key}`, `settings.${key}`, settingValueType(key)), node, `settings-hydrate-${key}`, owner);
+        addOwned(serverStateClaim(
+          sourcePath,
+          `${owner}::hydrate::settings.${key}`,
+          `settings.${key}`,
+          settingValueType(key),
+          userDatabaseRead,
+        ), node, `settings-hydrate-${key}`, owner);
       }
       for (const write of stateWrites(node)) {
         addOwned(serverStateClaim(
@@ -12677,54 +12805,145 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
           `${owner}::${write.entity}.${write.key}`,
           `${write.entity}.${write.key}`,
           SERVER_STATE_TYPES[write.key],
+          {
+            operation: 'write', provenance: 'database', authority: 'server-overwritten',
+            persistence: 'database', optional: false,
+            nullable: write.value === undefined,
+          },
           write.value === undefined ? undefined : [write.value],
         ), node, `${write.entity}-${write.method}-${write.key}-${write.value === undefined ? 'derived' : JSON.stringify(write.value)}`, owner);
       }
       const mediatedPath = settingsMediatedSetterPath(node);
-      if (mediatedPath !== undefined) addOwned(serverStateClaim(sourcePath, `${owner}::settings::${mediatedPath}`, mediatedPath, /(?:path|folder)$/.test(mediatedPath) ? 'path' : 'string'), node, 'settings-mediated-setter', owner);
+      if (mediatedPath !== undefined) addOwned(serverStateClaim(
+        sourcePath,
+        `${owner}::settings::${mediatedPath}`,
+        mediatedPath,
+        /(?:path|folder)$/.test(mediatedPath) ? 'path' : 'string',
+        {
+          operation: 'write', provenance: 'config', authority: 'user',
+          persistence: 'config', optional: false, nullable: false,
+        },
+      ), node, 'settings-mediated-setter', owner);
       const gpuTransition = gpuSelectionTransition(node);
       if (gpuTransition !== undefined) {
         const outerOwner = owner.split('::')[0];
-        addOwned(serverStateClaim(sourcePath, `${outerOwner}::${gpuTransition}::gpuids`, 'gpuids', 'string'), node, `gpu-selection-${gpuTransition}`, outerOwner);
+        addOwned(serverStateClaim(
+          sourcePath,
+          `${outerOwner}::${gpuTransition}::gpuids`,
+          'gpuids',
+          'string',
+          gpuTransition === 'hydrate'
+            ? { ...userDatabaseRead, nullable: true }
+            : {
+              operation: 'derive', provenance: 'runtime', authority: 'ui-derived',
+              persistence: 'transient', optional: false, nullable: false,
+            },
+        ), node, `gpu-selection-${gpuTransition}`, outerOwner);
       }
     }
     if (ts.isExpression(node)) {
       const settingKey = settingsPropertyKey(node);
       if (settingKey !== undefined) {
         const owner = factSymbol(node, sourcePath);
-        addOwned(serverStateClaim(sourcePath, `${owner}::settings.${settingKey}`, `settings.${settingKey}`, settingValueType(settingKey)), node, 'settings-property-read', owner);
+        addOwned(serverStateClaim(
+          sourcePath,
+          `${owner}::settings.${settingKey}`,
+          `settings.${settingKey}`,
+          settingValueType(settingKey),
+          userDatabaseRead,
+        ), node, 'settings-property-read', owner);
       }
     }
     if (ts.isBinaryExpression(node)) {
       const configPath = parsedConfigAssignmentPath(node);
       if (configPath !== undefined) {
         const owner = factSymbol(node, sourcePath);
-        addOwned(serverStateClaim(sourcePath, `${owner}::import::${configPath}`, configPath, /(?:path|folder)$/.test(configPath) ? 'path' : literalAcceptedValue(node.right)?.kind === 'number' ? 'number' : 'string', literalAcceptedValue(node.right) === undefined ? undefined : [literalAcceptedValue(node.right)!]), node, 'config-import-assignment', owner);
+        addOwned(serverStateClaim(
+          sourcePath,
+          `${owner}::import::${configPath}`,
+          configPath,
+          /(?:path|folder)$/.test(configPath) ? 'path' : literalAcceptedValue(node.right)?.kind === 'number' ? 'number' : 'string',
+          {
+            operation: 'write', provenance: 'config',
+            authority: configPath === 'config.process[*].device' ? 'ui-derived' : 'user',
+            persistence: 'config', optional: false, nullable: false,
+          },
+          literalAcceptedValue(node.right) === undefined ? undefined : [literalAcceptedValue(node.right)!],
+        ), node, 'config-import-assignment', owner);
       }
     }
     if (ts.isVariableDeclaration(node)) {
       if (resolvedGpuSelection(node)) {
         const owner = factSymbol(node, sourcePath);
-        addOwned(serverStateClaim(sourcePath, `${owner}::gpuids`, 'gpuids', 'string'), node, 'resolved-gpu-selection', owner);
+        addOwned(serverStateClaim(
+          sourcePath,
+          `${owner}::gpuids`,
+          'gpuids',
+          'string',
+          { ...userDatabaseWrite, operation: 'derive' },
+        ), node, 'resolved-gpu-selection', owner);
       }
       if (cliPortDeclaration(node)) {
         const owner = factSymbol(node, sourcePath);
-        addOwned(serverStateClaim(sourcePath, `${owner}::cli.port`, 'ui.file_server.port', 'integer'), node, 'cli-port', owner);
+        addOwned(serverStateClaim(
+          sourcePath,
+          `${owner}::cli.port`,
+          'ui.file_server.port',
+          'integer',
+          {
+            operation: 'read', provenance: 'runtime', authority: 'user',
+            persistence: 'runtime', optional: false, nullable: false,
+          },
+        ), node, 'cli-port', owner);
       }
       for (const environment of clusterWorkerEnvironmentWrites(node, source)) {
-        add(serverStateClaim(sourcePath, `cluster.worker::process.env.${environment.key}`, environment.key, /PORT$/.test(environment.key) ? 'integer' : 'string', environment.value === undefined ? undefined : [environment.value]), node, `cluster-worker-environment-${environment.key}`);
+        add(serverStateClaim(
+          sourcePath,
+          `cluster.worker::process.env.${environment.key}`,
+          environment.key,
+          /PORT$/.test(environment.key) ? 'integer' : 'string',
+          {
+            operation: 'write', provenance: 'environment', authority: 'runtime-forced',
+            persistence: 'runtime', optional: false, nullable: false,
+          },
+          environment.value === undefined ? undefined : [environment.value],
+        ), node, `cluster-worker-environment-${environment.key}`);
       }
     }
     if (ts.isCallExpression(node) && osPlatformCall(node)) {
       const owner = factSymbol(node, sourcePath);
-      addOwned(serverStateClaim(sourcePath, `${owner}::os.platform`, 'server.platform', 'string'), node, 'server-platform', owner);
+      addOwned(serverStateClaim(
+        sourcePath,
+        `${owner}::os.platform`,
+        'server.platform',
+        'string',
+        { ...runtimeForcedRuntimeRead, operation: 'derive' },
+      ), node, 'server-platform', owner);
     }
     if (ts.isSpreadAssignment(node) && isProcessEnvironment(node.expression)) {
       const owner = factSymbol(node, sourcePath);
       if (inheritedProcessEnvironment(node)) {
-        addOwned(serverStateClaim(sourcePath, `${owner}::spawn.env.inherited`, 'spawn.env.inherited', 'object'), node, 'spawn-inherited-environment', owner);
+        addOwned(serverStateClaim(
+          sourcePath,
+          `${owner}::spawn.env.inherited`,
+          'spawn.env.inherited',
+          'object',
+          {
+            operation: 'write', provenance: 'environment', authority: 'runtime-forced',
+            persistence: 'runtime', optional: false, nullable: false,
+          },
+        ), node, 'spawn-inherited-environment', owner);
       } else {
-        addOwned(serverStateClaim(sourcePath, `${owner}::process.env.pass-through`, 'process.env.inherited', 'object'), node, 'process-environment-pass-through', owner);
+        addOwned(serverStateClaim(
+          sourcePath,
+          `${owner}::process.env.pass-through`,
+          'process.env.inherited',
+          'object',
+          {
+            operation: 'read', provenance: 'environment', authority: 'runtime-forced',
+            persistence: 'runtime', optional: false, nullable: false,
+          },
+        ), node, 'process-environment-pass-through', owner);
       }
     }
     if (ts.isJsxAttribute(node)) {
@@ -12732,15 +12951,47 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
     }
     for (const environment of spawnEnvironmentWrites(node)) {
       const owner = sourcePath === 'ui/cron/actions/startJob.ts' ? 'startJob' : lexicalFactSymbol(node);
-      addOwned(serverStateClaim(sourcePath, `${owner}::spawn.env.${environment.key}`, `spawn.env.${environment.key}`, 'string', environment.value === undefined ? undefined : [environment.value]), node, `spawn-environment-${environment.key}`, owner);
+      addOwned(serverStateClaim(
+        sourcePath,
+        `${owner}::spawn.env.${environment.key}`,
+        `spawn.env.${environment.key}`,
+        'string',
+        {
+          operation: 'write', provenance: 'environment', authority: 'runtime-forced',
+          persistence: 'runtime', optional: false, nullable: false,
+        },
+        environment.value === undefined ? undefined : [environment.value],
+      ), node, `spawn-environment-${environment.key}`, owner);
     }
     if (authorizationBoundary(node)) {
       const owner = factSymbol(node, sourcePath);
-      addOwned(serverStateClaim(sourcePath, `${owner}::Authorization.bearer`, 'http.Authorization', 'string'), node, 'authorization-bearer', owner);
+      const operation = ts.isCallExpression(node) ? 'read' : 'write';
+      addOwned(serverStateClaim(
+        sourcePath,
+        `${owner}::Authorization.bearer`,
+        'http.Authorization',
+        'string',
+        {
+          operation, provenance: 'http',
+          authority: sourcePath === 'ui/src/app/api/ostris_cloud/route.ts'
+            ? 'runtime-forced'
+            : 'user',
+          persistence: 'transient', optional: operation === 'read', nullable: false,
+        },
+      ), node, 'authorization-bearer', owner);
     }
     if (isUnauthorizedStatusCheck(node)) {
       const owner = factSymbol(node, sourcePath);
-      addOwned(serverStateClaim(sourcePath, `${owner}::status=401`, 'auth.is_authorized', 'boolean'), node, 'authorization-401', owner);
+      addOwned(serverStateClaim(
+        sourcePath,
+        `${owner}::status=401`,
+        'auth.is_authorized',
+        'boolean',
+        {
+          operation: 'derive', provenance: 'runtime', authority: 'ui-derived',
+          persistence: 'transient', optional: false, nullable: false,
+        },
+      ), node, 'authorization-401', owner);
     }
     ts.forEachChild(node, visit);
   };
@@ -13233,7 +13484,7 @@ export function collectTrainingBookUiFacts(repositoryRoot: string): TrainingBook
   ];
   config_claims.sort((left, right) => compareCodePoint(`${left.source_path}\0${left.symbol}\0${left.path}\0${left.kind}`, `${right.source_path}\0${right.symbol}\0${right.path}\0${right.kind}`));
   const facts: TrainingBookUiFacts = {
-    schema_version: 1,
+    schema_version: 2,
     model_architectures,
     defaults,
     config_claims,
@@ -13407,9 +13658,17 @@ function validateBehaviorContract(value: unknown, label: string): void {
   if ((payload.kind === 'copy' || payload.kind === 'map-prompt-objects') && !(value.sources as string[]).includes(String(payload.source_path))) throw new FactsError(`${label} payload source_path must be listed in sources`);
 }
 
+function validateServerStateContract(value: unknown, label: string): void {
+  requireKeys(value, ['operation', 'provenance', 'authority', 'persistence'], label);
+  if (!['read', 'write', 'delete', 'derive'].includes(String(value.operation))) throw new FactsError(`${label}.operation is unsupported`);
+  if (!['browser-storage', 'database', 'environment', 'config', 'http', 'runtime'].includes(String(value.provenance))) throw new FactsError(`${label}.provenance is unsupported`);
+  if (!['user', 'ui-derived', 'server-overwritten', 'runtime-forced'].includes(String(value.authority))) throw new FactsError(`${label}.authority is unsupported`);
+  if (!['config', 'job-json', 'database', 'runtime', 'transient', 'browser-storage'].includes(String(value.persistence))) throw new FactsError(`${label}.persistence is unsupported`);
+}
+
 export function validateTrainingBookUiFacts(value: unknown): asserts value is TrainingBookUiFacts {
   requireKeys(value, ['schema_version', 'model_architectures', 'defaults', 'config_claims', 'global_settings', 'architecture_transitions'], 'facts');
-  if (value.schema_version !== 1) throw new FactsError('facts.schema_version must equal 1');
+  if (value.schema_version !== 2) throw new FactsError('facts.schema_version must equal 2');
   for (const key of ['model_architectures', 'defaults', 'config_claims', 'global_settings', 'architecture_transitions'] as const) if (!Array.isArray(value[key])) throw new FactsError(`facts.${key} must be an array`);
   const names = new Set<string>();
   const architectures = value.model_architectures as unknown[];
@@ -13482,7 +13741,7 @@ export function validateTrainingBookUiFacts(value: unknown): asserts value is Tr
   for (const collectionName of ['config_claims', 'global_settings'] as const) {
     (value[collectionName] as unknown[]).forEach((item, index) => {
       const label = `facts.${collectionName}[${index}]`;
-      requireKeys(item, ['source_path', 'symbol', 'path', 'kind', 'ui_label', 'value_contract'], label, ['behavior_contract']);
+      requireKeys(item, ['source_path', 'symbol', 'path', 'kind', 'ui_label', 'value_contract'], label, ['behavior_contract', 'server_state_contract']);
       if (typeof item.source_path !== 'string' || typeof item.symbol !== 'string' || typeof item.path !== 'string' || !['setter', 'default', 'doc', 'setting', 'server-state'].includes(String(item.kind))) throw new FactsError(`${label} identity is invalid`);
       if (normalizeTrainingBookPath(item.path) !== item.path) throw new FactsError(`${label}.path is not canonical`);
       const identity = `${item.source_path}\0${item.symbol}\0${item.path}\0${item.kind}`;
@@ -13491,6 +13750,15 @@ export function validateTrainingBookUiFacts(value: unknown): asserts value is Tr
       validatePresence(item.ui_label, `${label}.ui_label`);
       validateValueContract(item.value_contract, `${label}.value_contract`);
       if (item.behavior_contract !== undefined) validateBehaviorContract(item.behavior_contract, `${label}.behavior_contract`);
+      if (item.kind === 'server-state') {
+        if (item.server_state_contract === undefined) throw new FactsError(`${label} server-state requires server_state_contract`);
+        validateServerStateContract(item.server_state_contract, `${label}.server_state_contract`);
+        if ((item.ui_label as { present?: unknown }).present !== false) throw new FactsError(`${label} server-state ui_label must be absent`);
+        if ((item.value_contract as { widget_kind?: unknown }).widget_kind !== null) throw new FactsError(`${label} server-state widget_kind must be null`);
+        if (item.behavior_contract !== undefined) throw new FactsError(`${label} server-state forbids behavior_contract`);
+      } else if (item.server_state_contract !== undefined) {
+        throw new FactsError(`${label} ${item.kind} forbids server_state_contract`);
+      }
     });
   }
   const transitionIdentities = new Set<string>();

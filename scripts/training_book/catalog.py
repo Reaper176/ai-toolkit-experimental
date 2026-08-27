@@ -543,16 +543,9 @@ class Setting(_StrictModel):
 
 
 class SettingsCatalog(_StrictModel):
-    schema_version: StrictInt
+    schema_version: Literal[2]
     settings: tuple[Setting, ...]
     ui_claims: tuple["UiFactOwner", ...] = ()
-
-    @field_validator("schema_version")
-    @classmethod
-    def _schema_version_one(cls, value: int) -> int:
-        if value != 1:
-            raise ValueError("schema_version must be 1")
-        return value
 
 
 class UiUndefinedValue(_StrictModel):
@@ -814,6 +807,21 @@ class UiValueContract(_StrictModel):
         return self
 
 
+class UiServerStateContract(_StrictModel):
+    operation: Literal["read", "write", "delete", "derive"]
+    provenance: Literal[
+        "browser-storage", "database", "environment", "config", "http",
+        "runtime",
+    ]
+    authority: Literal[
+        "user", "ui-derived", "server-overwritten", "runtime-forced"
+    ]
+    persistence: Literal[
+        "config", "job-json", "database", "runtime", "transient",
+        "browser-storage",
+    ]
+
+
 class UiBehaviorLiteralPayload(_StrictModel):
     kind: Literal["literal"]
     value: UiValue
@@ -938,14 +946,27 @@ class UiSourceFact(_StrictModel):
     ui_label: UiPresence
     value_contract: UiValueContract
     behavior_contract: UiBehaviorContract | None = None
+    server_state_contract: UiServerStateContract | None = None
 
     @model_validator(mode="after")
-    def _behavior_must_be_supplied_if_present(self) -> "UiSourceFact":
+    def _kind_specific_contracts(self) -> "UiSourceFact":
         if (
             "behavior_contract" in self.model_fields_set
             and self.behavior_contract is None
         ):
             raise ValueError("behavior_contract must be a tagged object")
+        server_contract_supplied = "server_state_contract" in self.model_fields_set
+        if self.kind == "server-state":
+            if not server_contract_supplied or self.server_state_contract is None:
+                raise ValueError("server-state requires server_state_contract")
+            if self.ui_label.present:
+                raise ValueError("server-state ui_label must be absent")
+            if self.value_contract.widget_kind is not None:
+                raise ValueError("server-state widget_kind must be null")
+            if self.behavior_contract is not None:
+                raise ValueError("server-state forbids behavior_contract")
+        elif server_contract_supplied:
+            raise ValueError(f"{self.kind} forbids server_state_contract")
         return self
 
     @field_validator("source_path")
@@ -1122,7 +1143,7 @@ class UiFactExclusion(_StrictModel):
 
 
 class UiExclusionsEnvelope(_StrictModel):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     exclusions: tuple[Any, ...]
     ui_exclusions: tuple[UiFactExclusion, ...] = ()
 
@@ -1140,7 +1161,7 @@ SettingsCatalog.model_rebuild()
 
 
 class TrainingBookUiFacts(_StrictModel):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     model_architectures: tuple[UiModelArchitecture, ...]
     defaults: tuple[UiDefault, ...]
     config_claims: tuple[UiSourceFact, ...]
@@ -1391,6 +1412,80 @@ def _setting_paths(setting: Setting) -> set[str]:
     }
 
 
+def _validate_server_state_boundary_contract(fact: UiOwnedSourceFact) -> None:
+    state = fact.server_state_contract
+    if state is None:
+        raise CatalogError("server-state fact lacks server_state_contract")
+    value = fact.value_contract
+    presence = (value.optional, value.nullable)
+    allowed_presence: dict[
+        tuple[str, str], set[tuple[bool, bool]]
+    ] = {
+        ("read", "browser-storage"): {(False, True), (True, False)},
+        ("write", "browser-storage"): {(False, False)},
+        ("delete", "browser-storage"): {(False, False)},
+        ("read", "database"): {
+            (False, False), (True, False), (False, True),
+        },
+        ("write", "database"): {(False, False), (False, True)},
+        ("derive", "database"): {(False, False)},
+        ("read", "environment"): {(True, False), (False, False)},
+        ("write", "environment"): {(False, False)},
+        ("read", "config"): {(False, False), (True, False), (False, True)},
+        ("write", "config"): {(False, False), (False, True)},
+        ("read", "http"): {(True, False), (False, False)},
+        ("write", "http"): {(False, False)},
+        ("derive", "runtime"): {(False, False)},
+        ("read", "runtime"): {(False, False), (True, False)},
+        ("write", "runtime"): {(False, False)},
+    }
+    allowed = allowed_presence.get((state.operation, state.provenance))
+    if allowed is None or presence not in allowed:
+        raise CatalogError(
+            f"{state.provenance} {state.operation} server-state has invalid "
+            f"optional/nullability semantics {presence!r}"
+        )
+    if state.operation == "delete":
+        if value.ui_type is not None:
+            raise CatalogError("delete server-state requires ui_type null")
+        if value.accepted_values is not None:
+            raise CatalogError("delete server-state forbids accepted_values")
+    elif value.ui_type is None:
+        raise CatalogError("non-delete server-state requires a semantic ui_type")
+
+
+def _validate_server_state_owner(
+    setting: Setting, fact: UiOwnedSourceFact
+) -> None:
+    _validate_server_state_boundary_contract(fact)
+    state = fact.server_state_contract
+    assert state is not None
+    if setting.authority != state.authority:
+        raise CatalogError(
+            f"server-state owner {setting.id!r} authority mismatch: source "
+            f"{state.authority!r}, catalog {setting.authority!r}"
+        )
+    if setting.persistence != state.persistence:
+        raise CatalogError(
+            f"server-state owner {setting.id!r} persistence mismatch: source "
+            f"{state.persistence!r}, catalog {setting.persistence!r}"
+        )
+    if state.operation == "delete":
+        return
+    emitted_type = fact.value_contract.ui_type
+    aggregate_type = setting.contract.ui_type or setting.contract.example_type
+    compatible = emitted_type == aggregate_type or (
+        state.provenance == "config"
+        and aggregate_type == "integer"
+        and emitted_type == "number"
+    )
+    if not compatible:
+        raise CatalogError(
+            f"server-state owner {setting.id!r} ui_type mismatch: source "
+            f"{emitted_type!r}, aggregate {aggregate_type!r}"
+        )
+
+
 def _validate_setting_source_contract(
     setting: Setting,
     fact: UiOwnedSourceFact,
@@ -1429,6 +1524,9 @@ def _validate_setting_source_contract(
                 f"behavior owner {setting.id!r} must be a user-authority, "
                 "config-persisted YAML setting"
             )
+        return
+    if fact.kind == "server-state":
+        _validate_server_state_owner(setting, fact)
         return
     if fact.kind != "setting":
         return
@@ -1955,6 +2053,43 @@ def validate_ui_fact_ownership(
     stale_exclusions = sorted(set(selected_exclusions).difference(emitted))
     if stale_exclusions:
         raise CatalogError(f"stale UI exclusions: {len(stale_exclusions)}")
+
+    server_state_exclusion_semantics: dict[
+        str, set[tuple[str, str]]
+    ] = {
+        "server-owned-value": {
+            ("runtime-forced", "runtime"),
+            ("runtime-forced", "transient"),
+            ("server-overwritten", "runtime"),
+            ("server-overwritten", "transient"),
+        },
+        "runtime-derived-ui-state": {
+            ("ui-derived", "transient"),
+            ("ui-derived", "config"),
+            ("server-overwritten", "database"),
+            ("server-overwritten", "transient"),
+            ("runtime-forced", "runtime"),
+        },
+        "transient-ui-state": {
+            ("ui-derived", "transient"),
+            ("user", "transient"),
+            ("server-overwritten", "database"),
+            ("server-overwritten", "transient"),
+        },
+    }
+    for exclusion in selected_exclusions.values():
+        fact = exclusion.fact
+        if not isinstance(fact, UiOwnedSourceFact) or fact.kind != "server-state":
+            continue
+        _validate_server_state_boundary_contract(fact)
+        state = fact.server_state_contract
+        assert state is not None
+        allowed = server_state_exclusion_semantics.get(exclusion.reason)
+        if allowed is None or (state.authority, state.persistence) not in allowed:
+            raise CatalogError(
+                f"server-state exclusion {exclusion.reason!r} has invalid "
+                "authority/persistence semantics"
+            )
 
     settings = {setting.id: setting for setting in catalog.settings}
     for identity, owner in selected_owners.items():

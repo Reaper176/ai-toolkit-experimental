@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "settings": [
     {
       "id": "root.config",
@@ -19421,7 +19421,7 @@
         {
           "kind": "engine-fallback",
           "presence": "present",
-          "value": 0.000001,
+          "value": 1e-06,
           "applicability": []
         },
         {
@@ -67421,7 +67421,7 @@
         "ui_nullable": null,
         "ui_accepted_values": null,
         "ui_range": null,
-        "example_type": "string",
+        "example_type": "integer",
         "accepted_values": null,
         "range": null,
         "null": "accepted"
@@ -67556,7 +67556,7 @@
         "ui_nullable": null,
         "ui_accepted_values": null,
         "ui_range": null,
-        "example_type": "string",
+        "example_type": "path",
         "accepted_values": null,
         "range": null,
         "null": "accepted"
@@ -67764,14 +67764,6 @@
         {
           "kind": "ui-state",
           "path": "browser.localStorage.AI_TOOLKIT_AUTH"
-        },
-        {
-          "kind": "ui-state",
-          "path": "http.Authorization"
-        },
-        {
-          "kind": "ui-state",
-          "path": "auth.is_authorized"
         }
       ],
       "surfaces": [
@@ -118378,9 +118370,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "user",
+          "persistence": "runtime"
         },
         "fact_type": "source-claim"
       }
@@ -118397,9 +118395,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "user",
+          "persistence": "runtime"
         },
         "fact_type": "source-claim"
       }
@@ -118416,9 +118420,15 @@
         },
         "value_contract": {
           "ui_type": "integer",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "user",
+          "persistence": "runtime"
         },
         "fact_type": "source-claim"
       }
@@ -118435,9 +118445,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "user",
+          "persistence": "runtime"
         },
         "fact_type": "source-claim"
       }
@@ -118454,9 +118470,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "user",
+          "persistence": "runtime"
         },
         "fact_type": "source-claim"
       }
@@ -118473,9 +118495,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "user",
+          "persistence": "runtime"
         },
         "fact_type": "source-claim"
       }
@@ -118492,9 +118520,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "user",
+          "persistence": "runtime"
         },
         "fact_type": "source-claim"
       }
@@ -118511,9 +118545,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
+          "widget_kind": null,
+          "optional": false,
           "nullable": true
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -118530,9 +118570,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -118549,9 +118595,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
+          "widget_kind": null,
+          "optional": false,
           "nullable": true
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -118568,9 +118620,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
+          "widget_kind": null,
+          "optional": false,
           "nullable": true
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -118586,10 +118644,16 @@
           "present": false
         },
         "value_contract": {
-          "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "ui_type": null,
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "delete",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -118606,9 +118670,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
+          "widget_kind": null,
+          "optional": false,
           "nullable": true
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -118625,9 +118695,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
+          "widget_kind": null,
+          "optional": false,
           "nullable": true
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -118644,9 +118720,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "config",
+          "authority": "user",
+          "persistence": "config"
         },
         "fact_type": "source-claim"
       }
@@ -118663,9 +118745,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "config",
+          "authority": "user",
+          "persistence": "config"
         },
         "fact_type": "source-claim"
       }
@@ -118682,28 +118770,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
         },
-        "fact_type": "source-claim"
-      }
-    },
-    {
-      "setting_id": "ui.gpu-ids",
-      "fact": {
-        "source_path": "ui/src/app/jobs/new/page.tsx",
-        "symbol": "TrainingForm::default::gpuids",
-        "path": "gpuids",
-        "kind": "server-state",
-        "ui_label": {
-          "present": false
-        },
-        "value_contract": {
-          "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+        "server_state_contract": {
+          "operation": "derive",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -118720,66 +118795,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
+          "widget_kind": null,
+          "optional": false,
           "nullable": true
         },
-        "fact_type": "source-claim"
-      }
-    },
-    {
-      "setting_id": "ui.auth-token",
-      "fact": {
-        "source_path": "ui/src/middleware.ts",
-        "symbol": "middleware::Authorization.bearer",
-        "path": "http.Authorization",
-        "kind": "server-state",
-        "ui_label": {
-          "present": false
-        },
-        "value_contract": {
-          "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
-        },
-        "fact_type": "source-claim"
-      }
-    },
-    {
-      "setting_id": "ui.auth-token",
-      "fact": {
-        "source_path": "ui/src/utils/api.ts",
-        "symbol": "apiClient.request::Authorization.bearer",
-        "path": "http.Authorization",
-        "kind": "server-state",
-        "ui_label": {
-          "present": false
-        },
-        "value_contract": {
-          "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
-        },
-        "fact_type": "source-claim"
-      }
-    },
-    {
-      "setting_id": "ui.auth-token",
-      "fact": {
-        "source_path": "ui/src/utils/callScript.ts",
-        "symbol": "callScriptStream::Authorization.bearer",
-        "path": "http.Authorization",
-        "kind": "server-state",
-        "ui_label": {
-          "present": false
-        },
-        "value_contract": {
-          "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -118796,9 +118820,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -118815,9 +118845,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -118834,9 +118870,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -118853,9 +118895,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -118872,9 +118920,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -118891,9 +118945,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -118910,9 +118970,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -118929,9 +118995,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -118948,9 +119020,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -118967,9 +119045,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -118986,9 +119070,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119005,9 +119095,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119024,9 +119120,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119043,9 +119145,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119062,9 +119170,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119081,9 +119195,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119100,9 +119220,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119119,9 +119245,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119138,9 +119270,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119157,9 +119295,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119176,9 +119320,15 @@
         },
         "value_contract": {
           "ui_type": "integer",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "runtime",
+          "authority": "user",
+          "persistence": "runtime"
         },
         "fact_type": "source-claim"
       }
@@ -119333,9 +119483,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "user",
+          "persistence": "runtime"
         },
         "fact_type": "source-claim"
       }
@@ -119352,9 +119508,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "user",
+          "persistence": "runtime"
         },
         "fact_type": "source-claim"
       }
@@ -119371,9 +119533,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "user",
+          "persistence": "runtime"
         },
         "fact_type": "source-claim"
       }
@@ -119390,9 +119558,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119409,9 +119583,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119428,9 +119608,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119447,9 +119633,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119466,9 +119658,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119485,9 +119683,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "user",
+          "persistence": "runtime"
         },
         "fact_type": "source-claim"
       }
@@ -119504,9 +119708,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119523,9 +119733,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119542,9 +119758,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119561,9 +119783,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119580,9 +119808,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119599,9 +119833,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119618,9 +119858,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119637,9 +119883,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119656,9 +119908,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119675,9 +119933,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119694,9 +119958,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119713,9 +119983,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119732,9 +120008,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119751,9 +120033,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119770,9 +120058,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119789,9 +120083,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119808,9 +120108,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119827,9 +120133,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119846,9 +120158,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119865,9 +120183,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119884,9 +120208,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119903,9 +120233,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119922,9 +120258,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119941,9 +120283,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119960,9 +120308,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119979,9 +120333,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -119998,9 +120358,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120017,9 +120383,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120036,9 +120408,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120055,9 +120433,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "user",
+          "persistence": "runtime"
         },
         "fact_type": "source-claim"
       }
@@ -120074,9 +120458,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "user",
+          "persistence": "runtime"
         },
         "fact_type": "source-claim"
       }
@@ -120093,9 +120483,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "user",
+          "persistence": "runtime"
         },
         "fact_type": "source-claim"
       }
@@ -120112,9 +120508,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120131,9 +120533,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120150,15 +120558,21 @@
         },
         "value_contract": {
           "ui_type": "number",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true,
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
           "accepted_values": [
             {
               "kind": "number",
               "value": 10
             }
           ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "config",
+          "authority": "user",
+          "persistence": "config"
         },
         "fact_type": "source-claim"
       }
@@ -120175,15 +120589,21 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true,
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
           "accepted_values": [
             {
               "kind": "string",
               "value": "./aitk_db.db"
             }
           ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "config",
+          "authority": "user",
+          "persistence": "config"
         },
         "fact_type": "source-claim"
       }
@@ -120200,9 +120620,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "config",
+          "authority": "user",
+          "persistence": "config"
         },
         "fact_type": "source-claim"
       }
@@ -120219,9 +120645,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120238,15 +120670,21 @@
         },
         "value_contract": {
           "ui_type": "number",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true,
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
           "accepted_values": [
             {
               "kind": "number",
               "value": 10
             }
           ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "config",
+          "authority": "user",
+          "persistence": "config"
         },
         "fact_type": "source-claim"
       }
@@ -120263,15 +120701,21 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true,
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
           "accepted_values": [
             {
               "kind": "string",
               "value": "./aitk_db.db"
             }
           ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "config",
+          "authority": "user",
+          "persistence": "config"
         },
         "fact_type": "source-claim"
       }
@@ -120288,9 +120732,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120307,9 +120757,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120326,9 +120782,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120345,9 +120807,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120364,9 +120832,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
+          "widget_kind": null,
+          "optional": false,
           "nullable": true
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -120383,9 +120857,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120402,9 +120882,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120421,9 +120907,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120440,9 +120932,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120459,28 +120957,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
+          "widget_kind": null,
+          "optional": false,
           "nullable": true
         },
-        "fact_type": "source-claim"
-      }
-    },
-    {
-      "setting_id": "ui.gpu-ids",
-      "fact": {
-        "source_path": "ui/src/components/CaptionDatasetModal.tsx",
-        "symbol": "CaptionDatasetModal::default::gpuids",
-        "path": "gpuids",
-        "kind": "server-state",
-        "ui_label": {
-          "present": false
-        },
-        "value_contract": {
-          "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -120497,9 +120982,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
+          "widget_kind": null,
+          "optional": false,
           "nullable": true
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120516,9 +121007,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
+          "widget_kind": null,
+          "optional": false,
           "nullable": true
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120535,9 +121032,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
+          "widget_kind": null,
+          "optional": false,
           "nullable": true
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120554,9 +121057,15 @@
         },
         "value_contract": {
           "ui_type": "boolean",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -120573,9 +121082,15 @@
         },
         "value_contract": {
           "ui_type": "object",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -120592,9 +121107,15 @@
         },
         "value_contract": {
           "ui_type": "number",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -120611,9 +121132,15 @@
         },
         "value_contract": {
           "ui_type": "boolean",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -120630,9 +121157,15 @@
         },
         "value_contract": {
           "ui_type": "number",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -120649,9 +121182,15 @@
         },
         "value_contract": {
           "ui_type": "boolean",
-          "widget_kind": "read-only",
+          "widget_kind": null,
           "optional": true,
-          "nullable": true
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -120668,9 +121207,15 @@
         },
         "value_contract": {
           "ui_type": "boolean",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -120687,9 +121232,15 @@
         },
         "value_contract": {
           "ui_type": "object",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -120706,9 +121257,15 @@
         },
         "value_contract": {
           "ui_type": "number",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -120725,9 +121282,15 @@
         },
         "value_contract": {
           "ui_type": "boolean",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -120744,9 +121307,15 @@
         },
         "value_contract": {
           "ui_type": "number",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -120763,9 +121332,15 @@
         },
         "value_contract": {
           "ui_type": "boolean",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -120782,9 +121357,15 @@
         },
         "value_contract": {
           "ui_type": "string",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "browser-storage",
+          "authority": "user",
+          "persistence": "browser-storage"
         },
         "fact_type": "source-claim"
       }
@@ -120801,9 +121382,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }
@@ -120820,9 +121407,15 @@
         },
         "value_contract": {
           "ui_type": "path",
-          "widget_kind": "read-only",
-          "optional": true,
-          "nullable": true
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "database",
+          "authority": "user",
+          "persistence": "database"
         },
         "fact_type": "source-claim"
       }

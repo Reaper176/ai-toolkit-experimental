@@ -583,11 +583,68 @@ class CatalogContractTests(unittest.TestCase):
         entry["persistence"] = "browser-storage"
 
         catalog = validate_settings_catalog(
-            {"schema_version": 1, "settings": [entry]},
+            {"schema_version": 2, "settings": [entry]},
             self.discovered_steps(),
         )
 
         self.assertEqual(catalog.settings[0].persistence, "browser-storage")
+
+    def test_catalog_and_ui_exclusion_contract_versions_are_exactly_two(self):
+        entry = self.valid_catalog_entry()
+        catalog = validate_settings_catalog(
+            {"schema_version": 2, "settings": [entry]},
+            self.discovered_steps(),
+        )
+        self.assertEqual(catalog.schema_version, 2)
+        self.assertEqual(
+            settings_catalog_schema()["properties"]["schema_version"]["const"],
+            2,
+        )
+
+        for version in (1, 3):
+            with self.subTest(catalog_version=version):
+                with self.assertRaisesRegex(CatalogError, "schema_version"):
+                    validate_settings_catalog(
+                        {"schema_version": version, "settings": [entry]},
+                        self.discovered_steps(),
+                    )
+
+        fact = self.ui_source_fact()
+        fact.update({
+            "kind": "server-state",
+            "ui_label": {"present": False},
+            "value_contract": {
+                "ui_type": "string",
+                "widget_kind": None,
+                "optional": True,
+                "nullable": False,
+            },
+            "server_state_contract": {
+                "operation": "read",
+                "provenance": "environment",
+                "authority": "user",
+                "persistence": "runtime",
+            },
+        })
+        exclusion = {"fact": fact, "reason": "runtime-derived-ui-state"}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings-exclusions.json"
+            path.write_text(json.dumps({
+                "schema_version": 2,
+                "exclusions": [],
+                "ui_exclusions": [exclusion],
+            }), encoding="utf-8")
+            loaded = load_ui_exclusions(path)
+            self.assertEqual(len(loaded), 1)
+            for version in (1, 3):
+                path.write_text(json.dumps({
+                    "schema_version": version,
+                    "exclusions": [],
+                    "ui_exclusions": [exclusion],
+                }), encoding="utf-8")
+                with self.subTest(exclusions_version=version):
+                    with self.assertRaisesRegex(CatalogError, "schema_version"):
+                        load_ui_exclusions(path)
 
     def test_catalog_contract_models_non_authoritative_suggestions_and_reciprocal_ui_scales(self):
         entry = self.valid_catalog_entry()
@@ -598,7 +655,7 @@ class CatalogContractTests(unittest.TestCase):
         })
 
         catalog = validate_settings_catalog(
-            {"schema_version": 1, "settings": [entry]},
+            {"schema_version": 2, "settings": [entry]},
             self.discovered_steps(),
         )
 
@@ -628,7 +685,7 @@ class CatalogContractTests(unittest.TestCase):
             with self.subTest(message=message):
                 with self.assertRaisesRegex(CatalogError, message):
                     validate_settings_catalog(
-                        {"schema_version": 1, "settings": [payload]},
+                        {"schema_version": 2, "settings": [payload]},
                         self.discovered_steps(),
                     )
 
@@ -667,7 +724,7 @@ class CatalogContractTests(unittest.TestCase):
 
         catalog = validate_settings_catalog(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "settings": [entry],
                 "ui_claims": [{
                     "setting_id": entry["id"],
@@ -754,7 +811,7 @@ class CatalogContractTests(unittest.TestCase):
 
     def test_catalog_ui_owners_use_a_strict_full_payload_fact_union(self):
         data = {
-            "schema_version": 1,
+            "schema_version": 2,
             "settings": [self.valid_catalog_entry()],
             "ui_claims": [
                 {"setting_id": "train.steps", "fact": fact}
@@ -824,7 +881,7 @@ class CatalogContractTests(unittest.TestCase):
         })
         fact = self.ui_owner_facts()[3]
         data = {
-            "schema_version": 1,
+            "schema_version": 2,
             "settings": [entry],
             "ui_claims": [{
                 "setting_id": "ui.architecture.fixture", "fact": fact,
@@ -841,7 +898,7 @@ class CatalogContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "settings-exclusions.json"
             payload = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "exclusions": [],
                 "ui_exclusions": [{
                     "fact": self.ui_source_fact(),
@@ -874,11 +931,11 @@ class CatalogContractTests(unittest.TestCase):
 
     def test_catalog_contract_accepts_the_representative_shape_and_empty_catalog(self):
         catalog = validate_settings_catalog(
-            {"schema_version": 1, "settings": [self.valid_catalog_entry()]},
+            {"schema_version": 2, "settings": [self.valid_catalog_entry()]},
             self.discovered_steps(),
         )
         empty = validate_settings_catalog(
-            {"schema_version": 1, "settings": []}, ()
+            {"schema_version": 2, "settings": []}, ()
         )
 
         self.assertEqual(catalog.settings[0].id, "train.steps")
@@ -897,7 +954,7 @@ class CatalogContractTests(unittest.TestCase):
             with self.subTest(message=message):
                 with self.assertRaisesRegex(CatalogError, message):
                     validate_settings_catalog(
-                        {"schema_version": 1, "settings": settings},
+                        {"schema_version": 2, "settings": settings},
                         self.discovered_steps(),
                     )
 
@@ -917,7 +974,7 @@ class CatalogContractTests(unittest.TestCase):
                 entry[field] = value
                 with self.assertRaisesRegex(CatalogError, message):
                     validate_settings_catalog(
-                        {"schema_version": 1, "settings": [entry]},
+                        {"schema_version": 2, "settings": [entry]},
                         self.discovered_steps(),
                     )
 
@@ -939,7 +996,7 @@ class CatalogContractTests(unittest.TestCase):
             }
         ]
         validate_settings_catalog(
-            {"schema_version": 1, "settings": [valid]},
+            {"schema_version": 2, "settings": [valid]},
             self.discovered_steps(),
         )
 
@@ -958,7 +1015,7 @@ class CatalogContractTests(unittest.TestCase):
                         r"canonical.*\[\*\]",
                     ):
                         validate_settings_catalog(
-                            {"schema_version": 1, "settings": [entry]},
+                            {"schema_version": 2, "settings": [entry]},
                             self.discovered_steps(),
                         )
 
@@ -972,14 +1029,14 @@ class CatalogContractTests(unittest.TestCase):
         with self.assertRaisesRegex(CatalogError, "overlapping.*location"):
             validate_settings_catalog(
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "settings": [self.valid_catalog_entry(), overlapping],
                 },
                 self.discovered_steps(),
             )
         validate_settings_catalog(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "settings": [self.valid_catalog_entry(), disjoint],
             },
             self.discovered_steps()
@@ -1017,7 +1074,7 @@ class CatalogContractTests(unittest.TestCase):
             DiscoveredSetting("toolkit/config_modules.py", "TrainConfig.__init__", 2, "eps_adamw", "kwargs.get", "core", "2000"),
         )
         validate_settings_catalog(
-            {"schema_version": 1, "settings": [adam, adamw]}, discovered
+            {"schema_version": 2, "settings": [adam, adamw]}, discovered
         )
 
         duplicate = deepcopy(adamw)
@@ -1026,7 +1083,7 @@ class CatalogContractTests(unittest.TestCase):
         ]
         with self.assertRaisesRegex(CatalogError, "overlapping.*location"):
             validate_settings_catalog(
-                {"schema_version": 1, "settings": [adam, duplicate]}, discovered
+                {"schema_version": 2, "settings": [adam, duplicate]}, discovered
             )
 
     def test_catalog_contract_dispatch_patterns_detect_and_partition_overlaps(self):
@@ -1067,7 +1124,7 @@ class CatalogContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(CatalogError, "overlapping.*location"):
                     validate_settings_catalog(
                         {
-                            "schema_version": 1,
+                            "schema_version": 2,
                             "settings": [
                                 row("optimizer.left.param.eps", "left", left),
                                 row("optimizer.right.param.eps", "right", right),
@@ -1090,7 +1147,7 @@ class CatalogContractTests(unittest.TestCase):
             {"optimizer_prefix": "prodigy8bit"},
         )
         validate_settings_catalog(
-            {"schema_version": 1, "settings": [partitioned, specific]},
+            {"schema_version": 2, "settings": [partitioned, specific]},
             discovered,
         )
 
@@ -1105,7 +1162,7 @@ class CatalogContractTests(unittest.TestCase):
             {"optimizer_prefix": "family", "optimizer_suffix": "adam"},
         )
         validate_settings_catalog(
-            {"schema_version": 1, "settings": [disjoint_combined, disjoint_suffix]},
+            {"schema_version": 2, "settings": [disjoint_combined, disjoint_suffix]},
             discovered,
         )
 
@@ -1129,12 +1186,12 @@ class CatalogContractTests(unittest.TestCase):
         )
 
         validate_settings_catalog(
-            {"schema_version": 1, "settings": [lora, lycoris]}, discovered
+            {"schema_version": 2, "settings": [lora, lycoris]}, discovered
         )
         lycoris["applicability"] = [{"network_type": "lora"}]
         with self.assertRaisesRegex(CatalogError, "overlapping.*location"):
             validate_settings_catalog(
-                {"schema_version": 1, "settings": [lora, lycoris]}, discovered
+                {"schema_version": 2, "settings": [lora, lycoris]}, discovered
             )
 
     def test_catalog_contract_rejects_blank_teaching_prose(self):
@@ -1143,7 +1200,7 @@ class CatalogContractTests(unittest.TestCase):
 
         with self.assertRaisesRegex(CatalogError, "render.drawbacks"):
             validate_settings_catalog(
-                {"schema_version": 1, "settings": [entry]},
+                {"schema_version": 2, "settings": [entry]},
                 self.discovered_steps(),
             )
 
@@ -1153,7 +1210,7 @@ class CatalogContractTests(unittest.TestCase):
 
         with self.assertRaisesRegex(CatalogError, "default.*authority"):
             validate_settings_catalog(
-                {"schema_version": 1, "settings": [entry]},
+                {"schema_version": 2, "settings": [entry]},
                 self.discovered_steps(),
             )
 
@@ -1169,12 +1226,12 @@ class CatalogContractTests(unittest.TestCase):
             },
         ]
         validate_settings_catalog(
-            {"schema_version": 1, "settings": [entry]}, self.discovered_steps()
+            {"schema_version": 2, "settings": [entry]}, self.discovered_steps()
         )
         entry["defaults"][0]["value"] = None
         with self.assertRaisesRegex(CatalogError, "presence.*absent.*value"):
             validate_settings_catalog(
-                {"schema_version": 1, "settings": [entry]},
+                {"schema_version": 2, "settings": [entry]},
                 self.discovered_steps(),
             )
 
@@ -1191,7 +1248,7 @@ class CatalogContractTests(unittest.TestCase):
 
         with self.assertRaisesRegex(CatalogError, "aliases.0.migration"):
             validate_settings_catalog(
-                {"schema_version": 1, "settings": [entry]},
+                {"schema_version": 2, "settings": [entry]},
                 self.discovered_steps(),
             )
 
@@ -1211,7 +1268,7 @@ class CatalogContractTests(unittest.TestCase):
             with self.subTest(message=message):
                 with self.assertRaisesRegex(CatalogError, message):
                     validate_settings_catalog(
-                        {"schema_version": 1, "settings": [candidate]}, discovered
+                        {"schema_version": 2, "settings": [candidate]}, discovered
                     )
 
     def test_catalog_contract_rejects_empty_source_claims(self):
@@ -1220,7 +1277,7 @@ class CatalogContractTests(unittest.TestCase):
 
         with self.assertRaisesRegex(CatalogError, "source-less.*UI ownership"):
             validate_settings_catalog(
-                {"schema_version": 1, "settings": [entry]}, ()
+                {"schema_version": 2, "settings": [entry]}, ()
             )
 
     def test_catalog_contract_is_strict_and_rejects_boolean_numbers(self):
@@ -1237,7 +1294,7 @@ class CatalogContractTests(unittest.TestCase):
                 mutate(entry)
                 with self.assertRaisesRegex(CatalogError, message):
                     validate_settings_catalog(
-                        {"schema_version": 1, "settings": [entry]},
+                        {"schema_version": 2, "settings": [entry]},
                         self.discovered_steps(),
                     )
 
@@ -1249,7 +1306,7 @@ class CatalogContractTests(unittest.TestCase):
 
                 with self.assertRaisesRegex(CatalogError, f"contract.{field}"):
                     validate_settings_catalog(
-                        {"schema_version": 1, "settings": [entry]},
+                        {"schema_version": 2, "settings": [entry]},
                         self.discovered_steps(),
                     )
 
@@ -1265,7 +1322,7 @@ class CatalogContractTests(unittest.TestCase):
             }
         )
         validate_settings_catalog(
-            {"schema_version": 1, "settings": [entry]},
+            {"schema_version": 2, "settings": [entry]},
             self.discovered_steps(),
         )
 
@@ -1280,7 +1337,7 @@ class CatalogContractTests(unittest.TestCase):
                 invalid["contract"]["collection_length"] = length
                 with self.assertRaisesRegex(CatalogError, "collection_length"):
                     validate_settings_catalog(
-                        {"schema_version": 1, "settings": [invalid]},
+                        {"schema_version": 2, "settings": [invalid]},
                         self.discovered_steps(),
                     )
 
@@ -1294,7 +1351,7 @@ class CatalogContractTests(unittest.TestCase):
             "maximum_inclusive": True,
         }
         validate_settings_catalog(
-            {"schema_version": 1, "settings": [valid]},
+            {"schema_version": 2, "settings": [valid]},
             self.discovered_steps(),
         )
 
@@ -1322,7 +1379,7 @@ class CatalogContractTests(unittest.TestCase):
                     "accepted_values.*(?:range|finite)",
                 ):
                     validate_settings_catalog(
-                        {"schema_version": 1, "settings": [entry]},
+                        {"schema_version": 2, "settings": [entry]},
                         self.discovered_steps(),
                     )
 
@@ -1360,7 +1417,7 @@ class CatalogContractTests(unittest.TestCase):
                     mutate(entry, value)
                     with self.assertRaisesRegex(CatalogError, "finite|JSON"):
                         validate_settings_catalog(
-                            {"schema_version": 1, "settings": [entry]},
+                            {"schema_version": 2, "settings": [entry]},
                             self.discovered_steps(),
                         )
 
@@ -1373,7 +1430,7 @@ class CatalogContractTests(unittest.TestCase):
             {"accepted_values": [huge, larger], "range": None}
         )
         without_range = validate_settings_catalog(
-            {"schema_version": 1, "settings": [accepted]},
+            {"schema_version": 2, "settings": [accepted]},
             self.discovered_steps(),
         )
         self.assertEqual(
@@ -1395,7 +1452,7 @@ class CatalogContractTests(unittest.TestCase):
             "outer": [huge, {"inner": larger}]
         }
         catalog = validate_settings_catalog(
-            {"schema_version": 1, "settings": [accepted]},
+            {"schema_version": 2, "settings": [accepted]},
             self.discovered_steps(),
         )
         self.assertEqual(catalog.settings[0].contract.range.minimum, huge)
@@ -1408,7 +1465,7 @@ class CatalogContractTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(CatalogError, "minimum must not exceed maximum"):
             validate_settings_catalog(
-                {"schema_version": 1, "settings": [reversed_range]},
+                {"schema_version": 2, "settings": [reversed_range]},
                 self.discovered_steps(),
             )
 
@@ -1420,7 +1477,7 @@ class CatalogContractTests(unittest.TestCase):
                 json.dumps(settings_catalog_schema()), encoding="utf-8"
             )
             catalog_path.write_text(
-                json.dumps({"schema_version": 1, "settings": [accepted]}),
+                json.dumps({"schema_version": 2, "settings": [accepted]}),
                 encoding="utf-8",
             )
             loaded = load_settings_catalog(catalog_path, schema_path, None)
@@ -1582,7 +1639,7 @@ class CatalogContractTests(unittest.TestCase):
                         "outer": [{"inner": 0.0}]
                     }
                     encoded = json.dumps(
-                        {"schema_version": 1, "settings": [entry]}
+                        {"schema_version": 2, "settings": [entry]}
                     ).replace("0.0", constant, 1)
                     catalog_path.write_text(encoded, encoding="utf-8")
                     with self.assertRaisesRegex(CatalogError, "non-finite"):
@@ -1649,7 +1706,7 @@ class CatalogContractTests(unittest.TestCase):
                     entry = self.valid_catalog_entry()
                     mutate(entry)
                     catalog_path.write_text(
-                        json.dumps({"schema_version": 1, "settings": [entry]}),
+                        json.dumps({"schema_version": 2, "settings": [entry]}),
                         encoding="utf-8",
                     )
                     with self.assertRaisesRegex(
@@ -1661,7 +1718,7 @@ class CatalogContractTests(unittest.TestCase):
         entry = self.valid_catalog_entry()
         entry["source_claims"][0]["read_kind"] = "attribute[]"
         catalog = validate_settings_catalog(
-            {"schema_version": 1, "settings": [entry]},
+            {"schema_version": 2, "settings": [entry]},
             (
                 DiscoveredSetting(
                     "toolkit/config_modules.py",
@@ -1806,7 +1863,7 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
     def valid_facts(self):
         absent = self.valid_presence(present=False)
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "model_architectures": [{
                 "name": "fixture", "label": "Fixture", "group": "image",
                 "model_path": self.valid_presence(), "gate_url": absent,
@@ -1862,7 +1919,7 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
 
     def ownership_catalog_data(self, projected, *, train_entry=None):
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "settings": [
                 train_entry or CatalogContractTests().valid_catalog_entry(),
                 self.valid_architecture_entry(),
@@ -1884,6 +1941,238 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         facts = validate_training_book_ui_facts(self.valid_facts())
         self.assertEqual(facts.model_architectures[0].name, "fixture")
         self.assertEqual(facts.config_claims[0].value_contract.ui_type, "number")
+
+    def test_ui_facts_v2_requires_exact_kind_gated_server_state_contracts(self):
+        data = self.valid_facts()
+        data["schema_version"] = 2
+        server_fact = deepcopy(data["config_claims"][0])
+        server_fact.update({
+            "source_path": "ui/src/example.ts",
+            "symbol": "Example::process.env.TOKEN",
+            "path": "TOKEN",
+            "kind": "server-state",
+            "ui_label": {"present": False},
+            "value_contract": {
+                "ui_type": "string",
+                "widget_kind": None,
+                "optional": True,
+                "nullable": False,
+            },
+            "server_state_contract": {
+                "operation": "read",
+                "provenance": "environment",
+                "authority": "user",
+                "persistence": "runtime",
+            },
+        })
+        data["global_settings"] = [server_fact]
+
+        facts = validate_training_book_ui_facts(data)
+        self.assertEqual(facts.schema_version, 2)
+        self.assertEqual(
+            facts.global_settings[0].server_state_contract.operation,
+            "read",
+        )
+        self.assertIsNone(
+            facts.global_settings[0].value_contract.widget_kind,
+            "hidden environment/storage/server boundaries are not read-only widgets",
+        )
+
+        invalid_cases = []
+        missing = deepcopy(data)
+        del missing["global_settings"][0]["server_state_contract"]
+        invalid_cases.append((missing, "server-state.*requires server_state_contract"))
+        non_server = deepcopy(data)
+        non_server["config_claims"][0]["server_state_contract"] = deepcopy(
+            server_fact["server_state_contract"]
+        )
+        invalid_cases.append((non_server, "forbids server_state_contract"))
+        read_only_widget = deepcopy(data)
+        read_only_widget["global_settings"][0]["value_contract"][
+            "widget_kind"
+        ] = "read-only"
+        invalid_cases.append((read_only_widget, "server-state.*widget_kind.*null"))
+        extra = deepcopy(data)
+        extra["global_settings"][0]["server_state_contract"]["extra"] = True
+        invalid_cases.append((extra, "extra"))
+        for field, replacement in {
+            "operation": "rename",
+            "provenance": "cookie",
+            "authority": "sometimes-user",
+            "persistence": "forever",
+        }.items():
+            invalid = deepcopy(data)
+            invalid["global_settings"][0]["server_state_contract"][
+                field
+            ] = replacement
+            invalid_cases.append((invalid, field))
+        for payload, error in invalid_cases:
+            with self.subTest(error=error):
+                with self.assertRaisesRegex(CatalogError, error):
+                    validate_training_book_ui_facts(payload)
+
+        for version in (1, 3):
+            invalid_version = deepcopy(data)
+            invalid_version["schema_version"] = version
+            with self.subTest(version=version):
+                with self.assertRaisesRegex(CatalogError, "schema_version"):
+                    validate_training_book_ui_facts(invalid_version)
+
+    def test_server_state_owners_reconcile_authority_persistence_and_boundary_values(self):
+        def source_fact(symbol, operation, ui_type, optional, nullable):
+            return {
+                "source_path": "ui/src/example.ts",
+                "symbol": symbol,
+                "path": "browser.localStorage.token",
+                "kind": "server-state",
+                "ui_label": {"present": False},
+                "value_contract": {
+                    "ui_type": ui_type,
+                    "widget_kind": None,
+                    "optional": optional,
+                    "nullable": nullable,
+                },
+                "server_state_contract": {
+                    "operation": operation,
+                    "provenance": "browser-storage",
+                    "authority": "user",
+                    "persistence": "browser-storage",
+                },
+            }
+
+        data = self.valid_facts()
+        data["global_settings"] = [
+            source_fact("Example::get", "read", "string", False, True),
+            source_fact("Example::set", "write", "string", False, False),
+            source_fact("Example::remove", "delete", None, False, False),
+        ]
+
+        def catalog_for(payload, *, authority="user", persistence="browser-storage"):
+            facts = validate_training_book_ui_facts(payload)
+            projected = catalog_module.project_training_book_ui_facts(facts)
+            catalog_data = self.ownership_catalog_data(projected)
+            storage = CatalogContractTests().valid_catalog_entry()
+            storage.update({
+                "id": "ui.browser-token",
+                "ui_label": "Browser token",
+                "scope": "ui-state",
+                "locations": [{
+                    "kind": "ui-state",
+                    "path": "browser.localStorage.token",
+                }],
+                "surfaces": ["simple-ui"],
+                "persistence": persistence,
+                "authority": authority,
+                "source_claims": [],
+                "defaults": [],
+            })
+            storage["contract"].update({
+                "parser_type": "ui-state",
+                "supported_type": "exact-global-state",
+                "ui_type": "string",
+                "ui_optional": False,
+                "ui_nullable": False,
+                "ui_accepted_values": None,
+                "ui_range": None,
+                "example_type": "string",
+                "accepted_values": None,
+                "range": None,
+                "null": "rejected",
+            })
+            catalog_data["settings"].append(storage)
+            for owner in catalog_data["ui_claims"]:
+                if owner["fact"].get("source_path") == "ui/src/example.ts":
+                    owner["setting_id"] = storage["id"]
+            catalog = validate_settings_catalog(
+                catalog_data, CatalogContractTests().discovered_steps()
+            )
+            catalog_module.validate_ui_fact_ownership(
+                facts, catalog, (), scope="ui-server-global"
+            )
+
+        catalog_for(data)
+        for field, value in (
+            ("authority", "ui-derived"),
+            ("persistence", "transient"),
+        ):
+            with self.subTest(owner_field=field):
+                with self.assertRaisesRegex(CatalogError, field):
+                    catalog_for(data, **{field: value})
+
+        invalid_boundaries = []
+        wrong_read = deepcopy(data)
+        wrong_read["global_settings"][0]["value_contract"].update({
+            "optional": True, "nullable": True,
+        })
+        invalid_boundaries.append((wrong_read, "browser-storage read"))
+        wrong_write = deepcopy(data)
+        wrong_write["global_settings"][1]["value_contract"]["nullable"] = True
+        invalid_boundaries.append((wrong_write, "browser-storage write"))
+        wrong_delete = deepcopy(data)
+        wrong_delete["global_settings"][2]["value_contract"]["ui_type"] = "string"
+        invalid_boundaries.append((wrong_delete, "delete.*ui_type null"))
+        for payload, error in invalid_boundaries:
+            with self.subTest(error=error):
+                with self.assertRaisesRegex(CatalogError, error):
+                    catalog_for(payload)
+
+    def test_server_state_exclusion_reasons_have_closed_allowed_semantics(self):
+        def validate_exclusion(reason, authority, persistence):
+            data = self.valid_facts()
+            fact = {
+                "source_path": "ui/src/example.ts",
+                "symbol": "Example::derived",
+                "path": "runtime.derived",
+                "kind": "server-state",
+                "ui_label": {"present": False},
+                "value_contract": {
+                    "ui_type": "string", "widget_kind": None,
+                    "optional": False, "nullable": False,
+                },
+                "server_state_contract": {
+                    "operation": "derive", "provenance": "runtime",
+                    "authority": authority, "persistence": persistence,
+                },
+            }
+            data["global_settings"] = [fact]
+            facts = validate_training_book_ui_facts(data)
+            projected = catalog_module.project_training_book_ui_facts(facts)
+            catalog_data = self.ownership_catalog_data(projected)
+            catalog_data["ui_claims"] = [
+                owner for owner in catalog_data["ui_claims"]
+                if owner["fact"].get("source_path") != "ui/src/example.ts"
+            ]
+            catalog = validate_settings_catalog(
+                catalog_data, CatalogContractTests().discovered_steps()
+            )
+            exclusion = catalog_module.UiFactExclusion.model_validate({
+                "fact": {
+                    "fact_type": "source-claim",
+                    **fact,
+                },
+                "reason": reason,
+            })
+            catalog_module.validate_ui_fact_ownership(
+                facts, catalog, (exclusion,), scope="ui-server-global"
+            )
+
+        for reason, authority, persistence in (
+            ("server-owned-value", "runtime-forced", "runtime"),
+            ("runtime-derived-ui-state", "ui-derived", "transient"),
+            ("transient-ui-state", "user", "transient"),
+        ):
+            with self.subTest(valid_reason=reason):
+                validate_exclusion(reason, authority, persistence)
+
+        for reason, authority, persistence in (
+            ("server-owned-value", "user", "runtime"),
+            ("runtime-derived-ui-state", "user", "database"),
+            ("transient-ui-state", "runtime-forced", "runtime"),
+            ("display-only-control", "ui-derived", "transient"),
+        ):
+            with self.subTest(invalid_reason=reason):
+                with self.assertRaisesRegex(CatalogError, "exclusion.*semantics"):
+                    validate_exclusion(reason, authority, persistence)
 
     def test_ui_facts_contract_models_suggestions_and_reciprocal_numeric_scales(self):
         suggested = self.valid_facts()
@@ -2098,7 +2387,7 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "facts.json"
             path.write_text(json.dumps(self.valid_facts()), encoding="utf-8")
-            self.assertEqual(load_training_book_ui_facts(path).schema_version, 1)
+            self.assertEqual(load_training_book_ui_facts(path).schema_version, 2)
             path.write_text("not json", encoding="utf-8")
             with self.assertRaisesRegex(CatalogError, "valid JSON"):
                 load_training_book_ui_facts(path)
@@ -3378,6 +3667,58 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
                     visible[0].value_contract.ui_to_config_scale, 0.01
                 )
 
+    def test_production_embeds_every_server_state_v2_contract_once(self):
+        catalog_data = json.loads(
+            (
+                REPOSITORY_ROOT
+                / "docs/book/reference/settings-catalog.json"
+            ).read_text(encoding="utf-8")
+        )
+        exclusions_data = json.loads(
+            (
+                REPOSITORY_ROOT
+                / "docs/book/reference/settings-exclusions.json"
+            ).read_text(encoding="utf-8")
+        )
+        server_facts = [
+            claim["fact"] for claim in catalog_data["ui_claims"]
+            if claim["fact"].get("kind") == "server-state"
+        ] + [
+            exclusion["fact"]
+            for exclusion in exclusions_data["ui_exclusions"]
+            if exclusion["fact"].get("kind") == "server-state"
+        ]
+        self.assertEqual(catalog_data["schema_version"], 2)
+        self.assertEqual(exclusions_data["schema_version"], 2)
+        self.assertEqual(len(catalog_data["ui_claims"]), 2461)
+        self.assertEqual(len(exclusions_data["ui_exclusions"]), 114)
+        self.assertEqual(len(server_facts), 213)
+        self.assertTrue(all(
+            set(fact["server_state_contract"]) == {
+                "operation", "provenance", "authority", "persistence",
+            }
+            and fact["value_contract"]["widget_kind"] is None
+            for fact in server_facts
+        ))
+
+    def test_production_server_state_aggregate_types_match_runtime_values(self):
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        settings = {setting.id: setting for setting in catalog.settings}
+        self.assertEqual(
+            settings[
+                "environment.ai_toolkit_file_server_workers"
+            ].contract.example_type,
+            "integer",
+        )
+        self.assertEqual(
+            settings["settings.data-root"].contract.example_type,
+            "path",
+        )
+
     def test_production_global_gpu_selector_is_user_database_state(self):
         catalog = load_settings_catalog(
             REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
@@ -3407,6 +3748,56 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         ]
         self.assertEqual(len(claims), 1)
         self.assertEqual(claims[0].fact.path, "gpuids")
+        state_claims = [
+            claim.fact for claim in catalog.ui_claims
+            if claim.setting_id == setting.id
+            and claim.fact.fact_type == "source-claim"
+            and claim.fact.kind == "server-state"
+        ]
+        self.assertEqual(
+            len(state_claims),
+            5,
+        )
+        self.assertEqual(
+            {
+                (
+                    fact.server_state_contract.operation,
+                    fact.server_state_contract.provenance,
+                    fact.server_state_contract.authority,
+                    fact.server_state_contract.persistence,
+                    fact.value_contract.optional,
+                    fact.value_contract.nullable,
+                    fact.value_contract.widget_kind,
+                )
+                for fact in state_claims
+            },
+            {
+                ("derive", "database", "user", "database", False, False, None),
+                ("read", "database", "user", "database", False, True, None),
+            },
+        )
+
+        exclusions = load_ui_exclusions(
+            REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
+        )
+        defaults = [
+            exclusion for exclusion in exclusions
+            if exclusion.fact.fact_type == "source-claim"
+            and exclusion.fact.path == "gpuids"
+            and exclusion.fact.server_state_contract.authority == "ui-derived"
+        ]
+        self.assertEqual(len(defaults), 2)
+        self.assertEqual(
+            {exclusion.reason for exclusion in defaults},
+            {"transient-ui-state"},
+        )
+        self.assertEqual(
+            {
+                exclusion.fact.server_state_contract.persistence
+                for exclusion in defaults
+            },
+            {"transient"},
+        )
 
     def test_production_browser_preferences_are_distinct_from_server_environment(self):
         catalog = load_settings_catalog(
@@ -3443,10 +3834,7 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             claim.fact.model_dump_json(): claim.setting_id
             for claim in catalog.ui_claims
         }
-        client_paths = {
-            "browser.localStorage.AI_TOOLKIT_AUTH",
-            "http.Authorization",
-        }
+        client_paths = {"browser.localStorage.AI_TOOLKIT_AUTH"}
         for claim in catalog.ui_claims:
             if claim.fact.fact_type != "source-claim":
                 continue
@@ -3460,6 +3848,48 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
                     owner_by_identity[claim.fact.model_dump_json()],
                     server_auth.id,
                 )
+
+        client_state = [
+            claim.fact for claim in catalog.ui_claims
+            if claim.setting_id == client_auth.id
+            and claim.fact.fact_type == "source-claim"
+            and claim.fact.kind == "server-state"
+        ]
+        self.assertEqual(
+            {
+                (
+                    fact.server_state_contract.operation,
+                    fact.server_state_contract.provenance,
+                    fact.value_contract.optional,
+                    fact.value_contract.nullable,
+                )
+                for fact in client_state
+            },
+            {
+                ("read", "browser-storage", False, True),
+                ("write", "browser-storage", False, False),
+                ("delete", "browser-storage", False, False),
+            },
+        )
+        self.assertTrue(all(
+            fact.value_contract.widget_kind is None
+            for fact in client_state
+        ))
+        server_state = [
+            claim.fact for claim in catalog.ui_claims
+            if claim.setting_id == server_auth.id
+            and claim.fact.fact_type == "source-claim"
+            and claim.fact.kind == "server-state"
+        ]
+        self.assertTrue(server_state)
+        self.assertTrue(all(
+            fact.server_state_contract.operation == "read"
+            and fact.server_state_contract.provenance == "environment"
+            and fact.value_contract.optional
+            and not fact.value_contract.nullable
+            and fact.value_contract.widget_kind is None
+            for fact in server_state
+        ))
 
         exclusions = load_ui_exclusions(
             REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
@@ -3480,14 +3910,37 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             if exclusion.fact.fact_type == "source-claim"
             and exclusion.fact.path == "http.Authorization"
         ]
-        self.assertEqual(len(outbound_headers), 1)
-        self.assertEqual(outbound_headers[0].reason, "server-owned-value")
+        self.assertEqual(len(outbound_headers), 4)
+        server_owned = [
+            exclusion for exclusion in outbound_headers
+            if exclusion.reason == "server-owned-value"
+        ]
+        self.assertEqual(len(server_owned), 1)
         self.assertEqual(
-            (outbound_headers[0].fact.source_path, outbound_headers[0].fact.symbol),
+            (server_owned[0].fact.source_path, server_owned[0].fact.symbol),
             (
                 "ui/src/app/api/ostris_cloud/route.ts",
                 "GET::Authorization.bearer",
             ),
+        )
+        transient = [
+            exclusion for exclusion in outbound_headers
+            if exclusion.reason == "transient-ui-state"
+        ]
+        self.assertEqual(len(transient), 3)
+        self.assertEqual(
+            {
+                (
+                    exclusion.fact.server_state_contract.operation,
+                    exclusion.fact.server_state_contract.authority,
+                    exclusion.fact.server_state_contract.persistence,
+                )
+                for exclusion in transient
+            },
+            {
+                ("read", "user", "transient"),
+                ("write", "user", "transient"),
+            },
         )
 
     def test_job_loss_graph_browser_settings_are_source_derived_and_distinct(self):
@@ -3531,6 +3984,30 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
                     {
                         (f"JobLossGraph::hydrate::{key}", "server-state", ui_type),
                         (f"JobLossGraph::persist::{key}", "server-state", ui_type),
+                    },
+                )
+                self.assertEqual(
+                    {
+                        (
+                            fact.server_state_contract.operation,
+                            fact.server_state_contract.provenance,
+                            fact.server_state_contract.authority,
+                            fact.server_state_contract.persistence,
+                            fact.value_contract.optional,
+                            fact.value_contract.nullable,
+                            fact.value_contract.widget_kind,
+                        )
+                        for fact in source_facts
+                    },
+                    {
+                        (
+                            "read", "browser-storage", "user",
+                            "browser-storage", True, False, None,
+                        ),
+                        (
+                            "write", "browser-storage", "user",
+                            "browser-storage", False, False, None,
+                        ),
                     },
                 )
                 self.assertEqual(setting.scope, "ui-state")

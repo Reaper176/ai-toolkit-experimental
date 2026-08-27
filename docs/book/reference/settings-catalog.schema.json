@@ -2038,6 +2038,17 @@
           ],
           "default": null
         },
+        "server_state_contract": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiServerStateContract"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "fact_type": {
           "const": "source-claim",
           "title": "Fact Type",
@@ -2181,6 +2192,63 @@
         "present"
       ],
       "title": "UiPresence",
+      "type": "object"
+    },
+    "UiServerStateContract": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "enum": [
+            "read",
+            "write",
+            "delete",
+            "derive"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "provenance": {
+          "enum": [
+            "browser-storage",
+            "database",
+            "environment",
+            "config",
+            "http",
+            "runtime"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        },
+        "authority": {
+          "enum": [
+            "user",
+            "ui-derived",
+            "server-overwritten",
+            "runtime-forced"
+          ],
+          "title": "Authority",
+          "type": "string"
+        },
+        "persistence": {
+          "enum": [
+            "config",
+            "job-json",
+            "database",
+            "runtime",
+            "transient",
+            "browser-storage"
+          ],
+          "title": "Persistence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "provenance",
+        "authority",
+        "persistence"
+      ],
+      "title": "UiServerStateContract",
       "type": "object"
     },
     "UiStaticJsx": {
@@ -2505,6 +2573,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
+      "const": 2,
       "title": "Schema Version",
       "type": "integer"
     },
