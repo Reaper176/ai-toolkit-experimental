@@ -10091,4 +10091,66 @@ ${architectureCommit}`,
   }
 }
 
+for (const [label, source] of [
+  ['wrong type-only export impersonating Prisma namespace', `
+    import type { Other as Prisma } from '@prisma/client';
+    async function bad(transaction: Prisma.TransactionClient) {
+      await transaction.queue.update({ data: { is_running: true } });
+    }
+  `],
+  ['wrong type-only export impersonating PrismaClient', `
+    import type { Other as PrismaClient } from '@prisma/client';
+    async function bad(transaction: PrismaClient) {
+      await transaction.queue.update({ data: { is_running: true } });
+    }
+  `],
+  ['type-only default import used as runtime prisma root', `
+    import type prisma from '@/server/prisma';
+    async function bad() { await prisma.job.update({ data: { status: 'queued' } }); }
+  `],
+  ['type-only named import used as runtime settings getter', `
+    import type { getHFToken } from '../paths';
+    function bad() { return getHFToken(); }
+  `],
+  ['type-only default import used as runtime settings hook', `
+    import type useSettings from '@/hooks/useSettings';
+    function bad() { const { settings } = useSettings(); return settings.HF_TOKEN; }
+  `],
+  ['type-only named import used as runtime state callee', `
+    import type { useState } from 'react';
+    export default function useSettings() {
+      const [settings, setSettings] = useState({ HF_TOKEN: '' });
+      const data = { HF_TOKEN: '' };
+      setSettings({ HF_TOKEN: data.HF_TOKEN });
+      return { settings, setSettings };
+    }
+  `],
+] as const) {
+  assert.deepEqual(
+    collectDeclaredServerGlobalClaimsFromSource('ui/src/server/type-only-runtime-negative.ts', source),
+    [],
+    `${label} cannot authorize a runtime database fact`,
+  );
+}
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/database-root-type-transaction.ts', `
+    import type { Prisma } from '@prisma/client';
+    async function good(transaction: Prisma.TransactionClient) {
+      await transaction.queue.update({ data: { is_running: true } });
+    }
+  `).map(item => item.path),
+  ['queue.is_running'],
+  'an exact type-only Prisma namespace import authorizes its transaction annotation',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/database-root-type-client.ts', `
+    import type { PrismaClient as Client } from '@prisma/client';
+    async function good(client: Client) {
+      await client.queue.update({ data: { is_running: true } });
+    }
+  `).map(item => item.path),
+  ['queue.is_running'],
+  'an exact aliased type-only PrismaClient import authorizes its parameter annotation',
+);
+
 console.log('trainingBookUiFacts tests passed');

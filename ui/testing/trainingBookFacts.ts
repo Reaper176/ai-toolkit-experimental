@@ -12078,6 +12078,7 @@ interface ExactImportBinding {
   source: string;
   kind: 'default' | 'namespace' | 'named';
   imported: 'default' | '*' | string;
+  typeOnly: boolean;
 }
 
 function exactImportBinding(identifier: ts.Identifier): ExactImportBinding | undefined {
@@ -12086,18 +12087,22 @@ function exactImportBinding(identifier: ts.Identifier): ExactImportBinding | und
   for (const statement of source.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
     const clause = statement.importClause;
-    if (clause?.isTypeOnly) continue;
-    if (clause?.name?.text === identifier.text) matches.push({ source: statement.moduleSpecifier.text, kind: 'default', imported: 'default' });
+    if (clause?.name?.text === identifier.text) matches.push({
+      source: statement.moduleSpecifier.text,
+      kind: 'default',
+      imported: 'default',
+      typeOnly: clause.isTypeOnly,
+    });
     const bindings = clause?.namedBindings;
     if (bindings !== undefined && ts.isNamespaceImport(bindings) && bindings.name.text === identifier.text) {
-      matches.push({ source: statement.moduleSpecifier.text, kind: 'namespace', imported: '*' });
+      matches.push({ source: statement.moduleSpecifier.text, kind: 'namespace', imported: '*', typeOnly: clause?.isTypeOnly === true });
     } else if (bindings !== undefined && ts.isNamedImports(bindings)) {
       for (const element of bindings.elements) {
-        if (element.isTypeOnly) continue;
         if (element.name.text === identifier.text) matches.push({
           source: statement.moduleSpecifier.text,
           kind: 'named',
           imported: (element.propertyName ?? element.name).text,
+          typeOnly: clause?.isTypeOnly === true || element.isTypeOnly,
         });
       }
     }
@@ -12127,9 +12132,11 @@ function relativeImportExportsPrismaClient(identifier: ts.Identifier, specifier:
   const prismaClientImports = new Set<string>();
   for (const statement of source.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || statement.moduleSpecifier.text !== '@prisma/client') continue;
+    if (statement.importClause?.isTypeOnly) continue;
     const named = statement.importClause?.namedBindings;
     if (named !== undefined && ts.isNamedImports(named)) {
       for (const element of named.elements) {
+        if (element.isTypeOnly) continue;
         if ((element.propertyName ?? element.name).text === 'PrismaClient') prismaClientImports.add(element.name.text);
       }
     }
@@ -12205,6 +12212,7 @@ function authoritativeDatabaseRoot(
   }
   const imported = exactImportBinding(expression);
   return imported?.kind === 'default'
+    && !imported.typeOnly
     && (imported.source === '@/server/prisma' || relativeImportExportsPrismaClient(expression, imported.source));
 }
 
@@ -12237,7 +12245,8 @@ function authoritativeSettingsProjection(
   return ts.isIdentifier(callee)
     && bindings.bindingDeclaration(callee) === undefined
     && imported?.source === '@/hooks/useSettings'
-    && imported.kind === 'default';
+    && imported.kind === 'default'
+    && !imported.typeOnly;
 }
 
 function settingsDatabaseKeys(
@@ -13093,6 +13102,7 @@ function importedSettingGetterIdentifierKey(
   }
   const imported = exactImportBinding(callee);
   return imported?.kind === 'named'
+    && !imported.typeOnly
     && /(?:^|\/)(?:paths|settings)$/u.test(imported.source)
     ? KNOWN_SETTING_GETTERS.get(imported.imported)
     : undefined;
