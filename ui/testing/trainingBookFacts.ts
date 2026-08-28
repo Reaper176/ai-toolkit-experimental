@@ -12086,12 +12086,14 @@ function exactImportBinding(identifier: ts.Identifier): ExactImportBinding | und
   for (const statement of source.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
     const clause = statement.importClause;
+    if (clause?.isTypeOnly) continue;
     if (clause?.name?.text === identifier.text) matches.push({ source: statement.moduleSpecifier.text, kind: 'default', imported: 'default' });
     const bindings = clause?.namedBindings;
     if (bindings !== undefined && ts.isNamespaceImport(bindings) && bindings.name.text === identifier.text) {
       matches.push({ source: statement.moduleSpecifier.text, kind: 'namespace', imported: '*' });
     } else if (bindings !== undefined && ts.isNamedImports(bindings)) {
       for (const element of bindings.elements) {
+        if (element.isTypeOnly) continue;
         if (element.name.text === identifier.text) matches.push({
           source: statement.moduleSpecifier.text,
           kind: 'named',
@@ -12970,8 +12972,80 @@ function spawnEnvironmentWrites(node: ts.Node): Array<{ key: string; value?: Tra
   return [];
 }
 
-function settingsHydrationKeys(node: ts.CallExpression): string[] {
-  if (!ts.isIdentifier(node.expression) || node.expression.text !== 'setSettings' || node.arguments.length !== 1) return [];
+function returnedSettingsStatePair(
+  owner: ts.FunctionLikeDeclaration,
+  settings: ts.Identifier,
+  setter: ts.Identifier,
+  bindings: LexicalBindings,
+): boolean {
+  if (!ts.isFunctionDeclaration(owner) || owner.body === undefined) return false;
+  const modifiers = ts.getModifiers(owner) ?? [];
+  if (!modifiers.some(item => item.kind === ts.SyntaxKind.ExportKeyword)
+    || !modifiers.some(item => item.kind === ts.SyntaxKind.DefaultKeyword)) return false;
+  let returned = false;
+  const visit = (node: ts.Node): void => {
+    if (returned || (node !== owner && (isLexicalFunction(node) || ts.isClassLike(node)))) return;
+    if (ts.isReturnStatement(node) && node.expression !== undefined) {
+      const expression = unwrap(node.expression);
+      if (ts.isObjectLiteralExpression(expression)) {
+        let hasSettings = false;
+        let hasSetter = false;
+        for (const property of expression.properties) {
+          if (ts.isShorthandPropertyAssignment(property)) {
+            if (property.name.text === 'settings' && bindings.isBinding(property.name, settings)) hasSettings = true;
+            if (property.name.text === 'setSettings' && bindings.isBinding(property.name, setter)) hasSetter = true;
+          } else if (ts.isPropertyAssignment(property)) {
+            const value = unwrap(property.initializer);
+            if (propertyName(property.name) === 'settings' && ts.isIdentifier(value) && bindings.isBinding(value, settings)) hasSettings = true;
+            if (propertyName(property.name) === 'setSettings' && ts.isIdentifier(value) && bindings.isBinding(value, setter)) hasSetter = true;
+          }
+        }
+        returned = hasSettings && hasSetter;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(owner.body);
+  return returned;
+}
+
+function authoritativeSettingsStateSetter(
+  identifier: ts.Identifier,
+  bindings: LexicalBindings,
+  seen = new Set<ts.Identifier>(),
+): boolean {
+  const declaration = bindings.bindingDeclaration(identifier);
+  if (declaration === undefined || seen.has(declaration)) return false;
+  const element = declaration.parent;
+  if (!ts.isBindingElement(element) || !ts.isArrayBindingPattern(element.parent)) {
+    const initializer = bindings.declarationInitializer(identifier);
+    if (initializer === undefined) return false;
+    const value = unwrap(initializer);
+    return ts.isIdentifier(value)
+      && authoritativeSettingsStateSetter(value, bindings, new Set(seen).add(declaration));
+  }
+  const pattern = element.parent;
+  if (pattern.elements[1] !== element || !ts.isVariableDeclaration(pattern.parent)) return false;
+  const variable = pattern.parent;
+  const stateValue = pattern.elements[0];
+  const call = variable.initializer === undefined ? undefined : unwrap(variable.initializer);
+  if (call === undefined) return false;
+  if (
+    !ts.isBindingElement(stateValue)
+    || !ts.isIdentifier(stateValue.name)
+    || !ts.isCallExpression(call)
+    || !ts.isIdentifier(call.expression)
+    || !bindings.isExactNamedImport(call.expression, 'useState', 'react')
+  ) return false;
+  let owner: ts.Node | undefined = variable.parent;
+  while (owner !== undefined && !isLexicalFunction(owner)) owner = owner.parent;
+  return owner !== undefined
+    && returnedSettingsStatePair(owner as ts.FunctionLikeDeclaration, stateValue.name, declaration, bindings);
+}
+
+function settingsHydrationKeys(node: ts.CallExpression, bindings: LexicalBindings): string[] {
+  const callee = unwrap(node.expression);
+  if (!ts.isIdentifier(callee) || !authoritativeSettingsStateSetter(callee, bindings) || node.arguments.length !== 1) return [];
   const value = unwrap(node.arguments[0]);
   if (!ts.isObjectLiteralExpression(value)) return [];
   return value.properties.flatMap(property => {
@@ -12995,34 +13069,38 @@ function settingsHydrationKeys(node: ts.CallExpression): string[] {
   });
 }
 
-function importedSettingGetterKeys(source: ts.SourceFile): Map<string, string> {
-  const known = new Map<string, string>([
+const KNOWN_SETTING_GETTERS = new Map<string, string>([
     ['getDataRoot', 'DATA_ROOT'],
     ['getDatasetsRoot', 'DATASETS_FOLDER'],
     ['getHFToken', 'HF_TOKEN'],
     ['getModelsPath', 'MODELS_PATH'],
     ['getTrainingFolder', 'TRAINING_FOLDER'],
-  ]);
-  const result = new Map<string, string>();
-  for (const statement of source.statements) {
-    if (
-      !ts.isImportDeclaration(statement)
-      || !ts.isStringLiteral(statement.moduleSpecifier)
-      || !/(?:^|\/)(?:paths|settings)$/u.test(statement.moduleSpecifier.text)
-      || statement.importClause?.namedBindings === undefined
-      || !ts.isNamedImports(statement.importClause.namedBindings)
-    ) continue;
-    for (const element of statement.importClause.namedBindings.elements) {
-      const imported = element.propertyName?.text ?? element.name.text;
-      const key = known.get(imported);
-      if (key !== undefined) result.set(element.name.text, key);
-    }
+]);
+
+function importedSettingGetterIdentifierKey(
+  callee: ts.Identifier,
+  bindings: LexicalBindings,
+  seen = new Set<ts.Identifier>(),
+): string | undefined {
+  const declaration = bindings.bindingDeclaration(callee);
+  if (declaration !== undefined) {
+    if (seen.has(declaration)) return undefined;
+    const initializer = bindings.declarationInitializer(callee);
+    if (initializer === undefined) return undefined;
+    const value = unwrap(initializer);
+    if (!ts.isIdentifier(value)) return undefined;
+    return importedSettingGetterIdentifierKey(value, bindings, new Set(seen).add(declaration));
   }
-  return result;
+  const imported = exactImportBinding(callee);
+  return imported?.kind === 'named'
+    && /(?:^|\/)(?:paths|settings)$/u.test(imported.source)
+    ? KNOWN_SETTING_GETTERS.get(imported.imported)
+    : undefined;
 }
 
-function importedSettingGetterKey(node: ts.CallExpression, getters: ReadonlyMap<string, string>): string | undefined {
-  return ts.isIdentifier(node.expression) ? getters.get(node.expression.text) : undefined;
+function importedSettingGetterKey(node: ts.CallExpression, bindings: LexicalBindings): string | undefined {
+  const callee = unwrap(node.expression);
+  return ts.isIdentifier(callee) ? importedSettingGetterIdentifierKey(callee, bindings) : undefined;
 }
 
 function resolvedGpuSelection(node: ts.VariableDeclaration): boolean {
@@ -13288,7 +13366,6 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
     sourcePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
   const bindings = new LexicalBindings(source);
-  const settingGetters = importedSettingGetterKeys(source);
   const events: Array<{ claim: UiSourceClaim; role: string }> = [];
   const summaries = new Map<string, { claim: UiSourceClaim; occurrences: number }>();
   const add = (claim: UiSourceClaim, node: ts.Node, detector: string): void => {
@@ -13373,7 +13450,7 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
         ), node, `persisted-write-${persisted.key}`, owner);
       }
       const owner = factSymbol(node, sourcePath);
-      const getterKey = importedSettingGetterKey(node, settingGetters);
+      const getterKey = importedSettingGetterKey(node, bindings);
       if (getterKey !== undefined) {
         const operationOwner = sourcePath.startsWith('ui/cron/actions/')
           ? defaultExportedFunctionName(source) ?? owner
@@ -13403,7 +13480,7 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
           contract,
         ), node, `settings-${accessParts(node.expression)?.at(-1) ?? 'call'}`, owner);
       }
-      for (const key of settingsHydrationKeys(node)) {
+      for (const key of settingsHydrationKeys(node, bindings)) {
         addOwned(serverStateClaim(
           sourcePath,
           `${owner}::hydrate::settings.${key}`,

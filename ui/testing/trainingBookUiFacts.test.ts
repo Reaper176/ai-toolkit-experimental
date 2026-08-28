@@ -857,6 +857,53 @@ assert.deepEqual(
   [['startJob::settings.HF_TOKEN', 'settings.HF_TOKEN']],
   'an imported settings getter is attributed to the public cron operation',
 );
+for (const [label, source] of [
+  [
+    'shadowed imported getter',
+    `
+      import { getHFToken } from '../paths';
+      function unrelated(getHFToken) { return getHFToken(); }
+    `,
+  ],
+  [
+    'unrelated local getter alias',
+    `
+      import { getHFToken } from '../paths';
+      const unrelated = () => 'not a setting';
+      const readToken = unrelated;
+      function x() { return readToken(); }
+    `,
+  ],
+  [
+    'wrong imported export renamed as getter',
+    `
+      import { unrelated as getHFToken } from '../paths';
+      function x() { return getHFToken(); }
+    `,
+  ],
+  [
+    'default import impersonating named getter',
+    `
+      import getHFToken from '../paths';
+      function x() { return getHFToken(); }
+    `,
+  ],
+] as const) {
+  assert.deepEqual(
+    collectDeclaredServerGlobalClaimsFromSource('ui/src/server/example.ts', source),
+    [],
+    `${label} cannot emit an authoritative settings database fact`,
+  );
+}
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/example.ts', `
+    import { getHFToken as importedToken } from '../paths';
+    const readToken = importedToken;
+    function x() { return readToken(); }
+  `).map(item => item.path),
+  ['settings.HF_TOKEN'],
+  'an exact named settings getter remains authoritative through a proven lexical alias',
+);
 assert.deepEqual(
   collectDeclaredServerGlobalClaimsFromSource('ui/src/server/example.ts', `
     import prisma from '@/server/prisma';
@@ -1051,13 +1098,16 @@ assert.deepEqual(
 );
 assert.deepEqual(
   collectDeclaredServerGlobalClaimsFromSource('ui/src/hooks/useSettings.tsx', `
+    import { useState } from 'react';
     export default function useSettings() {
+      const [settings, setSettings] = useState({ HF_TOKEN: '', MODELS_PATH: '' });
       useEffect(() => apiClient.get('/api/settings').then(res => res.data).then(data => {
         setSettings({
           HF_TOKEN: data.HF_TOKEN || '',
           MODELS_PATH: data.MODELS_PATH || '',
         });
       }), []);
+      return { settings, setSettings };
     }
   `).map(item => [item.symbol, item.path, item.value_contract.ui_type]),
   [
@@ -1065,6 +1115,63 @@ assert.deepEqual(
     ['useSettings::hydrate::settings.MODELS_PATH', 'settings.MODELS_PATH', 'path'],
   ],
   'settings hydration is derived from the executable response-to-state object',
+);
+for (const [label, source] of [
+  [
+    'arbitrary terminal-name setter',
+    `
+      function x(setSettings, data) {
+        setSettings({ HF_TOKEN: data.HF_TOKEN || '' });
+      }
+    `,
+  ],
+  [
+    'shadowed authoritative setter',
+    `
+      import { useState } from 'react';
+      export default function useSettings() {
+        const [settings, setSettings] = useState({ HF_TOKEN: '' });
+        function hydrate(setSettings, data) {
+          setSettings({ HF_TOKEN: data.HF_TOKEN || '' });
+        }
+        return { settings, setSettings };
+      }
+    `,
+  ],
+  [
+    'unrelated setter alias',
+    `
+      import { useState } from 'react';
+      export default function useSettings() {
+        const [settings, setSettings] = useState({ HF_TOKEN: '' });
+        const unrelated = value => value;
+        const hydrateSettings = unrelated;
+        const data = { HF_TOKEN: '' };
+        hydrateSettings({ HF_TOKEN: data.HF_TOKEN || '' });
+        return { settings, setSettings };
+      }
+    `,
+  ],
+] as const) {
+  assert.deepEqual(
+    collectDeclaredServerGlobalClaimsFromSource('ui/src/hooks/useSettings.tsx', source),
+    [],
+    `${label} cannot emit an authoritative settings hydration fact`,
+  );
+}
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/hooks/useSettings.tsx', `
+    import { useState } from 'react';
+    export default function useSettings() {
+      const [settings, setSettings] = useState({ HF_TOKEN: '' });
+      const hydrateSettings = setSettings;
+      const data = { HF_TOKEN: '' };
+      hydrateSettings({ HF_TOKEN: data.HF_TOKEN || '' });
+      return { settings, setSettings };
+    }
+  `).map(item => item.path),
+  ['settings.HF_TOKEN'],
+  'the exact settings state setter remains authoritative through a proven lexical alias',
 );
 assert.deepEqual(
   collectDeclaredServerGlobalClaimsFromSource('ui/src/app/api/jobs/route.ts', `
