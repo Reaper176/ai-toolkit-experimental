@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import ts from 'typescript';
 
@@ -12264,31 +12264,169 @@ function exactExpressionType(
     : undefined;
 }
 
-function hasExactContextualMethodProjection(
+function exactLocalFunction(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  seen = new Set<ts.Identifier>(),
+): ts.FunctionLikeDeclaration | undefined {
+  expression = unwrap(expression);
+  if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) return expression;
+  if (!ts.isIdentifier(expression)) return undefined;
+  const declaration = bindings.bindingDeclaration(expression);
+  if (declaration === undefined || seen.has(declaration)) return undefined;
+  const owner = declaration.parent;
+  if (ts.isFunctionDeclaration(owner) && owner.name === declaration) return owner;
+  const initializer = bindings.declarationInitializer(expression);
+  return initializer === undefined
+    ? undefined
+    : exactLocalFunction(initializer, bindings, new Set(seen).add(declaration));
+}
+
+function memberPathFromBinding(
+  expression: ts.Expression,
+  declaration: ts.Identifier,
+  bindings: LexicalBindings,
+): string[] | undefined {
+  expression = unwrap(expression);
+  if (ts.isIdentifier(expression)) {
+    return bindings.bindingDeclaration(expression) === declaration ? [] : undefined;
+  }
+  const member = staticMember(expression);
+  if (member === undefined) return undefined;
+  const prefix = memberPathFromBinding(member.base, declaration, bindings);
+  return prefix === undefined ? undefined : [...prefix, member.key];
+}
+
+function structuralMemberType(
+  type: ts.TypeNode,
+  path: readonly string[],
+): { type: ts.TypeNode; optional: boolean } | undefined {
+  let current = type;
+  let optional = false;
+  for (const part of path) {
+    if (!ts.isTypeLiteralNode(current)) return undefined;
+    const members = current.members.filter(candidate =>
+      ts.isPropertySignature(candidate) && propertyName(candidate.name) === part
+    );
+    if (members.length !== 1 || !ts.isPropertySignature(members[0]) || members[0].type === undefined) {
+      return undefined;
+    }
+    optional ||= members[0].questionToken !== undefined;
+    current = members[0].type;
+  }
+  return { type: current, optional };
+}
+
+function exactContextualMethodMemberType(
   expression: ts.PropertyAccessExpression | ts.ElementAccessExpression,
   declaration: ts.Identifier,
   bindings: LexicalBindings,
-): boolean {
+): { type: ts.TypeNode; optional: boolean } | undefined {
   const parameter = declaration.parent;
-  if (!ts.isParameter(parameter)) return false;
+  if (!ts.isParameter(parameter)) return undefined;
   const method = parameter.parent;
-  if (!ts.isMethodDeclaration(method) || !ts.isObjectLiteralExpression(method.parent)) return false;
+  if (!ts.isMethodDeclaration(method) || !ts.isObjectLiteralExpression(method.parent)) return undefined;
   const object = method.parent;
   const context = object.parent;
-  let contextual = ts.isCallExpression(context) && context.arguments.includes(object);
-  if (ts.isReturnStatement(context)) {
-    let owner: ts.Node | undefined = context.parent;
-    while (owner !== undefined && !isLexicalFunction(owner)) owner = owner.parent;
-    contextual ||= owner !== undefined && isLexicalFunction(owner) && owner.type !== undefined;
+  if (!ts.isCallExpression(context)) return undefined;
+  const argumentIndex = context.arguments.indexOf(object);
+  if (argumentIndex < 0) return undefined;
+  const callee = exactLocalFunction(context.expression, bindings);
+  const contextualParameter = callee?.parameters[argumentIndex];
+  const contextualType = contextualParameter?.type;
+  if (contextualType === undefined || !ts.isTypeLiteralNode(contextualType)) return undefined;
+  const methodName = propertyName(method.name);
+  const signatures = contextualType.members.filter(candidate =>
+    ts.isMethodSignature(candidate) && propertyName(candidate.name) === methodName
+  );
+  if (signatures.length !== 1 || !ts.isMethodSignature(signatures[0])) return undefined;
+  const parameterIndex = method.parameters.indexOf(parameter);
+  const signatureParameter = signatures[0].parameters[parameterIndex];
+  if (parameterIndex < 0 || signatureParameter?.type === undefined) return undefined;
+  const path = memberPathFromBinding(expression, declaration, bindings);
+  return path === undefined ? undefined : structuralMemberType(signatureParameter.type, path);
+}
+
+function memberRootDeclaration(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+): ts.Identifier | undefined {
+  expression = unwrap(expression);
+  if (ts.isIdentifier(expression)) return bindings.bindingDeclaration(expression);
+  const member = staticMember(expression);
+  return member === undefined ? undefined : memberRootDeclaration(member.base, bindings);
+}
+
+const productionTypePrograms = new Map<string, {
+  checker: ts.TypeChecker;
+  program: ts.Program;
+}>();
+
+function productionProgramSource(source: ts.SourceFile): {
+  checker: ts.TypeChecker;
+  source: ts.SourceFile;
+} | undefined {
+  const roots = [
+    process.env.TRAINING_BOOK_REPOSITORY_ROOT,
+    process.cwd(),
+    resolve(process.cwd(), '..'),
+  ].filter((value): value is string => value !== undefined);
+  const filename = roots
+    .map(root => resolve(root, source.fileName))
+    .find(candidate => existsSync(candidate));
+  if (filename === undefined || readFileSync(filename, 'utf8') !== source.text) return undefined;
+  const uiRoot = filename.slice(0, filename.indexOf('/ui/') + 3);
+  let project = productionTypePrograms.get(uiRoot);
+  if (project === undefined) {
+    const configPath = join(uiRoot, 'tsconfig.json');
+    const config = ts.readConfigFile(configPath, ts.sys.readFile);
+    if (config.error !== undefined) return undefined;
+    const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, uiRoot);
+    const program = ts.createProgram(parsed.fileNames, parsed.options);
+    project = { checker: program.getTypeChecker(), program };
+    productionTypePrograms.set(uiRoot, project);
   }
-  if (!contextual) return false;
-  const original = resolveAliasOrigin(expression, bindings);
-  const originalMember = staticMember(original);
-  const expressionMember = staticMember(expression);
-  return bindings.isStableMemberProjection(original)
-    && originalMember !== undefined
-    && expressionMember !== undefined
-    && originalMember.key === expressionMember.key;
+  const programSource = project.program.getSourceFile(filename);
+  if (programSource === undefined) return undefined;
+  return { checker: project.checker, source: programSource };
+}
+
+function checkerPrimitiveNullability(type: ts.Type): boolean | undefined {
+  const members = type.isUnion() ? type.types : [type];
+  let nullable = false;
+  for (const member of members) {
+    if ((member.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0) nullable = true;
+    else if ((member.flags & (
+      ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BooleanLike
+    )) === 0) return undefined;
+  }
+  return nullable;
+}
+
+function productionExpressionNullability(expression: ts.Expression): boolean | undefined {
+  const source = expression.getSourceFile();
+  const production = productionProgramSource(source);
+  if (production === undefined) return undefined;
+  const start = expression.getStart(source);
+  const end = expression.getEnd();
+  let match: ts.Expression | undefined;
+  const visit = (node: ts.Node): void => {
+    if (match !== undefined || node.getStart(production.source) > start || node.getEnd() < end) return;
+    if (
+      ts.isExpression(node)
+      && node.kind === expression.kind
+      && node.getStart(production.source) === start
+      && node.getEnd() === end
+    ) {
+      match = node;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(production.source);
+  return match === undefined
+    ? undefined
+    : checkerPrimitiveNullability(production.checker.getTypeAtLocation(match));
 }
 
 function exactFunctionReturnNullability(
@@ -12374,15 +12512,16 @@ function databaseWriteNullable(
     const member = exactExpressionType(expression, bindings);
     const nullable = member === undefined ? undefined : primitiveTypeNullability(member.type);
     if (nullable !== undefined) return member!.optional || nullable;
-    const staticAccess = staticMember(expression);
-    const base = staticAccess === undefined ? undefined : unwrap(staticAccess.base);
-    const declaration = base !== undefined && ts.isIdentifier(base)
-      ? bindings.bindingDeclaration(base)
-      : undefined;
-    if (
-      declaration !== undefined
-      && hasExactContextualMethodProjection(expression, declaration, bindings)
-    ) return false;
+    const declaration = memberRootDeclaration(expression, bindings);
+    const contextual = declaration === undefined
+      ? undefined
+      : exactContextualMethodMemberType(expression, declaration, bindings);
+    const contextualNullable = contextual === undefined
+      ? undefined
+      : primitiveTypeNullability(contextual.type);
+    if (contextualNullable !== undefined) return contextual!.optional || contextualNullable;
+    const productionNullable = productionExpressionNullability(expression);
+    if (productionNullable !== undefined) return productionNullable;
   }
   if (ts.isCallExpression(expression)) {
     const nullable = exactFunctionReturnNullability(expression, bindings);

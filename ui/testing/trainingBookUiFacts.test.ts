@@ -573,6 +573,117 @@ assert.equal(
   false,
   'a renamed destructured route parameter retains its exact structural type proof',
 );
+for (const [label, source] of [
+  ['unknown contextual caller', `
+    unknownCall({ async mutate(attempt) {
+      await prisma.job.update({ data: { info: attempt.info } });
+    } });
+  `],
+  ['unknown contextual caller member', `
+    unknownCall({ async mutate(attempt) {
+      await prisma.job.update({ data: { gpu_ids: attempt.gpu_ids } });
+    } });
+  `],
+  ['aliased unknown contextual caller', `
+    const invoke = unknownCall;
+    invoke({ async mutate(attempt) {
+      await prisma.job.update({ data: { info: attempt.info } });
+    } });
+  `],
+  ['shadowed unknown contextual caller', `
+    function invoke(value: { mutate(attempt: { info: string }): void }) {}
+    async function bad() {
+      const invoke = unknownCall;
+      invoke({ async mutate(attempt) {
+        await prisma.job.update({ data: { info: attempt.info } });
+      } });
+    }
+  `],
+  ['wrong contextual argument index', `
+    function invoke(prefix: string, value: { mutate(attempt: { info: string }): void }) {}
+    invoke({ async mutate(attempt) {
+      await prisma.job.update({ data: { info: attempt.info } });
+    } }, 'wrong');
+  `],
+  ['mismatched contextual method name', `
+    function invoke(value: { other(attempt: { info: string }): void }) {}
+    invoke({ async mutate(attempt) {
+      await prisma.job.update({ data: { info: attempt.info } });
+    } });
+  `],
+  ['mismatched contextual parameter position', `
+    function invoke(value: { mutate(prefix: number, attempt: { info: string }): void }) {}
+    invoke({ async mutate(attempt) {
+      await prisma.job.update({ data: { info: attempt.info } });
+    } });
+  `],
+  ['conflicting contextual overloads', `
+    function invoke(value: { mutate(attempt: { info: string }): void }): void;
+    function invoke(value: { mutate(attempt: { info?: string }): void }): void;
+    function invoke(value: unknown) {}
+    invoke({ async mutate(attempt) {
+      await prisma.job.update({ data: { info: attempt.info } });
+    } });
+  `],
+] as const) {
+  assert.throws(
+    () => collectDeclaredServerGlobalClaimsFromSource('ui/src/server/contextual-negative.ts', source),
+    /database write nullability is unproven/,
+    `${label} fails closed without an exact contextual signature`,
+  );
+}
+const contextualWrite = (source: string) => collectDeclaredServerGlobalClaimsFromSource(
+  'ui/src/server/contextual-positive.ts', source,
+).find(item => item.path === 'job.info')?.value_contract.nullable;
+assert.equal(contextualWrite(`
+  function invoke(value: { mutate(attempt: { info: string }): void }) {}
+  invoke({ async mutate(attempt) {
+    await prisma.job.update({ data: { info: attempt.info } });
+  } });
+`), false, 'a local function signature exactly types its contextual method parameter');
+assert.equal(contextualWrite(`
+  const invoke = (value: { mutate(attempt: { info: string }): void }) => {};
+  const alias = invoke;
+  alias({ async mutate(attempt) {
+    await prisma.job.update({ data: { info: attempt.info } });
+  } });
+`), false, 'an exact alias to a local arrow retains its contextual signature');
+assert.equal(contextualWrite(`
+  function invoke(value: { mutate(attempt: { info?: string }): void }) {}
+  invoke({ async mutate(attempt) {
+    await prisma.job.update({ data: { info: attempt.info } });
+  } });
+`), true, 'an exact contextual optional member remains nullable');
+assert.equal(contextualWrite(`
+  function invoke(value: { mutate(attempt: { info?: string }): void }) {}
+  invoke({ async mutate(attempt) {
+    if (attempt.info != null) {
+      await prisma.job.update({ data: { info: attempt.info } });
+    }
+  } });
+`), false, 'an exact contextual optional member becomes nonnullable only when narrowed');
+assert.equal(contextualWrite(`
+  function invoke(value: { mutate(attempt: { payload: { message: string } }): void }) {}
+  invoke({ async mutate(renamed) {
+    await prisma.job.update({ data: { info: renamed.payload.message } });
+  } });
+`), false, 'nested renamed contextual members retain their exact signature path');
+const contextualRepositoryRoot = process.env.TRAINING_BOOK_REPOSITORY_ROOT;
+assert.ok(contextualRepositoryRoot, 'the contextual type cache test requires the repository root');
+const contextualLivePath = 'ui/src/app/api/jobs/[jobID]/start/route.ts';
+const contextualLiveSource = readFileSync(join(contextualRepositoryRoot, contextualLivePath), 'utf8');
+assert.doesNotThrow(
+  () => collectDeclaredServerGlobalClaimsFromSource(contextualLivePath, contextualLiveSource),
+  'an exact on-disk production source may use its cached project type evidence',
+);
+assert.throws(
+  () => collectDeclaredServerGlobalClaimsFromSource(
+    contextualLivePath,
+    `${contextualLiveSource}\nunknownCall({ async mutate(attempt) { await prisma.job.update({ data: { info: attempt.info } }); } });`,
+  ),
+  /database write nullability is unproven/,
+  'a modified source at the same path cannot reuse cached production type evidence',
+);
 assert.deepEqual(
   collectDeclaredServerGlobalClaimsFromSource('ui/cron/actions/startJob.ts', `
     import { getHFToken } from '../paths';
