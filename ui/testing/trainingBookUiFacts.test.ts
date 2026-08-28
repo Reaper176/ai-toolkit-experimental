@@ -375,6 +375,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
   collectDeclaredServerGlobalClaimsFromSource('ui/src/server/example.ts', `
+    import prisma from '@/server/prisma';
     async function loadCustomSetting() {
       const key = 'CUSTOM_ROOT';
       return prisma.settings.findFirst({ where: { key } });
@@ -385,6 +386,7 @@ assert.deepEqual(
 );
 const databaseWriteNullability = collectDeclaredServerGlobalClaimsFromSource(
   'ui/src/server/write-nullability.ts', `
+    import prisma from '@/server/prisma';
     async function writeState(pid: number | null) {
       const message = \`launch failed\`;
       const status = 'error';
@@ -395,6 +397,135 @@ const databaseWriteNullability = collectDeclaredServerGlobalClaimsFromSource(
     }
   `,
 );
+for (const [label, source] of [
+  ['unrelated job terminal', `
+    async function bad(unrelated) {
+      await unrelated.job.update({ data: { status: 'queued' } });
+    }
+  `],
+  ['shadowed prisma alias', `
+    import prisma from '@/server/prisma';
+    async function bad(prisma) {
+      await prisma.job.update({ data: { status: 'queued' } });
+    }
+  `],
+  ['unrelated settings terminal', `
+    async function bad(unrelated) {
+      await unrelated.settings.findFirst({ where: { key: 'HF_TOKEN' } });
+    }
+  `],
+  ['unproven settings parameter', `
+    function bad(settings) { return settings.HF_TOKEN; }
+  `],
+  ['shadowed settings alias', `
+    const settings = { HF_TOKEN: 'local' };
+    function bad(settings) { return settings.HF_TOKEN; }
+  `],
+  ['named import impersonating default prisma', `
+    import { helper as prisma } from '@/server/prisma';
+    async function bad() { await prisma.job.update({ data: { status: 'queued' } }); }
+  `],
+  ['renamed Prisma export impersonating namespace', `
+    import { Other as Prisma } from '@prisma/client';
+    async function bad(transaction: Prisma.TransactionClient) {
+      await transaction.queue.update({ data: { is_running: true } });
+    }
+  `],
+  ['renamed wrong export impersonating PrismaClient', `
+    import { Other as PrismaClient } from '@prisma/client';
+    async function bad(transaction: PrismaClient) {
+      await transaction.queue.update({ data: { is_running: true } });
+    }
+  `],
+  ['named import impersonating default useSettings', `
+    import { other as useSettings } from '@/hooks/useSettings';
+    function bad() { const { settings } = useSettings(); return settings.HF_TOKEN; }
+  `],
+  ['renamed non-settings projection', `
+    import useSettings from '@/hooks/useSettings';
+    function bad() { const { other: settings } = useSettings(); return settings.HF_TOKEN; }
+  `],
+  ['nested non-settings projection', `
+    import useSettings from '@/hooks/useSettings';
+    function bad() { const { other: { settings } } = useSettings(); return settings.HF_TOKEN; }
+  `],
+] as const) {
+  assert.deepEqual(
+    collectDeclaredServerGlobalClaimsFromSource('ui/src/server/database-root-negative.ts', source),
+    [],
+    `${label} cannot emit authoritative database facts`,
+  );
+}
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/database-root-positive.ts', `
+    import prisma from '@/server/prisma';
+    async function good() {
+      await prisma.job.update({ data: { status: 'queued' } });
+      await prisma.settings.findFirst({ where: { key: 'HF_TOKEN' } });
+    }
+  `).map(item => item.path),
+  ['job.status', 'settings.HF_TOKEN'],
+  'the exact imported Prisma binding authorizes database facts',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/database-root-transaction.ts', `
+    import { Prisma } from '@prisma/client';
+    async function good(transaction: Prisma.TransactionClient) {
+      await transaction.queue.update({ data: { is_running: true } });
+    }
+  `).map(item => item.path),
+  ['queue.is_running'],
+  'an exact Prisma transaction parameter authorizes database facts',
+);
+for (const [label, imported, typeName] of [
+  ['direct', 'PrismaClient', 'PrismaClient'],
+  ['aliased', 'PrismaClient as Client', 'Client'],
+] as const) {
+  assert.deepEqual(
+    collectDeclaredServerGlobalClaimsFromSource('ui/src/server/database-root-client.ts', `
+      import { ${imported} } from '@prisma/client';
+      async function good(client: ${typeName}) {
+        await client.queue.update({ data: { is_running: true } });
+      }
+    `).map(item => item.path),
+    ['queue.is_running'],
+    `an exact ${label} PrismaClient import authorizes database facts`,
+  );
+}
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/database-root-namespace.ts', `
+    import * as Prisma from '@prisma/client';
+    async function good(transaction: Prisma.TransactionClient) {
+      await transaction.queue.update({ data: { is_running: true } });
+    }
+  `).map(item => item.path),
+  ['queue.is_running'],
+  'an exact Prisma namespace TransactionClient authorizes database facts',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/settings-projection-positive.ts', `
+    import useSettings from '@/hooks/useSettings';
+    function good() {
+      const { settings: loadedSettings } = useSettings();
+      const settings = loadedSettings;
+      return settings.HF_TOKEN;
+    }
+  `).map(item => item.path),
+  ['settings.HF_TOKEN'],
+  'an exact settings projection retains authority through a lexical alias',
+);
+const parameterWriteNullability = (parameter: string) => collectDeclaredServerGlobalClaimsFromSource(
+  'ui/src/server/parameter-nullability.ts',
+  `import prisma from '@/server/prisma'; async function write(info${parameter}) { await prisma.job.update({ data: { info } }); }`,
+).find(item => item.path === 'job.info')?.value_contract;
+assert.deepEqual(
+  parameterWriteNullability('?: string'),
+  { ui_type: 'string', widget_kind: null, optional: false, nullable: true },
+  'an optional source parameter is a nullable database value while the write itself remains required',
+);
+assert.equal(parameterWriteNullability(': string')?.nullable, false, 'a required string parameter is nonnullable');
+assert.equal(parameterWriteNullability(': string | null')?.nullable, true, 'an explicit null union remains nullable');
+assert.equal(parameterWriteNullability(': string | undefined')?.nullable, true, 'an explicit undefined union remains nullable');
 assert.deepEqual(
   databaseWriteNullability.map(item => [
     item.symbol, item.value_contract.nullable,
@@ -412,13 +543,14 @@ assert.deepEqual(
 assert.throws(
   () => collectDeclaredServerGlobalClaimsFromSource(
     'ui/src/server/unknown-write.ts',
-    'async function writeUnknown() { await prisma.job.update({ data: { info: unknownValue() } }); }',
+    "import prisma from '@/server/prisma'; async function writeUnknown() { await prisma.job.update({ data: { info: unknownValue() } }); }",
   ),
   /database write nullability is unproven/,
   'unknown database write expressions fail closed',
 );
 const databaseWriteControlFlow = collectDeclaredServerGlobalClaimsFromSource(
   'ui/src/server/write-control-flow.ts', `
+    import prisma from '@/server/prisma';
     async function writeState(pid: number | null, flag: boolean) {
       let info: string;
       info = 'assigned';
@@ -461,7 +593,7 @@ for (const [label, expression] of [
   `],
 ] as const) {
   assert.throws(
-    () => collectDeclaredServerGlobalClaimsFromSource('ui/src/server/unsupported-write.ts', expression),
+    () => collectDeclaredServerGlobalClaimsFromSource('ui/src/server/unsupported-write.ts', `import prisma from '@/server/prisma';\n${expression}`),
     /database write nullability is unproven/,
     `${label} fails closed`,
   );
@@ -483,13 +615,13 @@ for (const [label, source] of [
   `],
 ] as const) {
   assert.throws(
-    () => collectDeclaredServerGlobalClaimsFromSource('ui/src/server/binding-identity-negative.ts', source),
+    () => collectDeclaredServerGlobalClaimsFromSource('ui/src/server/binding-identity-negative.ts', `import prisma from '@/server/prisma';\n${source}`),
     /database write nullability is unproven/,
     `${label} cannot prove database write nullability`,
   );
 }
 const exactBindingWrite = (source: string) => collectDeclaredServerGlobalClaimsFromSource(
-  'ui/src/server/binding-identity-positive.ts', source,
+  'ui/src/server/binding-identity-positive.ts', `import prisma from '@/server/prisma';\n${source}`,
 ).find(item => item.path === 'job.info' || item.path === 'job.gpu_ids')?.value_contract.nullable;
 assert.equal(
   exactBindingWrite('async function good(info: string) { await prisma.job.update({ data: { info } }); }'),
@@ -627,13 +759,13 @@ for (const [label, source] of [
   `],
 ] as const) {
   assert.throws(
-    () => collectDeclaredServerGlobalClaimsFromSource('ui/src/server/contextual-negative.ts', source),
+    () => collectDeclaredServerGlobalClaimsFromSource('ui/src/server/contextual-negative.ts', `import prisma from '@/server/prisma';\n${source}`),
     /database write nullability is unproven/,
     `${label} fails closed without an exact contextual signature`,
   );
 }
 const contextualWrite = (source: string) => collectDeclaredServerGlobalClaimsFromSource(
-  'ui/src/server/contextual-positive.ts', source,
+  'ui/src/server/contextual-positive.ts', `import prisma from '@/server/prisma';\n${source}`,
 ).find(item => item.path === 'job.info')?.value_contract.nullable;
 assert.equal(contextualWrite(`
   function invoke(value: { mutate(attempt: { info: string }): void }) {}
@@ -684,6 +816,38 @@ assert.throws(
   /database write nullability is unproven/,
   'a modified source at the same path cannot reuse cached production type evidence',
 );
+const nestedUiFixtureRoot = mkdtempSync(join(tmpdir(), 'training-book-nested-ui-'));
+try {
+  const outerUi = join(nestedUiFixtureRoot, 'outer', 'ui');
+  const innerUi = join(outerUi, 'nested', 'ui');
+  const innerSource = join(innerUi, 'src');
+  mkdirSync(innerSource, { recursive: true });
+  writeFileSync(join(outerUi, 'tsconfig.json'), JSON.stringify({ compilerOptions: {}, include: [] }));
+  writeFileSync(join(innerUi, 'tsconfig.json'), JSON.stringify({
+    compilerOptions: { target: 'es2022', module: 'commonjs', moduleResolution: 'node' },
+    include: ['src/**/*.ts'],
+  }));
+  writeFileSync(join(innerSource, 'helper.ts'), `
+    export function invoke(value: { mutate(attempt: { info: string }): void }) {}
+  `);
+  const nestedLivePath = join(innerSource, 'live.ts');
+  const nestedLiveSource = `
+    import prisma from '@/server/prisma';
+    import { invoke } from './helper';
+    invoke({ async mutate(attempt) {
+      await prisma.job.update({ data: { info: attempt.info } });
+    } });
+  `;
+  writeFileSync(nestedLivePath, nestedLiveSource);
+  assert.equal(
+    collectDeclaredServerGlobalClaimsFromSource(nestedLivePath, nestedLiveSource)
+      .find(item => item.path === 'job.info')?.value_contract.nullable,
+    false,
+    'production type discovery uses the nearest structural ui tsconfig in nested ui paths',
+  );
+} finally {
+  rmSync(nestedUiFixtureRoot, { recursive: true, force: true });
+}
 assert.deepEqual(
   collectDeclaredServerGlobalClaimsFromSource('ui/cron/actions/startJob.ts', `
     import { getHFToken } from '../paths';
@@ -695,7 +859,9 @@ assert.deepEqual(
 );
 assert.deepEqual(
   collectDeclaredServerGlobalClaimsFromSource('ui/src/server/example.ts', `
-    async function mutateState() {
+    import prisma from '@/server/prisma';
+    import { Prisma } from '@prisma/client';
+    async function mutateState(transaction: Prisma.TransactionClient) {
       await prisma.job.update({ data: { status: 'queued', stop: false, pid: null } });
       await transaction.queue.update({ data: { is_running: true } });
     }
@@ -710,7 +876,9 @@ assert.deepEqual(
 );
 assert.deepEqual(
   collectDeclaredServerGlobalClaimsFromSource('ui/src/app/jobs/new/example.ts', `
-    function importConfig(parsed, settings, setJobConfig) {
+    import useSettings from '@/hooks/useSettings';
+    function importConfig(parsed, setJobConfig) {
+      const { settings } = useSettings();
       parsed.config.process[0].training_folder = settings.TRAINING_FOLDER;
       setJobConfig(settings.TRAINING_FOLDER, 'config.process[0].training_folder');
     }
@@ -911,6 +1079,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
   collectDeclaredServerGlobalClaimsFromSource('ui/src/app/api/jobs/[jobID]/start/route.ts', `
+    import prisma from '@/server/prisma';
     export async function GET() {
       const mutateQueue = async () => {
         await prisma.job.update({ data: { status: 'queued', stop: false } });
@@ -947,9 +1116,15 @@ for (const [category, source, removed] of [
   ['settings', `async function duplicate() { async function primary() { await prisma.settings.findFirst({ where: { key: 'SAME_KEY' } }); } async function fallback() { await prisma.settings.findFirst({ where: { key: 'SAME_KEY' } }); } }`, `async function duplicate() { async function primary() { await prisma.settings.findFirst({ where: { key: 'SAME_KEY' } }); } }`],
   ['job state', `async function duplicate() { async function claim() { await prisma.job.update({ data: { status: 'queued' } }); } async function retry() { await prisma.job.update({ data: { status: 'queued' } }); } }`, `async function duplicate() { async function claim() { await prisma.job.update({ data: { status: 'queued' } }); } }`],
 ] as const) {
+  const authoritativeSource = category === 'settings' || category === 'job state'
+    ? `import prisma from '@/server/prisma';\n${source}`
+    : source;
+  const authoritativeRemoved = category === 'settings' || category === 'job state'
+    ? `import prisma from '@/server/prisma';\n${removed}`
+    : removed;
   assert.notDeepEqual(
-    collectDeclaredServerGlobalClaimsFromSource('ui/src/duplicate.ts', source),
-    collectDeclaredServerGlobalClaimsFromSource('ui/src/duplicate.ts', removed),
+    collectDeclaredServerGlobalClaimsFromSource('ui/src/duplicate.ts', authoritativeSource),
+    collectDeclaredServerGlobalClaimsFromSource('ui/src/duplicate.ts', authoritativeRemoved),
     `removing one executable duplicate ${category} occurrence must change emitted facts`,
   );
 }

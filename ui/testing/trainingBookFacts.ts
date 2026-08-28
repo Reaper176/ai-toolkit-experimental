@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import ts from 'typescript';
 
@@ -12074,6 +12074,170 @@ function staticStringValues(expression: ts.Expression, bindings: LexicalBindings
   return [];
 }
 
+interface ExactImportBinding {
+  source: string;
+  kind: 'default' | 'namespace' | 'named';
+  imported: 'default' | '*' | string;
+}
+
+function exactImportBinding(identifier: ts.Identifier): ExactImportBinding | undefined {
+  const source = identifier.getSourceFile();
+  const matches: ExactImportBinding[] = [];
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const clause = statement.importClause;
+    if (clause?.name?.text === identifier.text) matches.push({ source: statement.moduleSpecifier.text, kind: 'default', imported: 'default' });
+    const bindings = clause?.namedBindings;
+    if (bindings !== undefined && ts.isNamespaceImport(bindings) && bindings.name.text === identifier.text) {
+      matches.push({ source: statement.moduleSpecifier.text, kind: 'namespace', imported: '*' });
+    } else if (bindings !== undefined && ts.isNamedImports(bindings)) {
+      for (const element of bindings.elements) {
+        if (element.name.text === identifier.text) matches.push({
+          source: statement.moduleSpecifier.text,
+          kind: 'named',
+          imported: (element.propertyName ?? element.name).text,
+        });
+      }
+    }
+  }
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function existingSourcePath(source: ts.SourceFile): string | undefined {
+  return [
+    process.env.TRAINING_BOOK_REPOSITORY_ROOT,
+    process.cwd(),
+    resolve(process.cwd(), '..'),
+  ].filter((value): value is string => value !== undefined)
+    .map(root => resolve(root, source.fileName))
+    .find(candidate => existsSync(candidate));
+}
+
+function relativeImportExportsPrismaClient(identifier: ts.Identifier, specifier: string): boolean {
+  if (!specifier.startsWith('.')) return false;
+  const importer = existingSourcePath(identifier.getSourceFile());
+  if (importer === undefined) return false;
+  const base = resolve(dirname(importer), specifier);
+  const filename = [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts')]
+    .find(candidate => existsSync(candidate));
+  if (filename === undefined) return false;
+  const source = ts.createSourceFile(filename, readFileSync(filename, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const prismaClientImports = new Set<string>();
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || statement.moduleSpecifier.text !== '@prisma/client') continue;
+    const named = statement.importClause?.namedBindings;
+    if (named !== undefined && ts.isNamedImports(named)) {
+      for (const element of named.elements) {
+        if ((element.propertyName ?? element.name).text === 'PrismaClient') prismaClientImports.add(element.name.text);
+      }
+    }
+  }
+  const instances = new Set<string>();
+  for (const statement of source.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      const initializer = declaration.initializer === undefined ? undefined : unwrap(declaration.initializer);
+      if (
+        ts.isIdentifier(declaration.name)
+        && initializer !== undefined
+        && ts.isNewExpression(initializer)
+        && ts.isIdentifier(initializer.expression)
+        && prismaClientImports.has(initializer.expression.text)
+      ) instances.add(declaration.name.text);
+    }
+  }
+  return source.statements.some(statement =>
+    ts.isExportAssignment(statement)
+    && ts.isIdentifier(unwrap(statement.expression))
+    && instances.has((unwrap(statement.expression) as ts.Identifier).text)
+  );
+}
+
+function prismaTypeAnnotation(type: ts.TypeNode | undefined): boolean {
+  if (type === undefined || !ts.isTypeReferenceNode(type)) return false;
+  if (ts.isIdentifier(type.typeName)) {
+    const imported = exactImportBinding(type.typeName);
+    return imported?.source === '@prisma/client'
+      && imported.kind === 'named'
+      && imported.imported === 'PrismaClient';
+  }
+  if (!ts.isQualifiedName(type.typeName)) return false;
+  const left = type.typeName.left;
+  const imported = ts.isIdentifier(left) ? exactImportBinding(left) : undefined;
+  return ts.isIdentifier(left)
+    && imported?.source === '@prisma/client'
+    && (imported.kind === 'namespace' || (imported.kind === 'named' && imported.imported === 'Prisma'))
+    && ['PrismaClient', 'TransactionClient'].includes(type.typeName.right.text);
+}
+
+function authoritativeDatabaseRoot(
+  expression: ts.Expression,
+  bindings: LexicalBindings,
+  seen = new Set<ts.Identifier>(),
+): boolean {
+  expression = unwrap(expression);
+  if (!ts.isIdentifier(expression)) return false;
+  const declaration = bindings.bindingDeclaration(expression);
+  if (declaration !== undefined) {
+    if (seen.has(declaration)) return false;
+    const owner = declaration.parent;
+    if (ts.isParameter(owner) && owner.name === declaration) {
+      if (prismaTypeAnnotation(owner.type)) return true;
+      const callback = owner.parent;
+      const context = callback.parent;
+      if (
+        (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))
+        && ts.isCallExpression(context)
+        && context.arguments.includes(callback)
+      ) {
+        const call = unwrap(context.expression);
+        return ts.isPropertyAccessExpression(call)
+          && call.name.text === '$transaction'
+          && authoritativeDatabaseRoot(call.expression, bindings, new Set(seen).add(declaration));
+      }
+      return false;
+    }
+    const initializer = bindings.declarationInitializer(expression);
+    return initializer !== undefined
+      && authoritativeDatabaseRoot(initializer, bindings, new Set(seen).add(declaration));
+  }
+  const imported = exactImportBinding(expression);
+  return imported?.kind === 'default'
+    && (imported.source === '@/server/prisma' || relativeImportExportsPrismaClient(expression, imported.source));
+}
+
+function authoritativeSettingsProjection(
+  identifier: ts.Identifier,
+  bindings: LexicalBindings,
+  seen = new Set<ts.Identifier>(),
+): boolean {
+  const declaration = bindings.bindingDeclaration(identifier);
+  if (declaration === undefined || seen.has(declaration)) return false;
+  const initializer = bindings.declarationInitializer(identifier);
+  if (initializer !== undefined) {
+    const value = unwrap(initializer);
+    if (ts.isIdentifier(value)) {
+      return authoritativeSettingsProjection(value, bindings, new Set(seen).add(declaration));
+    }
+  }
+  const element = declaration.parent;
+  if (
+    !ts.isBindingElement(element)
+    || propertyName(element.propertyName ?? element.name as ts.PropertyName) !== 'settings'
+    || !ts.isObjectBindingPattern(element.parent)
+  ) return false;
+  const owner = element.parent.parent;
+  if (!ts.isVariableDeclaration(owner) || owner.name !== element.parent || owner.initializer === undefined) return false;
+  const call = unwrap(owner.initializer);
+  if (!ts.isCallExpression(call)) return false;
+  const callee = unwrap(call.expression);
+  const imported = ts.isIdentifier(callee) ? exactImportBinding(callee) : undefined;
+  return ts.isIdentifier(callee)
+    && bindings.bindingDeclaration(callee) === undefined
+    && imported?.source === '@/hooks/useSettings'
+    && imported.kind === 'default';
+}
+
 function settingsDatabaseKeys(
   node: ts.CallExpression,
   bindings: LexicalBindings,
@@ -12082,6 +12246,7 @@ function settingsDatabaseKeys(
   if (!ts.isPropertyAccessExpression(call)) return [];
   const receiver = unwrap(call.expression);
   if (!ts.isPropertyAccessExpression(receiver) || receiver.name.text !== 'settings') return [];
+  if (!authoritativeDatabaseRoot(receiver.expression, bindings)) return [];
   const keys: string[] = [];
   const visit = (child: ts.Node): void => {
     if (ts.isPropertyAssignment(child) && propertyName(child.name) === 'key') {
@@ -12193,6 +12358,8 @@ function primitiveTypeNullability(type: ts.TypeNode | undefined): boolean | unde
     if (
       member.kind === ts.SyntaxKind.NullKeyword
       || member.kind === ts.SyntaxKind.UndefinedKeyword
+      || (ts.isLiteralTypeNode(member) && member.literal.kind === ts.SyntaxKind.NullKeyword)
+      || (ts.isTypeReferenceNode(member) && ts.isIdentifier(member.typeName) && member.typeName.text === 'undefined')
     ) nullable = true;
     else if (primitiveTypeNullability(member) !== false) return undefined;
   }
@@ -12207,7 +12374,7 @@ function exactBindingType(
     (ts.isParameter(direct) || ts.isVariableDeclaration(direct))
     && direct.name === declaration
     && direct.type !== undefined
-  ) return { type: direct.type, optional: false };
+  ) return { type: direct.type, optional: ts.isParameter(direct) && direct.questionToken !== undefined };
   let current: ts.Node = direct;
   const path: string[] = [];
   while (ts.isBindingElement(current)) {
@@ -12375,18 +12542,38 @@ function productionProgramSource(source: ts.SourceFile): {
     .map(root => resolve(root, source.fileName))
     .find(candidate => existsSync(candidate));
   if (filename === undefined || readFileSync(filename, 'utf8') !== source.text) return undefined;
-  const uiRoot = filename.slice(0, filename.indexOf('/ui/') + 3);
-  let project = productionTypePrograms.get(uiRoot);
-  if (project === undefined) {
-    const configPath = join(uiRoot, 'tsconfig.json');
-    const config = ts.readConfigFile(configPath, ts.sys.readFile);
-    if (config.error !== undefined) return undefined;
-    const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, uiRoot);
-    const program = ts.createProgram(parsed.fileNames, parsed.options);
-    project = { checker: program.getTypeChecker(), program };
-    productionTypePrograms.set(uiRoot, project);
+  const canonicalFilename = realpathSync(filename);
+  let directory = dirname(canonicalFilename);
+  let projectConfig: { path: string; parsed: ts.ParsedCommandLine } | undefined;
+  while (true) {
+    const candidate = join(directory, 'tsconfig.json');
+    if (existsSync(candidate)) {
+      const config = ts.readConfigFile(candidate, ts.sys.readFile);
+      if (config.error === undefined) {
+        const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, directory);
+        const ownsSource = parsed.fileNames.some(file =>
+          existsSync(file) && realpathSync(file) === canonicalFilename
+        );
+        if (ownsSource) {
+          projectConfig = { path: realpathSync(candidate), parsed };
+          break;
+        }
+      }
+    }
+    const parent = dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
   }
-  const programSource = project.program.getSourceFile(filename);
+  if (projectConfig === undefined) return undefined;
+  let project = productionTypePrograms.get(projectConfig.path);
+  if (project === undefined) {
+    const program = ts.createProgram(projectConfig.parsed.fileNames, projectConfig.parsed.options);
+    project = { checker: program.getTypeChecker(), program };
+    productionTypePrograms.set(projectConfig.path, project);
+  }
+  const programSource = project.program.getSourceFiles().find(candidate =>
+    existsSync(candidate.fileName) && realpathSync(candidate.fileName) === canonicalFilename
+  );
   if (programSource === undefined) return undefined;
   return { checker: project.checker, source: programSource };
 }
@@ -12537,6 +12724,7 @@ function stateWrites(node: ts.CallExpression, bindings: LexicalBindings): Array<
   if (!ts.isPropertyAccessExpression(call) || !['create', 'update', 'updateMany', 'upsert'].includes(call.name.text)) return [];
   const receiver = unwrap(call.expression);
   if (!ts.isPropertyAccessExpression(receiver) || (receiver.name.text !== 'job' && receiver.name.text !== 'queue')) return [];
+  if (!authoritativeDatabaseRoot(receiver.expression, bindings)) return [];
   const argument = node.arguments[0] === undefined ? undefined : unwrap(node.arguments[0]);
   if (argument === undefined || !ts.isObjectLiteralExpression(argument)) return [];
   const data = objectProperties(argument).get('data');
@@ -12567,12 +12755,12 @@ function stateWrites(node: ts.CallExpression, bindings: LexicalBindings): Array<
   return writes;
 }
 
-function settingsPropertyKey(node: ts.Expression): string | undefined {
+function settingsPropertyKey(node: ts.Expression, bindings: LexicalBindings): string | undefined {
   node = unwrap(node);
-  if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'settings' && /^[A-Z][A-Z0-9_]+$/.test(node.name.text)) return node.name.text;
+  if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'settings' && authoritativeSettingsProjection(node.expression, bindings) && /^[A-Z][A-Z0-9_]+$/.test(node.name.text)) return node.name.text;
   if (ts.isElementAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'settings' && node.argumentExpression !== undefined) {
     const key = unwrap(node.argumentExpression);
-    if (ts.isStringLiteral(key) && /^[A-Z][A-Z0-9_]+$/.test(key.text)) return key.text;
+    if (authoritativeSettingsProjection(node.expression, bindings) && ts.isStringLiteral(key) && /^[A-Z][A-Z0-9_]+$/.test(key.text)) return key.text;
   }
   return undefined;
 }
@@ -12584,11 +12772,11 @@ function parsedConfigAssignmentPath(node: ts.BinaryExpression): string | undefin
   return normalizePath(parts.slice(1).join('.'), {});
 }
 
-function settingsMediatedSetterPath(node: ts.CallExpression): string | undefined {
+function settingsMediatedSetterPath(node: ts.CallExpression, bindings: LexicalBindings): string | undefined {
   if (!ts.isIdentifier(node.expression) || node.expression.text !== 'setJobConfig' || node.arguments.length < 2) return undefined;
   let readsSettings = false;
   const find = (child: ts.Node): void => {
-    if (ts.isExpression(child) && settingsPropertyKey(child) !== undefined) readsSettings = true;
+    if (ts.isExpression(child) && settingsPropertyKey(child, bindings) !== undefined) readsSettings = true;
     ts.forEachChild(child, find);
   };
   find(node.arguments[0]);
@@ -13238,7 +13426,7 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
           write.value === undefined ? undefined : [write.value],
         ), node, `${write.entity}-${write.method}-${write.key}-${write.value === undefined ? 'derived' : JSON.stringify(write.value)}`, owner);
       }
-      const mediatedPath = settingsMediatedSetterPath(node);
+      const mediatedPath = settingsMediatedSetterPath(node, bindings);
       if (mediatedPath !== undefined) addOwned(serverStateClaim(
         sourcePath,
         `${owner}::settings::${mediatedPath}`,
@@ -13267,7 +13455,7 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
       }
     }
     if (ts.isExpression(node)) {
-      const settingKey = settingsPropertyKey(node);
+      const settingKey = settingsPropertyKey(node, bindings);
       if (settingKey !== undefined) {
         const owner = factSymbol(node, sourcePath);
         addOwned(serverStateClaim(
@@ -13712,7 +13900,7 @@ function structurallyBoundInputClaims(sourcePath: string, sourceText: string): U
   const claims: UiSourceClaim[] = [];
   for (const input of inputs) {
     const value = jsxAttributeExpression(jsxAttributeNode(input, 'value'));
-    const settingKey = value === undefined ? undefined : settingsPropertyKey(value);
+    const settingKey = value === undefined ? undefined : settingsPropertyKey(value, bindings);
     if (settingKey !== undefined) {
       const setter = settingsStateSetter(value!, source, bindings);
       const id = jsxAttribute(input, 'id');
