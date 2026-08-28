@@ -12229,11 +12229,37 @@ function relativeImportExportsPrismaClient(identifier: ts.Identifier, specifier:
   );
 }
 
+function directTypeDeclarationName(statement: ts.Statement): string | undefined {
+  if (
+    ts.isTypeAliasDeclaration(statement)
+    || ts.isInterfaceDeclaration(statement)
+    || ts.isClassDeclaration(statement)
+    || ts.isEnumDeclaration(statement)
+    || ts.isModuleDeclaration(statement)
+    || ts.isImportEqualsDeclaration(statement)
+  ) return statement.name === undefined || !ts.isIdentifier(statement.name) ? undefined : statement.name.text;
+  return undefined;
+}
+
+function importIsActiveTypeBinding(identifier: ts.Identifier): boolean {
+  let current: ts.Node | undefined = identifier;
+  while (current !== undefined) {
+    const typeParameters = (current as ts.Node & { typeParameters?: ts.NodeArray<ts.TypeParameterDeclaration> }).typeParameters;
+    if (typeParameters?.some(parameter => parameter.name.text === identifier.text)) return false;
+    if (ts.isBlock(current) || ts.isModuleBlock(current) || ts.isSourceFile(current)) {
+      if (current.statements.some(statement => directTypeDeclarationName(statement) === identifier.text)) return false;
+    }
+    current = current.parent;
+  }
+  return exactImportBinding(identifier) !== undefined;
+}
+
 function prismaTypeAnnotation(type: ts.TypeNode | undefined): boolean {
   if (type === undefined || !ts.isTypeReferenceNode(type)) return false;
   if (ts.isIdentifier(type.typeName)) {
     const imported = exactImportBinding(type.typeName);
-    return imported?.source === '@prisma/client'
+    return importIsActiveTypeBinding(type.typeName)
+      && imported?.source === '@prisma/client'
       && imported.kind === 'named'
       && imported.imported === 'PrismaClient';
   }
@@ -12241,6 +12267,7 @@ function prismaTypeAnnotation(type: ts.TypeNode | undefined): boolean {
   const left = type.typeName.left;
   const imported = ts.isIdentifier(left) ? exactImportBinding(left) : undefined;
   return ts.isIdentifier(left)
+    && importIsActiveTypeBinding(left)
     && imported?.source === '@prisma/client'
     && (imported.kind === 'namespace' || (imported.kind === 'named' && imported.imported === 'Prisma'))
     && ['PrismaClient', 'TransactionClient'].includes(type.typeName.right.text);

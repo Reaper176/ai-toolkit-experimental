@@ -10381,4 +10381,101 @@ assert.deepEqual(
   'an unrelated unique static property cannot override the exact settings pair',
 );
 
+const prismaTypeShadowClaims = (source: string) => collectDeclaredServerGlobalClaimsFromSource(
+  'ui/src/server/prisma-type-shadow.ts', source,
+).map(item => item.path);
+for (const [label, source] of [
+  ['block type alias shadows direct PrismaClient import', `
+    import type { PrismaClient } from '@prisma/client';
+    async function outer() {
+      type PrismaClient = { job: unknown };
+      async function bad(client: PrismaClient) {
+        await client.job.update({ data: { status: 'queued' } });
+      }
+    }
+  `],
+  ['later block type alias shadows earlier nested annotation', `
+    import type { PrismaClient } from '@prisma/client';
+    async function outer() {
+      async function bad(client: PrismaClient) {
+        await client.job.update({ data: { status: 'queued' } });
+      }
+      type PrismaClient = { job: unknown };
+    }
+  `],
+  ['block type alias shadows qualified Prisma namespace', `
+    import type { Prisma } from '@prisma/client';
+    async function outer() {
+      type Prisma = { TransactionClient: unknown };
+      async function bad(client: Prisma.TransactionClient) {
+        await client.job.update({ data: { status: 'queued' } });
+      }
+    }
+  `],
+  ['generic parameter shadows direct PrismaClient import', `
+    import type { PrismaClient } from '@prisma/client';
+    async function bad<PrismaClient>(client: PrismaClient) {
+      await client.job.update({ data: { status: 'queued' } });
+    }
+  `],
+  ['generic parameter shadows qualified Prisma namespace', `
+    import type { Prisma } from '@prisma/client';
+    async function bad<Prisma>(client: Prisma.TransactionClient) {
+      await client.job.update({ data: { status: 'queued' } });
+    }
+  `],
+  ['interface declaration conflicts with imported type binding', `
+    import type { PrismaClient } from '@prisma/client';
+    interface PrismaClient { job: unknown }
+    async function bad(client: PrismaClient) {
+      await client.job.update({ data: { status: 'queued' } });
+    }
+  `],
+  ['class declaration conflicts with imported type binding', `
+    import { PrismaClient } from '@prisma/client';
+    class PrismaClient {}
+    async function bad(client: PrismaClient) {
+      await client.job.update({ data: { status: 'queued' } });
+    }
+  `],
+  ['enum declaration conflicts with imported type binding', `
+    import type { PrismaClient } from '@prisma/client';
+    enum PrismaClient { Other }
+    async function bad(client: PrismaClient) {
+      await client.job.update({ data: { status: 'queued' } });
+    }
+  `],
+  ['namespace declaration conflicts with imported qualifier', `
+    import type { Prisma } from '@prisma/client';
+    namespace Prisma { export type TransactionClient = unknown; }
+    async function bad(client: Prisma.TransactionClient) {
+      await client.job.update({ data: { status: 'queued' } });
+    }
+  `],
+] as const) {
+  assert.deepEqual(prismaTypeShadowClaims(source), [], `${label} cannot authorize a Prisma database root`);
+}
+assert.deepEqual(
+  prismaTypeShadowClaims(`
+    import type { PrismaClient as Client } from '@prisma/client';
+    async function good(client: Client) {
+      { type Client = { job: unknown }; }
+      await client.job.update({ data: { status: 'queued' } });
+    }
+  `),
+  ['job.status'],
+  'a nested child-block type alias cannot shadow an outer parameter annotation',
+);
+assert.deepEqual(
+  prismaTypeShadowClaims(`
+    import { Prisma as DatabaseTypes } from '@prisma/client';
+    function unrelated() { type DatabaseTypes = { TransactionClient: unknown }; }
+    async function good(client: DatabaseTypes.TransactionClient) {
+      await client.job.update({ data: { status: 'queued' } });
+    }
+  `),
+  ['job.status'],
+  'a sibling function type alias cannot shadow an exact imported qualified type',
+);
+
 console.log('trainingBookUiFacts tests passed');
