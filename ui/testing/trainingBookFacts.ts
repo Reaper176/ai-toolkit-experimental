@@ -12110,6 +12110,35 @@ function exactImportBinding(identifier: ts.Identifier): ExactImportBinding | und
   return matches.length === 1 ? matches[0] : undefined;
 }
 
+function authoritativeNestedStateSetter(
+  identifier: ts.Identifier,
+  bindings: LexicalBindings,
+  seen = new Set<ts.Identifier>(),
+): boolean {
+  const declaration = bindings.bindingDeclaration(identifier);
+  if (declaration === undefined || seen.has(declaration)) return false;
+  const element = declaration.parent;
+  if (ts.isBindingElement(element) && ts.isArrayBindingPattern(element.parent)) {
+    const pattern = element.parent;
+    if (pattern.elements[1] !== element || !ts.isVariableDeclaration(pattern.parent)) return false;
+    const initializer = pattern.parent.initializer === undefined ? undefined : unwrap(pattern.parent.initializer);
+    if (initializer === undefined || !ts.isCallExpression(initializer)) return false;
+    const callee = unwrap(initializer.expression);
+    const imported = ts.isIdentifier(callee) ? exactImportBinding(callee) : undefined;
+    return ts.isIdentifier(callee)
+      && bindings.bindingDeclaration(callee) === undefined
+      && imported?.source === '@/utils/hooks'
+      && imported.kind === 'named'
+      && imported.imported === 'useNestedState'
+      && !imported.typeOnly;
+  }
+  const initializer = bindings.declarationInitializer(identifier);
+  if (initializer === undefined) return false;
+  const value = unwrap(initializer);
+  return ts.isIdentifier(value)
+    && authoritativeNestedStateSetter(value, bindings, new Set(seen).add(declaration));
+}
+
 function existingSourcePath(source: ts.SourceFile): string | undefined {
   return [
     process.env.TRAINING_BOOK_REPOSITORY_ROOT,
@@ -12118,6 +12147,44 @@ function existingSourcePath(source: ts.SourceFile): string | undefined {
   ].filter((value): value is string => value !== undefined)
     .map(root => resolve(root, source.fileName))
     .find(candidate => existsSync(candidate));
+}
+
+function trainingBookRepositoryRoot(): string | undefined {
+  return [
+    process.env.TRAINING_BOOK_REPOSITORY_ROOT,
+    process.cwd(),
+    resolve(process.cwd(), '..'),
+  ].filter((value): value is string => value !== undefined)
+    .map(candidate => resolve(candidate))
+    .find(candidate =>
+      existsSync(join(candidate, 'ui/cron/paths.ts'))
+      && existsSync(join(candidate, 'ui/src/server/settings.ts')),
+    );
+}
+
+function resolvedTypeScriptModule(source: ts.SourceFile, specifier: string): string | undefined {
+  const root = trainingBookRepositoryRoot();
+  if (root === undefined) return undefined;
+  const importer = resolve(root, source.fileName);
+  const base = specifier.startsWith('@/')
+    ? resolve(root, 'ui/src', specifier.slice(2))
+    : specifier.startsWith('.')
+      ? resolve(dirname(importer), specifier)
+      : undefined;
+  if (base === undefined) return undefined;
+  const filename = [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts'), join(base, 'index.tsx')]
+    .find(candidate => existsSync(candidate));
+  return filename === undefined ? undefined : realpathSync(filename);
+}
+
+function authoritativeSettingsGetterModule(identifier: ts.Identifier, specifier: string): boolean {
+  const root = trainingBookRepositoryRoot();
+  if (root === undefined) return false;
+  const resolvedModule = resolvedTypeScriptModule(identifier.getSourceFile(), specifier);
+  if (resolvedModule === undefined) return false;
+  const authoritative = [join(root, 'ui/cron/paths.ts'), join(root, 'ui/src/server/settings.ts')]
+    .map(filename => realpathSync(filename));
+  return authoritative.includes(resolvedModule);
 }
 
 function relativeImportExportsPrismaClient(identifier: ts.Identifier, specifier: string): boolean {
@@ -12197,7 +12264,12 @@ function authoritativeDatabaseRoot(
       if (
         (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))
         && ts.isCallExpression(context)
-        && context.arguments.includes(callback)
+        && context.arguments[0] === callback
+        && context.arguments.length <= 2
+        && (
+          context.arguments[1] === undefined
+          || ts.isObjectLiteralExpression(unwrap(context.arguments[1]))
+        )
       ) {
         const call = unwrap(context.expression);
         return ts.isPropertyAccessExpression(call)
@@ -12784,7 +12856,8 @@ function parsedConfigAssignmentPath(node: ts.BinaryExpression): string | undefin
 }
 
 function settingsMediatedSetterPath(node: ts.CallExpression, bindings: LexicalBindings): string | undefined {
-  if (!ts.isIdentifier(node.expression) || node.expression.text !== 'setJobConfig' || node.arguments.length < 2) return undefined;
+  const callee = unwrap(node.expression);
+  if (!ts.isIdentifier(callee) || !authoritativeNestedStateSetter(callee, bindings) || node.arguments.length < 2) return undefined;
   let readsSettings = false;
   const find = (child: ts.Node): void => {
     if (ts.isExpression(child) && settingsPropertyKey(child, bindings) !== undefined) readsSettings = true;
@@ -12995,19 +13068,25 @@ function returnedSettingsStatePair(
     if (statement.expression === undefined) return false;
     const expression = unwrap(statement.expression);
     if (!ts.isObjectLiteralExpression(expression)) return false;
-    let hasSettings = false;
-    let hasSetter = false;
+    const properties = new Map<string, ts.Expression>();
     for (const property of expression.properties) {
+      if (ts.isSpreadAssignment(property) || ts.isComputedPropertyName(property.name)) return false;
+      const key = propertyName(property.name);
+      if (key === undefined || properties.has(key)) return false;
       if (ts.isShorthandPropertyAssignment(property)) {
-        if (property.name.text === 'settings' && bindings.isBinding(property.name, settings)) hasSettings = true;
-        if (property.name.text === 'setSettings' && bindings.isBinding(property.name, setter)) hasSetter = true;
+        properties.set(key, property.name);
       } else if (ts.isPropertyAssignment(property)) {
-        const value = unwrap(property.initializer);
-        if (propertyName(property.name) === 'settings' && ts.isIdentifier(value) && bindings.isBinding(value, settings)) hasSettings = true;
-        if (propertyName(property.name) === 'setSettings' && ts.isIdentifier(value) && bindings.isBinding(value, setter)) hasSetter = true;
-      }
+        properties.set(key, unwrap(property.initializer));
+      } else return false;
     }
-    return hasSettings && hasSetter;
+    const returnedSettings = properties.get('settings');
+    const returnedSetter = properties.get('setSettings');
+    return returnedSettings !== undefined
+      && returnedSetter !== undefined
+      && ts.isIdentifier(returnedSettings)
+      && ts.isIdentifier(returnedSetter)
+      && bindings.isBinding(returnedSettings, settings)
+      && bindings.isBinding(returnedSetter, setter);
   };
   type ReturnFlow = { valid: boolean; returns: number; completes: boolean };
   const complete: ReturnFlow = { valid: true, returns: 0, completes: true };
@@ -13147,7 +13226,7 @@ function importedSettingGetterIdentifierKey(
   const imported = exactImportBinding(callee);
   return imported?.kind === 'named'
     && !imported.typeOnly
-    && /(?:^|\/)(?:paths|settings)$/u.test(imported.source)
+    && authoritativeSettingsGetterModule(callee, imported.source)
     ? KNOWN_SETTING_GETTERS.get(imported.imported)
     : undefined;
 }

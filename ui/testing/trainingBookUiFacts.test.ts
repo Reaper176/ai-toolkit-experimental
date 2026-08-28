@@ -896,7 +896,7 @@ for (const [label, source] of [
   );
 }
 assert.deepEqual(
-  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/example.ts', `
+  collectDeclaredServerGlobalClaimsFromSource('ui/cron/actions/example.ts', `
     import { getHFToken as importedToken } from '../paths';
     const readToken = importedToken;
     function x() { return readToken(); }
@@ -924,8 +924,10 @@ assert.deepEqual(
 assert.deepEqual(
   collectDeclaredServerGlobalClaimsFromSource('ui/src/app/jobs/new/example.ts', `
     import useSettings from '@/hooks/useSettings';
-    function importConfig(parsed, setJobConfig) {
+    import { useNestedState } from '@/utils/hooks';
+    function importConfig(parsed) {
       const { settings } = useSettings();
+      const [jobConfig, setJobConfig] = useNestedState({});
       parsed.config.process[0].training_folder = settings.TRAINING_FOLDER;
       setJobConfig(settings.TRAINING_FOLDER, 'config.process[0].training_folder');
     }
@@ -10214,6 +10216,169 @@ assert.deepEqual(
   `),
   ['settings.HF_TOKEN'],
   'a structurally exhaustive branch returning the exact pair authorizes hydration',
+);
+
+const mediatedSettingPaths = (source: string) => collectDeclaredServerGlobalClaimsFromSource(
+  'ui/src/app/jobs/new/mediated.ts', source,
+).filter(item => item.path === 'config.process[*].training_folder').map(item => item.path);
+for (const [label, source] of [
+  ['unrelated terminal setter', `
+    import useSettings from '@/hooks/useSettings';
+    function bad(setJobConfig) {
+      const { settings } = useSettings();
+      setJobConfig(settings.TRAINING_FOLDER, 'config.process[0].training_folder');
+    }
+  `],
+  ['shadowed exact tuple setter', `
+    import useSettings from '@/hooks/useSettings';
+    import { useNestedState } from '@/utils/hooks';
+    function bad() {
+      const { settings } = useSettings();
+      const [jobConfig, setJobConfig] = useNestedState({});
+      function nested(setJobConfig) {
+        setJobConfig(settings.TRAINING_FOLDER, 'config.process[0].training_folder');
+      }
+    }
+  `],
+  ['wrong tuple position', `
+    import useSettings from '@/hooks/useSettings';
+    import { useNestedState } from '@/utils/hooks';
+    function bad() {
+      const { settings } = useSettings();
+      const [setJobConfig, jobConfig] = useNestedState({});
+      setJobConfig(settings.TRAINING_FOLDER, 'config.process[0].training_folder');
+    }
+  `],
+  ['wrong object projection', `
+    import useSettings from '@/hooks/useSettings';
+    import { useNestedState } from '@/utils/hooks';
+    function bad() {
+      const { settings } = useSettings();
+      const { setJobConfig } = useNestedState({});
+      setJobConfig(settings.TRAINING_FOLDER, 'config.process[0].training_folder');
+    }
+  `],
+  ['wrong imported hook export', `
+    import useSettings from '@/hooks/useSettings';
+    import { unrelated as useNestedState } from '@/utils/hooks';
+    function bad() {
+      const { settings } = useSettings();
+      const [jobConfig, setJobConfig] = useNestedState({});
+      setJobConfig(settings.TRAINING_FOLDER, 'config.process[0].training_folder');
+    }
+  `],
+] as const) {
+  assert.deepEqual(mediatedSettingPaths(source), [], `${label} cannot authorize a mediated settings write`);
+}
+assert.deepEqual(
+  mediatedSettingPaths(`
+    import useSettings from '@/hooks/useSettings';
+    import { useNestedState as nestedState } from '@/utils/hooks';
+    function good() {
+      const { settings } = useSettings();
+      const [jobConfig, setJobConfig] = nestedState({});
+      const updateJobConfig = setJobConfig;
+      updateJobConfig(settings.TRAINING_FOLDER, 'config.process[0].training_folder');
+    }
+  `),
+  ['config.process[*].training_folder'],
+  'the exact useNestedState setter remains authoritative through a lexical alias',
+);
+
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/transaction-wrong-index.ts', `
+    import prisma from '@/server/prisma';
+    async function bad() {
+      await prisma.$transaction({ timeout: 10 }, async transaction => {
+        await transaction.queue.update({ data: { is_running: true } });
+      });
+    }
+  `),
+  [],
+  'a transaction callback outside argument zero cannot authorize its parameter root',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/transaction-array-form.ts', `
+    import prisma from '@/server/prisma';
+    async function bad() {
+      await prisma.$transaction([async transaction => {
+        await transaction.queue.update({ data: { is_running: true } });
+      }]);
+    }
+  `),
+  [],
+  'an array-form transaction cannot masquerade as an interactive callback',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/transaction-ambiguous.ts', `
+    import prisma from '@/server/prisma';
+    async function bad() {
+      await prisma.$transaction(async transaction => {
+        await transaction.queue.update({ data: { is_running: true } });
+      }, async unrelated => unrelated);
+    }
+  `),
+  [],
+  'multiple callback-shaped arguments cannot authorize an interactive transaction root',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/transaction-index-zero.ts', `
+    import prisma from '@/server/prisma';
+    async function good() {
+      await prisma.$transaction(async transaction => {
+        await transaction.queue.update({ data: { is_running: true } });
+      }, { timeout: 10 });
+    }
+  `).map(item => item.path),
+  ['queue.is_running'],
+  'the exact argument-zero interactive transaction callback remains authoritative',
+);
+
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/example.ts', `
+    import { getHFToken } from './unrelated/settings';
+    function bad() { return getHFToken(); }
+  `),
+  [],
+  'an unrelated module ending in settings cannot authorize a settings getter',
+);
+for (const [sourcePath, imported, label] of [
+  ['ui/cron/actions/example.ts', "import { getHFToken as readToken } from '../paths';", 'cron paths relative alias'],
+  ['ui/src/server/example.ts', "import { getHFToken as readToken } from './settings';", 'server settings relative alias'],
+  ['ui/src/app/api/example/route.ts', "import { getHFToken as readToken } from '@/server/settings';", 'server settings path alias'],
+] as const) {
+  assert.deepEqual(
+    collectDeclaredServerGlobalClaimsFromSource(sourcePath, `${imported}\nfunction good() { return readToken(); }`).map(item => item.path),
+    ['settings.HF_TOKEN'],
+    `${label} resolves to an authoritative settings module`,
+  );
+}
+
+for (const [label, returned] of [
+  ['duplicate settings key', 'return { settings, setSettings, settings: unrelated };'],
+  ['spread after exact keys', 'return { settings, setSettings, ...unrelated };'],
+  ['spread before exact keys', 'return { ...unrelated, settings, setSettings };'],
+  ['dynamic computed key', 'return { settings, setSettings, [runtimeKey]: unrelated };'],
+  ['accessor overriding settings', 'return { settings, setSettings, get settings() { return unrelated; } };'],
+] as const) {
+  assert.deepEqual(
+    hydrationReturnClaims(`
+      const unrelated = {};
+      setSettings({ HF_TOKEN: data.HF_TOKEN });
+      ${returned}
+    `),
+    [],
+    `${label} cannot prove the final settings hook return projection`,
+  );
+}
+assert.deepEqual(
+  hydrationReturnClaims(`
+    const isSettingsLoaded = true;
+    setSettings({ HF_TOKEN: data.HF_TOKEN });
+    return { settings, setSettings, isSettingsLoaded };
+  `),
+  ['settings.HF_TOKEN'],
+  'an unrelated unique static property cannot override the exact settings pair',
 );
 
 console.log('trainingBookUiFacts tests passed');
