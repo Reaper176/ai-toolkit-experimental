@@ -12991,31 +12991,75 @@ function returnedSettingsStatePair(
   const modifiers = ts.getModifiers(owner) ?? [];
   if (!modifiers.some(item => item.kind === ts.SyntaxKind.ExportKeyword)
     || !modifiers.some(item => item.kind === ts.SyntaxKind.DefaultKeyword)) return false;
-  let returned = false;
-  const visit = (node: ts.Node): void => {
-    if (returned || (node !== owner && (isLexicalFunction(node) || ts.isClassLike(node)))) return;
-    if (ts.isReturnStatement(node) && node.expression !== undefined) {
-      const expression = unwrap(node.expression);
-      if (ts.isObjectLiteralExpression(expression)) {
-        let hasSettings = false;
-        let hasSetter = false;
-        for (const property of expression.properties) {
-          if (ts.isShorthandPropertyAssignment(property)) {
-            if (property.name.text === 'settings' && bindings.isBinding(property.name, settings)) hasSettings = true;
-            if (property.name.text === 'setSettings' && bindings.isBinding(property.name, setter)) hasSetter = true;
-          } else if (ts.isPropertyAssignment(property)) {
-            const value = unwrap(property.initializer);
-            if (propertyName(property.name) === 'settings' && ts.isIdentifier(value) && bindings.isBinding(value, settings)) hasSettings = true;
-            if (propertyName(property.name) === 'setSettings' && ts.isIdentifier(value) && bindings.isBinding(value, setter)) hasSetter = true;
-          }
-        }
-        returned = hasSettings && hasSetter;
+  const returnsExactPair = (statement: ts.ReturnStatement): boolean => {
+    if (statement.expression === undefined) return false;
+    const expression = unwrap(statement.expression);
+    if (!ts.isObjectLiteralExpression(expression)) return false;
+    let hasSettings = false;
+    let hasSetter = false;
+    for (const property of expression.properties) {
+      if (ts.isShorthandPropertyAssignment(property)) {
+        if (property.name.text === 'settings' && bindings.isBinding(property.name, settings)) hasSettings = true;
+        if (property.name.text === 'setSettings' && bindings.isBinding(property.name, setter)) hasSetter = true;
+      } else if (ts.isPropertyAssignment(property)) {
+        const value = unwrap(property.initializer);
+        if (propertyName(property.name) === 'settings' && ts.isIdentifier(value) && bindings.isBinding(value, settings)) hasSettings = true;
+        if (propertyName(property.name) === 'setSettings' && ts.isIdentifier(value) && bindings.isBinding(value, setter)) hasSetter = true;
       }
     }
-    ts.forEachChild(node, visit);
+    return hasSettings && hasSetter;
   };
-  visit(owner.body);
-  return returned;
+  type ReturnFlow = { valid: boolean; returns: number; completes: boolean };
+  const complete: ReturnFlow = { valid: true, returns: 0, completes: true };
+  const sequenceFlow = (statements: readonly ts.Statement[]): ReturnFlow => {
+    let flow = complete;
+    for (const statement of statements) {
+      if (!flow.completes || isStaticallyDead(statement, bindings)) continue;
+      const next = statementFlow(statement);
+      flow = {
+        valid: flow.valid && next.valid,
+        returns: flow.returns + next.returns,
+        completes: next.completes,
+      };
+    }
+    return flow;
+  };
+  const containsReachableReturn = (node: ts.Node): boolean => {
+    let found = false;
+    const visit = (child: ts.Node): void => {
+      if (found || isStaticallyDead(child, bindings) || (child !== node && (isLexicalFunction(child) || ts.isClassLike(child)))) return;
+      if (ts.isReturnStatement(child)) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(child, visit);
+    };
+    visit(node);
+    return found;
+  };
+  const statementFlow = (statement: ts.Statement): ReturnFlow => {
+    if (ts.isReturnStatement(statement)) {
+      return { valid: returnsExactPair(statement), returns: 1, completes: false };
+    }
+    if (ts.isThrowStatement(statement)) return { valid: true, returns: 0, completes: false };
+    if (ts.isBlock(statement)) return sequenceFlow(statement.statements);
+    if (ts.isIfStatement(statement)) {
+      const thenFlow = isStaticallyDead(statement.thenStatement, bindings)
+        ? complete
+        : statementFlow(statement.thenStatement);
+      const elseFlow = statement.elseStatement === undefined || isStaticallyDead(statement.elseStatement, bindings)
+        ? complete
+        : statementFlow(statement.elseStatement);
+      return {
+        valid: thenFlow.valid && elseFlow.valid,
+        returns: thenFlow.returns + elseFlow.returns,
+        completes: thenFlow.completes || elseFlow.completes,
+      };
+    }
+    return containsReachableReturn(statement) ? { valid: false, returns: 0, completes: true } : complete;
+  };
+  const flow = sequenceFlow(owner.body.statements);
+  return flow.valid && flow.returns > 0 && !flow.completes;
 }
 
 function authoritativeSettingsStateSetter(

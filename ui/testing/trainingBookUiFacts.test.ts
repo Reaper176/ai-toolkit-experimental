@@ -10153,4 +10153,67 @@ assert.deepEqual(
   'an exact aliased type-only PrismaClient import authorizes its parameter annotation',
 );
 
+const hydrationReturnClaims = (body: string) => collectDeclaredServerGlobalClaimsFromSource(
+  'ui/src/hooks/useSettings.tsx', `
+    import { useState } from 'react';
+    export default function useSettings(runtimeCondition) {
+      const [settings, setSettings] = useState({ HF_TOKEN: '' });
+      const data = { HF_TOKEN: '' };
+      ${body}
+    }
+  `,
+).map(item => item.path);
+assert.deepEqual(
+  hydrationReturnClaims(`
+    if (false) return { settings, setSettings };
+    setSettings({ HF_TOKEN: data.HF_TOKEN });
+    return {};
+  `),
+  [],
+  'a statically dead settings pair return cannot authorize hydration',
+);
+assert.deepEqual(
+  hydrationReturnClaims(`
+    setSettings({ HF_TOKEN: data.HF_TOKEN });
+    if (runtimeCondition) return { settings, setSettings };
+    return {};
+  `),
+  [],
+  'mixed reachable matching and nonmatching hook returns fail closed',
+);
+assert.deepEqual(
+  hydrationReturnClaims(`
+    setSettings({ HF_TOKEN: data.HF_TOKEN });
+    if (runtimeCondition) return { settings, setSettings };
+  `),
+  [],
+  'a non-exhaustive conditional pair return cannot authorize hydration',
+);
+assert.deepEqual(
+  hydrationReturnClaims(`
+    setSettings({ HF_TOKEN: data.HF_TOKEN });
+    return { settings, setSettings };
+  `),
+  ['settings.HF_TOKEN'],
+  'one exact reachable settings pair return authorizes hydration',
+);
+assert.deepEqual(
+  hydrationReturnClaims(`
+    setSettings({ HF_TOKEN: data.HF_TOKEN });
+    if (false) return {};
+    return { settings, setSettings };
+  `),
+  ['settings.HF_TOKEN'],
+  'a dead invalid return does not invalidate the exact live settings pair',
+);
+assert.deepEqual(
+  hydrationReturnClaims(`
+    setSettings({ HF_TOKEN: data.HF_TOKEN });
+    if (runtimeCondition) return { settings, setSettings };
+    else return { settings, setSettings };
+  `),
+  ['settings.HF_TOKEN'],
+  'a structurally exhaustive branch returning the exact pair authorizes hydration',
+);
+
 console.log('trainingBookUiFacts tests passed');
