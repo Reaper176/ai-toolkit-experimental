@@ -13,7 +13,18 @@ export const ROCM_SMI_ARGS = [
   '--json',
 ];
 
+export const ROCM_MONITOR_SAMPLE_MS = 2000;
+
+export function isRocmMonitorSampleDue(lastSampleAt: number, now = Date.now()): boolean {
+  return lastSampleAt === 0 || now - lastSampleAt >= ROCM_MONITOR_SAMPLE_MS;
+}
+
 type RocmCard = Record<string, unknown>;
+type RocmSmiRunner = (
+  executable: string,
+  args: string[],
+  options: { encoding: 'utf-8'; timeout: number; maxBuffer: number },
+) => Promise<{ stdout: string }>;
 
 function numberValue(card: RocmCard, key: string, fallback = 0): number {
   const value = Number.parseFloat(String(card[key] ?? ''));
@@ -98,4 +109,13 @@ export function parseRocmSmiJson(output: string): GpuInfo[] {
   }
 
   return gpus.sort((a, b) => a.index - b.index);
+}
+
+export async function queryRocmGpuStats(run: RocmSmiRunner): Promise<GpuInfo[]> {
+  const { stdout } = await run('rocm-smi', ROCM_SMI_ARGS, {
+    encoding: 'utf-8',
+    timeout: 5000,
+    maxBuffer: 1024 * 1024,
+  });
+  return parseRocmSmiJson(stdout);
 }

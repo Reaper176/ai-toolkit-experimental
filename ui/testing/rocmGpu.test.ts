@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
-import { parseRocmSmiJson, ROCM_SMI_ARGS } from '../src/server/rocmGpu';
+import {
+  isRocmMonitorSampleDue,
+  parseRocmSmiJson,
+  queryRocmGpuStats,
+  ROCM_MONITOR_SAMPLE_MS,
+  ROCM_SMI_ARGS,
+} from '../src/server/rocmGpu';
 
 assert.ok(ROCM_SMI_ARGS.includes('--showmetrics'), 'ROCm query requests clock and fan metrics');
+assert.equal(isRocmMonitorSampleDue(0, 100), true, 'first monitor sample is immediate');
+assert.equal(isRocmMonitorSampleDue(100, 100 + ROCM_MONITOR_SAMPLE_MS - 1), false, 'samples are throttled');
+assert.equal(isRocmMonitorSampleDue(100, 100 + ROCM_MONITOR_SAMPLE_MS), true, 'sample runs when interval elapses');
 
 const TWO_CARD_OUTPUT = JSON.stringify({
   card0: {
@@ -98,4 +107,23 @@ assert.throws(
   /missing required fields/i,
 );
 
-console.log('ROCm GPU parser tests passed');
+async function testRocmQuery() {
+  let invocation: { executable: string; args: string[]; options: Record<string, unknown> } | null = null;
+  const queried = await queryRocmGpuStats(async (executable, args, options) => {
+    invocation = { executable, args, options };
+    return { stdout: TWO_CARD_OUTPUT };
+  });
+
+  assert.equal(invocation?.executable, 'rocm-smi');
+  assert.deepEqual(invocation?.args, ROCM_SMI_ARGS);
+  assert.equal(invocation?.options.encoding, 'utf-8');
+  assert.equal(queried.length, 1);
+  assert.equal(queried[0].name, 'AMD Radeon RX 7900 XTX');
+}
+
+testRocmQuery()
+  .then(() => console.log('ROCm GPU parser and query tests passed'))
+  .catch(error => {
+    console.error(error);
+    process.exitCode = 1;
+  });

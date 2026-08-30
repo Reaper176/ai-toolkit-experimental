@@ -4,7 +4,7 @@ import { promisify } from 'util';
 import os from 'os';
 import { cached } from '@/server/apiCache';
 import { loadMacstats } from '@/server/macstats';
-import { parseRocmSmiJson, ROCM_SMI_ARGS } from '@/server/rocmGpu';
+import { queryRocmGpuStats } from '@/server/rocmGpu';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -196,12 +196,10 @@ export async function GET() {
 }
 
 async function getRocmGpuStats() {
-  const { stdout } = await execFileAsync('rocm-smi', ROCM_SMI_ARGS, {
-    encoding: 'utf-8',
-    timeout: 5000,
-    maxBuffer: 1024 * 1024,
+  return queryRocmGpuStats(async (executable, args, options) => {
+    const { stdout } = await execFileAsync(executable, args, options);
+    return { stdout };
   });
-  return parseRocmSmiJson(stdout);
 }
 
 async function checkNvidiaSmi(isWindows: boolean): Promise<boolean> {

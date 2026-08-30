@@ -4,6 +4,7 @@ import os from 'os';
 import si from 'systeminformation';
 import { loadMacstats } from '@/server/macstats';
 import { createLoadSampler, readCpuTemperature, readMemory } from '@/server/cpuStats';
+import { isRocmMonitorSampleDue, queryRocmGpuStats } from '@/server/rocmGpu';
 import { CpuInfo, GpuInfo, GPUApiResponse, MonitorHistoryPoint, MonitorInit, MonitorSample } from '@/types';
 import { historyPointFromSample, MONITOR_HISTORY_LENGTH, MONITOR_TICK_MS } from '@/utils/monitorSample';
 
@@ -14,11 +15,9 @@ const execFileAsync = promisify(execFile);
  * 2-minute rolling history (load + memory only), and pushes every full sample
  * to subscribers (the SSE route at /api/monitor).
  *
- * GPU stats come from a single resident `nvidia-smi ... -lms` child process —
- * NVML stays initialized between samples, which is what made the old
- * spawn-per-request /api/gpu route slow. If loop mode never produces output
- * (or nvidia-smi keeps hanging), we fall back to a one-shot spawn per tick,
- * which matches the old route's behavior exactly.
+ * NVIDIA stats come from a single resident `nvidia-smi ... -lms` child process
+ * so NVML stays initialized between samples. Linux hosts without nvidia-smi
+ * fall back to ROCm one-shot samples through the same parser as /api/gpu.
  */
 
 const NV_QUERY_ARGS = [
@@ -32,6 +31,8 @@ const NV_WATCHDOG_MS = 15_000;
 // lines of one iteration arrive together; iterations are MONITOR_TICK_MS
 // apart, so this can never bleed into the next batch).
 const NV_BATCH_FLUSH_MS = 100;
+// Give a temporarily unavailable NVIDIA driver one retry before trying ROCm.
+const NV_STARTUP_FAILURE_LIMIT = 2;
 // Temperature refresh is decoupled from the tick (see refreshCpuTemp)
 const CPU_TEMP_REFRESH_MS = 5000;
 
@@ -89,7 +90,7 @@ class SystemMonitor {
   private history: MonitorHistoryPoint[] = [];
   private subscribers = new Set<Subscriber>();
   private latestCpu: CpuInfo | null = null;
-  private latestGpu: GPUApiResponse = { hasNvidiaSmi: false, isMac: this.isMac, gpus: [] };
+  private latestGpu: GPUApiResponse = { hasNvidiaSmi: false, isMac: this.isMac, backend: null, gpus: [] };
   private macGpuName = 'Apple GPU';
   private nvChild: ChildProcess | null = null;
   private nvBatch: GpuInfo[] = [];
@@ -100,6 +101,9 @@ class SystemMonitor {
   private nvEverGotLine = false;
   private nvOneShotMode = false;
   private nvOneShotInFlight = false;
+  private nvStartupFailures = 0;
+  private rocmMode = false;
+  private lastRocmSampleAt = 0;
   private lastNvLineAt = 0;
   private tickInFlight = false;
   private lastCpuTemp = 0;
@@ -166,6 +170,8 @@ class SystemMonitor {
     try {
       if (this.isMac) {
         this.latestGpu = this.sampleMacGpu();
+      } else if (this.rocmMode) {
+        await this.sampleRocm();
       } else if (this.nvOneShotMode) {
         await this.sampleNvOneShot();
       } else {
@@ -328,6 +334,7 @@ class SystemMonitor {
     return {
       hasNvidiaSmi: false,
       isMac: true,
+      backend: 'mps',
       gpus: [
         {
           index: 0,
@@ -400,6 +407,9 @@ class SystemMonitor {
         clearTimeout(this.nvFlushTimer);
         this.nvFlushTimer = null;
       }
+      if (!this.nvUnavailable && !this.nvOneShotMode && this.recordNvStartupFailure()) {
+        return;
+      }
       if (!this.nvUnavailable && !this.nvOneShotMode) {
         setTimeout(() => this.startNvLoop(), 5000);
       }
@@ -415,6 +425,7 @@ class SystemMonitor {
       const gpu = parseGpuLine(line);
       if (!gpu) continue;
       this.nvEverGotLine = true;
+      this.nvStartupFailures = 0;
       this.lastNvLineAt = Date.now();
       this.nvBatch.push(gpu);
     }
@@ -428,6 +439,7 @@ class SystemMonitor {
     this.latestGpu = {
       hasNvidiaSmi: true,
       isMac: false,
+      backend: 'nvidia',
       gpus: this.nvBatch.sort((a, b) => a.index - b.index),
     };
     this.nvBatch = [];
@@ -456,26 +468,78 @@ class SystemMonitor {
         .map(parseGpuLine)
         .filter((gpu): gpu is GpuInfo => gpu !== null)
         .sort((a, b) => a.index - b.index);
-      this.latestGpu = { hasNvidiaSmi: true, isMac: false, gpus };
+      if (gpus.length > 0) {
+        this.nvEverGotLine = true;
+        this.nvStartupFailures = 0;
+      }
+      this.latestGpu = { hasNvidiaSmi: true, isMac: false, backend: 'nvidia', gpus };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         this.markNvUnavailable();
       } else {
         console.error('Monitor: one-shot nvidia-smi failed:', err);
+        this.recordNvStartupFailure();
       }
     } finally {
       this.nvOneShotInFlight = false;
     }
   }
 
+  private recordNvStartupFailure(): boolean {
+    if (this.nvEverGotLine || this.nvUnavailable) return false;
+    this.nvStartupFailures += 1;
+    if (this.nvStartupFailures < NV_STARTUP_FAILURE_LIMIT) return false;
+    this.markNvUnavailable();
+    return true;
+  }
+
   private markNvUnavailable(): void {
     this.nvUnavailable = true;
+    if (process.platform === 'linux') {
+      this.rocmMode = true;
+      this.latestGpu = {
+        hasNvidiaSmi: false,
+        isMac: false,
+        backend: 'rocm',
+        gpus: [],
+        error: 'Waiting for ROCm GPU data',
+      };
+      return;
+    }
     this.latestGpu = {
       hasNvidiaSmi: false,
       isMac: false,
+      backend: null,
       gpus: [],
       error: 'nvidia-smi not found or not accessible',
     };
+  }
+
+  private async sampleRocm(): Promise<void> {
+    const now = Date.now();
+    if (!isRocmMonitorSampleDue(this.lastRocmSampleAt, now)) return;
+    this.lastRocmSampleAt = now;
+    try {
+      const gpus = await queryRocmGpuStats(async (executable, args, options) => {
+        const { stdout } = await execFileAsync(executable, args, options);
+        return { stdout };
+      });
+      this.latestGpu = {
+        hasNvidiaSmi: false,
+        isMac: false,
+        backend: 'rocm',
+        gpus,
+        ...(gpus.length === 0 ? { error: 'No trainable ROCm GPUs detected' } : {}),
+      };
+    } catch (error) {
+      this.latestGpu = {
+        hasNvidiaSmi: false,
+        isMac: false,
+        backend: null,
+        gpus: [],
+        error: `ROCm GPU query failed: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
   }
 }
 
