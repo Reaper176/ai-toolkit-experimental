@@ -68,6 +68,22 @@ non_diegetic_music: 1-3 sentences describing background music the characters can
 
 Describe only what is actually seen and heard. Be decisive. No preamble and no extra text - output only the three fields.`;
 
+// The T2VA format applied to a still image: one static [Shot 1], no timeline,
+// no audio fields beyond the required N/A placeholders.
+const minimaxImageCaptionPrompt = `Caption this image as a MiniMax training prompt for a single still frame. Output exactly three fields in this order, each starting on its own line with these exact field names:
+
+integrated_multimodal_description: [Shot 1] ...
+
+overall_soundscape: N/A
+
+non_diegetic_music: N/A
+
+Rules for integrated_multimodal_description: Write a single [Shot 1] with no timestamp, no cuts, and no camera motion - the camera holds a static shot on a still frame. State the overall visual style first (Live-action, cinematic, 2D-animated, 3D CG, claymation, watercolor, or vintage film) and the framing (extreme wide shot, wide shot, medium shot, medium close-up, close-up, or extreme close-up, plus the viewpoint). Then describe everything visible decisively and specifically: subject appearance, pose, and position; clothing, colors, and materials; the scene, lighting, and key props; and the spatial relationships between them. There is no motion, no dialogue, and no sound - do not invent any. Put any legible text in the image (signs, labels, packaging) in double quotation marks verbatim without translating it.
+
+overall_soundscape and non_diegetic_music are always exactly N/A for a still image.
+
+Describe only what is actually visible. Be decisive. No preamble and no extra text - output only the three fields.`;
+
 // Editable ADDITIONAL INSTRUCTIONS block injected into the Ideogram system prompt.
 // Users can tweak this for dataset-specific guidance without altering the fixed
 // output contract, element/background rules, or bbox format.

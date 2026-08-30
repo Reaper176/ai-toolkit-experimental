@@ -59,4 +59,12 @@ assert.ok(option.additionalSections?.includes('caption.threshold_or_top_k'));
 assert.ok(maxResOptions.some(value => value.value === '1024'));
 assert.ok(!JSON.stringify(option.defaults).includes('/run/media/john/'));
 
+const omniOption = captionerTypes.find(value => value.name === 'Qwen3OmniCaptioner');
+assert.ok(omniOption);
+const minimaxImagePrompt = omniOption.captionPrompts?.['MiniMax H4 Image'];
+assert.ok(typeof minimaxImagePrompt === 'string' && minimaxImagePrompt.length > 0);
+assert.match(minimaxImagePrompt, /^Caption this image as a MiniMax training prompt/);
+assert.match(minimaxImagePrompt, /overall_soundscape: N\/A/);
+assert.match(minimaxImagePrompt, /non_diegetic_music: N\/A/);
+
 console.log('DINOv3 tagger option tests passed');
