@@ -14997,6 +14997,86 @@ class TrainingBookExamplesContractTests(unittest.TestCase):
                 with self.assertRaises(ExampleError):
                     load_example_manifest(path)
 
+    def test_manifest_rejects_any_departure_from_the_literal_matrix(self):
+        from scripts.training_book.examples import ExampleError, load_example_manifest
+
+        live = json.loads((REPOSITORY_ROOT / "docs/book/examples/manifest.json").read_text())
+        mutations = []
+        revision = deepcopy(live)
+        revision["book_revision"] = True
+        mutations.append(("boolean revision", revision))
+        role = deepcopy(live)
+        role["examples"][0]["roles"][0] = "invented-role"
+        mutations.append(("invented role", role))
+        chapter = deepcopy(live)
+        chapter["examples"][0]["chapters"][0] = "models/anima.md"
+        mutations.append(("valid but wrong chapter", chapter))
+        tokens = deepcopy(live)
+        tokens["examples"][0]["tokens"] = list(reversed(tokens["examples"][0]["tokens"]))
+        mutations.append(("reordered tokens", tokens))
+        rows = deepcopy(live)
+        rows["examples"][0], rows["examples"][1] = rows["examples"][1], rows["examples"][0]
+        mutations.append(("reordered rows", rows))
+        for label, mutation in mutations:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "manifest.json"
+                path.write_text(json.dumps(mutation))
+                with self.assertRaises(ExampleError):
+                    load_example_manifest(path)
+
+    def test_full_example_validation_rejects_every_malformed_placeholder(self):
+        from scripts.training_book.examples import ExampleError, load_example_manifest, validate_example
+
+        source = REPOSITORY_ROOT / "docs/book/examples/first-lora-flex1.yaml"
+        entry = load_example_manifest(
+            REPOSITORY_ROOT / "docs/book/examples/manifest.json"
+        ).examples[0]
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json", None,
+        )
+        malformed = ("${not-a-token}", "${DATASET-DIR}", "${DATASET_DIR", "prefix-${JOB_NAME}")
+        for placeholder in malformed:
+            raw = yaml.safe_load(source.read_text())
+            raw["config"]["process"][0]["sample"]["neg"] = placeholder
+            with self.subTest(placeholder=placeholder), tempfile.TemporaryDirectory() as directory:
+                repository = Path(directory)
+                target = repository / "docs/book/examples" / entry.path
+                target.parent.mkdir(parents=True)
+                target.write_text(yaml.safe_dump(raw, sort_keys=False))
+                with self.assertRaises(ExampleError):
+                    validate_example(repository, entry, catalog)
+
+    def test_examples_reject_extra_and_missing_shape_keys(self):
+        from scripts.training_book.examples import ExampleError, load_example_manifest, validate_example
+
+        directory = REPOSITORY_ROOT / "docs/book/examples"
+        entries = {entry.path: entry for entry in load_example_manifest(directory / "manifest.json").examples}
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json", None,
+        )
+        cases = []
+        first = yaml.safe_load((directory / "first-lora-flex1.yaml").read_text())
+        extra_sample = deepcopy(first)
+        extra_sample["config"]["process"][0]["sample"]["neg"] = ""
+        cases.append((entries["first-lora-flex1.yaml"], extra_sample, "extra sample key"))
+        terminal = deepcopy(first)
+        terminal["config"]["process"][0]["model"]["quantize_kwargs"]["unexpected"] = True
+        cases.append((entries["first-lora-flex1.yaml"], terminal, "extra terminal-object key"))
+        qwen = yaml.safe_load((directory / "object-qwen-image.yaml").read_text())
+        open_object = deepcopy(qwen)
+        open_object["config"]["process"][0]["model"]["model_kwargs"] = {"unexpected": True}
+        cases.append((entries["object-qwen-image.yaml"], open_object, "extra open-object key"))
+        missing = deepcopy(first)
+        del missing["config"]["process"][0]["sample"]["sample_start_step"]
+        cases.append((entries["first-lora-flex1.yaml"], missing, "missing baseline key"))
+        for entry, raw, label in cases:
+            with self.subTest(label=label), mock.patch(
+                "scripts.training_book.examples.yaml.safe_load", return_value=raw
+            ), self.assertRaises(ExampleError):
+                validate_example(REPOSITORY_ROOT, entry, catalog)
+
     def test_examples_reject_kwargs_typo_discriminator_control_and_mask_turbo(self):
         from scripts.training_book.examples import ExampleError, load_example_manifest, validate_example
 

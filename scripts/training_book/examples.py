@@ -46,6 +46,7 @@ class ExampleManifest:
 
 
 _TOKEN = re.compile(r"\$\{([A-Z][A-Z0-9_]*)\}")
+_PLACEHOLDER_LIKE = re.compile(r"\$\{|\$\}")
 _REPLACEMENTS = {
     "DATASET_DIR": ("path", "dataset"), "OUTPUT_DIR": ("path", "output"),
     "CONTROL_DIR": ("path", "controls"),
@@ -102,6 +103,54 @@ _QFLOAT8 = {
 }
 
 
+def _tokens(*names: str) -> tuple[TokenDeclaration, ...]:
+    return tuple(TokenDeclaration(name, "string" if name == "JOB_NAME" else "path")
+                 for name in names)
+
+
+_EXPECTED_EXAMPLES = (
+    ExampleEntry("first-lora-flex1.yaml", "flex1", ("first-run", "object"),
+                 ("getting-started/first-lora.md", "recipes/object-concept.md"),
+                 "image-lora", _tokens("DATASET_DIR", "OUTPUT_DIR", "JOB_NAME")),
+    ExampleEntry("character-anima.yaml", "anima", ("character", "identity"),
+                 ("recipes/character-identity.md", "models/anima.md"),
+                 "image-lora", _tokens("DATASET_DIR", "OUTPUT_DIR", "JOB_NAME")),
+    ExampleEntry("style-flux.yaml", "flux", ("style",),
+                 ("recipes/style.md", "models/flux-and-flex.md"),
+                 "image-lora", _tokens("DATASET_DIR", "OUTPUT_DIR", "JOB_NAME")),
+    ExampleEntry("flux-kontext-edit.yaml", "flux_kontext", ("edit", "control"),
+                 ("datasets/controls-video-audio.md", "models/flux-and-flex.md"),
+                 "image-edit-lora", _tokens("DATASET_DIR", "CONTROL_DIR", "CONTROL_IMAGE", "OUTPUT_DIR", "JOB_NAME")),
+    ExampleEntry("object-qwen-image.yaml", "qwen_image", ("object",),
+                 ("recipes/object-concept.md", "models/qwen-image-and-edit.md"),
+                 "image-lora", _tokens("DATASET_DIR", "OUTPUT_DIR", "JOB_NAME")),
+    ExampleEntry("focused-refinement-qwen-image-edit-2509.yaml", "qwen_image_edit_plus", ("refinement", "edit"),
+                 ("recipes/focused-refinement.md", "models/qwen-image-and-edit.md"),
+                 "image-edit-lora", _tokens("DATASET_DIR", "CONTROL_DIR", "CONTROL_IMAGE", "OUTPUT_DIR", "JOB_NAME")),
+    ExampleEntry("low-vram-anima.yaml", "anima", ("low-vram", "character"),
+                 ("recipes/low-vram.md", "models/anima.md"),
+                 "image-lora", _tokens("DATASET_DIR", "OUTPUT_DIR", "JOB_NAME")),
+    ExampleEntry("diagnostic-wan21-1b.yaml", "wan21:1b", ("diagnostic", "video"),
+                 ("recipes/diagnostic-run.md", "models/wan.md"),
+                 "video-lora", _tokens("DATASET_DIR", "OUTPUT_DIR", "JOB_NAME")),
+    ExampleEntry("character-sdxl.yaml", "sdxl", ("character", "identity"),
+                 ("recipes/character-identity.md", "models/sdxl-and-sd15.md"),
+                 "image-lora", _tokens("DATASET_DIR", "OUTPUT_DIR", "JOB_NAME")),
+    ExampleEntry("character-sd15.yaml", "sd15", ("character", "identity"),
+                 ("recipes/character-identity.md", "models/sdxl-and-sd15.md"),
+                 "image-lora", _tokens("DATASET_DIR", "OUTPUT_DIR", "JOB_NAME")),
+    ExampleEntry("motion-wan22-14b-t2v.yaml", "wan22_14b:t2v", ("motion", "video"),
+                 ("models/wan.md", "datasets/controls-video-audio.md"),
+                 "video-lora", _tokens("DATASET_DIR", "OUTPUT_DIR", "JOB_NAME")),
+    ExampleEntry("masked-refinement.yaml", "anima", ("refinement", "mask"),
+                 ("recipes/focused-refinement.md", "datasets/masks.md"),
+                 "masked-image-lora", _tokens("DATASET_DIR", "MASK_DIR", "OUTPUT_DIR", "JOB_NAME")),
+    ExampleEntry("resume-from-checkpoint.yaml", "flex1", ("resume", "object"),
+                 ("workflow/saving-resuming-and-optimizer-state.md", "getting-started/first-lora.md"),
+                 "resume-image-lora", _tokens("DATASET_DIR", "CHECKPOINT_PATH", "OUTPUT_DIR", "JOB_NAME")),
+)
+
+
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -133,7 +182,9 @@ def load_example_manifest(path: Path) -> ExampleManifest:
         raise ExampleError(f"cannot load example manifest {path}: {error}") from error
     if not isinstance(raw, dict) or set(raw) != {"schema_version", "book_revision", "examples"}:
         raise ExampleError("example manifest has missing or extra keys")
-    if raw["schema_version"] != 1 or raw["book_revision"] != 1 or not isinstance(raw["examples"], list) or not raw["examples"]:
+    if (type(raw["schema_version"]) is not int or raw["schema_version"] != 1
+            or type(raw["book_revision"]) is not int or raw["book_revision"] != 1
+            or not isinstance(raw["examples"], list) or not raw["examples"]):
         raise ExampleError("example manifest requires schema/book revision 1 and examples")
     entries = []
     for index, item in enumerate(raw["examples"]):
@@ -166,6 +217,8 @@ def load_example_manifest(path: Path) -> ExampleManifest:
     if len(entries) != len({item.path for item in entries}):
         raise ExampleError("duplicate example path")
     manifest = ExampleManifest(1, 1, tuple(entries))
+    if manifest.examples != _EXPECTED_EXAMPLES:
+        raise ExampleError("example manifest differs from the exact ordered 13-row matrix")
     book_path = path.parent.parent / "book-manifest.json"
     if book_path.is_file():
         book = json.loads(book_path.read_text(encoding="utf-8"), object_pairs_hook=_pairs)
@@ -194,6 +247,8 @@ def substitute_typed_tokens(value: Any, declarations: Mapping[str, TokenDeclarat
             return item
         matches = list(_TOKEN.finditer(item))
         if not matches:
+            if _PLACEHOLDER_LIKE.search(item):
+                raise ExampleError(f"malformed or unresolved placeholder: {item}")
             return item
         if len(matches) != 1 or matches[0].span() != (0, len(item)):
             raise ExampleError("tokens must occupy an entire scalar")
@@ -216,6 +271,17 @@ def substitute_typed_tokens(value: Any, declarations: Mapping[str, TokenDeclarat
     unused = set(declared) - used
     if unused:
         raise ExampleError(f"unused token declarations: {', '.join(sorted(unused))}")
+    def assert_resolved(item: Any) -> None:
+        if isinstance(item, dict):
+            for child in item.values():
+                assert_resolved(child)
+        elif isinstance(item, list):
+            for child in item:
+                assert_resolved(child)
+        elif isinstance(item, str) and _PLACEHOLDER_LIKE.search(item):
+            raise ExampleError(f"placeholder-like syntax remains after substitution: {item}")
+
+    assert_resolved(result)
     return result
 
 
@@ -304,8 +370,107 @@ def _validate_owned_keys(config: dict[str, Any], catalog: Any) -> None:
             raise ExampleError(f"example value has the wrong type for {contract_path}")
 
 
+def _require_keys(value: Any, expected: set[str], location: str) -> None:
+    if not isinstance(value, dict) or set(value) != expected:
+        actual = set(value) if isinstance(value, dict) else type(value).__name__
+        raise ExampleError(f"{location} keys differ: expected {sorted(expected)}, got {actual}")
+
+
+def _validate_exact_shape(config: dict[str, Any], entry: ExampleEntry) -> None:
+    _require_keys(config, {"schema", "job", "config"}, "root")
+    body = config["config"]
+    _require_keys(body, {"name", "process"}, "config")
+    if not isinstance(body["process"], list) or len(body["process"]) != 1:
+        raise ExampleError("config.process must contain exactly one object")
+    process = body["process"][0]
+    _require_keys(process, {
+        "type", "training_folder", "network", "datasets", "train", "model",
+        "save", "logging", "sample",
+    }, "process")
+
+    network_keys = {"type", "linear", "linear_alpha"}
+    if entry.architecture in {"sdxl", "sd15"}:
+        network_keys |= {"conv", "conv_alpha"}
+    if entry.validation_profile == "resume-image-lora":
+        network_keys.add("pretrained_lora_path")
+    _require_keys(process["network"], network_keys, "network")
+
+    if not isinstance(process["datasets"], list) or len(process["datasets"]) != 1:
+        raise ExampleError("datasets must contain exactly one object")
+    dataset_keys = {
+        "folder_path", "caption_ext", "caption_dropout_rate", "shuffle_tokens",
+        "cache_latents_to_disk", "resolution", "num_frames", "fps",
+    }
+    if entry.validation_profile == "image-edit-lora":
+        dataset_keys.add("control_path")
+    if entry.validation_profile == "masked-image-lora":
+        dataset_keys |= {"mask_path", "mask_min_value", "invert_mask"}
+    _require_keys(process["datasets"][0], dataset_keys, "dataset")
+
+    train_keys = {
+        "batch_size", "gradient_accumulation", "train_unet", "train_text_encoder",
+        "gradient_checkpointing", "optimizer", "lr", "lr_scheduler",
+        "noise_scheduler", "dtype", "loss_type", "steps", "content_or_style",
+        "timestep_type", "cache_text_embeddings",
+    }
+    if entry.path in {"first-lora-flex1.yaml", "resume-from-checkpoint.yaml"}:
+        train_keys.add("bypass_guidance_embedding")
+    if entry.path == "motion-wan22-14b-t2v.yaml":
+        train_keys.add("switch_boundary_every")
+    if entry.validation_profile == "masked-image-lora":
+        train_keys |= {"inverted_mask_prior", "inverted_mask_prior_multiplier", "train_turbo"}
+    if entry.validation_profile == "resume-image-lora":
+        train_keys.add("start_step")
+    _require_keys(process["train"], train_keys, "train")
+
+    model_keys = {"name_or_path", "arch", "quantize", "quantize_te"}
+    if entry.path in _QFLOAT8:
+        model_keys |= {"qtype", "qtype_te"}
+    elif entry.path == "diagnostic-wan21-1b.yaml":
+        model_keys.add("qtype_te")
+    if entry.path in {
+        "object-qwen-image.yaml", "focused-refinement-qwen-image-edit-2509.yaml",
+        "low-vram-anima.yaml", "motion-wan22-14b-t2v.yaml",
+    }:
+        model_keys.add("low_vram")
+    if entry.path == "first-lora-flex1.yaml":
+        model_keys.add("quantize_kwargs")
+    if entry.path in {
+        "focused-refinement-qwen-image-edit-2509.yaml", "motion-wan22-14b-t2v.yaml",
+    }:
+        model_keys.add("model_kwargs")
+    model = process["model"]
+    _require_keys(model, model_keys, "model")
+    if entry.path == "first-lora-flex1.yaml":
+        _require_keys(model["quantize_kwargs"], {"exclude"}, "model.quantize_kwargs")
+    if entry.path == "focused-refinement-qwen-image-edit-2509.yaml":
+        _require_keys(model["model_kwargs"], {"match_target_res"}, "model.model_kwargs")
+    if entry.path == "motion-wan22-14b-t2v.yaml":
+        _require_keys(model["model_kwargs"], {"train_high_noise", "train_low_noise"}, "model.model_kwargs")
+
+    _require_keys(process["save"], {
+        "dtype", "save_format", "save_every", "max_step_saves_to_keep", "push_to_hub",
+    }, "save")
+    _require_keys(process["logging"], {"use_ui_logger", "use_wandb"}, "logging")
+    sample_keys = {
+        "sampler", "sample_every", "sample_start_step", "seed", "walk_seed",
+        "width", "height", "guidance_scale", "sample_steps", "num_frames", "fps",
+        "samples",
+    }
+    if entry.validation_profile == "video-lora":
+        sample_keys.add("format")
+    sample = process["sample"]
+    _require_keys(sample, sample_keys, "sample")
+    if not isinstance(sample["samples"], list) or len(sample["samples"]) != 1:
+        raise ExampleError("sample.samples must contain exactly one object")
+    item_keys = {"prompt"}
+    if entry.validation_profile == "image-edit-lora":
+        item_keys.add("ctrl_img")
+    _require_keys(sample["samples"][0], item_keys, "sample item")
+
+
 def _validate_semantics(config: dict[str, Any], entry: ExampleEntry, root: Path) -> None:
-    if config.get("schema") != 1 or config.get("job") != "extension" or set(config) != {"schema", "job", "config"}:
+    if type(config.get("schema")) is not int or config.get("schema") != 1 or config.get("job") != "extension" or set(config) != {"schema", "job", "config"}:
         raise ExampleError("example must use schema 1 extension-job shape")
     body = config["config"]
     processes = body.get("process")
@@ -496,6 +661,7 @@ def validate_example(repository_root: Path, entry: ExampleEntry, catalog: Any) -
         fixture_root = Path(directory)
         _make_fixtures(fixture_root)
         config = substitute_typed_tokens(raw, entry.tokens, fixture_root)
+        _validate_exact_shape(config, entry)
         _validate_owned_keys(config, catalog)
         _validate_semantics(config, entry, fixture_root)
         if entry.validation_profile == "resume-image-lora":
