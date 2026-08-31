@@ -101,6 +101,14 @@ _QFLOAT8 = {
     "object-qwen-image.yaml", "focused-refinement-qwen-image-edit-2509.yaml",
     "motion-wan22-14b-t2v.yaml", "resume-from-checkpoint.yaml",
 }
+_MAX_SAFETENSORS_HEADER_BYTES = 1024 * 1024
+_SAFETENSORS_DTYPE_BYTES = {
+    "BOOL": 1, "U8": 1, "I8": 1,
+    "I16": 2, "U16": 2, "F16": 2, "BF16": 2,
+    "I32": 4, "U32": 4, "F32": 4,
+    "I64": 8, "U64": 8, "F64": 8,
+    "F8_E4M3": 1, "F8_E5M2": 1,
+}
 
 
 def _tokens(*names: str) -> tuple[TokenDeclaration, ...]:
@@ -307,6 +315,98 @@ def _make_fixtures(root: Path) -> None:
     save_root = root / "output/training-book-example"
     save_root.mkdir()
     (save_root / "optimizer.pt").write_bytes(b"inert; never unpickle")
+
+
+def _strict_json_object(raw: bytes | str, label: str) -> dict[str, Any]:
+    try:
+        value = json.loads(raw, object_pairs_hook=_pairs)
+    except (UnicodeDecodeError, ValueError, RecursionError) as error:
+        raise ExampleError(f"invalid {label} JSON: {error}") from error
+    if not isinstance(value, dict):
+        raise ExampleError(f"{label} must be a JSON object")
+    return value
+
+
+def _validate_resume_safetensors(
+    path: Path, *, expected_job_name: str, expected_start_step: int
+) -> None:
+    """Validate only safetensors metadata/layout; never deserialize tensor data."""
+    try:
+        file_size = path.stat().st_size
+        with path.open("rb") as stream:
+            prefix = stream.read(8)
+            if len(prefix) != 8:
+                raise ExampleError("resume checkpoint lacks an 8-byte header length")
+            header_length = struct.unpack("<Q", prefix)[0]
+            if (not 2 <= header_length <= _MAX_SAFETENSORS_HEADER_BYTES
+                    or header_length % 8 != 0):
+                raise ExampleError("resume checkpoint header length is outside sane bounds")
+            payload_start = 8 + header_length
+            if payload_start > file_size:
+                raise ExampleError("resume checkpoint header is truncated")
+            header_bytes = stream.read(header_length)
+            if len(header_bytes) != header_length:
+                raise ExampleError("resume checkpoint header is truncated")
+    except OSError as error:
+        raise ExampleError(f"cannot read resume checkpoint: {error}") from error
+
+    header = _strict_json_object(header_bytes, "safetensors header")
+    metadata = header.get("__metadata__")
+    if not isinstance(metadata, dict) or set(metadata) != {
+        "format", "ss_output_name", "training_info"
+    } or not all(isinstance(value, str) for value in metadata.values()):
+        raise ExampleError("resume checkpoint requires exact string metadata")
+    if metadata["format"] != "pt" or metadata["ss_output_name"] != expected_job_name:
+        raise ExampleError("resume checkpoint metadata identity is incompatible")
+    training_info = _strict_json_object(metadata["training_info"], "training_info")
+    if set(training_info) != {"step", "epoch"}:
+        raise ExampleError("training_info requires exact step and epoch keys")
+    step = training_info["step"]
+    epoch = training_info["epoch"]
+    if type(step) is not int or step != expected_start_step:
+        raise ExampleError("resume checkpoint step is incompatible with start_step")
+    if type(epoch) is not int or epoch < 0:
+        raise ExampleError("resume checkpoint epoch must be a nonnegative integer")
+
+    tensors = [(name, descriptor) for name, descriptor in header.items()
+               if name != "__metadata__"]
+    if not tensors:
+        raise ExampleError("resume checkpoint must declare at least one tensor")
+    payload_size = file_size - payload_start
+    next_offset = 0
+    for name, descriptor in tensors:
+        if not isinstance(name, str) or not name:
+            raise ExampleError("safetensors tensor names must be non-empty strings")
+        if not isinstance(descriptor, dict) or set(descriptor) != {
+            "dtype", "shape", "data_offsets"
+        }:
+            raise ExampleError(f"invalid tensor descriptor for {name}")
+        dtype = descriptor["dtype"]
+        if not isinstance(dtype, str) or dtype not in _SAFETENSORS_DTYPE_BYTES:
+            raise ExampleError(f"unsupported safetensors dtype for {name}")
+        shape = descriptor["shape"]
+        if (not isinstance(shape, list)
+                or any(type(dimension) is not int or dimension < 0 or dimension > 2**31
+                       for dimension in shape)):
+            raise ExampleError(f"invalid safetensors shape for {name}")
+        offsets = descriptor["data_offsets"]
+        if (not isinstance(offsets, list) or len(offsets) != 2
+                or any(type(offset) is not int or offset < 0 for offset in offsets)):
+            raise ExampleError(f"invalid safetensors offsets for {name}")
+        start, end = offsets
+        if start != next_offset or end < start or end > payload_size:
+            raise ExampleError(f"noncontiguous or out-of-range tensor offsets for {name}")
+        element_count = 0 if 0 in shape else 1
+        if element_count:
+            for dimension in shape:
+                element_count *= dimension
+                if element_count * _SAFETENSORS_DTYPE_BYTES[dtype] > payload_size:
+                    raise ExampleError(f"tensor shape exceeds checkpoint payload for {name}")
+        if end - start != element_count * _SAFETENSORS_DTYPE_BYTES[dtype]:
+            raise ExampleError(f"tensor shape and payload size disagree for {name}")
+        next_offset = end
+    if next_offset != payload_size:
+        raise ExampleError("safetensors payload is not exactly described by tensor offsets")
 
 
 def _catalog_paths(catalog: Any) -> tuple[dict[str, str], set[str]]:
@@ -619,6 +719,10 @@ def _validate_semantics(config: dict[str, Any], entry: ExampleEntry, root: Path)
         checkpoint = process["network"].get("pretrained_lora_path", "")
         if process["train"].get("start_step") != 250 or not Path(checkpoint).is_file():
             raise ExampleError("resume example has invalid checkpoint/start step")
+        _validate_resume_safetensors(
+            Path(checkpoint), expected_job_name=body["name"],
+            expected_start_step=process["train"]["start_step"],
+        )
         expected = Path(process["training_folder"]) / body["name"] / "optimizer.pt"
         if not expected.is_file():
             raise ExampleError("resume optimizer discovery identity is invalid")

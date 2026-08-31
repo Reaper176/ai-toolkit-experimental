@@ -4,6 +4,7 @@ import os
 import random
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -15117,6 +15118,56 @@ class TrainingBookExamplesContractTests(unittest.TestCase):
         result = configured_learning_rates_after_restore((1e-4,), restored)
         self.assertEqual(restored[0]["lr"], 0.9)
         self.assertEqual(result, ({"lr": 1e-4, "initial_lr": 1e-4, "momentum": 3},))
+
+    def test_resume_checkpoint_rejects_malformed_nonexecuting_safetensors_headers(self):
+        from scripts.training_book import examples as examples_module
+        from scripts.training_book.examples import ExampleError, load_example_manifest, validate_example
+
+        entry = load_example_manifest(
+            REPOSITORY_ROOT / "docs/book/examples/manifest.json"
+        ).examples[-1]
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json", None,
+        )
+        original_make_fixtures = examples_module._make_fixtures
+
+        def encoded(header, payload=b"\0\0\0\0"):
+            raw = header if isinstance(header, bytes) else json.dumps(header, separators=(",", ":")).encode()
+            raw += b" " * (-len(raw) % 8)
+            return struct.pack("<Q", len(raw)) + raw + payload
+
+        metadata = {
+            "format": "pt", "ss_output_name": "training-book-example",
+            "training_info": json.dumps({"step": 250, "epoch": 0}),
+        }
+        tensor = {"dtype": "F32", "shape": [1], "data_offsets": [0, 4]}
+        cases = {
+            "arbitrary bytes": b"not-safe",
+            "truncated header": struct.pack("<Q", 16) + b"{}",
+            "oversized header": struct.pack("<Q", 2**30),
+            "missing metadata": encoded({"tensor": tensor}),
+            "wrong output name": encoded({"__metadata__": {**metadata, "ss_output_name": "other"}, "tensor": tensor}),
+            "wrong step": encoded({"__metadata__": {**metadata, "training_info": json.dumps({"step": 249, "epoch": 0})}, "tensor": tensor}),
+            "negative epoch": encoded({"__metadata__": {**metadata, "training_info": json.dumps({"step": 250, "epoch": -1})}, "tensor": tensor}),
+            "invalid offsets": encoded({"__metadata__": metadata, "tensor": {**tensor, "data_offsets": [0, 8]}}),
+            "boolean shape": encoded({"__metadata__": metadata, "tensor": {**tensor, "shape": [True]}}),
+            "unsupported dtype": encoded({"__metadata__": metadata, "tensor": {**tensor, "dtype": "PICKLE"}}),
+            "duplicate header key": encoded(
+                b'{"__metadata__":{"format":"pt","ss_output_name":"training-book-example","training_info":"{\\"step\\":250,\\"epoch\\":0}"},'
+                b'"tensor":{"dtype":"F32","shape":[1],"data_offsets":[0,4]},'
+                b'"tensor":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}'
+            ),
+        }
+        for label, checkpoint in cases.items():
+            def corrupt(root, checkpoint=checkpoint):
+                original_make_fixtures(root)
+                (root / "checkpoint.safetensors").write_bytes(checkpoint)
+
+            with self.subTest(label=label), mock.patch(
+                "scripts.training_book.examples._make_fixtures", side_effect=corrupt
+            ), self.assertRaises(ExampleError):
+                validate_example(REPOSITORY_ROOT, entry, catalog)
 
     def test_all_examples_pass_semantic_validation(self):
         from scripts.training_book.examples import load_example_manifest, validate_example
