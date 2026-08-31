@@ -4,9 +4,14 @@
 import argparse
 import fnmatch
 import json
+import sys
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from training_book.discovery import (
     DiscoveredSetting,
@@ -28,6 +33,7 @@ from training_book.catalog import (
     validate_ui_fact_ownership,
 )
 from training_book.manifest import load_book_manifest, validate_book_manifest
+from training_book.examples import load_example_manifest, validate_examples
 from generate_training_book_reference import generate_reference_pages
 
 
@@ -340,6 +346,7 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--inventory-json", type=Path)
     parser.add_argument("--ui-facts", type=Path)
     parser.add_argument("--check-discovery", action="store_true")
+    parser.add_argument("--check-examples", action="store_true")
     parser.add_argument("--scope", action="append", default=[])
     target = parser.add_mutually_exclusive_group()
     target.add_argument("--target-source")
@@ -496,6 +503,12 @@ def main() -> None:
         repository_root / "docs/book/reference/settings-catalog.json",
         repository_root / "docs/book/reference/settings-catalog.schema.json",
         None,
+    )
+    example_manifest = load_example_manifest(
+        repository_root / "docs/book/examples/manifest.json"
+    )
+    validate_examples(
+        repository_root, example_manifest, settings_catalog, manifest
     )
     generate_reference_pages(repository_root, check=True)
     ui_facts = (

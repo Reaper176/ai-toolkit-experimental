@@ -1,0 +1,379 @@
+{
+  "schema_version": 1,
+  "book_revision": 1,
+  "examples": [
+    {
+      "path": "first-lora-flex1.yaml",
+      "architecture": "flex1",
+      "roles": [
+        "first-run",
+        "object"
+      ],
+      "chapters": [
+        "getting-started/first-lora.md",
+        "recipes/object-concept.md"
+      ],
+      "validation_profile": "image-lora",
+      "tokens": [
+        {
+          "name": "DATASET_DIR",
+          "type": "path"
+        },
+        {
+          "name": "OUTPUT_DIR",
+          "type": "path"
+        },
+        {
+          "name": "JOB_NAME",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "path": "character-anima.yaml",
+      "architecture": "anima",
+      "roles": [
+        "character",
+        "identity"
+      ],
+      "chapters": [
+        "recipes/character-identity.md",
+        "models/anima.md"
+      ],
+      "validation_profile": "image-lora",
+      "tokens": [
+        {
+          "name": "DATASET_DIR",
+          "type": "path"
+        },
+        {
+          "name": "OUTPUT_DIR",
+          "type": "path"
+        },
+        {
+          "name": "JOB_NAME",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "path": "style-flux.yaml",
+      "architecture": "flux",
+      "roles": [
+        "style"
+      ],
+      "chapters": [
+        "recipes/style.md",
+        "models/flux-and-flex.md"
+      ],
+      "validation_profile": "image-lora",
+      "tokens": [
+        {
+          "name": "DATASET_DIR",
+          "type": "path"
+        },
+        {
+          "name": "OUTPUT_DIR",
+          "type": "path"
+        },
+        {
+          "name": "JOB_NAME",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "path": "flux-kontext-edit.yaml",
+      "architecture": "flux_kontext",
+      "roles": [
+        "edit",
+        "control"
+      ],
+      "chapters": [
+        "datasets/controls-video-audio.md",
+        "models/flux-and-flex.md"
+      ],
+      "validation_profile": "image-edit-lora",
+      "tokens": [
+        {
+          "name": "DATASET_DIR",
+          "type": "path"
+        },
+        {
+          "name": "CONTROL_DIR",
+          "type": "path"
+        },
+        {
+          "name": "CONTROL_IMAGE",
+          "type": "path"
+        },
+        {
+          "name": "OUTPUT_DIR",
+          "type": "path"
+        },
+        {
+          "name": "JOB_NAME",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "path": "object-qwen-image.yaml",
+      "architecture": "qwen_image",
+      "roles": [
+        "object"
+      ],
+      "chapters": [
+        "recipes/object-concept.md",
+        "models/qwen-image-and-edit.md"
+      ],
+      "validation_profile": "image-lora",
+      "tokens": [
+        {
+          "name": "DATASET_DIR",
+          "type": "path"
+        },
+        {
+          "name": "OUTPUT_DIR",
+          "type": "path"
+        },
+        {
+          "name": "JOB_NAME",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "path": "focused-refinement-qwen-image-edit-2509.yaml",
+      "architecture": "qwen_image_edit_plus",
+      "roles": [
+        "refinement",
+        "edit"
+      ],
+      "chapters": [
+        "recipes/focused-refinement.md",
+        "models/qwen-image-and-edit.md"
+      ],
+      "validation_profile": "image-edit-lora",
+      "tokens": [
+        {
+          "name": "DATASET_DIR",
+          "type": "path"
+        },
+        {
+          "name": "CONTROL_DIR",
+          "type": "path"
+        },
+        {
+          "name": "CONTROL_IMAGE",
+          "type": "path"
+        },
+        {
+          "name": "OUTPUT_DIR",
+          "type": "path"
+        },
+        {
+          "name": "JOB_NAME",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "path": "low-vram-anima.yaml",
+      "architecture": "anima",
+      "roles": [
+        "low-vram",
+        "character"
+      ],
+      "chapters": [
+        "recipes/low-vram.md",
+        "models/anima.md"
+      ],
+      "validation_profile": "image-lora",
+      "tokens": [
+        {
+          "name": "DATASET_DIR",
+          "type": "path"
+        },
+        {
+          "name": "OUTPUT_DIR",
+          "type": "path"
+        },
+        {
+          "name": "JOB_NAME",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "path": "diagnostic-wan21-1b.yaml",
+      "architecture": "wan21:1b",
+      "roles": [
+        "diagnostic",
+        "video"
+      ],
+      "chapters": [
+        "recipes/diagnostic-run.md",
+        "models/wan.md"
+      ],
+      "validation_profile": "video-lora",
+      "tokens": [
+        {
+          "name": "DATASET_DIR",
+          "type": "path"
+        },
+        {
+          "name": "OUTPUT_DIR",
+          "type": "path"
+        },
+        {
+          "name": "JOB_NAME",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "path": "character-sdxl.yaml",
+      "architecture": "sdxl",
+      "roles": [
+        "character",
+        "identity"
+      ],
+      "chapters": [
+        "recipes/character-identity.md",
+        "models/sdxl-and-sd15.md"
+      ],
+      "validation_profile": "image-lora",
+      "tokens": [
+        {
+          "name": "DATASET_DIR",
+          "type": "path"
+        },
+        {
+          "name": "OUTPUT_DIR",
+          "type": "path"
+        },
+        {
+          "name": "JOB_NAME",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "path": "character-sd15.yaml",
+      "architecture": "sd15",
+      "roles": [
+        "character",
+        "identity"
+      ],
+      "chapters": [
+        "recipes/character-identity.md",
+        "models/sdxl-and-sd15.md"
+      ],
+      "validation_profile": "image-lora",
+      "tokens": [
+        {
+          "name": "DATASET_DIR",
+          "type": "path"
+        },
+        {
+          "name": "OUTPUT_DIR",
+          "type": "path"
+        },
+        {
+          "name": "JOB_NAME",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "path": "motion-wan22-14b-t2v.yaml",
+      "architecture": "wan22_14b:t2v",
+      "roles": [
+        "motion",
+        "video"
+      ],
+      "chapters": [
+        "models/wan.md",
+        "datasets/controls-video-audio.md"
+      ],
+      "validation_profile": "video-lora",
+      "tokens": [
+        {
+          "name": "DATASET_DIR",
+          "type": "path"
+        },
+        {
+          "name": "OUTPUT_DIR",
+          "type": "path"
+        },
+        {
+          "name": "JOB_NAME",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "path": "masked-refinement.yaml",
+      "architecture": "anima",
+      "roles": [
+        "refinement",
+        "mask"
+      ],
+      "chapters": [
+        "recipes/focused-refinement.md",
+        "datasets/masks.md"
+      ],
+      "validation_profile": "masked-image-lora",
+      "tokens": [
+        {
+          "name": "DATASET_DIR",
+          "type": "path"
+        },
+        {
+          "name": "MASK_DIR",
+          "type": "path"
+        },
+        {
+          "name": "OUTPUT_DIR",
+          "type": "path"
+        },
+        {
+          "name": "JOB_NAME",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "path": "resume-from-checkpoint.yaml",
+      "architecture": "flex1",
+      "roles": [
+        "resume",
+        "object"
+      ],
+      "chapters": [
+        "workflow/saving-resuming-and-optimizer-state.md",
+        "getting-started/first-lora.md"
+      ],
+      "validation_profile": "resume-image-lora",
+      "tokens": [
+        {
+          "name": "DATASET_DIR",
+          "type": "path"
+        },
+        {
+          "name": "CHECKPOINT_PATH",
+          "type": "path"
+        },
+        {
+          "name": "OUTPUT_DIR",
+          "type": "path"
+        },
+        {
+          "name": "JOB_NAME",
+          "type": "string"
+        }
+      ]
+    }
+  ]
+}

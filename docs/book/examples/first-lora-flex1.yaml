@@ -1,0 +1,74 @@
+---
+schema: 1
+job: extension
+config:
+  name: ${JOB_NAME}
+  process:
+  - type: diffusion_trainer
+    training_folder: ${OUTPUT_DIR}
+    network:
+      type: lora
+      linear: 16
+      linear_alpha: 16
+    datasets:
+    - folder_path: ${DATASET_DIR}
+      caption_ext: txt
+      caption_dropout_rate: 0.05
+      shuffle_tokens: false
+      cache_latents_to_disk: true
+      resolution:
+      - 512
+      - 768
+      - 1024
+      num_frames: 1
+      fps: 1
+    train:
+      batch_size: 1
+      gradient_accumulation: 1
+      train_unet: true
+      train_text_encoder: false
+      gradient_checkpointing: true
+      optimizer: adamw8bit
+      lr: 0.0001
+      lr_scheduler: constant
+      noise_scheduler: flowmatch
+      dtype: bf16
+      loss_type: mse
+      steps: 2000
+      content_or_style: content
+      timestep_type: sigmoid
+      cache_text_embeddings: false
+      bypass_guidance_embedding: true
+    model:
+      name_or_path: ostris/Flex.1-alpha
+      arch: flex1
+      quantize: true
+      quantize_te: true
+      qtype: qfloat8
+      qtype_te: qfloat8
+      quantize_kwargs:
+        exclude:
+        - '*time_text_embed*'
+    save:
+      dtype: bf16
+      save_format: diffusers
+      save_every: 250
+      max_step_saves_to_keep: 4
+      push_to_hub: false
+    logging:
+      use_ui_logger: true
+      use_wandb: false
+    sample:
+      sampler: flowmatch
+      sample_every: 250
+      sample_start_step: 0
+      seed: 42
+      walk_seed: false
+      width: 1024
+      height: 1024
+      guidance_scale: 4
+      sample_steps: 25
+      num_frames: 1
+      fps: 1
+      samples:
+      - prompt: A detailed portrait of [trigger] in natural light

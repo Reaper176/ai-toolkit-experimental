@@ -14925,5 +14925,172 @@ class BookArtifactTests(unittest.TestCase):
                 self.assertIn("Unknown or incompatible", result.stderr)
 
 
+class TrainingBookExamplesContractTests(unittest.TestCase):
+    EXPECTED = (
+        ("first-lora-flex1.yaml", "flex1", "image-lora"),
+        ("character-anima.yaml", "anima", "image-lora"),
+        ("style-flux.yaml", "flux", "image-lora"),
+        ("flux-kontext-edit.yaml", "flux_kontext", "image-edit-lora"),
+        ("object-qwen-image.yaml", "qwen_image", "image-lora"),
+        ("focused-refinement-qwen-image-edit-2509.yaml", "qwen_image_edit_plus", "image-edit-lora"),
+        ("low-vram-anima.yaml", "anima", "image-lora"),
+        ("diagnostic-wan21-1b.yaml", "wan21:1b", "video-lora"),
+        ("character-sdxl.yaml", "sdxl", "image-lora"),
+        ("character-sd15.yaml", "sd15", "image-lora"),
+        ("motion-wan22-14b-t2v.yaml", "wan22_14b:t2v", "video-lora"),
+        ("masked-refinement.yaml", "anima", "masked-image-lora"),
+        ("resume-from-checkpoint.yaml", "flex1", "resume-image-lora"),
+    )
+
+    def test_examples_manifest_and_exact_file_set(self):
+        from scripts.training_book.examples import load_example_manifest
+
+        directory = REPOSITORY_ROOT / "docs/book/examples"
+        manifest = load_example_manifest(directory / "manifest.json")
+        self.assertEqual(manifest.schema_version, 1)
+        self.assertEqual(manifest.book_revision, 1)
+        self.assertEqual(
+            tuple((Path(item.path).name, item.architecture, item.validation_profile)
+                  for item in manifest.examples), self.EXPECTED,
+        )
+        self.assertEqual(
+            {path.name for path in directory.iterdir()},
+            {"README.md", "manifest.json", *(item[0] for item in self.EXPECTED)},
+        )
+
+    def test_examples_readme_is_a_scaffolded_book_page(self):
+        text = (REPOSITORY_ROOT / "docs/book/examples/README.md").read_text()
+        self.assertEqual(sum(line.startswith("# ") for line in text.splitlines()), 1)
+        self.assertIn("](../README.md)", text)
+        for marker in ("book-navigation:start", "book-navigation:end",
+                       "book-verification:start", "book-verification:end"):
+            self.assertEqual(text.count(f"<!-- {marker} -->"), 1)
+
+    def test_typed_tokens_reject_undeclared_unused_and_path_escape(self):
+        from scripts.training_book.examples import ExampleError, TokenDeclaration, substitute_typed_tokens
+
+        declarations = (TokenDeclaration("DATASET_DIR", "path"),)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(substitute_typed_tokens("${DATASET_DIR}", declarations, root), str(root / "dataset"))
+            for value, declared in (("${UNKNOWN}", declarations), ("literal", declarations)):
+                with self.subTest(value=value), self.assertRaises(ExampleError):
+                    substitute_typed_tokens(value, declared, root)
+            with self.assertRaises(ExampleError):
+                substitute_typed_tokens("prefix-${DATASET_DIR}", declarations, root)
+
+    def test_manifest_rejects_duplicate_rows_and_path_traversal(self):
+        from scripts.training_book.examples import ExampleError, load_example_manifest
+
+        live = json.loads((REPOSITORY_ROOT / "docs/book/examples/manifest.json").read_text())
+        mutations = []
+        duplicate = deepcopy(live)
+        duplicate["examples"].append(deepcopy(duplicate["examples"][0]))
+        mutations.append(duplicate)
+        traversal = deepcopy(live)
+        traversal["examples"][0]["path"] = "../escape.yaml"
+        mutations.append(traversal)
+        for mutation in mutations:
+            with self.subTest(path=mutation["examples"][0]["path"]), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "manifest.json"
+                path.write_text(json.dumps(mutation))
+                with self.assertRaises(ExampleError):
+                    load_example_manifest(path)
+
+    def test_examples_reject_kwargs_typo_discriminator_control_and_mask_turbo(self):
+        from scripts.training_book.examples import ExampleError, load_example_manifest, validate_example
+
+        directory = REPOSITORY_ROOT / "docs/book/examples"
+        manifest = load_example_manifest(directory / "manifest.json")
+        entries = {entry.path: entry for entry in manifest.examples}
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json", None,
+        )
+        mutations = []
+        first = yaml.safe_load((directory / "first-lora-flex1.yaml").read_text())
+        typo = deepcopy(first)
+        typo["config"]["process"][0]["train"]["gradent_checkpointing"] = True
+        mutations.append((entries["first-lora-flex1.yaml"], typo))
+        discriminator = deepcopy(first)
+        discriminator["config"]["process"][0]["type"] = "sd_trainer"
+        mutations.append((entries["first-lora-flex1.yaml"], discriminator))
+        edit = yaml.safe_load((directory / "flux-kontext-edit.yaml").read_text())
+        bad_control = deepcopy(edit)
+        bad_control["config"]["process"][0]["sample"]["samples"][0]["ctrl_img"] = "${CONTROL_DIR}"
+        bad_control["config"]["process"][0]["datasets"][0]["control_path"] = "${CONTROL_IMAGE}"
+        mutations.append((entries["flux-kontext-edit.yaml"], bad_control))
+        masked = yaml.safe_load((directory / "masked-refinement.yaml").read_text())
+        turbo = deepcopy(masked)
+        turbo["config"]["process"][0]["train"]["train_turbo"] = True
+        mutations.append((entries["masked-refinement.yaml"], turbo))
+        for entry, mutation in mutations:
+            with self.subTest(entry=entry.path), mock.patch(
+                "scripts.training_book.examples.yaml.safe_load", return_value=mutation
+            ), self.assertRaises(ExampleError):
+                validate_example(REPOSITORY_ROOT, entry, catalog)
+
+    def test_resume_learning_rate_contract_is_pure_and_configured_value_wins(self):
+        from scripts.training_book.examples import configured_learning_rates_after_restore
+
+        restored = ({"lr": 0.9, "momentum": 3},)
+        result = configured_learning_rates_after_restore((1e-4,), restored)
+        self.assertEqual(restored[0]["lr"], 0.9)
+        self.assertEqual(result, ({"lr": 1e-4, "initial_lr": 1e-4, "momentum": 3},))
+
+    def test_all_examples_pass_semantic_validation(self):
+        from scripts.training_book.examples import load_example_manifest, validate_example
+
+        directory = REPOSITORY_ROOT / "docs/book/examples"
+        manifest = load_example_manifest(directory / "manifest.json")
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json", None,
+        )
+        for entry in manifest.examples:
+            with self.subTest(entry=entry.path):
+                validate_example(REPOSITORY_ROOT, entry, catalog)
+
+    def test_examples_match_the_exact_baseline_and_overlay_matrix(self):
+        directory = REPOSITORY_ROOT / "docs/book/examples"
+        overlays = {
+            "first-lora-flex1.yaml": ("ostris/Flex.1-alpha", 16, 1e-4, 2000, [512, 768, 1024], 1024, 1024, 4, 25),
+            "character-anima.yaml": ("circlestone-labs/Anima-Base-v1.0-Diffusers", 32, 1e-4, 3000, [1024], 1024, 1024, 4, 30),
+            "style-flux.yaml": ("black-forest-labs/FLUX.1-dev", 16, 1e-4, 2000, [512, 768, 1024], 1024, 1024, 4, 20),
+            "flux-kontext-edit.yaml": ("black-forest-labs/FLUX.1-Kontext-dev", 16, 1e-4, 2000, [512, 768], 1024, 1024, 4, 20),
+            "object-qwen-image.yaml": ("Qwen/Qwen-Image", 16, 1e-4, 2000, [512, 768, 1024], 1024, 1024, 3, 25),
+            "focused-refinement-qwen-image-edit-2509.yaml": ("Qwen/Qwen-Image-Edit-2509", 16, 1e-4, 3000, [512, 768, 1024], 1024, 1024, 3, 25),
+            "low-vram-anima.yaml": ("circlestone-labs/Anima-Base-v1.0-Diffusers", 32, 5e-5, 3000, [512, 768], 768, 768, 4, 30),
+            "diagnostic-wan21-1b.yaml": ("Wan-AI/Wan2.1-T2V-1.3B-Diffusers", 32, 1e-4, 250, [632], 832, 480, 5, 30),
+            "character-sdxl.yaml": ("stabilityai/stable-diffusion-xl-base-1.0", 32, 1e-4, 3000, [512, 768, 1024], 1024, 1024, 6, 30),
+            "character-sd15.yaml": ("stable-diffusion-v1-5/stable-diffusion-v1-5", 32, 1e-4, 3000, [512], 512, 512, 6, 30),
+            "motion-wan22-14b-t2v.yaml": ("ai-toolkit/Wan2.2-T2V-A14B-Diffusers-bf16", 32, 5e-5, 2000, [512, 768, 1024], 1024, 1024, 3.5, 25),
+            "masked-refinement.yaml": ("circlestone-labs/Anima-Base-v1.0-Diffusers", 32, 2e-5, 3000, [1024], 1024, 1024, 4, 30),
+            "resume-from-checkpoint.yaml": ("ostris/Flex.1-alpha", 16, 1e-4, 3000, [512, 768, 1024], 1024, 1024, 4, 25),
+        }
+        for filename, expected in overlays.items():
+            raw = yaml.safe_load((directory / filename).read_text())
+            process = raw["config"]["process"][0]
+            actual = (process["model"]["name_or_path"], process["network"]["linear"],
+                      process["train"]["lr"], process["train"]["steps"],
+                      process["datasets"][0]["resolution"], process["sample"]["width"],
+                      process["sample"]["height"], process["sample"]["guidance_scale"],
+                      process["sample"]["sample_steps"])
+            with self.subTest(filename=filename):
+                self.assertEqual(actual, expected)
+                self.assertEqual(raw["schema"], 1)
+                self.assertEqual((raw["job"], process["type"], process["network"]["type"]),
+                                 ("extension", "diffusion_trainer", "lora"))
+                self.assertEqual(process["sample"]["seed"], 42)
+                self.assertFalse(process["sample"]["walk_seed"])
+
+    def test_examples_cli_mode(self):
+        result = subprocess.run(
+            [sys.executable, "scripts/validate_training_book.py", "--check-examples"],
+            cwd=REPOSITORY_ROOT, text=True, capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
