@@ -384,6 +384,48 @@ assert.deepEqual(
   [['loadCustomSetting::settings.CUSTOM_ROOT', 'settings.CUSTOM_ROOT', 'path']],
   'a new executable database settings key is discovered from its lexical binding',
 );
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/settings-bulk-writes.ts', `
+    import prisma from '@/server/prisma';
+    async function writeSettings() {
+      await prisma.settings.createMany({ data: [{ key: 'CREATE_MANY_KEY', value: 'x' }] });
+      await prisma.settings.createManyAndReturn({ data: [{ key: 'CREATE_MANY_RETURN_KEY', value: 'x' }] });
+      await prisma.settings.updateManyAndReturn({ where: { key: 'UPDATE_MANY_RETURN_KEY' }, data: { value: 'x' } });
+    }
+  `).map(item => [item.path, item.server_state_contract?.operation]),
+  [
+    ['settings.CREATE_MANY_KEY', 'write'],
+    ['settings.CREATE_MANY_RETURN_KEY', 'write'],
+    ['settings.UPDATE_MANY_RETURN_KEY', 'write'],
+  ],
+  'all supported Prisma bulk settings mutations emit write operations',
+);
+assert.throws(
+  () => collectDeclaredServerGlobalClaimsFromSource('ui/src/server/settings-unknown-method.ts', `
+    import prisma from '@/server/prisma';
+    async function unsupported() {
+      await prisma.settings.arbitraryMethod({ where: { key: 'UNKNOWN_METHOD_KEY' } });
+    }
+  `),
+  /unsupported Prisma settings method arbitraryMethod/,
+  'an unknown Prisma settings method fails closed instead of defaulting to a read',
+);
+assert.deepEqual(
+  collectDeclaredServerGlobalClaimsFromSource('ui/src/server/settings-current-methods.ts', `
+    import prisma from '@/server/prisma';
+    async function currentSettingsOperations() {
+      await prisma.settings.findFirst({ where: { key: 'FIND_FIRST_KEY' } });
+      await prisma.settings.findMany({ where: { key: 'FIND_MANY_KEY' } });
+      await prisma.settings.upsert({ where: { key: 'UPSERT_KEY' }, create: { key: 'UPSERT_KEY', value: 'x' }, update: { value: 'x' } });
+    }
+  `).map(item => [item.path, item.server_state_contract?.operation]),
+  [
+    ['settings.FIND_FIRST_KEY', 'read'],
+    ['settings.FIND_MANY_KEY', 'read'],
+    ['settings.UPSERT_KEY', 'write'],
+  ],
+  'current findFirst, findMany, and upsert settings operations retain their live classifications',
+);
 const databaseWriteNullability = collectDeclaredServerGlobalClaimsFromSource(
   'ui/src/server/write-nullability.ts', `
     import prisma from '@/server/prisma';
@@ -7576,6 +7618,24 @@ if (liveRoot !== undefined) {
     'a relevant occurrence added to a previously-zero declared file becomes emitted',
   );
   const liveFacts = collectTrainingBookUiFacts(liveRoot);
+  const outsideRepositoryRoot = mkdtempSync(join(tmpdir(), 'training-book-explicit-root-'));
+  const originalWorkingDirectory = process.cwd();
+  const originalEnvironmentRoot = process.env.TRAINING_BOOK_REPOSITORY_ROOT;
+  try {
+    process.chdir(outsideRepositoryRoot);
+    delete process.env.TRAINING_BOOK_REPOSITORY_ROOT;
+    const explicitRootFacts = collectTrainingBookUiFacts(liveRoot);
+    assert.deepEqual(
+      explicitRootFacts,
+      liveFacts,
+      'an explicit absolute repository root emits the same live facts and inventories without cwd or environment discovery',
+    );
+  } finally {
+    process.chdir(originalWorkingDirectory);
+    if (originalEnvironmentRoot !== undefined) process.env.TRAINING_BOOK_REPOSITORY_ROOT = originalEnvironmentRoot;
+    else delete process.env.TRAINING_BOOK_REPOSITORY_ROOT;
+    rmSync(outsideRepositoryRoot, { recursive: true });
+  }
   const migrateJobConfigSource = readFileSync(
     join(liveRoot, 'ui/src/app/jobs/new/jobConfig.ts'),
     'utf8',

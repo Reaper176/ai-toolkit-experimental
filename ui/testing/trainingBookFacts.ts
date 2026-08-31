@@ -12139,18 +12139,9 @@ function authoritativeNestedStateSetter(
     && authoritativeNestedStateSetter(value, bindings, new Set(seen).add(declaration));
 }
 
-function existingSourcePath(source: ts.SourceFile): string | undefined {
-  return [
-    process.env.TRAINING_BOOK_REPOSITORY_ROOT,
-    process.cwd(),
-    resolve(process.cwd(), '..'),
-  ].filter((value): value is string => value !== undefined)
-    .map(root => resolve(root, source.fileName))
-    .find(candidate => existsSync(candidate));
-}
-
-function trainingBookRepositoryRoot(): string | undefined {
-  return [
+function trainingBookRepositoryRoot(repositoryRoot?: string): string | undefined {
+  if (repositoryRoot !== undefined) return realpathSync(resolve(repositoryRoot));
+  const candidate = [
     process.env.TRAINING_BOOK_REPOSITORY_ROOT,
     process.cwd(),
     resolve(process.cwd(), '..'),
@@ -12160,10 +12151,18 @@ function trainingBookRepositoryRoot(): string | undefined {
       existsSync(join(candidate, 'ui/cron/paths.ts'))
       && existsSync(join(candidate, 'ui/src/server/settings.ts')),
     );
+  return candidate === undefined ? undefined : realpathSync(candidate);
 }
 
-function resolvedTypeScriptModule(source: ts.SourceFile, specifier: string): string | undefined {
-  const root = trainingBookRepositoryRoot();
+function existingSourcePath(source: ts.SourceFile, repositoryRoot?: string): string | undefined {
+  const root = trainingBookRepositoryRoot(repositoryRoot);
+  if (root === undefined) return undefined;
+  const filename = resolve(root, source.fileName);
+  return existsSync(filename) ? filename : undefined;
+}
+
+function resolvedTypeScriptModule(source: ts.SourceFile, specifier: string, repositoryRoot?: string): string | undefined {
+  const root = trainingBookRepositoryRoot(repositoryRoot);
   if (root === undefined) return undefined;
   const importer = resolve(root, source.fileName);
   const base = specifier.startsWith('@/')
@@ -12177,19 +12176,19 @@ function resolvedTypeScriptModule(source: ts.SourceFile, specifier: string): str
   return filename === undefined ? undefined : realpathSync(filename);
 }
 
-function authoritativeSettingsGetterModule(identifier: ts.Identifier, specifier: string): boolean {
-  const root = trainingBookRepositoryRoot();
+function authoritativeSettingsGetterModule(identifier: ts.Identifier, specifier: string, repositoryRoot?: string): boolean {
+  const root = trainingBookRepositoryRoot(repositoryRoot);
   if (root === undefined) return false;
-  const resolvedModule = resolvedTypeScriptModule(identifier.getSourceFile(), specifier);
+  const resolvedModule = resolvedTypeScriptModule(identifier.getSourceFile(), specifier, root);
   if (resolvedModule === undefined) return false;
   const authoritative = [join(root, 'ui/cron/paths.ts'), join(root, 'ui/src/server/settings.ts')]
     .map(filename => realpathSync(filename));
   return authoritative.includes(resolvedModule);
 }
 
-function relativeImportExportsPrismaClient(identifier: ts.Identifier, specifier: string): boolean {
+function relativeImportExportsPrismaClient(identifier: ts.Identifier, specifier: string, repositoryRoot?: string): boolean {
   if (!specifier.startsWith('.')) return false;
-  const importer = existingSourcePath(identifier.getSourceFile());
+  const importer = existingSourcePath(identifier.getSourceFile(), repositoryRoot);
   if (importer === undefined) return false;
   const base = resolve(dirname(importer), specifier);
   const filename = [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts')]
@@ -12311,6 +12310,7 @@ function prismaTypeAnnotation(type: ts.TypeNode | undefined): boolean {
 function authoritativeDatabaseRoot(
   expression: ts.Expression,
   bindings: LexicalBindings,
+  repositoryRoot?: string,
   seen = new Set<ts.Identifier>(),
 ): boolean {
   expression = unwrap(expression);
@@ -12336,18 +12336,18 @@ function authoritativeDatabaseRoot(
         const call = unwrap(context.expression);
         return ts.isPropertyAccessExpression(call)
           && call.name.text === '$transaction'
-          && authoritativeDatabaseRoot(call.expression, bindings, new Set(seen).add(declaration));
+          && authoritativeDatabaseRoot(call.expression, bindings, repositoryRoot, new Set(seen).add(declaration));
       }
       return false;
     }
     const initializer = bindings.declarationInitializer(expression);
     return initializer !== undefined
-      && authoritativeDatabaseRoot(initializer, bindings, new Set(seen).add(declaration));
+      && authoritativeDatabaseRoot(initializer, bindings, repositoryRoot, new Set(seen).add(declaration));
   }
   const imported = exactImportBinding(expression);
   return imported?.kind === 'default'
     && !imported.typeOnly
-    && (imported.source === '@/server/prisma' || relativeImportExportsPrismaClient(expression, imported.source));
+    && (imported.source === '@/server/prisma' || relativeImportExportsPrismaClient(expression, imported.source, repositoryRoot));
 }
 
 function authoritativeSettingsProjection(
@@ -12383,15 +12383,45 @@ function authoritativeSettingsProjection(
     && !imported.typeOnly;
 }
 
+const PRISMA_SETTINGS_READ_METHODS = new Set([
+  'aggregate',
+  'count',
+  'findFirst',
+  'findFirstOrThrow',
+  'findMany',
+  'findUnique',
+  'findUniqueOrThrow',
+  'groupBy',
+]);
+
+const PRISMA_SETTINGS_WRITE_METHODS = new Set([
+  'create',
+  'createMany',
+  'createManyAndReturn',
+  'delete',
+  'deleteMany',
+  'update',
+  'updateMany',
+  'updateManyAndReturn',
+  'upsert',
+]);
+
 function settingsDatabaseKeys(
   node: ts.CallExpression,
   bindings: LexicalBindings,
+  repositoryRoot?: string,
 ): Array<{ key: string; operation: 'read' | 'write' }> {
   const call = unwrap(node.expression);
   if (!ts.isPropertyAccessExpression(call)) return [];
   const receiver = unwrap(call.expression);
   if (!ts.isPropertyAccessExpression(receiver) || receiver.name.text !== 'settings') return [];
-  if (!authoritativeDatabaseRoot(receiver.expression, bindings)) return [];
+  if (!authoritativeDatabaseRoot(receiver.expression, bindings, repositoryRoot)) return [];
+  const method = call.name.text;
+  const operation = PRISMA_SETTINGS_WRITE_METHODS.has(method)
+    ? 'write'
+    : PRISMA_SETTINGS_READ_METHODS.has(method)
+      ? 'read'
+      : fail(node, `unsupported Prisma settings method ${method}`);
   const keys: string[] = [];
   const visit = (child: ts.Node): void => {
     if (ts.isPropertyAssignment(child) && propertyName(child.name) === 'key') {
@@ -12402,9 +12432,6 @@ function settingsDatabaseKeys(
     ts.forEachChild(child, visit);
   };
   for (const argument of node.arguments) visit(argument);
-  const operation = ['create', 'update', 'updateMany', 'upsert', 'delete', 'deleteMany'].includes(call.name.text)
-    ? 'write'
-    : 'read';
   return [...new Set(keys.filter(key => /^[A-Z][A-Z0-9_]+$/.test(key)))]
     .map(key => ({ key, operation }));
 }
@@ -12674,19 +12701,14 @@ const productionTypePrograms = new Map<string, {
   program: ts.Program;
 }>();
 
-function productionProgramSource(source: ts.SourceFile): {
+function productionProgramSource(source: ts.SourceFile, repositoryRoot?: string): {
   checker: ts.TypeChecker;
   source: ts.SourceFile;
 } | undefined {
-  const roots = [
-    process.env.TRAINING_BOOK_REPOSITORY_ROOT,
-    process.cwd(),
-    resolve(process.cwd(), '..'),
-  ].filter((value): value is string => value !== undefined);
-  const filename = roots
-    .map(root => resolve(root, source.fileName))
-    .find(candidate => existsSync(candidate));
-  if (filename === undefined || readFileSync(filename, 'utf8') !== source.text) return undefined;
+  const root = trainingBookRepositoryRoot(repositoryRoot);
+  if (root === undefined) return undefined;
+  const filename = resolve(root, source.fileName);
+  if (!existsSync(filename) || readFileSync(filename, 'utf8') !== source.text) return undefined;
   const canonicalFilename = realpathSync(filename);
   let directory = dirname(canonicalFilename);
   let projectConfig: { path: string; parsed: ts.ParsedCommandLine } | undefined;
@@ -12706,15 +12728,16 @@ function productionProgramSource(source: ts.SourceFile): {
       }
     }
     const parent = dirname(directory);
-    if (parent === directory) break;
+    if (directory === root || parent === directory) break;
     directory = parent;
   }
   if (projectConfig === undefined) return undefined;
-  let project = productionTypePrograms.get(projectConfig.path);
+  const projectKey = `${root}\0${projectConfig.path}`;
+  let project = productionTypePrograms.get(projectKey);
   if (project === undefined) {
     const program = ts.createProgram(projectConfig.parsed.fileNames, projectConfig.parsed.options);
     project = { checker: program.getTypeChecker(), program };
-    productionTypePrograms.set(projectConfig.path, project);
+    productionTypePrograms.set(projectKey, project);
   }
   const programSource = project.program.getSourceFiles().find(candidate =>
     existsSync(candidate.fileName) && realpathSync(candidate.fileName) === canonicalFilename
@@ -12735,9 +12758,9 @@ function checkerPrimitiveNullability(type: ts.Type): boolean | undefined {
   return nullable;
 }
 
-function productionExpressionNullability(expression: ts.Expression): boolean | undefined {
+function productionExpressionNullability(expression: ts.Expression, repositoryRoot?: string): boolean | undefined {
   const source = expression.getSourceFile();
-  const production = productionProgramSource(source);
+  const production = productionProgramSource(source, repositoryRoot);
   if (production === undefined) return undefined;
   const start = expression.getStart(source);
   const end = expression.getEnd();
@@ -12787,6 +12810,7 @@ function databaseWriteNullable(
   expression: ts.Expression,
   node: ts.Node,
   bindings: LexicalBindings,
+  repositoryRoot?: string,
   seen = new Set<ts.Identifier>(),
 ): boolean {
   expression = unwrap(expression);
@@ -12800,8 +12824,8 @@ function databaseWriteNullable(
   ) return false;
   if (expression.kind === ts.SyntaxKind.NullKeyword) return true;
   if (ts.isConditionalExpression(expression)) {
-    return databaseWriteNullable(expression.whenTrue, node, bindings, new Set(seen))
-      || databaseWriteNullable(expression.whenFalse, node, bindings, new Set(seen));
+    return databaseWriteNullable(expression.whenTrue, node, bindings, repositoryRoot, new Set(seen))
+      || databaseWriteNullable(expression.whenFalse, node, bindings, repositoryRoot, new Set(seen));
   }
   if (
     ts.isBinaryExpression(expression)
@@ -12810,8 +12834,8 @@ function databaseWriteNullable(
       || expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
     )
   ) {
-    return databaseWriteNullable(expression.left, node, bindings, new Set(seen))
-      && databaseWriteNullable(expression.right, node, bindings, new Set(seen));
+    return databaseWriteNullable(expression.left, node, bindings, repositoryRoot, new Set(seen))
+      && databaseWriteNullable(expression.right, node, bindings, repositoryRoot, new Set(seen));
   }
   if (
     ts.isBinaryExpression(expression)
@@ -12828,7 +12852,7 @@ function databaseWriteNullable(
       const initializer = bindings.declarationInitializer(expression);
       if (initializer !== undefined) {
         return databaseWriteNullable(
-          initializer, node, bindings, new Set(seen).add(declaration),
+          initializer, node, bindings, repositoryRoot, new Set(seen).add(declaration),
         );
       }
     }
@@ -12852,7 +12876,7 @@ function databaseWriteNullable(
       ? undefined
       : primitiveTypeNullability(contextual.type);
     if (contextualNullable !== undefined) return contextual!.optional || contextualNullable;
-    const productionNullable = productionExpressionNullability(expression);
+    const productionNullable = productionExpressionNullability(expression, repositoryRoot);
     if (productionNullable !== undefined) return productionNullable;
   }
   if (ts.isCallExpression(expression)) {
@@ -12864,12 +12888,12 @@ function databaseWriteNullable(
   fail(node, `database write nullability is unproven (${ts.SyntaxKind[expression.kind]})`);
 }
 
-function stateWrites(node: ts.CallExpression, bindings: LexicalBindings): Array<{ entity: 'job' | 'queue'; method: string; key: string; value: TrainingBookValueFact | undefined; nullable: boolean }> {
+function stateWrites(node: ts.CallExpression, bindings: LexicalBindings, repositoryRoot?: string): Array<{ entity: 'job' | 'queue'; method: string; key: string; value: TrainingBookValueFact | undefined; nullable: boolean }> {
   const call = unwrap(node.expression);
   if (!ts.isPropertyAccessExpression(call) || !['create', 'update', 'updateMany', 'upsert'].includes(call.name.text)) return [];
   const receiver = unwrap(call.expression);
   if (!ts.isPropertyAccessExpression(receiver) || (receiver.name.text !== 'job' && receiver.name.text !== 'queue')) return [];
-  if (!authoritativeDatabaseRoot(receiver.expression, bindings)) return [];
+  if (!authoritativeDatabaseRoot(receiver.expression, bindings, repositoryRoot)) return [];
   const argument = node.arguments[0] === undefined ? undefined : unwrap(node.arguments[0]);
   if (argument === undefined || !ts.isObjectLiteralExpression(argument)) return [];
   const data = objectProperties(argument).get('data');
@@ -12893,7 +12917,7 @@ function stateWrites(node: ts.CallExpression, bindings: LexicalBindings): Array<
         method: call.name.text,
         key,
         value: literalAcceptedValue(value, bindings),
-        nullable: databaseWriteNullable(value, node, bindings),
+        nullable: databaseWriteNullable(value, node, bindings, repositoryRoot),
       });
     }
   }
@@ -13274,6 +13298,7 @@ const KNOWN_SETTING_GETTERS = new Map<string, string>([
 function importedSettingGetterIdentifierKey(
   callee: ts.Identifier,
   bindings: LexicalBindings,
+  repositoryRoot?: string,
   seen = new Set<ts.Identifier>(),
 ): string | undefined {
   const declaration = bindings.bindingDeclaration(callee);
@@ -13283,19 +13308,19 @@ function importedSettingGetterIdentifierKey(
     if (initializer === undefined) return undefined;
     const value = unwrap(initializer);
     if (!ts.isIdentifier(value)) return undefined;
-    return importedSettingGetterIdentifierKey(value, bindings, new Set(seen).add(declaration));
+    return importedSettingGetterIdentifierKey(value, bindings, repositoryRoot, new Set(seen).add(declaration));
   }
   const imported = exactImportBinding(callee);
   return imported?.kind === 'named'
     && !imported.typeOnly
-    && authoritativeSettingsGetterModule(callee, imported.source)
+    && authoritativeSettingsGetterModule(callee, imported.source, repositoryRoot)
     ? KNOWN_SETTING_GETTERS.get(imported.imported)
     : undefined;
 }
 
-function importedSettingGetterKey(node: ts.CallExpression, bindings: LexicalBindings): string | undefined {
+function importedSettingGetterKey(node: ts.CallExpression, bindings: LexicalBindings, repositoryRoot?: string): string | undefined {
   const callee = unwrap(node.expression);
-  return ts.isIdentifier(callee) ? importedSettingGetterIdentifierKey(callee, bindings) : undefined;
+  return ts.isIdentifier(callee) ? importedSettingGetterIdentifierKey(callee, bindings, repositoryRoot) : undefined;
 }
 
 function resolvedGpuSelection(node: ts.VariableDeclaration): boolean {
@@ -13552,7 +13577,7 @@ function gpuSelectionTransition(node: ts.CallExpression): 'hydrate' | 'default' 
   return readsHydratedGpu ? 'hydrate' : readsDefaultGpu ? 'default' : undefined;
 }
 
-function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: string): UiSourceClaim[] {
+function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: string, repositoryRoot?: string): UiSourceClaim[] {
   const source = ts.createSourceFile(
     sourcePath,
     sourceText,
@@ -13645,7 +13670,7 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
         ), node, `persisted-write-${persisted.key}`, owner);
       }
       const owner = factSymbol(node, sourcePath);
-      const getterKey = importedSettingGetterKey(node, bindings);
+      const getterKey = importedSettingGetterKey(node, bindings, repositoryRoot);
       if (getterKey !== undefined) {
         const operationOwner = sourcePath.startsWith('ui/cron/actions/')
           ? defaultExportedFunctionName(source) ?? owner
@@ -13663,7 +13688,7 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
           operationOwner,
         );
       }
-      for (const database of settingsDatabaseKeys(node, bindings)) {
+      for (const database of settingsDatabaseKeys(node, bindings, repositoryRoot)) {
         const contract: UiServerStateClaimOptions = database.operation === 'write'
           ? userDatabaseWrite
           : { ...userDatabaseRead, optional: true };
@@ -13684,7 +13709,7 @@ function structurallyDeclaredServerGlobalClaims(sourcePath: string, sourceText: 
           userDatabaseRead,
         ), node, `settings-hydrate-${key}`, owner);
       }
-      for (const write of stateWrites(node, bindings)) {
+      for (const write of stateWrites(node, bindings, repositoryRoot)) {
         addOwned(serverStateClaim(
           sourcePath,
           `${owner}::${write.entity}.${write.key}`,
@@ -14261,9 +14286,10 @@ function structurallyBoundInputClaims(sourcePath: string, sourceText: string): U
 export function collectDeclaredServerGlobalClaimsFromSource(
   sourcePath: string,
   source: string,
+  repositoryRoot?: string,
 ): UiSourceClaim[] {
   const claims = [
-    ...structurallyDeclaredServerGlobalClaims(sourcePath, source),
+    ...structurallyDeclaredServerGlobalClaims(sourcePath, source, repositoryRoot),
     ...structurallyBoundInputClaims(sourcePath, source),
   ];
   return claims.sort((left, right) => compareCodePoint(
@@ -14273,10 +14299,12 @@ export function collectDeclaredServerGlobalClaimsFromSource(
 }
 
 function declaredServerGlobalClaims(root: string): UiSourceClaim[] {
+  const canonicalRoot = realpathSync(resolve(root));
   return collectDeclaredTypeScriptSourcePaths(root)
     .flatMap(sourcePath => collectDeclaredServerGlobalClaimsFromSource(
       sourcePath,
       readFileSync(join(root, sourcePath), 'utf8'),
+      canonicalRoot,
     ));
 }
 
