@@ -10452,6 +10452,27 @@ for (const [label, source] of [
       await client.job.update({ data: { status: 'queued' } });
     }
   `],
+  ['named class expression shadows imported PrismaClient', `
+    import type { PrismaClient } from '@prisma/client';
+    const Container = class PrismaClient {
+      async bad(client: PrismaClient) {
+        await client.job.update({ data: { status: 'queued' } });
+      }
+    };
+  `],
+  ['case clause later type alias shadows nested annotation', `
+    import type { PrismaClient } from '@prisma/client';
+    async function outer(value: number) {
+      switch (value) {
+        case 1:
+          async function bad(client: PrismaClient) {
+            await client.job.update({ data: { status: 'queued' } });
+          }
+          type PrismaClient = { job: unknown };
+          break;
+      }
+    }
+  `],
 ] as const) {
   assert.deepEqual(prismaTypeShadowClaims(source), [], `${label} cannot authorize a Prisma database root`);
 }
@@ -10476,6 +10497,18 @@ assert.deepEqual(
   `),
   ['job.status'],
   'a sibling function type alias cannot shadow an exact imported qualified type',
+);
+assert.deepEqual(
+  prismaTypeShadowClaims(`
+    import type { PrismaClient as Client } from '@prisma/client';
+    type Mapped<T> = { [Client in keyof T]: T[Client] };
+    type Inferred<T> = T extends infer Client ? Client : never;
+    async function good(client: Client) {
+      await client.job.update({ data: { status: 'queued' } });
+    }
+  `),
+  ['job.status'],
+  'mapped and infer type parameters outside the annotation scope do not shadow its exact import',
 );
 
 console.log('trainingBookUiFacts tests passed');

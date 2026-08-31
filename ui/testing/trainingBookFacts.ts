@@ -12229,36 +12229,70 @@ function relativeImportExportsPrismaClient(identifier: ts.Identifier, specifier:
   );
 }
 
-function directTypeDeclarationName(statement: ts.Statement): string | undefined {
-  if (
-    ts.isTypeAliasDeclaration(statement)
-    || ts.isInterfaceDeclaration(statement)
-    || ts.isClassDeclaration(statement)
-    || ts.isEnumDeclaration(statement)
-    || ts.isModuleDeclaration(statement)
-    || ts.isImportEqualsDeclaration(statement)
-  ) return statement.name === undefined || !ts.isIdentifier(statement.name) ? undefined : statement.name.text;
-  return undefined;
+const inMemoryTypeCheckers = new WeakMap<ts.SourceFile, ts.TypeChecker>();
+
+function inMemoryTypeChecker(source: ts.SourceFile): ts.TypeChecker {
+  const cached = inMemoryTypeCheckers.get(source);
+  if (cached !== undefined) return cached;
+  const options: ts.CompilerOptions = {
+    module: ts.ModuleKind.ESNext,
+    noLib: true,
+    noResolve: true,
+    skipLibCheck: true,
+    target: ts.ScriptTarget.Latest,
+  };
+  const rootName = source.fileName;
+  const base = ts.createCompilerHost(options, true);
+  const host: ts.CompilerHost = {
+    ...base,
+    fileExists: filename => filename === rootName,
+    getSourceFile: filename => filename === rootName ? source : undefined,
+    readFile: filename => filename === rootName ? source.text : undefined,
+  };
+  const checker = ts.createProgram([rootName], options, host).getTypeChecker();
+  inMemoryTypeCheckers.set(source, checker);
+  return checker;
 }
 
-function importIsActiveTypeBinding(identifier: ts.Identifier): boolean {
-  let current: ts.Node | undefined = identifier;
-  while (current !== undefined) {
-    const typeParameters = (current as ts.Node & { typeParameters?: ts.NodeArray<ts.TypeParameterDeclaration> }).typeParameters;
-    if (typeParameters?.some(parameter => parameter.name.text === identifier.text)) return false;
-    if (ts.isBlock(current) || ts.isModuleBlock(current) || ts.isSourceFile(current)) {
-      if (current.statements.some(statement => directTypeDeclarationName(statement) === identifier.text)) return false;
+function exactImportDeclaration(
+  identifier: ts.Identifier,
+  imported: ExactImportBinding,
+): ts.ImportClause | ts.ImportSpecifier | ts.NamespaceImport | undefined {
+  const matches: Array<ts.ImportClause | ts.ImportSpecifier | ts.NamespaceImport> = [];
+  for (const statement of identifier.getSourceFile().statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || statement.moduleSpecifier.text !== imported.source) continue;
+    const clause = statement.importClause;
+    if (imported.kind === 'default' && clause?.name?.text === identifier.text) matches.push(clause);
+    const named = clause?.namedBindings;
+    if (imported.kind === 'namespace' && named !== undefined && ts.isNamespaceImport(named) && named.name.text === identifier.text) matches.push(named);
+    if (imported.kind === 'named' && named !== undefined && ts.isNamedImports(named)) {
+      for (const specifier of named.elements) {
+        if (specifier.name.text === identifier.text && (specifier.propertyName ?? specifier.name).text === imported.imported) matches.push(specifier);
+      }
     }
-    current = current.parent;
   }
-  return exactImportBinding(identifier) !== undefined;
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function importIsActiveTypeBinding(identifier: ts.Identifier, imported: ExactImportBinding): boolean {
+  const declaration = exactImportDeclaration(identifier, imported);
+  if (declaration === undefined) return false;
+  const checker = inMemoryTypeChecker(identifier.getSourceFile());
+  const lexicalDeclarations = checker
+    .resolveName(identifier.text, identifier, ts.SymbolFlags.Type, false)?.declarations;
+  const referenceDeclarations = checker.getSymbolAtLocation(identifier)?.declarations;
+  return lexicalDeclarations?.length === 1
+    && lexicalDeclarations[0] === declaration
+    && referenceDeclarations?.length === 1
+    && referenceDeclarations[0] === declaration;
 }
 
 function prismaTypeAnnotation(type: ts.TypeNode | undefined): boolean {
   if (type === undefined || !ts.isTypeReferenceNode(type)) return false;
   if (ts.isIdentifier(type.typeName)) {
     const imported = exactImportBinding(type.typeName);
-    return importIsActiveTypeBinding(type.typeName)
+    return imported !== undefined
+      && importIsActiveTypeBinding(type.typeName, imported)
       && imported?.source === '@prisma/client'
       && imported.kind === 'named'
       && imported.imported === 'PrismaClient';
@@ -12267,7 +12301,8 @@ function prismaTypeAnnotation(type: ts.TypeNode | undefined): boolean {
   const left = type.typeName.left;
   const imported = ts.isIdentifier(left) ? exactImportBinding(left) : undefined;
   return ts.isIdentifier(left)
-    && importIsActiveTypeBinding(left)
+    && imported !== undefined
+    && importIsActiveTypeBinding(left, imported)
     && imported?.source === '@prisma/client'
     && (imported.kind === 'namespace' || (imported.kind === 'named' && imported.imported === 'Prisma'))
     && ['PrismaClient', 'TransactionClient'].includes(type.typeName.right.text);
