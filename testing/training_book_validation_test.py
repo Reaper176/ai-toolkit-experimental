@@ -14645,9 +14645,35 @@ class GeneratedReferenceTests(unittest.TestCase):
             live_catalog.settings,
             expected_deferred_assignments=CANONICAL_DEFERRED_ASSIGNMENTS,
         )
-        self.assertEqual(sum(len(settings) for settings in immediate.values()), 761)
+        immediate_ids = {
+            setting.id for settings in immediate.values() for setting in settings
+        }
+        deferred_ids = {setting_id for setting_id, _ in deferred}
+        catalog_ids = {setting.id for setting in live_catalog.settings}
+        self.assertEqual(
+            sum(len(settings) for settings in immediate.values()),
+            len(live_catalog.settings) - len(CANONICAL_DEFERRED_ASSIGNMENTS),
+        )
+        self.assertTrue(immediate_ids.isdisjoint(deferred_ids))
+        self.assertEqual(immediate_ids | deferred_ids, catalog_ids)
         self.assertEqual(deferred, CANONICAL_DEFERRED_ASSIGNMENTS)
         self.assertEqual(len(deferred), 10)
+
+        added = self.typed_catalog([
+            self.catalog_entry(
+                setting_id="train.new_catalog_setting",
+                anchor="train-new-catalog-setting",
+            )
+        ]).settings[0]
+        expanded_immediate, expanded_deferred = partition_reference_settings(
+            (*live_catalog.settings, added),
+            expected_deferred_assignments=CANONICAL_DEFERRED_ASSIGNMENTS,
+        )
+        self.assertEqual(
+            sum(len(settings) for settings in expanded_immediate.values()),
+            len(live_catalog.settings) + 1 - len(CANONICAL_DEFERRED_ASSIGNMENTS),
+        )
+        self.assertEqual(expanded_deferred, CANONICAL_DEFERRED_ASSIGNMENTS)
 
     def test_generated_marker_rewrite_preserves_handwritten_text(self):
         from scripts.training_book.markdown import replace_settings_catalog_block
@@ -14735,6 +14761,39 @@ class GeneratedReferenceTests(unittest.TestCase):
                 generate_reference_pages(
                     root, check=True, expected_deferred_assignments=()
                 )
+
+    def test_generated_reference_write_is_atomic_when_a_late_page_is_malformed(self):
+        from scripts.generate_training_book_reference import (
+            ReferenceGenerationError,
+            generate_reference_pages,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_generator_fixture(root, [self.catalog_entry()])
+            early_page = root / "docs/book/reference/job-and-model.md"
+            late_page = root / "docs/book/reference/advanced-only-settings.md"
+            early_before = early_page.read_bytes()
+            late_page.write_text(
+                late_page.read_text(encoding="utf-8").replace(
+                    "<!-- settings-catalog:end -->", ""
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                ReferenceGenerationError,
+                "advanced-only-settings.md.*exactly one.*marker pair",
+            ):
+                generate_reference_pages(
+                    root, check=False, expected_deferred_assignments=()
+                )
+
+            self.assertEqual(
+                early_page.read_bytes(),
+                early_before,
+                "a late validation error must not leave an earlier page rewritten",
+            )
 
     def test_generated_reference_parity_is_part_of_the_repository_validator(self):
         validator = (

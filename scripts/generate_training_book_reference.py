@@ -137,7 +137,7 @@ def generate_reference_pages(
         catalog.settings,
         expected_deferred_assignments=expected_deferred_assignments,
     )
-    drifted: list[str] = []
+    documents: list[tuple[Path, str, str, str]] = []
     for relative_page in REFERENCE_PAGE_PATHS:
         page = root / "docs/book" / relative_page
         if not page.is_file():
@@ -148,16 +148,21 @@ def generate_reference_pages(
             rendered = replace_settings_catalog_block(original, block)
         except MarkdownGenerationError as error:
             raise ReferenceGenerationError(f"{relative_page}: {error}") from error
-        if rendered == original:
-            continue
-        if check:
-            drifted.append(relative_page)
-        else:
-            page.write_text(rendered, encoding="utf-8")
-    if drifted:
+        documents.append((page, relative_page, original, rendered))
+
+    drifted = [
+        relative_page
+        for _, relative_page, original, rendered in documents
+        if rendered != original
+    ]
+    if check and drifted:
         raise ReferenceGenerationError(
             "generated reference drift: " + ", ".join(drifted)
         )
+    if not check:
+        for page, _, original, rendered in documents:
+            if rendered != original:
+                page.write_text(rendered, encoding="utf-8")
 
 
 def _arguments() -> argparse.Namespace:
