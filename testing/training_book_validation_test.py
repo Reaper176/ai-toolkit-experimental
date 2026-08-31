@@ -14534,7 +14534,12 @@ class GeneratedReferenceTests(unittest.TestCase):
         earlier["ui_label"] = "Alpha *control* <unsafe>"
         earlier["render"]["description"] = "Uses [alpha] & <limits>."
         earlier["render"]["example"] = "alpha: `literal`"
-        catalog = self.typed_catalog([later, earlier])
+        unsafe_section = self.catalog_entry(
+            setting_id="train.unsafe",
+            section="unsafe *emphasis* [label](target)",
+            anchor="stable-unsafe",
+        )
+        catalog = self.typed_catalog([later, unsafe_section, earlier])
 
         first = render_settings_catalog_block(catalog.settings)
         second = render_settings_catalog_block(tuple(reversed(catalog.settings)))
@@ -14545,6 +14550,10 @@ class GeneratedReferenceTests(unittest.TestCase):
         self.assertIn("Alpha \\*control\\* &lt;unsafe&gt;", first)
         self.assertIn("Uses \\[alpha\\] &amp; &lt;limits&gt;.", first)
         self.assertIn("alpha: `literal`", first)
+        self.assertIn(
+            "## Unsafe \\*Emphasis\\* \\[Label\\](Target)", first
+        )
+        self.assertNotIn("## Unsafe *Emphasis* [Label](Target)", first)
 
     def test_generated_renderer_rejects_duplicate_anchors(self):
         from scripts.training_book.markdown import (
@@ -14557,6 +14566,88 @@ class GeneratedReferenceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(MarkdownGenerationError, "duplicate.*anchor"):
             render_settings_catalog_block(self.typed_catalog([first, second]).settings)
+
+    def test_generated_reference_partition_is_closed_and_matches_live_catalog(self):
+        from scripts.generate_training_book_reference import (
+            CANONICAL_DEFERRED_ASSIGNMENTS,
+            ReferenceGenerationError,
+            partition_reference_settings,
+        )
+
+        cases = []
+        unknown = self.catalog_entry()
+        unknown["render"]["page"] = "reference/training-typo.md"
+        cases.append(("unknown page", [unknown], (), "unexpected.*training-typo"))
+
+        extra = self.catalog_entry()
+        extra["render"]["page"] = "models/anima.md"
+        cases.append(("extra deferred row", [extra], (), "unexpected.*models/anima"))
+
+        moved = self.catalog_entry()
+        moved["render"]["page"] = "models/wan.md"
+        cases.append((
+            "moved deferred row",
+            [moved],
+            (("train.steps", "models/anima.md"),),
+            "unexpected.*models/wan.*missing.*models/anima",
+        ))
+
+        missing = self.catalog_entry()
+        cases.append((
+            "missing deferred row",
+            [missing],
+            (("train.steps", "models/anima.md"),),
+            "missing.*models/anima",
+        ))
+
+        for label, entries, expected_deferred, message in cases:
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(ReferenceGenerationError, message):
+                    partition_reference_settings(
+                        self.typed_catalog(entries).settings,
+                        expected_deferred_assignments=expected_deferred,
+                    )
+
+        entry = self.catalog_entry()
+        for label, expected_deferred, message in (
+            (
+                "duplicate expected pair",
+                (("train.steps", "models/anima.md"),) * 2,
+                "duplicate.*deferred",
+            ),
+            (
+                "overlapping expected pages",
+                (
+                    ("train.steps", "models/anima.md"),
+                    ("train.steps", "models/wan.md"),
+                ),
+                "multiple deferred pages",
+            ),
+            (
+                "overlap with immediate page",
+                (("train.steps", "reference/training.md"),),
+                "overlaps.*Task 7",
+            ),
+        ):
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(ReferenceGenerationError, message):
+                    partition_reference_settings(
+                        self.typed_catalog([entry]).settings,
+                        expected_deferred_assignments=expected_deferred,
+                    )
+
+        live_catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        immediate, deferred = partition_reference_settings(
+            live_catalog.settings,
+            expected_deferred_assignments=CANONICAL_DEFERRED_ASSIGNMENTS,
+        )
+        self.assertEqual(sum(len(settings) for settings in immediate.values()), 761)
+        self.assertEqual(deferred, CANONICAL_DEFERRED_ASSIGNMENTS)
+        self.assertEqual(len(deferred), 10)
 
     def test_generated_marker_rewrite_preserves_handwritten_text(self):
         from scripts.training_book.markdown import replace_settings_catalog_block
@@ -14595,7 +14686,9 @@ class GeneratedReferenceTests(unittest.TestCase):
                 for page in self.REFERENCE_PAGES
             }
 
-            generate_reference_pages(root, check=False)
+            generate_reference_pages(
+                root, check=False, expected_deferred_assignments=()
+            )
             generated = {
                 page: (root / "docs/book" / page).read_text(encoding="utf-8")
                 for page in self.REFERENCE_PAGES
@@ -14625,7 +14718,9 @@ class GeneratedReferenceTests(unittest.TestCase):
                 masks_block,
                 "\n<!-- generated; edit settings-catalog.json instead -->\n",
             )
-            generate_reference_pages(root, check=True)
+            generate_reference_pages(
+                root, check=True, expected_deferred_assignments=()
+            )
 
             training = root / "docs/book/reference/training.md"
             training.write_text(
@@ -14637,7 +14732,9 @@ class GeneratedReferenceTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 ReferenceGenerationError, "generated reference drift.*training.md"
             ):
-                generate_reference_pages(root, check=True)
+                generate_reference_pages(
+                    root, check=True, expected_deferred_assignments=()
+                )
 
     def test_generated_reference_parity_is_part_of_the_repository_validator(self):
         validator = (

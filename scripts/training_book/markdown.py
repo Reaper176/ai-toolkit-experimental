@@ -233,7 +233,7 @@ def render_settings_catalog_block(settings: Sequence[Setting]) -> str:
     previous_section: str | None = None
     for setting in sorted(settings, key=lambda item: (item.section, item.id)):
         if setting.section != previous_section:
-            lines.extend(("", f"## {_words(setting.section)}", ""))
+            lines.extend(("", f"## {_markdown_text(_words(setting.section))}", ""))
             previous_section = setting.section
         lines.extend(_render_setting(setting))
     while lines[-1] == "":
