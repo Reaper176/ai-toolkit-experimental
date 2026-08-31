@@ -14444,6 +14444,211 @@ def build(network_kwargs):
                 self.assertIn("scope", result.stderr)
 
 
+class GeneratedReferenceTests(unittest.TestCase):
+    REFERENCE_PAGES = (
+        "reference/job-and-model.md",
+        "reference/network.md",
+        "reference/training.md",
+        "reference/dataset.md",
+        "reference/masks-and-preservation.md",
+        "reference/saving-and-sampling.md",
+        "reference/optimizers-and-schedulers.md",
+        "reference/advanced-only-settings.md",
+    )
+
+    def catalog_entry(self, *, setting_id="train.steps", section="training", anchor="train-steps"):
+        entry = deepcopy(CatalogContractTests().valid_catalog_entry())
+        entry["id"] = setting_id
+        entry["section"] = section
+        entry["locations"] = [
+            {"kind": "yaml", "path": f"config.process[*].{setting_id}"}
+        ]
+        entry["source_claims"][0]["key"] = setting_id.replace(".", "_")
+        entry["render"]["anchor"] = anchor
+        return entry
+
+    def typed_catalog(self, entries):
+        return catalog_module.SettingsCatalog.model_validate({
+            "schema_version": 2,
+            "settings": entries,
+        })
+
+    def write_generator_fixture(self, root, entries):
+        reference = root / "docs/book/reference"
+        reference.mkdir(parents=True)
+        (reference / "settings-catalog.schema.json").write_text(
+            json.dumps(settings_catalog_schema()), encoding="utf-8"
+        )
+        (reference / "settings-catalog.json").write_text(
+            json.dumps({"schema_version": 2, "settings": entries}),
+            encoding="utf-8",
+        )
+        for page in self.REFERENCE_PAGES:
+            path = root / "docs/book" / page
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                "# Fixture reference\n\n[Table of contents](../README.md)\n\n"
+                "<!-- book-navigation:start -->\n"
+                "<!-- book-navigation:end -->\n\n"
+                "Hand-written introduction.\n\n"
+                "<!-- settings-catalog:start -->\n"
+                "<!-- settings-catalog:end -->\n\n"
+                "<!-- book-verification:start -->\n"
+                "<!-- book-verification:end -->\n",
+                encoding="utf-8",
+            )
+
+    def test_generated_reference_pages_have_the_required_empty_scaffolding(self):
+        for relative_page in self.REFERENCE_PAGES:
+            with self.subTest(page=relative_page):
+                text = (
+                    REPOSITORY_ROOT / "docs/book" / relative_page
+                ).read_text(encoding="utf-8")
+                self.assertEqual(
+                    sum(line.startswith("# ") for line in text.splitlines()), 1
+                )
+                self.assertEqual(text.count("[Table of contents](../README.md)"), 1)
+                for start, end in (
+                    (
+                        "<!-- book-navigation:start -->",
+                        "<!-- book-navigation:end -->",
+                    ),
+                    (
+                        "<!-- book-verification:start -->",
+                        "<!-- book-verification:end -->",
+                    ),
+                ):
+                    self.assertEqual(text.count(start), 1)
+                    self.assertEqual(text.count(end), 1)
+                    self.assertIn(f"{start}\n{end}", text)
+
+    def test_generated_renderer_is_deterministic_ordered_escaped_and_anchor_stable(self):
+        from scripts.training_book.markdown import render_settings_catalog_block
+
+        later = self.catalog_entry(
+            setting_id="train.zeta", section="zeta", anchor="stable-zeta"
+        )
+        earlier = self.catalog_entry(
+            setting_id="train.alpha", section="alpha", anchor="stable-alpha"
+        )
+        earlier["ui_label"] = "Alpha *control* <unsafe>"
+        earlier["render"]["description"] = "Uses [alpha] & <limits>."
+        earlier["render"]["example"] = "alpha: `literal`"
+        catalog = self.typed_catalog([later, earlier])
+
+        first = render_settings_catalog_block(catalog.settings)
+        second = render_settings_catalog_block(tuple(reversed(catalog.settings)))
+
+        self.assertEqual(first, second)
+        self.assertLess(first.index("## Alpha"), first.index("## Zeta"))
+        self.assertIn('<a id="stable-alpha"></a>', first)
+        self.assertIn("Alpha \\*control\\* &lt;unsafe&gt;", first)
+        self.assertIn("Uses \\[alpha\\] &amp; &lt;limits&gt;.", first)
+        self.assertIn("alpha: `literal`", first)
+
+    def test_generated_renderer_rejects_duplicate_anchors(self):
+        from scripts.training_book.markdown import (
+            MarkdownGenerationError,
+            render_settings_catalog_block,
+        )
+
+        first = self.catalog_entry(setting_id="train.first", anchor="duplicate")
+        second = self.catalog_entry(setting_id="train.second", anchor="duplicate")
+
+        with self.assertRaisesRegex(MarkdownGenerationError, "duplicate.*anchor"):
+            render_settings_catalog_block(self.typed_catalog([first, second]).settings)
+
+    def test_generated_marker_rewrite_preserves_handwritten_text(self):
+        from scripts.training_book.markdown import replace_settings_catalog_block
+
+        original = (
+            "# Hand-written title\n\nBefore.\n\n"
+            "<!-- settings-catalog:start -->\nold generated text\n"
+            "<!-- settings-catalog:end -->\n\nAfter.\n"
+        )
+        block = "<!-- settings-catalog:start -->\nnew generated text\n<!-- settings-catalog:end -->"
+
+        rewritten = replace_settings_catalog_block(original, block)
+
+        self.assertEqual(
+            rewritten,
+            original.replace(
+                "<!-- settings-catalog:start -->\nold generated text\n"
+                "<!-- settings-catalog:end -->",
+                block,
+            ),
+        )
+        self.assertEqual(replace_settings_catalog_block(rewritten, block), rewritten)
+
+    def test_generated_reference_check_detects_drift_and_processes_all_eight_pages(self):
+        from scripts.generate_training_book_reference import (
+            ReferenceGenerationError,
+            generate_reference_pages,
+        )
+
+        entry = self.catalog_entry()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_generator_fixture(root, [entry])
+            original = {
+                page: (root / "docs/book" / page).read_text(encoding="utf-8")
+                for page in self.REFERENCE_PAGES
+            }
+
+            generate_reference_pages(root, check=False)
+            generated = {
+                page: (root / "docs/book" / page).read_text(encoding="utf-8")
+                for page in self.REFERENCE_PAGES
+            }
+            self.assertTrue(all(
+                text.count("<!-- settings-catalog:start -->") == 1
+                and text.count("<!-- settings-catalog:end -->") == 1
+                and "Hand-written introduction." in text
+                for text in generated.values()
+            ))
+            for page in self.REFERENCE_PAGES:
+                original_prefix, original_suffix = original[page].split(
+                    "<!-- settings-catalog:start -->", 1
+                )[0], original[page].split("<!-- settings-catalog:end -->", 1)[1]
+                generated_prefix, generated_suffix = generated[page].split(
+                    "<!-- settings-catalog:start -->", 1
+                )[0], generated[page].split("<!-- settings-catalog:end -->", 1)[1]
+                self.assertEqual(
+                    (generated_prefix, generated_suffix),
+                    (original_prefix, original_suffix),
+                    f"settings generation changed scaffold outside its marker on {page}",
+                )
+            masks_block = generated["reference/masks-and-preservation.md"].split(
+                "<!-- settings-catalog:start -->", 1
+            )[1].split("<!-- settings-catalog:end -->", 1)[0]
+            self.assertEqual(
+                masks_block,
+                "\n<!-- generated; edit settings-catalog.json instead -->\n",
+            )
+            generate_reference_pages(root, check=True)
+
+            training = root / "docs/book/reference/training.md"
+            training.write_text(
+                generated["reference/training.md"].replace(
+                    "Sets the total target optimizer step count.", "altered line"
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                ReferenceGenerationError, "generated reference drift.*training.md"
+            ):
+                generate_reference_pages(root, check=True)
+
+    def test_generated_reference_parity_is_part_of_the_repository_validator(self):
+        validator = (
+            REPOSITORY_ROOT / "scripts/validate_training_book.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "generate_reference_pages(repository_root, check=True)", validator
+        )
+
+
 class BookArtifactTests(unittest.TestCase):
     def test_canonical_book_manifest_matches_the_published_contract(self):
         manifest = load_book_manifest(REPOSITORY_ROOT / "docs/book/book-manifest.json")

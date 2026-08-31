@@ -28,6 +28,7 @@ from training_book.catalog import (
     validate_ui_fact_ownership,
 )
 from training_book.manifest import load_book_manifest, validate_book_manifest
+from generate_training_book_reference import generate_reference_pages
 
 
 FULL_ARCHITECTURES = (
@@ -496,6 +497,7 @@ def main() -> None:
         repository_root / "docs/book/reference/settings-catalog.schema.json",
         None,
     )
+    generate_reference_pages(repository_root, check=True)
     ui_facts = (
         load_training_book_ui_facts(arguments.ui_facts)
         if arguments.ui_facts is not None
