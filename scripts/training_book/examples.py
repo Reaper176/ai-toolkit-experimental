@@ -47,7 +47,6 @@ class ExampleManifest:
 
 
 _TOKEN = re.compile(r"\$\{([A-Z][A-Z0-9_]*)\}")
-_PLACEHOLDER_LIKE = re.compile(r"\$\{|\$\}")
 _REPLACEMENTS = {
     "DATASET_DIR": ("path", "dataset"), "OUTPUT_DIR": ("path", "output"),
     "CONTROL_DIR": ("path", "controls"),
@@ -56,6 +55,11 @@ _REPLACEMENTS = {
     "CHECKPOINT_PATH": ("path", "checkpoint.safetensors"),
     "JOB_NAME": ("string", "training-book-example"),
 }
+_TOKEN_NAMES = "|".join(re.escape(name) for name in _REPLACEMENTS)
+_PLACEHOLDER_LIKE = re.compile(
+    rf"\$\{{|\$\}}|\$(?:{_TOKEN_NAMES})\b|"
+    rf"\{{\{{\s*(?:{_TOKEN_NAMES})\s*\}}\}}|\{{(?:{_TOKEN_NAMES})\}}"
+)
 _PROFILES = {"image-lora", "image-edit-lora", "masked-image-lora", "video-lora", "resume-image-lora"}
 _ENGINE_ARCH = {"wan21:1b": "wan21", "wan22_14b:t2v": "wan22_14b"}
 _ARCH_PROFILE = {
@@ -534,6 +538,16 @@ def _validate_owned_keys(config: dict[str, Any], catalog: Any) -> None:
             raise ExampleError(f"example value has the wrong type for {contract_path}")
 
 
+def _decode_image(path: Path, label: str) -> tuple[str, tuple[int, int]]:
+    """Decode a complete image payload and return its stable semantic metadata."""
+    try:
+        with Image.open(path) as image:
+            image.load()
+            return image.mode, image.size
+    except (OSError, SyntaxError, ValueError) as error:
+        raise ExampleError(f"{label} must be a decodable image: {error}") from error
+
+
 def _require_keys(value: Any, expected: set[str], location: str) -> None:
     if not isinstance(value, dict) or set(value) != expected:
         actual = set(value) if isinstance(value, dict) else type(value).__name__
@@ -659,6 +673,14 @@ def _validate_semantics(config: dict[str, Any], entry: ExampleEntry, root: Path)
     }
     if any(dataset.get(key) != value for key, value in expected_dataset.items()):
         raise ExampleError("dataset differs from the required baseline")
+    dataset_root = Path(dataset["folder_path"])
+    if not dataset_root.is_dir() or not (dataset_root / "example.txt").is_file():
+        raise ExampleError("dataset path must contain the fixture image and caption")
+    source_mode, source_size = _decode_image(
+        dataset_root / "example.png", "dataset fixture"
+    )
+    if source_mode != "RGB":
+        raise ExampleError("dataset fixture image must be RGB")
     model = process.get("model", {})
     if model.get("arch") != _ENGINE_ARCH.get(entry.architecture, entry.architecture):
         raise ExampleError("manifest architecture and model.arch disagree")
@@ -757,13 +779,14 @@ def _validate_semantics(config: dict[str, Any], entry: ExampleEntry, root: Path)
         ctrl_img = Path(samples[0].get("ctrl_img", ""))
         if not control.is_dir() or not ctrl_img.is_file() or control == ctrl_img or ctrl_img.suffix != ".png":
             raise ExampleError("control directory/sample image roles are invalid")
-        with (Image.open(root / "dataset/example.png") as source,
-              Image.open(control / "example.png") as target,
-              Image.open(ctrl_img) as sample_control):
-            if source.mode != "RGB" or target.mode != "RGB" or sample_control.mode != "RGB":
-                raise ExampleError("source and control images must be RGB")
-            if source.size != target.size:
-                raise ExampleError("control image dimensions must match")
+        target_mode, target_size = _decode_image(
+            control / "example.png", "matched control fixture"
+        )
+        sample_control_mode, _ = _decode_image(ctrl_img, "sample control fixture")
+        if target_mode != "RGB" or sample_control_mode != "RGB":
+            raise ExampleError("source and control images must be RGB")
+        if source_size != target_size:
+            raise ExampleError("control image dimensions must match")
     has_mask = entry.validation_profile == "masked-image-lora"
     if has_mask != ("mask_path" in dataset):
         raise ExampleError("mask dataset disagrees with profile")
@@ -771,10 +794,11 @@ def _validate_semantics(config: dict[str, Any], entry: ExampleEntry, root: Path)
         mask_path = Path(dataset["mask_path"])
         if not mask_path.is_dir():
             raise ExampleError("mask_path must be a directory")
-        with (Image.open(root / "dataset/example.png") as source,
-              Image.open(mask_path / "example.png") as mask):
-            if mask.mode != "L" or mask.size != source.size:
-                raise ExampleError("mask must be matched grayscale")
+        mask_mode, mask_size = _decode_image(
+            mask_path / "example.png", "matched mask fixture"
+        )
+        if mask_mode != "L" or mask_size != source_size:
+            raise ExampleError("mask must be matched grayscale")
         if (dataset.get("mask_min_value"), dataset.get("invert_mask"),
             train.get("train_turbo"), train.get("inverted_mask_prior"),
             train.get("inverted_mask_prior_multiplier")) != (0.1, False, False, True, 0.5):
@@ -800,29 +824,6 @@ def configured_learning_rates_after_restore(
         raise ExampleError("restored optimizer group count changed")
     return tuple({**group, "lr": rate, "initial_lr": rate}
                  for rate, group in zip(configured, restored, strict=True))
-
-
-def _live_statement_blocks(statements: list[ast.stmt]) -> list[list[ast.stmt]]:
-    blocks = [statements]
-    for statement in statements:
-        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            continue
-        if isinstance(statement, ast.If) and isinstance(statement.test, ast.Constant):
-            selected = statement.body if bool(statement.test.value) else statement.orelse
-            blocks.extend(_live_statement_blocks(selected))
-            continue
-        if isinstance(statement, ast.While) and isinstance(statement.test, ast.Constant) and not statement.test.value:
-            blocks.extend(_live_statement_blocks(statement.orelse))
-            continue
-        for field in ("body", "orelse", "finalbody"):
-            children = getattr(statement, field, None)
-            if isinstance(children, list) and all(isinstance(child, ast.stmt) for child in children):
-                blocks.extend(_live_statement_blocks(children))
-        for handler in getattr(statement, "handlers", ()):
-            blocks.extend(_live_statement_blocks(handler.body))
-        for case in getattr(statement, "cases", ()):
-            blocks.extend(_live_statement_blocks(case.body))
-    return blocks
 
 
 def _attribute(node: ast.AST, owner: str, attribute: str) -> bool:
@@ -853,15 +854,13 @@ def _capture_candidate(node: ast.For) -> tuple[str, int] | None:
     group = _optimizer_group_loop(node)
     if group is None:
         return None
-    for block in _live_statement_blocks(node.body):
-        for statement in block:
-            if not isinstance(statement, ast.Expr) or not isinstance(statement.value, ast.Call):
-                continue
-            call = statement.value
-            if (isinstance(call.func, ast.Attribute) and call.func.attr == "append"
-                    and isinstance(call.func.value, ast.Name) and len(call.args) == 1
-                    and not call.keywords and _string_subscript(call.args[0], group, "lr")):
-                return call.func.value.id, statement.lineno
+    if len(node.body) == 1 and isinstance(node.body[0], ast.Expr):
+        call = node.body[0].value
+        if (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "append" and isinstance(call.func.value, ast.Name)
+                and len(call.args) == 1 and not call.keywords
+                and _string_subscript(call.args[0], group, "lr")):
+            return call.func.value.id, node.body[0].lineno
     return None
 
 
@@ -934,6 +933,111 @@ def _has_captured_rates_test(node: ast.AST, captured: str) -> bool:
             and node.left.args[0].id == captured)
 
 
+def _self_attribute_chain(node: ast.AST, *attributes: str) -> bool:
+    current = node
+    for attribute in reversed(attributes):
+        if not isinstance(current, ast.Attribute) or current.attr != attribute:
+            return False
+        current = current.value
+    return isinstance(current, ast.Name) and current.id == "self"
+
+
+def _literal_string(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr) and all(
+        isinstance(value, ast.Constant) and isinstance(value.value, str)
+        for value in node.values
+    ):
+        return "".join(value.value for value in node.values)
+    return None
+
+
+def _assigned_name(statement: ast.stmt, name: str) -> ast.AST | None:
+    if (isinstance(statement, ast.Assign) and len(statement.targets) == 1
+            and isinstance(statement.targets[0], ast.Name)
+            and statement.targets[0].id == name):
+        return statement.value
+    return None
+
+
+def _optimizer_creation(statement: ast.stmt) -> bool:
+    value = _assigned_name(statement, "optimizer")
+    if not isinstance(value, ast.Call) or not isinstance(value.func, ast.Name):
+        return False
+    if value.func.id != "get_optimizer":
+        return False
+    learning_rates = [keyword.value for keyword in value.keywords
+                      if keyword.arg == "learning_rate"]
+    return len(learning_rates) == 1 and _self_attribute_chain(
+        learning_rates[0], "train_config", "lr"
+    )
+
+
+def _state_filename_assignment(statement: ast.stmt) -> bool:
+    value = _assigned_name(statement, "optimizer_state_filename")
+    return value is not None and _literal_string(value) == "optimizer.pt"
+
+
+def _state_path_assignment(statement: ast.stmt) -> bool:
+    value = _assigned_name(statement, "optimizer_state_file_path")
+    return (isinstance(value, ast.Call) and not value.keywords
+            and isinstance(value.func, ast.Attribute) and value.func.attr == "join"
+            and isinstance(value.func.value, ast.Attribute)
+            and value.func.value.attr == "path"
+            and isinstance(value.func.value.value, ast.Name)
+            and value.func.value.value.id == "os" and len(value.args) == 2
+            and _self_attribute_chain(value.args[0], "save_root")
+            and isinstance(value.args[1], ast.Name)
+            and value.args[1].id == "optimizer_state_filename")
+
+
+def _contains_terminal(node: ast.AST) -> bool:
+    for child in ast.walk(node):
+        if child is node:
+            continue
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+            continue
+        if isinstance(child, (ast.Return, ast.Raise, ast.Break, ast.Continue)):
+            return True
+    return False
+
+
+def _name_store_count(node: ast.AST, name: str) -> int:
+    return sum(
+        isinstance(child, ast.Name) and child.id == name
+        and isinstance(child.ctx, (ast.Store, ast.Del))
+        for child in ast.walk(node)
+    )
+
+
+def _captured_list_calls(node: ast.AST, captured: str) -> list[ast.Call]:
+    return [
+        child for child in ast.walk(node)
+        if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute)
+        and isinstance(child.func.value, ast.Name)
+        and child.func.value.id == captured
+    ]
+
+
+def _direct_load_restore(guard: ast.If) -> tuple[int, int] | None:
+    if guard.orelse or not isinstance(guard.test, ast.Name) or guard.test.id != "load_optimizer":
+        return None
+    tries = [statement for statement in guard.body if isinstance(statement, ast.Try)]
+    if len(tries) != 1 or tries[0].orelse or tries[0].finalbody:
+        return None
+    return _load_and_restore_call(tries[0].body)
+
+
+def _direct_lr_restore(guard: ast.If, captured: str) -> tuple[int, int] | None:
+    if guard.orelse or not _has_captured_rates_test(guard.test, captured):
+        return None
+    loops = [statement for statement in guard.body if isinstance(statement, ast.For)]
+    if len(loops) != 1 or loops[0].orelse:
+        return None
+    return _lr_restore_candidate(loops[0], captured)
+
+
 def _validate_resume_source_contract(repository_root: Path) -> None:
     path = repository_root / "jobs/process/BaseSDTrainProcess.py"
     try:
@@ -948,42 +1052,75 @@ def _validate_resume_source_contract(repository_root: Path) -> None:
     if len(methods) != 1:
         raise ExampleError("optimizer resume source no longer preserves configured learning rates")
     valid = False
-    method_statements = [statement for block in _live_statement_blocks(methods[0].body)
-                         for statement in block]
-    outer_blocks = [statement for statement in method_statements
-                    if isinstance(statement, ast.If)
-                    and _optimizer_state_exists_test(statement.test)]
-    for outer in outer_blocks:
-        initializers = {
-            statement.targets[0].id: statement.lineno
-            for statement in outer.body
-            if (isinstance(statement, ast.Assign) and len(statement.targets) == 1
-                and isinstance(statement.targets[0], ast.Name)
-                and isinstance(statement.value, ast.List) and not statement.value.elts)
-        }
-        captures = [candidate for statement in outer.body if isinstance(statement, ast.For)
-                    if (candidate := _capture_candidate(statement)) is not None]
-        outer_statements = [statement for block in _live_statement_blocks(outer.body)
-                            for statement in block]
-        load_guards = [statement for statement in outer_statements
-                       if isinstance(statement, ast.If) and isinstance(statement.test, ast.Name)
-                       and statement.test.id == "load_optimizer"]
-        loads = [candidate for guard in load_guards
-                 for block in _live_statement_blocks(guard.body)
-                 if (candidate := _load_and_restore_call(block)) is not None]
-        for captured, capture_line in captures:
-            restore_guards = [statement for statement in outer_statements
-                              if isinstance(statement, ast.If)
-                              and _has_captured_rates_test(statement.test, captured)]
-            restores = [candidate for guard in restore_guards
-                        for block in _live_statement_blocks(guard.body)
-                        for statement in block if isinstance(statement, ast.For)
-                        if (candidate := _lr_restore_candidate(statement, captured)) is not None]
-            for _, load_line, load_state_line in loads:
-                for lr_line, initial_lr_line in restores:
-                    if (captured in initializers and initializers[captured] < capture_line < load_line
-                            < load_state_line < lr_line < initial_lr_line):
-                        valid = True
+    statements = methods[0].body
+    optimizer_indices = [index for index, statement in enumerate(statements)
+                         if _optimizer_creation(statement)]
+    filename_indices = [index for index, statement in enumerate(statements)
+                        if _state_filename_assignment(statement)]
+    path_indices = [index for index, statement in enumerate(statements)
+                    if _state_path_assignment(statement)]
+    outer_indices = [index for index, statement in enumerate(statements)
+                     if isinstance(statement, ast.If)
+                     and _optimizer_state_exists_test(statement.test)]
+    for optimizer_index in optimizer_indices:
+        for filename_index in filename_indices:
+            for path_index in path_indices:
+                for outer_index in outer_indices:
+                    if not optimizer_index < filename_index < path_index < outer_index:
+                        continue
+                    if any(isinstance(statement, (ast.Return, ast.Raise))
+                           for statement in statements[optimizer_index + 1:outer_index]):
+                        continue
+                    outer = statements[outer_index]
+                    assert isinstance(outer, ast.If)
+                    if outer.orelse or _contains_terminal(outer):
+                        continue
+                    initializers = [
+                        (index, statement.targets[0].id)
+                        for index, statement in enumerate(outer.body)
+                        if (isinstance(statement, ast.Assign)
+                            and len(statement.targets) == 1
+                            and isinstance(statement.targets[0], ast.Name)
+                            and isinstance(statement.value, ast.List)
+                            and not statement.value.elts)
+                    ]
+                    captures = [
+                        (index, candidate)
+                        for index, statement in enumerate(outer.body)
+                        if isinstance(statement, ast.For)
+                        if (candidate := _capture_candidate(statement)) is not None
+                    ]
+                    load_guards = [
+                        (index, candidate)
+                        for index, statement in enumerate(outer.body)
+                        if isinstance(statement, ast.If)
+                        if (candidate := _direct_load_restore(statement)) is not None
+                    ]
+                    for init_index, captured in initializers:
+                        for capture_index, (capture_name, capture_line) in captures:
+                            if capture_name != captured or init_index >= capture_index:
+                                continue
+                            restore_guards = [
+                                (index, candidate)
+                                for index, statement in enumerate(outer.body)
+                                if isinstance(statement, ast.If)
+                                if (candidate := _direct_lr_restore(statement, captured))
+                                is not None
+                            ]
+                            for load_index, (_, load_line, load_state_line) in load_guards:
+                                for restore_index, (lr_line, initial_lr_line) in restore_guards:
+                                    if not capture_index < load_index < restore_index:
+                                        continue
+                                    if _name_store_count(outer, "optimizer") != 0:
+                                        continue
+                                    if _name_store_count(outer, captured) != 1:
+                                        continue
+                                    captured_calls = _captured_list_calls(outer, captured)
+                                    if len(captured_calls) != 1 or captured_calls[0].func.attr != "append":
+                                        continue
+                                    if not capture_line < load_line < load_state_line < lr_line < initial_lr_line:
+                                        continue
+                                    valid = True
     if not valid:
         raise ExampleError("optimizer resume source no longer preserves configured learning rates")
     result = configured_learning_rates_after_restore((1e-4,), ({"lr": 9e-3},))

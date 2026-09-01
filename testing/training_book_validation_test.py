@@ -14967,7 +14967,7 @@ class TrainingBookExamplesContractTests(unittest.TestCase):
                        "book-verification:start", "book-verification:end"):
             self.assertEqual(text.count(f"<!-- {marker} -->"), 1)
 
-    def test_typed_tokens_reject_undeclared_unused_and_path_escape(self):
+    def test_examples_typed_tokens_reject_undeclared_unused_and_path_escape(self):
         from scripts.training_book.examples import ExampleError, TokenDeclaration, substitute_typed_tokens
 
         declarations = (TokenDeclaration("DATASET_DIR", "path"),)
@@ -14980,7 +14980,7 @@ class TrainingBookExamplesContractTests(unittest.TestCase):
             with self.assertRaises(ExampleError):
                 substitute_typed_tokens("prefix-${DATASET_DIR}", declarations, root)
 
-    def test_manifest_rejects_duplicate_rows_and_path_traversal(self):
+    def test_examples_manifest_rejects_duplicate_rows_and_path_traversal(self):
         from scripts.training_book.examples import ExampleError, load_example_manifest
 
         live = json.loads((REPOSITORY_ROOT / "docs/book/examples/manifest.json").read_text())
@@ -14998,7 +14998,7 @@ class TrainingBookExamplesContractTests(unittest.TestCase):
                 with self.assertRaises(ExampleError):
                     load_example_manifest(path)
 
-    def test_manifest_rejects_any_departure_from_the_literal_matrix(self):
+    def test_examples_manifest_rejects_any_departure_from_the_literal_matrix(self):
         from scripts.training_book.examples import ExampleError, load_example_manifest
 
         live = json.loads((REPOSITORY_ROOT / "docs/book/examples/manifest.json").read_text())
@@ -15025,7 +15025,7 @@ class TrainingBookExamplesContractTests(unittest.TestCase):
                 with self.assertRaises(ExampleError):
                     load_example_manifest(path)
 
-    def test_full_example_validation_rejects_every_malformed_placeholder(self):
+    def test_examples_full_validation_rejects_every_malformed_placeholder(self):
         from scripts.training_book.examples import ExampleError, load_example_manifest, validate_example
 
         source = REPOSITORY_ROOT / "docs/book/examples/first-lora-flex1.yaml"
@@ -15036,7 +15036,11 @@ class TrainingBookExamplesContractTests(unittest.TestCase):
             REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
             REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json", None,
         )
-        malformed = ("${not-a-token}", "${DATASET-DIR}", "${DATASET_DIR", "prefix-${JOB_NAME}")
+        malformed = (
+            "${not-a-token}", "${DATASET-DIR}", "${DATASET_DIR",
+            "prefix-${JOB_NAME}", "$DATASET_DIR", "{{DATASET_DIR}}",
+            "{DATASET_DIR}",
+        )
         for placeholder in malformed:
             raw = yaml.safe_load(source.read_text())
             raw["config"]["process"][0]["sample"]["neg"] = placeholder
@@ -15048,7 +15052,7 @@ class TrainingBookExamplesContractTests(unittest.TestCase):
                 with self.assertRaises(ExampleError):
                     validate_example(repository, entry, catalog)
 
-    def test_example_yaml_rejects_duplicate_and_merge_keys_before_semantics(self):
+    def test_examples_yaml_rejects_duplicate_and_merge_keys_before_semantics(self):
         from scripts.training_book.examples import ExampleError, load_example_manifest, validate_example
 
         source = (REPOSITORY_ROOT / "docs/book/examples/first-lora-flex1.yaml").read_text()
@@ -15143,7 +15147,7 @@ class TrainingBookExamplesContractTests(unittest.TestCase):
             ), self.assertRaises(ExampleError):
                 validate_example(REPOSITORY_ROOT, entry, catalog)
 
-    def test_resume_learning_rate_contract_is_pure_and_configured_value_wins(self):
+    def test_examples_resume_learning_rate_contract_is_pure_and_configured_value_wins(self):
         from scripts.training_book.examples import configured_learning_rates_after_restore
 
         restored = ({"lr": 0.9, "momentum": 3},)
@@ -15151,7 +15155,7 @@ class TrainingBookExamplesContractTests(unittest.TestCase):
         self.assertEqual(restored[0]["lr"], 0.9)
         self.assertEqual(result, ({"lr": 1e-4, "initial_lr": 1e-4, "momentum": 3},))
 
-    def test_resume_source_contract_rejects_text_dead_and_wrong_scope_decoys(self):
+    def test_examples_resume_source_contract_rejects_text_dead_and_wrong_scope_decoys(self):
         from scripts.training_book.examples import ExampleError, _validate_resume_source_contract
 
         fragments = "\n".join((
@@ -15190,23 +15194,112 @@ for i, group in enumerate(optimizer.param_groups):
                 with self.assertRaises(ExampleError):
                     _validate_resume_source_contract(repository)
 
-    def test_resume_source_contract_rejects_false_weights_only_in_live_ast(self):
+    def test_examples_resume_source_contract_rejects_false_weights_only_in_live_ast(self):
         from scripts.training_book.examples import ExampleError, _validate_resume_source_contract
 
-        source = (REPOSITORY_ROOT / "jobs/process/BaseSDTrainProcess.py").read_text()
-        source = source.replace(
-            "torch.load(optimizer_state_file_path, weights_only=True)",
-            "torch.load(optimizer_state_file_path, weights_only=False)", 1,
-        )
-        with tempfile.TemporaryDirectory() as directory:
-            repository = Path(directory)
-            target = repository / "jobs/process/BaseSDTrainProcess.py"
-            target.parent.mkdir(parents=True)
-            target.write_text(source)
-            with self.assertRaises(ExampleError):
-                _validate_resume_source_contract(repository)
+        live = (REPOSITORY_ROOT / "jobs/process/BaseSDTrainProcess.py").read_text()
+        mutations = {
+            "unsafe torch load": live.replace(
+                "torch.load(optimizer_state_file_path, weights_only=True)",
+                "torch.load(optimizer_state_file_path, weights_only=False)", 1,
+            ),
+            "hard-coded optimizer learning rate": live.replace(
+                "learning_rate=self.train_config.lr",
+                "learning_rate=9e-3", 1,
+            ),
+            "wrong optimizer state filename": live.replace(
+                "optimizer_state_filename = f'optimizer.pt'",
+                "optimizer_state_filename = f'other.pt'", 1,
+            ),
+            "wrong optimizer state root": live.replace(
+                "os.path.join(self.save_root, optimizer_state_filename)",
+                "os.path.join('/tmp/wrong-root', optimizer_state_filename)", 1,
+            ),
+        }
+        for label, source in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                repository = Path(directory)
+                target = repository / "jobs/process/BaseSDTrainProcess.py"
+                target.parent.mkdir(parents=True)
+                target.write_text(source)
+                with self.assertRaises(ExampleError):
+                    _validate_resume_source_contract(repository)
 
-    def test_resume_checkpoint_rejects_malformed_nonexecuting_safetensors_headers(self):
+    def test_examples_resume_source_contract_rejects_incompatible_control_flow_and_rebinding(self):
+        from scripts.training_book.examples import ExampleError, _validate_resume_source_contract
+
+        capture = """
+            previous_lrs = []
+            for group in optimizer.param_groups:
+                previous_lrs.append(group['lr'])
+"""
+        load = """
+            if load_optimizer:
+                optimizer_state_dict = torch.load(optimizer_state_file_path, weights_only=True)
+                optimizer.load_state_dict(optimizer_state_dict)
+"""
+        restore = """
+            if len(previous_lrs) > 0:
+                for i, group in enumerate(optimizer.param_groups):
+                    group['lr'] = previous_lrs[i]
+                    group['initial_lr'] = previous_lrs[i]
+"""
+        cases = {
+            "unreachable after return": capture + "            return\n" + load + restore,
+            "mutually exclusive branches": capture + "            if choose_load:\n" +
+                "".join(f"    {line}\n" for line in load.strip().splitlines()) +
+                "            else:\n" +
+                "".join(f"    {line}\n" for line in restore.strip().splitlines()),
+            "optimizer rebound": capture + "            optimizer = object()\n" + load + restore,
+            "captured rates cleared": capture + "            previous_lrs.clear()\n" + load + restore,
+            "captured rates corrupted": capture + "            previous_lrs.append(999)\n" + load + restore,
+        }
+        for label, body in cases.items():
+            source = (
+                "class BaseSDTrainProcess:\n"
+                "    def run(self):\n"
+                "        if os.path.exists(optimizer_state_file_path):\n"
+                f"{body}"
+            )
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                repository = Path(directory)
+                target = repository / "jobs/process/BaseSDTrainProcess.py"
+                target.parent.mkdir(parents=True)
+                target.write_text(source)
+                with self.assertRaises(ExampleError):
+                    _validate_resume_source_contract(repository)
+
+    def test_examples_images_must_decode_complete_pixel_payloads(self):
+        from scripts.training_book import examples as examples_module
+        from scripts.training_book.examples import ExampleError, load_example_manifest, validate_example
+
+        manifest = load_example_manifest(
+            REPOSITORY_ROOT / "docs/book/examples/manifest.json"
+        )
+        entries = {entry.path: entry for entry in manifest.examples}
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json", None,
+        )
+        original_make_fixtures = examples_module._make_fixtures
+        cases = (
+            ("first-lora-flex1.yaml", "dataset/example.png"),
+            ("flux-kontext-edit.yaml", "controls/example.png"),
+            ("flux-kontext-edit.yaml", "sample-control.png"),
+            ("masked-refinement.yaml", "masks/example.png"),
+        )
+        for filename, relative_image in cases:
+            def truncate(root, relative_image=relative_image):
+                original_make_fixtures(root)
+                image = root / relative_image
+                image.write_bytes(image.read_bytes()[:41])
+
+            with self.subTest(filename=filename, image=relative_image), mock.patch(
+                "scripts.training_book.examples._make_fixtures", side_effect=truncate
+            ), self.assertRaises(ExampleError):
+                validate_example(REPOSITORY_ROOT, entries[filename], catalog)
+
+    def test_examples_resume_checkpoint_rejects_malformed_nonexecuting_safetensors_headers(self):
         from scripts.training_book import examples as examples_module
         from scripts.training_book.examples import ExampleError, load_example_manifest, validate_example
 
