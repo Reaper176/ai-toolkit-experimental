@@ -15262,6 +15262,29 @@ class RecipeNarrativePageTests(unittest.TestCase):
                     {relative_path: document}, preset_facts=mutation
                 )
 
+    def test_recipes_page_recipe_character_covers_identity_baseline(self):
+        relative_path = "recipes/character-identity.md"
+        page = (REPOSITORY_ROOT / "docs/book" / relative_path).read_text(
+            encoding="utf-8"
+        )
+        self.assert_recipe_contract(relative_path, page, pre_catalog=True)
+        for phrase in (
+            "identity",
+            "trigger",
+            "rank",
+            "16 to 64",
+            "5e-5 to 1e-4",
+            "1,000 to 3,000",
+            "fixed seed",
+            "pose",
+            "background",
+            "overfitting",
+            "../datasets/curation.md",
+            "../datasets/captions-and-triggers.md",
+            "../workflow/sampling-and-evaluation.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
