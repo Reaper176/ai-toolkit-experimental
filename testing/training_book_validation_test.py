@@ -26,6 +26,7 @@ from scripts.training_book.manifest import (  # noqa: E402
     BookManifest,
     load_book_manifest,
     validate_book_manifest,
+    validate_smoke_record,
 )
 from scripts.training_book.catalog import (  # noqa: E402
     CatalogError,
@@ -526,6 +527,187 @@ class ManifestContractTests(unittest.TestCase):
 
                 with self.assertRaisesRegex(ValueError, "verified_date"):
                     load_book_manifest(self.write_manifest(data))
+
+
+class SmokeRecordContractTests(unittest.TestCase):
+    RECORD_PATH = "docs/book/verification/first-run-smoke.md"
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        (self.root / "docs/book").mkdir(parents=True)
+        self.manifest_data = ManifestContractTests().valid_manifest()
+        self.manifest_path = self.root / "docs/book/book-manifest.json"
+        self.manifest_path.write_text(
+            json.dumps(self.manifest_data, indent=2) + "\n", encoding="utf-8"
+        )
+        (self.root / "docs/book/README.md").write_text(
+            "# Fixture edition\n", encoding="utf-8"
+        )
+        self.git("init", "-q")
+        self.git("config", "user.name", "Training Book Tests")
+        self.git("config", "user.email", "training-book@example.invalid")
+        self.git("add", "docs/book")
+        self.git("commit", "-q", "-m", "fixture edition")
+        self.tested_commit = self.git("rev-parse", "HEAD").stdout.strip()
+        self.manifest = load_book_manifest(self.manifest_path)
+
+    def git(self, *arguments, check=True):
+        return subprocess.run(
+            ["git", *arguments], cwd=self.root, capture_output=True, text=True,
+            check=check,
+        )
+
+    def valid_record(self):
+        return {
+            "schema_version": 1,
+            "status": "passed",
+            "book_revision": 1,
+            "tested_commit": self.tested_commit,
+            "tested_at": "2026-08-14T12:34:56Z",
+            "ui_architecture": "wan21:1b",
+            "model_identifier": "fixture/wan-2.1-t2v-1.3b",
+            "hardware": {
+                "gpu_model": "Fixture GPU",
+                "vram_gib": 24,
+                "software": "Linux, driver 1, Python 3.12, Node 22, ai-toolkit fixture",
+            },
+            "dataset": {
+                "fixture_id": "generated color-card fixture v1",
+                "file_count": 12,
+                "sha256": "a" * 64,
+            },
+            "workflow": {
+                "authentication": "passed",
+                "job_creation": "passed",
+                "queue": "passed",
+                "start": "passed",
+                "fixed_seed_sample": "passed",
+                "checkpoint": "passed",
+                "sample_comparison": "passed",
+                "stop": "passed",
+                "increase_steps": "passed",
+                "resume": "passed",
+                "optimizer_restoration": "passed",
+                "continued_step_progress": "passed",
+            },
+            "observations": {
+                "checkpoint_step": 250,
+                "configured_learning_rate": 0.0001,
+                "resumed_step": 251,
+                "notes": "Observed checkpoint, optimizer state, and learning rate.",
+            },
+        }
+
+    def write_record(self, record, *, raw_json=None):
+        path = self.root / self.RECORD_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(record, indent=2) if raw_json is None else raw_json
+        path.write_text(
+            "# Supported-GPU smoke\n\n[Table of contents](../README.md)\n\n"
+            "<!-- smoke-record:start -->\n```json\n"
+            f"{payload}\n```\n<!-- smoke-record:end -->\n",
+            encoding="utf-8",
+        )
+        return path
+
+    def assert_invalid(self, record, message):
+        self.write_record(record)
+        with self.assertRaisesRegex(ValueError, message):
+            validate_smoke_record(self.root, self.manifest)
+
+    def test_smoke_record_accepts_exact_observed_schema(self):
+        self.write_record(self.valid_record())
+        validate_smoke_record(self.root, self.manifest)
+
+    def test_smoke_record_rejects_missing_record_and_nonpassed_status(self):
+        with self.assertRaisesRegex(ValueError, "first-run-smoke[.]md"):
+            validate_smoke_record(self.root, self.manifest)
+        record = self.valid_record()
+        record["status"] = "failed"
+        self.assert_invalid(record, "status")
+
+    def test_smoke_record_rejects_malformed_and_nonancestor_commits(self):
+        record = self.valid_record()
+        record["tested_commit"] = "ABC"
+        self.assert_invalid(record, "tested_commit")
+
+        self.git("checkout", "-q", "--orphan", "unrelated")
+        self.git("rm", "-q", "-r", "--cached", ".")
+        (self.root / "unrelated.txt").write_text("unrelated\n", encoding="utf-8")
+        self.git("add", "unrelated.txt")
+        self.git("commit", "-q", "-m", "unrelated")
+        unrelated = self.git("rev-parse", "HEAD").stdout.strip()
+        shutil.rmtree(self.root / "docs/book")
+        self.git("checkout", "-q", self.tested_commit)
+        record = self.valid_record()
+        record["tested_commit"] = unrelated
+        self.assert_invalid(record, "ancestor")
+
+    def test_smoke_record_rejects_revision_mismatch_and_commit_without_edition(self):
+        record = self.valid_record()
+        record["book_revision"] = 2
+        self.assert_invalid(record, "book_revision")
+
+        old_manifest = deepcopy(self.manifest_data)
+        old_manifest["book_revision"] = 2
+        old_manifest["required_footer"] = (
+            "Verified against ai-toolkit-experimental book revision 2 (2026-08-14)."
+        )
+        self.manifest_path.write_text(json.dumps(old_manifest), encoding="utf-8")
+        self.git("add", "docs/book/book-manifest.json")
+        self.git("commit", "-q", "-m", "different edition")
+        record = self.valid_record()
+        record["tested_commit"] = self.tested_commit
+        record["book_revision"] = 2
+        self.manifest = load_book_manifest(self.manifest_path)
+        self.assert_invalid(record, "tested commit.*revision")
+
+    def test_smoke_record_rejects_missing_workflow_result_and_later_book_drift(self):
+        record = self.valid_record()
+        del record["workflow"]["optimizer_restoration"]
+        self.assert_invalid(record, "optimizer_restoration")
+
+        (self.root / "docs/book/README.md").write_text(
+            "# Drifted fixture edition\n", encoding="utf-8"
+        )
+        self.git("add", "docs/book/README.md")
+        self.git("commit", "-q", "-m", "book drift")
+        self.assert_invalid(self.valid_record(), "docs/book/README[.]md")
+
+    def test_smoke_record_rejects_extra_keys_wrong_types_and_unsafe_values(self):
+        mutations = (
+            (lambda value: value.update({"extra": "field"}), "unexpected"),
+            (lambda value: value["hardware"].pop("software"), "software"),
+            (lambda value: value["dataset"].update(file_count=True), "file_count"),
+            (lambda value: value["hardware"].update(vram_gib=float("inf")), "nonfinite"),
+            (lambda value: value["observations"].update(configured_learning_rate=True), "configured_learning_rate"),
+            (lambda value: value.update(tested_at="2026-08-14T12:34:56+00:00"), "tested_at"),
+            (lambda value: value["dataset"].update(sha256="A" * 64), "sha256"),
+            (lambda value: value["workflow"].update(queue="skipped"), "workflow.queue"),
+            (lambda value: value.update(model_identifier="https://user:secret@example.invalid/model"), "secret"),
+            (lambda value: value["hardware"].update(software="Linux /home/test/private"), "path"),
+        )
+        for mutate, message in mutations:
+            with self.subTest(message=message):
+                record = self.valid_record()
+                mutate(record)
+                self.assert_invalid(record, message)
+
+    def test_smoke_record_rejects_duplicate_markers_and_duplicate_json_keys(self):
+        record = self.valid_record()
+        path = self.write_record(record)
+        path.write_text(path.read_text(encoding="utf-8") + path.read_text(encoding="utf-8"), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            validate_smoke_record(self.root, self.manifest)
+
+        raw = json.dumps(record).replace(
+            '"schema_version": 1', '"schema_version": 1, "schema_version": 1', 1
+        )
+        self.write_record(record, raw_json=raw)
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            validate_smoke_record(self.root, self.manifest)
 
 
 class CatalogContractTests(unittest.TestCase):

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import math
 import re
+import subprocess
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Sequence
 
@@ -22,6 +24,27 @@ _MANIFEST_FIELDS = {
 }
 _PAGE_FIELDS = {"path", "previous", "next"}
 _ISO_DATE_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
+_SMOKE_COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}\Z")
+_SMOKE_HASH_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
+_SMOKE_TIME_PATTERN = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\Z"
+)
+_SMOKE_RECORD_PATH = Path("docs/book/verification/first-run-smoke.md")
+_SMOKE_TOP_LEVEL_FIELDS = {
+    "schema_version", "status", "book_revision", "tested_commit", "tested_at",
+    "ui_architecture", "model_identifier", "hardware", "dataset", "workflow",
+    "observations",
+}
+_SMOKE_HARDWARE_FIELDS = {"gpu_model", "vram_gib", "software"}
+_SMOKE_DATASET_FIELDS = {"fixture_id", "file_count", "sha256"}
+_SMOKE_WORKFLOW_FIELDS = {
+    "authentication", "job_creation", "queue", "start", "fixed_seed_sample",
+    "checkpoint", "sample_comparison", "stop", "increase_steps", "resume",
+    "optimizer_restoration", "continued_step_progress",
+}
+_SMOKE_OBSERVATION_FIELDS = {
+    "checkpoint_step", "configured_learning_rate", "resumed_step", "notes",
+}
 
 
 @dataclass(frozen=True)
@@ -253,4 +276,170 @@ def validate_book_manifest(
             "full_architectures",
             manifest.full_architectures,
             f"expected exact set and order {expected!r}",
+        )
+
+
+def _require_smoke_object(value: object, fields: set[str], field: str) -> dict[str, object]:
+    if type(value) is not dict:
+        raise _invalid(field, value, "expected an object")
+    _require_exact_fields(value, fields, field)
+    return value
+
+
+def _require_smoke_number(value: object, field: str) -> int | float:
+    if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+        raise _invalid(field, value, "expected a positive finite number")
+    return value
+
+
+def _require_smoke_integer(value: object, field: str) -> int:
+    return _require_positive_integer(value, field)
+
+
+def _reject_sensitive_smoke_text(value: str, field: str) -> None:
+    lowered = value.lower()
+    secret_patterns = (
+        r"(?:password|passwd|token|api[_-]?key|secret)\s*[:=]",
+        r"https?://[^\s/@:]+:[^\s/@]+@",
+        r"-----begin [a-z ]*private key-----",
+    )
+    if any(re.search(pattern, lowered) for pattern in secret_patterns):
+        raise _invalid(field, value, "secret or credential material is not allowed")
+    path_patterns = (
+        r"(?:^|\s)/(?:home|root|run/media|mnt|media|users|tmp|var/tmp)/",
+        r"(?:^|\s)[a-zA-Z]:[\\/]",
+        r"(?:^|\s)~[\\/]",
+    )
+    if any(re.search(pattern, value, re.IGNORECASE) for pattern in path_patterns):
+        raise _invalid(field, value, "local or managed-root path leakage is not allowed")
+
+
+def _run_git(repository_root: Path, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        ["git", *arguments],
+        cwd=repository_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if check and result.returncode != 0:
+        raise ValueError(f"git {' '.join(arguments)} failed")
+    return result
+
+
+def validate_smoke_record(repository_root: Path, manifest: BookManifest) -> None:
+    """Validate the machine-readable, commit-bound supported-GPU smoke evidence."""
+
+    if not isinstance(repository_root, Path):
+        raise _invalid("repository_root", repository_root, "expected Path")
+    if type(manifest) is not BookManifest:
+        raise _invalid("manifest", manifest, "expected BookManifest")
+    record_path = repository_root / _SMOKE_RECORD_PATH
+    if not record_path.is_file():
+        raise ValueError(f"missing required smoke record {_SMOKE_RECORD_PATH.as_posix()}")
+    document = record_path.read_text(encoding="utf-8")
+    start_marker = "<!-- smoke-record:start -->"
+    end_marker = "<!-- smoke-record:end -->"
+    if document.count(start_marker) != 1 or document.count(end_marker) != 1:
+        raise ValueError("smoke record must contain exactly one marker pair")
+    start = document.index(start_marker) + len(start_marker)
+    end = document.index(end_marker)
+    if end <= start:
+        raise ValueError("smoke record markers are out of order")
+    fenced = document[start:end]
+    match = re.fullmatch(r"\n```json\n([\s\S]+)\n```\n", fenced)
+    if match is None:
+        raise ValueError("smoke record markers must contain exactly one JSON fence")
+    try:
+        record = json.loads(
+            match.group(1),
+            object_pairs_hook=_reject_duplicate_object_keys,
+            parse_constant=lambda value: (_ for _ in ()).throw(
+                ValueError(f"nonfinite JSON number {value!r} is not allowed")
+            ),
+        )
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            f"smoke record has invalid JSON at line {error.lineno}, column {error.colno}"
+        ) from error
+    record = _require_smoke_object(record, _SMOKE_TOP_LEVEL_FIELDS, "smoke record")
+    if record["schema_version"] != 1 or type(record["schema_version"]) is not int:
+        raise _invalid("schema_version", record["schema_version"], "expected integer 1")
+    if record["status"] != "passed" or type(record["status"]) is not str:
+        raise _invalid("status", record["status"], "expected 'passed'")
+    revision = _require_smoke_integer(record["book_revision"], "book_revision")
+    if revision != manifest.book_revision:
+        raise _invalid("book_revision", revision, f"expected {manifest.book_revision}")
+    tested_commit = _require_string(record["tested_commit"], "tested_commit")
+    if _SMOKE_COMMIT_PATTERN.fullmatch(tested_commit) is None:
+        raise _invalid("tested_commit", tested_commit, "expected 40 lowercase hexadecimal characters")
+    tested_at = _require_string(record["tested_at"], "tested_at")
+    if _SMOKE_TIME_PATTERN.fullmatch(tested_at) is None:
+        raise _invalid("tested_at", tested_at, "expected a UTC RFC 3339 timestamp ending in Z")
+    try:
+        datetime.fromisoformat(tested_at[:-1] + "+00:00")
+    except ValueError as error:
+        raise _invalid("tested_at", tested_at, "expected a real UTC timestamp") from error
+
+    text_fields: list[tuple[str, str]] = []
+    for field in ("ui_architecture", "model_identifier"):
+        text_fields.append((field, _require_string(record[field], field)))
+    hardware = _require_smoke_object(record["hardware"], _SMOKE_HARDWARE_FIELDS, "hardware")
+    text_fields.extend((
+        ("hardware.gpu_model", _require_string(hardware["gpu_model"], "hardware.gpu_model")),
+        ("hardware.software", _require_string(hardware["software"], "hardware.software")),
+    ))
+    _require_smoke_number(hardware["vram_gib"], "hardware.vram_gib")
+    dataset = _require_smoke_object(record["dataset"], _SMOKE_DATASET_FIELDS, "dataset")
+    text_fields.append(("dataset.fixture_id", _require_string(dataset["fixture_id"], "dataset.fixture_id")))
+    _require_smoke_integer(dataset["file_count"], "dataset.file_count")
+    dataset_hash = _require_string(dataset["sha256"], "dataset.sha256")
+    if _SMOKE_HASH_PATTERN.fullmatch(dataset_hash) is None:
+        raise _invalid("dataset.sha256", dataset_hash, "expected 64 lowercase hexadecimal characters")
+    workflow = _require_smoke_object(record["workflow"], _SMOKE_WORKFLOW_FIELDS, "workflow")
+    for name in sorted(_SMOKE_WORKFLOW_FIELDS):
+        if workflow[name] != "passed" or type(workflow[name]) is not str:
+            raise _invalid(f"workflow.{name}", workflow[name], "expected 'passed'")
+    observations = _require_smoke_object(
+        record["observations"], _SMOKE_OBSERVATION_FIELDS, "observations"
+    )
+    _require_smoke_integer(observations["checkpoint_step"], "observations.checkpoint_step")
+    _require_smoke_number(
+        observations["configured_learning_rate"], "observations.configured_learning_rate"
+    )
+    _require_smoke_integer(observations["resumed_step"], "observations.resumed_step")
+    text_fields.append(("observations.notes", _require_string(observations["notes"], "observations.notes")))
+    for field, value in text_fields:
+        _reject_sensitive_smoke_text(value, field)
+
+    ancestor = _run_git(
+        repository_root, "merge-base", "--is-ancestor", tested_commit, "HEAD", check=False
+    )
+    if ancestor.returncode != 0:
+        raise _invalid("tested_commit", tested_commit, "must be an ancestor of HEAD")
+    committed_manifest = _run_git(
+        repository_root, "show", f"{tested_commit}:docs/book/book-manifest.json"
+    ).stdout
+    try:
+        tested_manifest_data = json.loads(
+            committed_manifest, object_pairs_hook=_reject_duplicate_object_keys
+        )
+    except json.JSONDecodeError as error:
+        raise ValueError("tested commit has an invalid training-book manifest") from error
+    if type(tested_manifest_data) is not dict or tested_manifest_data.get("book_revision") != manifest.book_revision:
+        raise _invalid(
+            "tested commit manifest revision",
+            tested_manifest_data.get("book_revision") if type(tested_manifest_data) is dict else None,
+            f"expected current revision {manifest.book_revision}",
+        )
+    changed = set(filter(None, _run_git(
+        repository_root, "diff", "--name-only", tested_commit, "--", "docs/book"
+    ).stdout.splitlines()))
+    changed.update(filter(None, _run_git(
+        repository_root, "ls-files", "--others", "--exclude-standard", "--", "docs/book"
+    ).stdout.splitlines()))
+    changed.discard(_SMOKE_RECORD_PATH.as_posix())
+    if changed:
+        raise ValueError(
+            "book content changed after tested commit: " + ", ".join(sorted(changed))
         )
