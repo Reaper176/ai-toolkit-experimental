@@ -14581,6 +14581,14 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
             "Independent queue keys isolate jobs; they provide distributed training.",
             "optimizer.pt stores state; however, it contains LoRA weights.",
             "Independent queue keys run separately; however, they provide distributed training.",
+            "The lowest loss is always the\nbest checkpoint.",
+            "Independent queue keys provide\ndistributed training.",
+            "optimizer.pt contains the\nLoRA weights.",
+            "The best checkpoint is the checkpoint with\nthe lowest loss.",
+            "LoRA weights are stored in\noptimizer.pt.",
+            "optimizer.pt restores state; however, it contains\nLoRA weights.",
+            "The optimizer.pt file restores training state; it contains LoRA weights.",
+            "The independent queue keys isolate jobs; they provide distributed training.",
         )
         from scripts.training_book.markdown import MarkdownContractError
 

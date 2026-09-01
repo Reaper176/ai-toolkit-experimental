@@ -109,8 +109,9 @@ def _claim_text(document: str) -> str:
     value = re.sub(r"<[^>]+>", " ", document)
     value = re.sub(r"[`*_~]", "", value)
     return "\n".join(
-        re.sub(r"[ \t]+", " ", line).strip()
-        for line in value.lower().splitlines()
+        re.sub(r"\s+", " ", paragraph).strip()
+        for paragraph in re.split(r"\n[ \t]*\n", value.lower())
+        if paragraph.strip()
     ).strip()
 
 
@@ -235,11 +236,12 @@ def _has_prohibited_claim(document: str) -> bool:
             if _has_prohibited_relation(clause):
                 return True
             previous_optimizer_subject = bool(re.match(
-                r"^(?:[-+]\s+)?optimizer\.pt\b",
+                r"^(?:[-+]\s+)?(?:the\s+)?optimizer\.pt(?:\s+file)?\b",
                 raw_clause.strip(),
             ))
             previous_queue_subject = bool(re.match(
-                r"^(?:[-+]\s+)?independent(?:\s+\w+){0,3}\s+queue keys?\b",
+                r"^(?:[-+]\s+)?(?:the\s+)?independent(?:\s+\w+){0,3}\s+"
+                r"queue keys?\b",
                 raw_clause.strip(),
             ))
     return False
