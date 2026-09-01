@@ -14692,6 +14692,33 @@ class WorkflowNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), page.lower())
 
+    def test_workflow_page_sampling_evaluation_uses_fixed_diverse_comparisons(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/workflow/sampling-and-evaluation.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Build an evaluation suite before training",
+            "## Hold seeds and inference settings fixed",
+            "## Use diverse prompts on purpose",
+            "## Sample on a cadence and on demand",
+            "## Compare checkpoints systematically",
+            "## Record a decision, not just images",
+        ):
+            self.assertIn(heading, page)
+        for phrase in (
+            "step-zero",
+            "walk seed",
+            "same seed",
+            "same prompt",
+            "prompt diversity",
+            "Sample Next Step",
+            "Save Next Step",
+            "sample_every",
+            "sample_start_step",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
