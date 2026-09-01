@@ -566,7 +566,7 @@ class SmokeRecordContractTests(unittest.TestCase):
             "book_revision": 1,
             "tested_commit": self.tested_commit,
             "tested_at": "2026-08-14T12:34:56Z",
-            "ui_architecture": "wan21:1b",
+            "ui_architecture": "anima",
             "model_identifier": "fixture/wan-2.1-t2v-1.3b",
             "hardware": {
                 "gpu_model": "Fixture GPU",
@@ -702,12 +702,30 @@ class SmokeRecordContractTests(unittest.TestCase):
             (lambda value: value["hardware"].update(software="Linux (/home/test/private)"), "path"),
             (lambda value: value["hardware"].update(software=r"Windows (\\server\Users\alice\private)"), "path"),
             (lambda value: value["hardware"].update(software="file://server/Users/alice/private"), "path"),
+            (lambda value: value["hardware"].update(software="Authorization: Bearer ghp_0123456789"), "secret"),
+            (lambda value: value["hardware"].update(software="Authorization: Basic dXNlcjpwYXNz"), "secret"),
+            (lambda value: value["observations"].update(notes="Provider credential ghp_0123456789"), "secret"),
+            (lambda value: value.update(model_identifier="ftp://user:password@example.invalid/model"), "secret"),
+            (lambda value: value["hardware"].update(software="//server/Users/alice/private"), "path"),
+            (lambda value: value["hardware"].update(software="Linux path:/home/alice/private"), "path"),
         )
         for mutate, message in mutations:
             with self.subTest(message=message):
                 record = self.valid_record()
                 mutate(record)
                 self.assert_invalid(record, message)
+
+    def test_smoke_record_rejects_unsupported_architecture(self):
+        record = self.valid_record()
+        record["ui_architecture"] = "unsupported-fixture"
+        self.assert_invalid(record, "ui_architecture")
+
+    def test_smoke_record_rejects_noncontinued_step(self):
+        for resumed_step in (250, 249):
+            with self.subTest(resumed_step=resumed_step):
+                record = self.valid_record()
+                record["observations"]["resumed_step"] = resumed_step
+                self.assert_invalid(record, "resumed_step")
 
     def test_smoke_record_rejects_duplicate_markers_and_duplicate_json_keys(self):
         record = self.valid_record()

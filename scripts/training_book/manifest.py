@@ -300,7 +300,10 @@ def _reject_sensitive_smoke_text(value: str, field: str) -> None:
     lowered = value.lower()
     secret_patterns = (
         r"(?:password|passwd|token|api[_-]?key|secret)\s*[:=]",
-        r"https?://[^\s/@:]+:[^\s/@]+@",
+        r"[a-z][a-z0-9+.-]*://[^\s/@:]+:[^\s/@]+@",
+        r"\bauthorization\s*:\s*(?:bearer|basic)\s+\S+",
+        r"\b(?:bearer\s+[a-z0-9._~+/-]{8,}|basic\s+[a-z0-9+/]{12,}={0,2})(?:\s|$)",
+        r"\b(?:gh[pousr]_[a-z0-9]{8,}|github_pat_[a-z0-9_]{8,}|hf_[a-z0-9]{8,}|sk-[a-z0-9_-]{8,}|xox[baprs]-[a-z0-9-]{8,})\b",
         r"-----begin [a-z ]*private key-----",
     )
     if any(re.search(pattern, lowered) for pattern in secret_patterns):
@@ -312,6 +315,8 @@ def _reject_sensitive_smoke_text(value: str, field: str) -> None:
         r"(?<![A-Za-z0-9._/\\:-])[a-zA-Z]:[\\/]",
         r"(?<![A-Za-z0-9._/\\:-])~[\\/]",
         r"(?<![A-Za-z0-9._/\\:-])\\\\[^\\/\s]+\\[^\s,;)}\]]+",
+        r"(?<![A-Za-z0-9._/\\:-])//[^/\s]+/[^\s,;)}\]]+",
+        r":/(?!/)[^\s,;)}\]]+",
         r"file://[^\s,;)}\]]+",
     )
     if any(re.search(pattern, value, re.IGNORECASE) for pattern in path_patterns):
@@ -386,8 +391,15 @@ def validate_smoke_record(repository_root: Path, manifest: BookManifest) -> None
         raise _invalid("tested_at", tested_at, "expected a real UTC timestamp") from error
 
     text_fields: list[tuple[str, str]] = []
-    for field in ("ui_architecture", "model_identifier"):
-        text_fields.append((field, _require_string(record[field], field)))
+    ui_architecture = _require_string(record["ui_architecture"], "ui_architecture")
+    if ui_architecture not in manifest.full_architectures:
+        raise _invalid(
+            "ui_architecture", ui_architecture, "expected an architecture in full_architectures"
+        )
+    text_fields.extend((
+        ("ui_architecture", ui_architecture),
+        ("model_identifier", _require_string(record["model_identifier"], "model_identifier")),
+    ))
     hardware = _require_smoke_object(record["hardware"], _SMOKE_HARDWARE_FIELDS, "hardware")
     text_fields.extend((
         ("hardware.gpu_model", _require_string(hardware["gpu_model"], "hardware.gpu_model")),
@@ -407,11 +419,20 @@ def validate_smoke_record(repository_root: Path, manifest: BookManifest) -> None
     observations = _require_smoke_object(
         record["observations"], _SMOKE_OBSERVATION_FIELDS, "observations"
     )
-    _require_smoke_integer(observations["checkpoint_step"], "observations.checkpoint_step")
+    checkpoint_step = _require_smoke_integer(
+        observations["checkpoint_step"], "observations.checkpoint_step"
+    )
     _require_smoke_number(
         observations["configured_learning_rate"], "observations.configured_learning_rate"
     )
-    _require_smoke_integer(observations["resumed_step"], "observations.resumed_step")
+    resumed_step = _require_smoke_integer(
+        observations["resumed_step"], "observations.resumed_step"
+    )
+    if resumed_step <= checkpoint_step:
+        raise _invalid(
+            "observations.resumed_step", resumed_step,
+            "expected a step greater than observations.checkpoint_step",
+        )
     text_fields.append(("observations.notes", _require_string(observations["notes"], "observations.notes")))
     for field, value in text_fields:
         _reject_sensitive_smoke_text(value, field)
