@@ -14491,6 +14491,9 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
             "uppercase explicit-derived collision": self.page(
                 '<a ID="details"></a>\n\n## Details'
             ),
+            "unquoted explicit-derived collision": self.page(
+                '<a id=details></a>\n\n## Details'
+            ),
             "duplicate marker": self.page().replace(
                 "<!-- book-navigation:end -->",
                 "<!-- book-navigation:end -->\n<!-- book-navigation:end -->",
@@ -14518,6 +14521,12 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
             ),
             existing_paths=existing,
             page_documents=documents,
+        )
+        unquoted_target = self.page('<a id=usable></a>\n\n## Target')
+        self.validate(
+            self.page("## Links\n\n[Existing](target.md#usable)."),
+            existing_paths=existing,
+            page_documents={"guide/target.md": unquoted_target},
         )
 
         unsafe_targets = (
@@ -14565,6 +14574,9 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
             "The lowest loss is the best checkpoint, not the latest checkpoint.",
             "Independent queue keys do not wait; they provide distributed training.",
             "optimizer.pt does not contain logs; it contains LoRA weights.",
+            "The best checkpoint is the checkpoint with the lowest loss.",
+            "Distributed training is provided by independent queue keys.",
+            "LoRA weights are stored in optimizer.pt.",
         )
         from scripts.training_book.markdown import MarkdownContractError
 
@@ -14577,6 +14589,9 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
             "Separate queue keys run independent jobs, not distributed training.",
             "optimizer.pt does not contain LoRA weights.",
             "Compare the lowest loss checkpoint with the best checkpoint selected by fixed samples.",
+            "The lowest loss cannot guarantee the best checkpoint.",
+            "Independent queue keys cannot provide distributed training.",
+            "optimizer.pt cannot contain LoRA weights.",
         )
         for correction in corrections:
             with self.subTest(correction=correction):

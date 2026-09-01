@@ -20,7 +20,8 @@ GENERATED_NOTICE = "<!-- generated; edit settings-catalog.json instead -->"
 _ANCHOR = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]*\Z")
 _MARKDOWN_PUNCTUATION = re.compile(r"([\\`*_[\]{}#])")
 _EXPLICIT_ANCHOR = re.compile(
-    r"<a\b[^>]*\bid\s*=\s*(['\"])([A-Za-z][A-Za-z0-9_.:-]*)\1[^>]*>\s*</a>",
+    r'''<a\b[^>]*\bid\s*=\s*(?:"([A-Za-z][A-Za-z0-9_.:-]*)"|'''
+    r"'([A-Za-z][A-Za-z0-9_.:-]*)'|([A-Za-z][A-Za-z0-9_.:-]*))[^>]*>\s*</a>",
     re.IGNORECASE,
 )
 _MARKDOWN_LINK = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)]+)\)")
@@ -88,7 +89,10 @@ def _heading_anchor(heading: str) -> str:
 
 def _page_anchors(document: str, page: str) -> set[str]:
     visible = _outside_fences(document)
-    anchors = [match.group(2) for match in _EXPLICIT_ANCHOR.finditer(visible)]
+    anchors = [
+        next(group for group in match.groups() if group is not None)
+        for match in _EXPLICIT_ANCHOR.finditer(visible)
+    ]
     anchors.extend(
         _heading_anchor(match.group(1))
         for line in visible.splitlines()
@@ -114,7 +118,8 @@ def _relation_is_negated(text: str, verb_start: int, verb_end: int) -> bool:
     after = text[verb_end:verb_end + 24]
     negated_auxiliary = re.search(
         r"\b(?:(?:do|does|did|can|will|would|should|could)\s+not|"
-        r"doesn't|don't|didn't|can't|won't|wouldn't|shouldn't|couldn't|without)\s+$",
+        r"cannot|doesn't|don't|didn't|can't|won't|wouldn't|shouldn't|couldn't|"
+        r"without)\s+$",
         before,
     )
     negated_complement = re.match(r"\s+(?:not|never|no)\b", after)
@@ -157,6 +162,16 @@ def _has_prohibited_claim(document: str) -> bool:
             return True
         if _positive_relation(
             sentence,
+            subject=re.compile(
+                r"\bbest(?:\s+(?:checkpoint|result|choice|model))?\b"
+            ),
+            verbs=re.compile(r"\b(?:is|are|means?|identifies?|selects?)\b"),
+            object_=re.compile(r"\blowest loss\b"),
+            span=120,
+        ):
+            return True
+        if _positive_relation(
+            sentence,
             subject=re.compile(r"\bindependent(?:\s+\w+){0,3}\s+queue keys?\b"),
             verbs=re.compile(
                 r"\b(?:allows?|provides?|enables?|performs?|constitutes?|are|is|"
@@ -168,12 +183,34 @@ def _has_prohibited_claim(document: str) -> bool:
             return True
         if _positive_relation(
             sentence,
+            subject=re.compile(r"\bdistributed training\b"),
+            verbs=re.compile(
+                r"\b(?:is|are)\s+(?:provided|allowed|enabled|performed|"
+                r"constituted|represented|delivered)\s+by\b"
+            ),
+            object_=re.compile(r"\bindependent(?:\s+\w+){0,3}\s+queue keys?\b"),
+            span=160,
+        ):
+            return True
+        if _positive_relation(
+            sentence,
             subject=re.compile(r"\boptimizer\.pt\b"),
             verbs=re.compile(
                 r"\b(?:contains?|stores?|holds?|includes?|carr(?:y|ies)|is|are)\b"
             ),
             object_=re.compile(r"\blora weights?\b"),
             span=180,
+        ):
+            return True
+        if _positive_relation(
+            sentence,
+            subject=re.compile(r"\blora weights?\b"),
+            verbs=re.compile(
+                r"\b(?:is|are)\s+(?:contained|stored|held|included|carried)\s+"
+                r"(?:in|by)\b"
+            ),
+            object_=re.compile(r"\boptimizer\.pt\b"),
+            span=120,
         ):
             return True
     return False
