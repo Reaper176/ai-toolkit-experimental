@@ -5,7 +5,7 @@ export interface BuiltInTrainingPresetArchitectureBinding {
   readonly model_class: string;
 }
 
-export const BUILT_IN_ARCHITECTURE_BINDINGS = [
+const ARCHITECTURE_BINDINGS = [
   {
     ui_arch: 'anima',
     model_path: 'circlestone-labs/Anima-Base-v1.0-Diffusers',
@@ -42,29 +42,34 @@ export const BUILT_IN_ARCHITECTURE_BINDINGS = [
   },
 ] as const satisfies readonly BuiltInTrainingPresetArchitectureBinding[];
 
+for (const binding of ARCHITECTURE_BINDINGS) Object.freeze(binding);
+export const BUILT_IN_ARCHITECTURE_BINDINGS = Object.freeze(ARCHITECTURE_BINDINGS);
+
 export type BuiltInPresetArchitecture = (typeof BUILT_IN_ARCHITECTURE_BINDINGS)[number]['ui_arch'];
 
-export const BUILT_IN_ARCHITECTURE_ORDER = BUILT_IN_ARCHITECTURE_BINDINGS.map(binding => binding.ui_arch);
+export const BUILT_IN_ARCHITECTURE_ORDER = Object.freeze(
+  BUILT_IN_ARCHITECTURE_BINDINGS.map(binding => binding.ui_arch),
+);
 
-export const BUILT_IN_CATEGORY_ORDER = [
+export const BUILT_IN_CATEGORY_ORDER = Object.freeze([
   'character',
   'style',
   'object',
   'refinement',
   'low-vram',
   'diagnostic',
-] as const;
+] as const);
 
 export type BuiltInPresetCategory = (typeof BUILT_IN_CATEGORY_ORDER)[number];
 
-export const BUILT_IN_RECIPE_PATHS = [
+export const BUILT_IN_RECIPE_PATHS = Object.freeze([
   'docs/book/recipes/character-identity.md',
   'docs/book/recipes/style.md',
   'docs/book/recipes/object-concept.md',
   'docs/book/recipes/focused-refinement.md',
   'docs/book/recipes/low-vram.md',
   'docs/book/recipes/diagnostic-run.md',
-] as const;
+] as const);
 
 export type BuiltInPresetRecipePath = (typeof BUILT_IN_RECIPE_PATHS)[number];
 

@@ -72,6 +72,28 @@ assert.equal(canonicalizePresetJson([3, { b: 2, a: 1 }, 1]), '[3,{"a":1,"b":2},1
 const shared = { value: 1 };
 assert.equal(canonicalizePresetJson({ right: shared, left: shared }), '{"left":{"value":1},"right":{"value":1}}');
 
+class OverriddenMapArray extends Array<number> {}
+Object.defineProperty(OverriddenMapArray.prototype, 'map', {
+  value: () => [Symbol('unvalidated override')],
+});
+const overriddenMapArray = new OverriddenMapArray();
+overriddenMapArray.push(4, 2);
+assert.equal(canonicalizePresetJson(overriddenMapArray), '[4,2]');
+
+let proxyPropertyReads = 0;
+const changeOnReadProxy = new Proxy(
+  { value: 'captured descriptor value' },
+  {
+    get: (target, key, receiver) => {
+      proxyPropertyReads += 1;
+      if (key === 'value') return Symbol('unvalidated changed value');
+      return Reflect.get(target, key, receiver);
+    },
+  },
+);
+assert.equal(canonicalizePresetJson(changeOnReadProxy), '{"value":"captured descriptor value"}');
+assert.equal(proxyPropertyReads, 0);
+
 const sparse = [1, 2];
 delete sparse[1];
 const extraArray = [1] as any;
@@ -147,6 +169,18 @@ assert.deepEqual(BUILT_IN_RECIPE_PATHS, [
   'docs/book/recipes/low-vram.md',
   'docs/book/recipes/diagnostic-run.md',
 ]);
+assert.equal(Object.isFrozen(BUILT_IN_ARCHITECTURE_BINDINGS), true);
+assert.equal(
+  BUILT_IN_ARCHITECTURE_BINDINGS.every(binding => Object.isFrozen(binding)),
+  true,
+);
+assert.equal(Object.isFrozen(BUILT_IN_ARCHITECTURE_ORDER), true);
+assert.equal(Object.isFrozen(BUILT_IN_CATEGORY_ORDER), true);
+assert.equal(Object.isFrozen(BUILT_IN_RECIPE_PATHS), true);
+assert.equal(Reflect.set(BUILT_IN_ARCHITECTURE_BINDINGS[0], 'model_path', 'attacker/model'), false);
+assert.equal(Reflect.set(BUILT_IN_ARCHITECTURE_ORDER, '0', 'attacker'), false);
+assert.equal(BUILT_IN_ARCHITECTURE_BINDINGS[0].model_path, 'circlestone-labs/Anima-Base-v1.0-Diffusers');
+assert.equal(BUILT_IN_ARCHITECTURE_ORDER[0], 'anima');
 
 assert.equal(normalizeTrainingPresetRecipePath('docs/book/recipes/style.md'), 'docs/book/recipes/style.md');
 assert.equal(
@@ -170,7 +204,8 @@ const validated = validateBuiltInTrainingPresetRecord(validationInput);
 assert.equal(Object.isFrozen(validationInput), false);
 (validationInput.snapshot.config.process[0] as any).train.steps = 99;
 assert.equal((validated.snapshot.config.process[0] as any).train.steps, 2000);
-assert.notEqual(validated, validRecord());
+assert.notEqual(validated, validationInput);
+assert.notEqual(validated.snapshot, validationInput.snapshot);
 assert.equal(Object.isFrozen(validated), true);
 assert.equal(Object.isFrozen(validated.snapshot.config.process[0]), true);
 const copied = copyBuiltInPreset(validated);
@@ -194,6 +229,45 @@ assert.deepEqual(
 );
 assert.deepEqual(builtInsForArchitecture([validated], 'sdxl'), []);
 assert.notEqual(builtInsForArchitecture([validated], 'flux')[0], validated);
+
+let proxiedSourceReads = 0;
+const changingRecordProxy = new Proxy(validRecord(), {
+  get: (target, key, receiver) => {
+    if (key === 'source') {
+      proxiedSourceReads += 1;
+      return proxiedSourceReads === 1 ? 'builtin' : 'user';
+    }
+    return Reflect.get(target, key, receiver);
+  },
+});
+const validatedProxyRecord = validateBuiltInTrainingPresetRecord(changingRecordProxy);
+assert.equal(validatedProxyRecord.source, 'builtin');
+assert.equal(proxiedSourceReads, 0);
+
+for (const [owner, key, inherited] of [
+  ['snapshot', 'schema_version', 1],
+  ['snapshot', 'job', 'extension'],
+  ['snapshot', 'config', { process: validRecord().snapshot.config.process }],
+  ['config', 'process', validRecord().snapshot.config.process],
+] as const) {
+  const pollutedRecord = validRecord() as any;
+  const target = owner === 'snapshot' ? pollutedRecord.snapshot : pollutedRecord.snapshot.config;
+  Object.defineProperty(Object.prototype, key, {
+    value: inherited,
+    configurable: true,
+    enumerable: false,
+    writable: true,
+  });
+  try {
+    delete target[key];
+    assert.throws(
+      () => validateBuiltInTrainingPresetRecord(pollutedRecord),
+      new RegExp(`snapshot(?:\\.config)?\\.${key}.*(?:own|required)|${key}.*(?:own|required)`, 'i'),
+    );
+  } finally {
+    delete (Object.prototype as Record<string, unknown>)[key];
+  }
+}
 
 const invalidCases: Array<[(record: any) => void, RegExp]> = [
   [

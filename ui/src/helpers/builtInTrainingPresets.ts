@@ -67,11 +67,11 @@ function canonicalJsonError(path: string, reason: string): never {
   throw new TypeError(`Unsupported canonical JSON value at ${path}: ${reason}`);
 }
 
-function assertCanonicalJson(value: unknown, path: string, ancestors: Set<object>): void {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return;
+function encodeCanonicalJson(value: unknown, path: string, ancestors: Set<object>): string {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) canonicalJsonError(path, 'number must be finite');
-    return;
+    return JSON.stringify(value);
   }
   if (typeof value !== 'object') canonicalJsonError(path, typeof value);
   if (ancestors.has(value)) canonicalJsonError(path, 'cycle');
@@ -79,39 +79,64 @@ function assertCanonicalJson(value: unknown, path: string, ancestors: Set<object
   try {
     if (Array.isArray(value)) {
       const ownKeys = Reflect.ownKeys(value);
+      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
+      if (
+        lengthDescriptor === undefined ||
+        !('value' in lengthDescriptor) ||
+        !Number.isSafeInteger(lengthDescriptor.value) ||
+        lengthDescriptor.value < 0
+      ) {
+        canonicalJsonError(path, 'array length is invalid');
+      }
+      const length = lengthDescriptor.value as number;
+      const elements = new Map<number, unknown>();
       for (const key of ownKeys) {
         if (key === 'length') continue;
         if (typeof key !== 'string' || !/^(0|[1-9][0-9]*)$/.test(key)) {
           canonicalJsonError(path, 'array has a symbol or non-index property');
         }
         const index = Number(key);
-        if (!Number.isSafeInteger(index) || index < 0 || index >= value.length || String(index) !== key) {
+        if (!Number.isSafeInteger(index) || index < 0 || index >= length || String(index) !== key) {
           canonicalJsonError(path, 'array has an out-of-range index property');
         }
-        const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
-        if (!descriptor.enumerable || !('value' in descriptor)) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) {
           canonicalJsonError(`${path}[${key}]`, 'non-enumerable or accessor element');
         }
+        elements.set(index, descriptor.value);
       }
-      for (let index = 0; index < value.length; index += 1) {
-        if (!Object.prototype.hasOwnProperty.call(value, index)) {
-          canonicalJsonError(`${path}[${index}]`, 'sparse array');
+      if (elements.size !== length) {
+        let expected = 0;
+        for (const index of Array.from(elements.keys()).sort((left, right) => left - right)) {
+          if (index !== expected) break;
+          expected += 1;
         }
-        assertCanonicalJson(value[index], `${path}[${index}]`, ancestors);
+        canonicalJsonError(`${path}[${expected}]`, 'sparse array');
       }
-      return;
+      const encoded: string[] = [];
+      for (let index = 0; index < length; index += 1) {
+        encoded.push(encodeCanonicalJson(elements.get(index), `${path}[${index}]`, ancestors));
+      }
+      return `[${encoded.join(',')}]`;
     }
 
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) canonicalJsonError(path, 'non-plain object');
+    const entries: Array<{ key: string; value: unknown }> = [];
     for (const key of Reflect.ownKeys(value)) {
       if (typeof key !== 'string') canonicalJsonError(path, 'symbol key');
-      const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
-      if (!descriptor.enumerable || !('value' in descriptor)) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) {
         canonicalJsonError(`${path}.${key}`, 'non-enumerable or accessor property');
       }
-      assertCanonicalJson(descriptor.value, `${path}.${key}`, ancestors);
+      entries.push({ key, value: descriptor.value });
     }
+    entries.sort((left, right) => compareCodePoints(left.key, right.key));
+    return `{${entries
+      .map(
+        entry => `${JSON.stringify(entry.key)}:${encodeCanonicalJson(entry.value, `${path}.${entry.key}`, ancestors)}`,
+      )
+      .join(',')}}`;
   } finally {
     ancestors.delete(value);
   }
@@ -126,23 +151,8 @@ function compareCodePoints(left: string, right: string): number {
   return a.length - b.length;
 }
 
-function encodeCanonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    const encoded = JSON.stringify(value);
-    if (encoded === undefined) throw new TypeError('Unsupported canonical JSON value at $');
-    return encoded;
-  }
-  if (Array.isArray(value)) return `[${value.map(encodeCanonicalJson).join(',')}]`;
-  const object = value as Record<string, unknown>;
-  return `{${Object.keys(object)
-    .sort(compareCodePoints)
-    .map(key => `${JSON.stringify(key)}:${encodeCanonicalJson(object[key])}`)
-    .join(',')}}`;
-}
-
 export function canonicalizePresetJson(value: unknown): string {
-  assertCanonicalJson(value, '$', new Set());
-  return encodeCanonicalJson(value);
+  return encodeCanonicalJson(value, '$', new Set());
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -153,6 +163,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function requirePlainObject(value: unknown, path: string): asserts value is Record<string, unknown> {
   if (!isPlainObject(value)) throw new Error(`${path} must be a plain object`);
+}
+
+function requireOwn(object: Record<string, unknown>, key: string, path: string): void {
+  if (!Object.prototype.hasOwnProperty.call(object, key))
+    throw new Error(`${path}.${key} must be an own required field`);
 }
 
 function requireNonblank(value: unknown, path: string): asserts value is string {
@@ -267,7 +282,7 @@ export function copyBuiltInPreset<T>(value: T): T {
 }
 
 export function validateBuiltInTrainingPresetRecord(untrusted: unknown): BuiltInTrainingPresetRecord {
-  canonicalizePresetJson(untrusted);
+  untrusted = JSON.parse(canonicalizePresetJson(untrusted)) as unknown;
   requirePlainObject(untrusted, 'Built-in training preset');
   const extraKeys = Object.keys(untrusted).filter(key => !(RECORD_KEYS as readonly string[]).includes(key));
   if (extraKeys.length > 0) throw new Error(`Built-in training preset has unsupported field ${extraKeys[0]}`);
@@ -309,12 +324,16 @@ export function validateBuiltInTrainingPresetRecord(untrusted: unknown): BuiltIn
   requireStringArray(untrusted.warnings, 'Built-in training preset warnings');
 
   requirePlainObject(untrusted.snapshot, 'Built-in training preset snapshot');
+  for (const key of ['schema_version', 'job', 'config']) {
+    requireOwn(untrusted.snapshot, key, 'Built-in training preset snapshot');
+  }
   for (const key of Object.keys(untrusted.snapshot)) {
     if (!['schema_version', 'job', 'config'].includes(key)) {
       throw new Error(`Built-in training preset snapshot.${key} leaks job identity`);
     }
   }
   requirePlainObject(untrusted.snapshot.config, 'Built-in training preset snapshot.config');
+  requireOwn(untrusted.snapshot.config, 'process', 'Built-in training preset snapshot.config');
   for (const key of Object.keys(untrusted.snapshot.config)) {
     if (key !== 'process') throw new Error(`Built-in training preset snapshot.config.${key} leaks job identity`);
   }
