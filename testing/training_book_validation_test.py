@@ -621,6 +621,17 @@ class SmokeRecordContractTests(unittest.TestCase):
         self.write_record(self.valid_record())
         validate_smoke_record(self.root, self.manifest)
 
+    def test_smoke_record_allows_remote_urls_and_repository_model_identifiers(self):
+        for identifier in (
+            "https://example.invalid/models/fixture",
+            "organization/model-v1",
+        ):
+            with self.subTest(identifier=identifier):
+                record = self.valid_record()
+                record["model_identifier"] = identifier
+                self.write_record(record)
+                validate_smoke_record(self.root, self.manifest)
+
     def test_smoke_record_rejects_missing_record_and_nonpassed_status(self):
         with self.assertRaisesRegex(ValueError, "first-run-smoke[.]md"):
             validate_smoke_record(self.root, self.manifest)
@@ -689,6 +700,8 @@ class SmokeRecordContractTests(unittest.TestCase):
             (lambda value: value.update(model_identifier="https://user:secret@example.invalid/model"), "secret"),
             (lambda value: value["hardware"].update(software="Linux /home/test/private"), "path"),
             (lambda value: value["hardware"].update(software="Linux (/home/test/private)"), "path"),
+            (lambda value: value["hardware"].update(software=r"Windows (\\server\Users\alice\private)"), "path"),
+            (lambda value: value["hardware"].update(software="file://server/Users/alice/private"), "path"),
         )
         for mutate, message in mutations:
             with self.subTest(message=message):

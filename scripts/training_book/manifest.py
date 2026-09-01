@@ -311,7 +311,8 @@ def _reject_sensitive_smoke_text(value: str, field: str) -> None:
         r"(?<![A-Za-z0-9._/\\:-])/(?!/)[^\s,;)}\]]+",
         r"(?<![A-Za-z0-9._/\\:-])[a-zA-Z]:[\\/]",
         r"(?<![A-Za-z0-9._/\\:-])~[\\/]",
-        r"file:///[A-Za-z0-9._~/-]+",
+        r"(?<![A-Za-z0-9._/\\:-])\\\\[^\\/\s]+\\[^\s,;)}\]]+",
+        r"file://[^\s,;)}\]]+",
     )
     if any(re.search(pattern, value, re.IGNORECASE) for pattern in path_patterns):
         raise _invalid(field, value, "local or managed-root path leakage is not allowed")
