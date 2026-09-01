@@ -15354,6 +15354,29 @@ class RecipeNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), page.lower())
 
+    def test_recipes_page_recipe_low_vram_covers_memory_tradeoffs(self):
+        relative_path = "recipes/low-vram.md"
+        page = (REPOSITORY_ROOT / "docs/book" / relative_path).read_text(
+            encoding="utf-8"
+        )
+        self.assert_recipe_contract(relative_path, page, pre_catalog=True)
+        for phrase in (
+            "low-vram",
+            "quantization",
+            "cache_text_embeddings",
+            "cache_latents",
+            "gradient checkpointing",
+            "offloading",
+            "throughput",
+            "preserve dataset resolution",
+            "no universal card-capacity guarantee",
+            "fixed seed",
+            "out of memory",
+            "../getting-started/choose-a-model.md",
+            "../workflow/sampling-and-evaluation.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
