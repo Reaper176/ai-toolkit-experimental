@@ -26,6 +26,7 @@ const requiredArtifacts = [
   navigationGenerator,
   join(repositoryRoot, 'scripts', 'training_book', '__init__.py'),
   join(repositoryRoot, 'scripts', 'training_book', 'manifest.py'),
+  presetCatalogRunner,
   join(repositoryRoot, 'docs', 'book', 'book-manifest.json'),
   join(repositoryRoot, 'docs', 'book', 'README.md'),
   join(repositoryRoot, 'ui', 'src', 'components', 'TrainingGuideLink.tsx'),
@@ -116,20 +117,19 @@ try {
   if (!existsSync(factsPath)) throw new Error('Training-book UI facts were not emitted');
 
   const presetFactsPath = join(outputDirectory, 'training-book-preset-facts.json');
-  let presetArgs;
-  if (existsSync(presetCatalogRunner)) {
-    run(process.execPath, [presetCatalogRunner, '--emit-book-facts', presetFactsPath]);
-    if (!existsSync(presetFactsPath)) throw new Error('Training-book preset facts were not emitted');
-    presetArgs = ['--preset-facts', presetFactsPath];
-  } else {
-    presetArgs = ['--allow-empty-preset-links'];
-  }
+  run(process.execPath, [presetCatalogRunner, '--emit-book-facts', presetFactsPath]);
+  if (!existsSync(presetFactsPath)) throw new Error('Training-book preset facts were not emitted');
+  const presetArgs = ['--preset-facts', presetFactsPath];
   run('python', [referenceGenerator, '--check'], { cwd: repositoryRoot });
   run('python', [navigationGenerator, '--check'], { cwd: repositoryRoot });
   run('python', [validator, '--check-discovery', '--ui-facts', factsPath, ...smokeArgs, ...presetArgs], { cwd: repositoryRoot });
   run('python', [testFile], {
     cwd: repositoryRoot,
-    env: { ...process.env, TRAINING_BOOK_UI_FACTS_PATH: factsPath },
+    env: {
+      ...process.env,
+      TRAINING_BOOK_UI_FACTS_PATH: factsPath,
+      TRAINING_BOOK_PRESET_FACTS_PATH: presetFactsPath,
+    },
   });
 } finally {
   if (outputDirectory !== undefined && existsSync(outputDirectory)) {

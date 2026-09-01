@@ -6043,6 +6043,31 @@
     },
     {
       "fact": {
+        "source_path": "ui/src/server/trainingPresetCatalogBuildValidation.ts",
+        "symbol": "verifyTrainingPresetEvidenceCommit::process.env.pass-through",
+        "path": "process.env.inherited",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "object",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
         "source_path": "ui/src/utils/callScript.ts",
         "symbol": "callScriptStream::Authorization.bearer",
         "path": "http.Authorization",

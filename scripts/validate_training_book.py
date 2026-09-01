@@ -349,9 +349,7 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--check-discovery", action="store_true")
     parser.add_argument("--check-examples", action="store_true")
     parser.add_argument("--skip-smoke", action="store_true")
-    presets = parser.add_mutually_exclusive_group()
-    presets.add_argument("--preset-facts", type=Path)
-    presets.add_argument("--allow-empty-preset-links", action="store_true")
+    parser.add_argument("--preset-facts", type=Path)
     parser.add_argument("--scope", action="append", default=[])
     target = parser.add_mutually_exclusive_group()
     target.add_argument("--target-source")
@@ -359,20 +357,58 @@ def _arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _validate_empty_preset_links(repository_root: Path) -> None:
+def _load_preset_facts(path: Path) -> tuple[dict[str, str], ...]:
+    expected_fields = {"id", "name", "model_arch", "recipe_path"}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise MarkdownContractError("preset facts could not be loaded") from error
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"schema_version", "presets"}
+        or payload["schema_version"] != 1
+        or not isinstance(payload["presets"], list)
+    ):
+        raise MarkdownContractError("preset facts have an invalid envelope")
+    rows = []
+    seen_ids = set()
+    for row in payload["presets"]:
+        if (
+            not isinstance(row, dict)
+            or set(row) != expected_fields
+            or not all(isinstance(row[field], str) and row[field] for field in expected_fields)
+        ):
+            raise MarkdownContractError("preset facts contain an invalid row")
+        if row["id"] in seen_ids:
+            raise MarkdownContractError(f"duplicate preset fact id: {row['id']}")
+        seen_ids.add(row["id"])
+        rows.append(row)
+    return tuple(rows)
+
+
+def _validate_preset_links(repository_root: Path, facts_path: Path) -> None:
+    facts = _load_preset_facts(facts_path)
     markers = ("<!-- built-in-presets:start -->", "<!-- built-in-presets:end -->")
+    recipes = []
     for path in sorted((repository_root / "docs/book/recipes").glob("*.md")):
         document = path.read_text(encoding="utf-8")
         if not any(marker in document for marker in markers):
             continue
+        relative_path = path.relative_to(repository_root).as_posix()
+        recipes.append(relative_path)
         if any(document.count(marker) != 1 for marker in markers):
             raise MarkdownContractError(f"{path.name}: invalid built-in preset markers")
         start = document.index(markers[0]) + len(markers[0])
         end = document.index(markers[1])
-        if end < start or document[start:end].strip():
-            raise MarkdownContractError(
-                f"{path.name}: expected empty pre-catalog preset links"
-            )
+        expected = "\n".join(
+            f"- `{row['id']}` — {row['name']}"
+            for row in facts
+            if row["recipe_path"] == relative_path
+        )
+        if end < start or document[start:end].strip() != expected:
+            raise MarkdownContractError(f"{path.name}: preset link membership drift")
+    if set(recipes) != {row["recipe_path"] for row in facts}:
+        raise MarkdownContractError("preset facts and recipe marker membership differ")
 
 
 def _python_globs(catalog) -> tuple[str, ...]:
@@ -748,17 +784,9 @@ def main() -> None:
         validate_book_pages(
             repository_root / "docs/book", manifest, skip_smoke=arguments.skip_smoke
         )
-        if arguments.preset_facts is not None:
-            try:
-                json.loads(arguments.preset_facts.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as error:
-                raise MarkdownContractError("preset facts could not be loaded") from error
-        elif arguments.allow_empty_preset_links:
-            _validate_empty_preset_links(repository_root)
-        else:
-            raise MarkdownContractError(
-                "preset links require --preset-facts or --allow-empty-preset-links"
-            )
+        if arguments.preset_facts is None:
+            raise MarkdownContractError("preset links require --preset-facts")
+        _validate_preset_links(repository_root, arguments.preset_facts)
 
 
 if __name__ == "__main__":

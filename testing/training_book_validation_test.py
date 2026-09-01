@@ -114,6 +114,30 @@ def load_production_training_book_ui_facts():
         )
         return load_training_book_ui_facts(facts_path)
 
+
+@cache
+def load_production_training_book_preset_facts():
+    emitted_path = os.environ.get("TRAINING_BOOK_PRESET_FACTS_PATH")
+    if emitted_path is not None:
+        payload = json.loads(Path(emitted_path).read_text(encoding="utf-8"))
+    else:
+        with tempfile.TemporaryDirectory() as directory:
+            facts_path = Path(directory) / "training-book-preset-facts.json"
+            subprocess.run(
+                [
+                    "node",
+                    REPOSITORY_ROOT / "ui/testing/runTrainingPresetCatalogBuildValidation.mjs",
+                    "--emit-book-facts",
+                    facts_path,
+                ],
+                cwd=REPOSITORY_ROOT / "ui",
+                check=True,
+            )
+            payload = json.loads(facts_path.read_text(encoding="utf-8"))
+    if set(payload) != {"schema_version", "presets"} or payload["schema_version"] != 1:
+        raise AssertionError("canonical training-book preset facts have an invalid envelope")
+    return tuple(payload["presets"])
+
 BOOK_PAGES = (
     "README.md",
     "getting-started/prerequisites.md",
@@ -3687,7 +3711,7 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
         )
         self.assertEqual(len(catalog.ui_claims), 2461)
-        self.assertEqual(len(exclusions), 114)
+        self.assertEqual(len(exclusions), 115)
         self.assertEqual(
             {exclusion.reason for exclusion in exclusions},
             {
@@ -3874,8 +3898,8 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         self.assertEqual(catalog_data["schema_version"], 2)
         self.assertEqual(exclusions_data["schema_version"], 2)
         self.assertEqual(len(catalog_data["ui_claims"]), 2461)
-        self.assertEqual(len(exclusions_data["ui_exclusions"]), 114)
-        self.assertEqual(len(server_facts), 213)
+        self.assertEqual(len(exclusions_data["ui_exclusions"]), 115)
+        self.assertEqual(len(server_facts), 214)
         self.assertTrue(all(
             set(fact["server_state_contract"]) == {
                 "operation", "provenance", "authority", "persistence",
@@ -15286,7 +15310,7 @@ class RecipeNarrativePageTests(unittest.TestCase):
         expected = [
             (fact["id"], fact["name"])
             for fact in preset_facts
-            if fact["recipe_path"] == relative_path
+            if fact["recipe_path"] in (relative_path, f"docs/book/{relative_path}")
         ]
         actual = re.findall(r"^- `([^`]+)` — (.+)$", block, re.MULTILINE)
         self.assertTrue(expected, "final recipe must have emitted preset facts")
@@ -15294,7 +15318,11 @@ class RecipeNarrativePageTests(unittest.TestCase):
 
     def assert_recipe_set(self, pages, *, preset_facts):
         self.assertEqual(
-            {fact["recipe_path"] for fact in preset_facts}, set(pages)
+            {
+                fact["recipe_path"].removeprefix("docs/book/")
+                for fact in preset_facts
+            },
+            set(pages),
         )
         for relative_path, document in pages.items():
             self.assert_recipe_contract(
@@ -15415,7 +15443,11 @@ class RecipeNarrativePageTests(unittest.TestCase):
         page = (REPOSITORY_ROOT / "docs/book" / relative_path).read_text(
             encoding="utf-8"
         )
-        self.assert_recipe_contract(relative_path, page, pre_catalog=True)
+        self.assert_recipe_contract(
+            relative_path,
+            page,
+            preset_facts=load_production_training_book_preset_facts(),
+        )
         for phrase in (
             "identity",
             "trigger",
@@ -15438,7 +15470,11 @@ class RecipeNarrativePageTests(unittest.TestCase):
         page = (REPOSITORY_ROOT / "docs/book" / relative_path).read_text(
             encoding="utf-8"
         )
-        self.assert_recipe_contract(relative_path, page, pre_catalog=True)
+        self.assert_recipe_contract(
+            relative_path,
+            page,
+            preset_facts=load_production_training_book_preset_facts(),
+        )
         for phrase in (
             "style",
             "content diversity",
@@ -15461,7 +15497,11 @@ class RecipeNarrativePageTests(unittest.TestCase):
         page = (REPOSITORY_ROOT / "docs/book" / relative_path).read_text(
             encoding="utf-8"
         )
-        self.assert_recipe_contract(relative_path, page, pre_catalog=True)
+        self.assert_recipe_contract(
+            relative_path,
+            page,
+            preset_facts=load_production_training_book_preset_facts(),
+        )
         for phrase in (
             "object",
             "trigger",
@@ -15485,7 +15525,11 @@ class RecipeNarrativePageTests(unittest.TestCase):
         page = (REPOSITORY_ROOT / "docs/book" / relative_path).read_text(
             encoding="utf-8"
         )
-        self.assert_recipe_contract(relative_path, page, pre_catalog=True)
+        self.assert_recipe_contract(
+            relative_path,
+            page,
+            preset_facts=load_production_training_book_preset_facts(),
+        )
         for phrase in (
             "focused refinement",
             "grayscale",
@@ -15507,7 +15551,11 @@ class RecipeNarrativePageTests(unittest.TestCase):
         page = (REPOSITORY_ROOT / "docs/book" / relative_path).read_text(
             encoding="utf-8"
         )
-        self.assert_recipe_contract(relative_path, page, pre_catalog=True)
+        self.assert_recipe_contract(
+            relative_path,
+            page,
+            preset_facts=load_production_training_book_preset_facts(),
+        )
         for phrase in (
             "low-vram",
             "quantization",
@@ -15530,7 +15578,11 @@ class RecipeNarrativePageTests(unittest.TestCase):
         page = (REPOSITORY_ROOT / "docs/book" / relative_path).read_text(
             encoding="utf-8"
         )
-        self.assert_recipe_contract(relative_path, page, pre_catalog=True)
+        self.assert_recipe_contract(
+            relative_path,
+            page,
+            preset_facts=load_production_training_book_preset_facts(),
+        )
         for phrase in (
             "250-step",
             "save/sample interval",
@@ -16890,20 +16942,56 @@ class BookArtifactTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_validation_cli_accepts_the_canonical_manifest(self):
-        result = subprocess.run(
-            [
-                sys.executable,
-                "scripts/validate_training_book.py",
-                "--skip-smoke",
-                "--allow-empty-preset-links",
-            ],
-            cwd=REPOSITORY_ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            facts_path = Path(directory) / "preset-facts.json"
+            facts_path.write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "presets": load_production_training_book_preset_facts(),
+                }),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/validate_training_book.py",
+                    "--skip-smoke",
+                    "--preset-facts",
+                    facts_path,
+                ],
+                cwd=REPOSITORY_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_validation_cli_rejects_preset_facts_recipe_membership_drift(self):
+        presets = [dict(row) for row in load_production_training_book_preset_facts()]
+        presets[0]["name"] = "Drifted preset name"
+        with tempfile.TemporaryDirectory() as directory:
+            facts_path = Path(directory) / "preset-facts.json"
+            facts_path.write_text(
+                json.dumps({"schema_version": 1, "presets": presets}),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/validate_training_book.py",
+                    "--skip-smoke",
+                    "--preset-facts",
+                    facts_path,
+                ],
+                cwd=REPOSITORY_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("preset", result.stderr.lower())
 
     def test_runner_rejects_missing_training_book_package_initializer(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -16951,16 +17039,13 @@ class BookArtifactTests(unittest.TestCase):
         self.assertIn("generate_training_book_navigation.py", runner)
         self.assertIn("'--check-discovery', '--ui-facts', factsPath", runner)
         self.assertIn("'--skip-smoke'", runner)
-        preset_runner = REPOSITORY_ROOT / "ui/testing/runTrainingPresetCatalogBuildValidation.mjs"
-        if preset_runner.exists():
-            self.assertIn("--emit-book-facts", runner)
-            self.assertIn("'--preset-facts', presetFactsPath", runner)
-        else:
-            self.assertIn("'--allow-empty-preset-links'", runner)
-            self.assertIn("existsSync(presetCatalogRunner)", runner)
-            self.assertIn("--emit-book-facts", runner)
-            self.assertIn("'--preset-facts', presetFactsPath", runner)
-            self.assertIn("Training-book preset facts were not emitted", runner)
+        self.assertIn("runTrainingPresetCatalogBuildValidation.mjs", runner)
+        self.assertIn("--emit-book-facts", runner)
+        self.assertIn("'--preset-facts', presetFactsPath", runner)
+        self.assertIn("Training-book preset facts were not emitted", runner)
+        self.assertIn("TRAINING_BOOK_PRESET_FACTS_PATH: presetFactsPath", runner)
+        self.assertNotIn("'--allow-empty-preset-links'", runner)
+        self.assertNotIn("existsSync(presetCatalogRunner)", runner)
         self.assertIn("assertSafe(outputDirectory)", runner)
 
     def test_runner_rejects_unknown_duplicate_and_incompatible_smoke_flags(self):
@@ -17068,21 +17153,35 @@ class NavigationGenerationContractTests(unittest.TestCase):
                 replace_book_blocks(document, navigation="nav", verification="footer")
 
     def test_validator_requires_explicit_skip_for_missing_smoke_page(self):
-        base = [sys.executable, "scripts/validate_training_book.py", "--allow-empty-preset-links"]
-        required = subprocess.run(
-            base,
-            cwd=REPOSITORY_ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        skipped = subprocess.run(
-            [*base, "--skip-smoke"],
-            cwd=REPOSITORY_ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            facts_path = Path(directory) / "preset-facts.json"
+            facts_path.write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "presets": load_production_training_book_preset_facts(),
+                }),
+                encoding="utf-8",
+            )
+            base = [
+                sys.executable,
+                "scripts/validate_training_book.py",
+                "--preset-facts",
+                facts_path,
+            ]
+            required = subprocess.run(
+                base,
+                cwd=REPOSITORY_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            skipped = subprocess.run(
+                [*base, "--skip-smoke"],
+                cwd=REPOSITORY_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
 
         self.assertNotEqual(required.returncode, 0)
         self.assertIn("verification/first-run-smoke.md", required.stderr)
