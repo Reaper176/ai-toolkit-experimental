@@ -15269,6 +15269,38 @@ for i, group in enumerate(optimizer.param_groups):
                 "        if True:\n            return\n"
                 "        optimizer_state_filename = f'optimizer.pt'", 1,
             ),
+            "constant loop terminal before discovery": live.replace(
+                "        optimizer_state_filename = f'optimizer.pt'",
+                "        while True:\n            return\n"
+                "        optimizer_state_filename = f'optimizer.pt'", 1,
+            ),
+            "optimizer factory rebound": live.replace(
+                "        optimizer = get_optimizer(",
+                "        get_optimizer = malicious_optimizer_factory\n"
+                "        optimizer = get_optimizer(", 1,
+            ),
+            "optimizer groups aliased before discovery": live.replace(
+                "        optimizer_state_filename = f'optimizer.pt'",
+                "        forced_groups = optimizer.param_groups\n"
+                "        forced_groups[0].update({'lr': 9e-3})\n"
+                "        optimizer_state_filename = f'optimizer.pt'", 1,
+            ),
+            "optimizer groups aliased before capture": live.replace(
+                "        if os.path.exists(optimizer_state_file_path):\n",
+                "        if os.path.exists(optimizer_state_file_path):\n"
+                "            forced_groups = optimizer.param_groups\n"
+                "            forced_groups[0].update({'lr': 9e-3})\n", 1,
+            ),
+            "annotated false load overwrite": live.replace(
+                "            if load_optimizer:\n",
+                "            load_optimizer: bool = False\n"
+                "            if load_optimizer:\n", 1,
+            ),
+            "destructured false load overwrite": live.replace(
+                "            if load_optimizer:\n",
+                "            (load_optimizer,) = (False,)\n"
+                "            if load_optimizer:\n", 1,
+            ),
         }
         for label, source in mutations.items():
             with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
@@ -15303,6 +15335,11 @@ for i, group in enumerate(optimizer.param_groups):
                 "        self.name = 'other-job'\n"
                 "        self.save_root = os.path.join(self.training_folder, self.name)", 1,
             ),
+            "return before save root": base_source.replace(
+                "        self.save_root = os.path.join(self.training_folder, self.name)",
+                "        return\n"
+                "        self.save_root = os.path.join(self.training_folder, self.name)", 1,
+            ),
         }
         for label, mutation in mutations.items():
             with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
@@ -15320,6 +15357,19 @@ for i, group in enumerate(optimizer.param_groups):
         with tempfile.TemporaryDirectory() as directory:
             repository = self.write_resume_source_fixture(
                 directory, sd_source, base_source, process_source
+            )
+            with self.assertRaises(ExampleError):
+                _validate_resume_source_contract(repository)
+        unreachable_process_source = (
+            REPOSITORY_ROOT / "jobs/process/BaseProcess.py"
+        ).read_text().replace(
+            "        self.name = self.get_conf('name', self.job.name)",
+            "        return\n"
+            "        self.name = self.get_conf('name', self.job.name)", 1,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            repository = self.write_resume_source_fixture(
+                directory, sd_source, base_source, unreachable_process_source
             )
             with self.assertRaises(ExampleError):
                 _validate_resume_source_contract(repository)
@@ -15349,10 +15399,15 @@ for i, group in enumerate(optimizer.param_groups):
 """
         def source_with(body):
             return (
+                "from toolkit.optimizer import get_optimizer\n"
                 "class BaseSDTrainProcess:\n"
                 "    def run(self):\n"
                 "        optimizer = get_optimizer(self.params, optimizer_type, "
                 "learning_rate=self.train_config.lr)\n"
+                "        self.optimizer = optimizer\n"
+                "        if self.train_config.do_paramiter_swapping:\n"
+                "            self.optimizer.enable_paramiter_swapping("
+                "self.train_config.paramiter_swapping_factor)\n"
                 "        optimizer_state_filename = 'optimizer.pt'\n"
                 "        optimizer_state_file_path = os.path.join("
                 "self.save_root, optimizer_state_filename)\n"

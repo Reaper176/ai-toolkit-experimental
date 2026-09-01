@@ -984,6 +984,40 @@ def _optimizer_creation(statement: ast.stmt) -> bool:
     )
 
 
+def _optimizer_alias_assignment(statement: ast.stmt) -> bool:
+    value = _assigned_self_attribute(statement, "optimizer")
+    return isinstance(value, ast.Name) and value.id == "optimizer"
+
+
+def _parameter_swapping_guard(statement: ast.stmt) -> bool:
+    if (not isinstance(statement, ast.If) or statement.orelse
+            or not _self_attribute_chain(
+                statement.test, "train_config", "do_paramiter_swapping"
+            ) or len(statement.body) != 1
+            or not isinstance(statement.body[0], ast.Expr)
+            or not isinstance(statement.body[0].value, ast.Call)):
+        return False
+    call = statement.body[0].value
+    return (not call.keywords and len(call.args) == 1
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr == "enable_paramiter_swapping"
+            and _self_attribute_chain(call.func.value, "optimizer")
+            and _self_attribute_chain(
+                call.args[0], "train_config", "paramiter_swapping_factor"
+            ))
+
+
+def _exact_get_optimizer_import(tree: ast.Module) -> bool:
+    imports = [
+        alias for statement in tree.body
+        if isinstance(statement, ast.ImportFrom)
+        and statement.module == "toolkit.optimizer" and statement.level == 0
+        for alias in statement.names
+        if alias.name == "get_optimizer" and alias.asname is None
+    ]
+    return len(imports) == 1 and _name_store_count(tree, "get_optimizer") == 0
+
+
 def _state_filename_assignment(statement: ast.stmt) -> bool:
     value = _assigned_name(statement, "optimizer_state_filename")
     return value is not None and _literal_string(value) == "optimizer.pt"
@@ -1046,16 +1080,22 @@ def _block_definitely_terminates(statements: list[ast.stmt]) -> bool:
             elif (statement.orelse and _block_definitely_terminates(statement.body)
                   and _block_definitely_terminates(statement.orelse)):
                 return True
+        if isinstance(statement, ast.While) and isinstance(statement.test, ast.Constant):
+            if bool(statement.test.value):
+                if _block_definitely_terminates(statement.body):
+                    return True
+            elif _block_definitely_terminates(statement.orelse):
+                return True
     return False
 
 
 def _unconditional_name_store(statement: ast.stmt, name: str) -> bool:
-    if _assigned_name(statement, name) is not None:
-        return True
     if isinstance(statement, ast.If) and isinstance(statement.test, ast.Constant):
         selected = statement.body if bool(statement.test.value) else statement.orelse
         return any(_unconditional_name_store(child, name) for child in selected)
-    return False
+    if isinstance(statement, ast.If):
+        return False
+    return _name_store_count(statement, name) > 0
 
 
 def _name_store_count(node: ast.AST, name: str) -> int:
@@ -1158,7 +1198,13 @@ def _validate_save_root_source_contract(repository_root: Path) -> None:
                     and value.args[0].value == "name"
                     and _self_attribute_chain(value.args[1], "job", "name")):
                 name_assignments.append(statement)
-    if (len(process_classes) != 1 or len(name_assignments) != 1
+    name_reachable = (len(process_methods) == 1 and len(name_assignments) == 1
+                      and not _block_definitely_terminates(
+                          process_methods[0].body[
+                              :process_methods[0].body.index(name_assignments[0])
+                          ]
+                      ))
+    if (len(process_classes) != 1 or not name_reachable
             or _self_attribute_store_count(process_classes[0], "name") != 1):
         raise ExampleError("process name is no longer derived from configured job identity")
 
@@ -1179,8 +1225,14 @@ def _validate_save_root_source_contract(repository_root: Path) -> None:
                         if _training_folder_assignment(statement)]
     save_indices = [index for index, statement in enumerate(method.body)
                     if _save_root_assignment(statement)]
-    valid = any(training_index < save_index
-                for training_index in training_indices for save_index in save_indices)
+    valid = any(
+        training_index < save_index
+        and not _block_definitely_terminates(method.body[:training_index])
+        and not _block_definitely_terminates(
+            method.body[training_index + 1:save_index]
+        )
+        for training_index in training_indices for save_index in save_indices
+    )
     if (not valid or _self_attribute_store_count(classes[0], "training_folder") != 1
             or _self_attribute_store_count(classes[0], "save_root") != 1
             or _self_attribute_store_count(classes[0], "name") != 0):
@@ -1201,6 +1253,8 @@ def _validate_resume_source_contract(repository_root: Path) -> None:
                if len(classes) == 1 else [])
     if len(methods) != 1:
         raise ExampleError("optimizer resume source no longer preserves configured learning rates")
+    if not _exact_get_optimizer_import(tree):
+        raise ExampleError("optimizer resume source no longer preserves configured learning rates")
     valid = False
     statements = methods[0].body
     optimizer_indices = [index for index, statement in enumerate(statements)
@@ -1217,6 +1271,14 @@ def _validate_resume_source_contract(repository_root: Path) -> None:
             for path_index in path_indices:
                 for outer_index in outer_indices:
                     if not optimizer_index < filename_index < path_index < outer_index:
+                        continue
+                    if (filename_index != optimizer_index + 3
+                            or not _optimizer_alias_assignment(
+                                statements[optimizer_index + 1]
+                            )
+                            or not _parameter_swapping_guard(
+                                statements[optimizer_index + 2]
+                            )):
                         continue
                     if _block_definitely_terminates(
                         statements[optimizer_index + 1:outer_index]
@@ -1274,7 +1336,8 @@ def _validate_resume_source_contract(repository_root: Path) -> None:
                     ]
                     for init_index, captured in initializers:
                         for capture_index, (capture_name, capture_line) in captures:
-                            if capture_name != captured or init_index >= capture_index:
+                            if (capture_name != captured or init_index != 0
+                                    or capture_index != 1):
                                 continue
                             if _pre_capture_optimizer_mutation(
                                 outer.body[:capture_index]
