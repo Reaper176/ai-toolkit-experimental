@@ -145,74 +145,90 @@ def _positive_relation(
     return False
 
 
+def _has_prohibited_relation(clause: str) -> bool:
+    if _positive_relation(
+        clause,
+        subject=re.compile(r"\blowest loss\b"),
+        verbs=re.compile(
+            r"\b(?:is|are|gives?|yields?|selects?|identifies?|means?|"
+            r"indicates?|marks?|produces?|guarantees?)\b"
+        ),
+        object_=re.compile(r"\bbest\b"),
+        span=120,
+    ):
+        return True
+    if _positive_relation(
+        clause,
+        subject=re.compile(r"\bbest(?:\s+(?:checkpoint|result|choice|model))?\b"),
+        verbs=re.compile(r"\b(?:is|are|means?|identifies?|selects?)\b"),
+        object_=re.compile(r"\blowest loss\b"),
+        span=120,
+    ):
+        return True
+    if _positive_relation(
+        clause,
+        subject=re.compile(r"\bindependent(?:\s+\w+){0,3}\s+queue keys?\b"),
+        verbs=re.compile(
+            r"\b(?:allows?|provides?|enables?|performs?|constitutes?|are|is|"
+            r"represents?|gives?|delivers?)\b"
+        ),
+        object_=re.compile(r"\bdistributed training\b"),
+        span=160,
+    ):
+        return True
+    if _positive_relation(
+        clause,
+        subject=re.compile(r"\bdistributed training\b"),
+        verbs=re.compile(
+            r"\b(?:is|are)\s+(?:provided|allowed|enabled|performed|"
+            r"constituted|represented|delivered)\s+by\b"
+        ),
+        object_=re.compile(r"\bindependent(?:\s+\w+){0,3}\s+queue keys?\b"),
+        span=160,
+    ):
+        return True
+    if _positive_relation(
+        clause,
+        subject=re.compile(r"\boptimizer\.pt\b"),
+        verbs=re.compile(
+            r"\b(?:contains?|stores?|holds?|includes?|carr(?:y|ies)|is|are)\b"
+        ),
+        object_=re.compile(r"\blora weights?\b"),
+        span=180,
+    ):
+        return True
+    if _positive_relation(
+        clause,
+        subject=re.compile(r"\blora weights?\b"),
+        verbs=re.compile(
+            r"\b(?:is|are)\s+(?:contained|stored|held|included|carried)\s+"
+            r"(?:in|by)\b"
+        ),
+        object_=re.compile(r"\boptimizer\.pt\b"),
+        span=120,
+    ):
+        return True
+    return False
+
+
 def _has_prohibited_claim(document: str) -> bool:
     claim_text = _claim_text(document).replace("optimizer.pt", "optimizer_pt")
     for sentence in re.split(r"[.!?]+", claim_text):
         sentence = sentence.replace("optimizer_pt", "optimizer.pt")
-        if _positive_relation(
-            sentence,
-            subject=re.compile(r"\blowest loss\b"),
-            verbs=re.compile(
-                r"\b(?:is|are|gives?|yields?|selects?|identifies?|means?|"
-                r"indicates?|marks?|produces?|guarantees?)\b"
-            ),
-            object_=re.compile(r"\bbest\b"),
-            span=120,
-        ):
-            return True
-        if _positive_relation(
-            sentence,
-            subject=re.compile(
-                r"\bbest(?:\s+(?:checkpoint|result|choice|model))?\b"
-            ),
-            verbs=re.compile(r"\b(?:is|are|means?|identifies?|selects?)\b"),
-            object_=re.compile(r"\blowest loss\b"),
-            span=120,
-        ):
-            return True
-        if _positive_relation(
-            sentence,
-            subject=re.compile(r"\bindependent(?:\s+\w+){0,3}\s+queue keys?\b"),
-            verbs=re.compile(
-                r"\b(?:allows?|provides?|enables?|performs?|constitutes?|are|is|"
-                r"represents?|gives?|delivers?)\b"
-            ),
-            object_=re.compile(r"\bdistributed training\b"),
-            span=160,
-        ):
-            return True
-        if _positive_relation(
-            sentence,
-            subject=re.compile(r"\bdistributed training\b"),
-            verbs=re.compile(
-                r"\b(?:is|are)\s+(?:provided|allowed|enabled|performed|"
-                r"constituted|represented|delivered)\s+by\b"
-            ),
-            object_=re.compile(r"\bindependent(?:\s+\w+){0,3}\s+queue keys?\b"),
-            span=160,
-        ):
-            return True
-        if _positive_relation(
-            sentence,
-            subject=re.compile(r"\boptimizer\.pt\b"),
-            verbs=re.compile(
-                r"\b(?:contains?|stores?|holds?|includes?|carr(?:y|ies)|is|are)\b"
-            ),
-            object_=re.compile(r"\blora weights?\b"),
-            span=180,
-        ):
-            return True
-        if _positive_relation(
-            sentence,
-            subject=re.compile(r"\blora weights?\b"),
-            verbs=re.compile(
-                r"\b(?:is|are)\s+(?:contained|stored|held|included|carried)\s+"
-                r"(?:in|by)\b"
-            ),
-            object_=re.compile(r"\boptimizer\.pt\b"),
-            span=120,
-        ):
-            return True
+        saw_optimizer = False
+        saw_queue_keys = False
+        for raw_clause in sentence.split(";"):
+            clause = raw_clause.strip()
+            if saw_optimizer and re.match(r"^it\b", clause):
+                clause = f"optimizer.pt {clause}"
+            if saw_queue_keys and re.match(r"^they\b", clause):
+                clause = f"independent queue keys {clause}"
+            if _has_prohibited_relation(clause):
+                return True
+            saw_optimizer = saw_optimizer or "optimizer.pt" in raw_clause
+            saw_queue_keys = saw_queue_keys or bool(re.search(
+                r"\bindependent(?:\s+\w+){0,3}\s+queue keys?\b", raw_clause
+            ))
     return False
 
 

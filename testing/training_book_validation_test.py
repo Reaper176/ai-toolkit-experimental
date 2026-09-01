@@ -14592,6 +14592,9 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
             "The lowest loss cannot guarantee the best checkpoint.",
             "Independent queue keys cannot provide distributed training.",
             "optimizer.pt cannot contain LoRA weights.",
+            "The best checkpoint is selected by fixed samples; the lowest loss is only one signal.",
+            "Distributed training is performed by cooperating workers; independent queue keys isolate jobs.",
+            "LoRA weights are stored in the output checkpoint; optimizer.pt restores optimizer state.",
         )
         for correction in corrections:
             with self.subTest(correction=correction):
