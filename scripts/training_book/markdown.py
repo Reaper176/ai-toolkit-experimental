@@ -215,19 +215,26 @@ def _has_prohibited_claim(document: str) -> bool:
     claim_text = _claim_text(document).replace("optimizer.pt", "optimizer_pt")
     for sentence in re.split(r"[.!?]+", claim_text):
         sentence = sentence.replace("optimizer_pt", "optimizer.pt")
-        saw_optimizer = False
-        saw_queue_keys = False
+        previous_optimizer_subject = False
+        previous_queue_subject = False
         for raw_clause in sentence.split(";"):
             clause = raw_clause.strip()
-            if saw_optimizer and re.match(r"^it\b", clause):
+            if previous_optimizer_subject and re.match(r"^it\b", clause):
                 clause = f"optimizer.pt {clause}"
-            if saw_queue_keys and re.match(r"^they\b", clause):
+            if previous_queue_subject and re.match(r"^they\b", clause):
                 clause = f"independent queue keys {clause}"
             if _has_prohibited_relation(clause):
                 return True
-            saw_optimizer = saw_optimizer or "optimizer.pt" in raw_clause
-            saw_queue_keys = saw_queue_keys or bool(re.search(
-                r"\bindependent(?:\s+\w+){0,3}\s+queue keys?\b", raw_clause
+            previous_optimizer_subject = bool(re.search(
+                r"\boptimizer\.pt\s+(?:do|does|did|cannot|can|contains?|stores?|"
+                r"holds?|includes?|carr(?:y|ies)|is|are)\b",
+                raw_clause,
+            ))
+            previous_queue_subject = bool(re.search(
+                r"\bindependent(?:\s+\w+){0,3}\s+queue keys?\s+"
+                r"(?:do|does|did|cannot|can|allows?|provides?|enables?|performs?|"
+                r"constitutes?|are|is|represents?|gives?|delivers?)\b",
+                raw_clause,
             ))
     return False
 

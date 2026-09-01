@@ -14595,6 +14595,9 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
             "The best checkpoint is selected by fixed samples; the lowest loss is only one signal.",
             "Distributed training is performed by cooperating workers; independent queue keys isolate jobs.",
             "LoRA weights are stored in the output checkpoint; optimizer.pt restores optimizer state.",
+            "The LoRA checkpoint, not optimizer.pt, is loaded; it contains LoRA weights.",
+            "optimizer.pt stores training state; the LoRA checkpoint is separate; it contains LoRA weights.",
+            "Distributed worker groups, unlike independent queue keys, coordinate; they provide distributed training.",
         )
         for correction in corrections:
             with self.subTest(correction=correction):
