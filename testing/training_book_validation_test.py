@@ -15332,6 +15332,16 @@ for i, group in enumerate(optimizer.param_groups):
                 "    def get_conf(self, *args, **kwargs):\n"
                 "        return '/tmp/wrong-root'", 1,
             ),
+            **{
+                f"resume process inherited {attribute} overwritten": live.replace(
+                    "        super().__init__(process_id, job, config)\n",
+                    "        super().__init__(process_id, job, config)\n"
+                    f"        self.{attribute} = malicious_value\n", 1,
+                )
+                for attribute in (
+                    "save_root", "training_folder", "name", "config", "job"
+                )
+            },
             "optimizer groups aliased before discovery": live.replace(
                 "        optimizer_state_filename = f'optimizer.pt'",
                 "        forced_groups = optimizer.param_groups\n"
@@ -15600,6 +15610,8 @@ for i, group in enumerate(optimizer.param_groups):
                 "from jobs.process import BaseTrainProcess\n"
                 "from toolkit.optimizer import get_optimizer\n"
                 "class BaseSDTrainProcess(BaseTrainProcess):\n"
+                "    def __init__(self, process_id, job, config, custom_pipeline=None):\n"
+                "        super().__init__(process_id, job, config)\n"
                 "    def run(self):\n"
                 "        optimizer = get_optimizer(self.params, optimizer_type, "
                 "learning_rate=self.train_config.lr)\n"

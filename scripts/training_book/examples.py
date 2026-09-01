@@ -1365,6 +1365,20 @@ def _base_process_super_init(statement: ast.stmt) -> bool:
     )
 
 
+def _exact_sd_init_signature(method: ast.FunctionDef) -> bool:
+    arguments = method.args
+    return (
+        not method.decorator_list and not arguments.posonlyargs
+        and not arguments.kwonlyargs and arguments.vararg is None
+        and arguments.kwarg is None and not arguments.kw_defaults
+        and tuple(argument.arg for argument in arguments.args)
+        == ("self", "process_id", "job", "config", "custom_pipeline")
+        and len(arguments.defaults) == 1
+        and isinstance(arguments.defaults[0], ast.Constant)
+        and arguments.defaults[0].value is None
+    )
+
+
 def _validate_save_root_source_contract(repository_root: Path) -> None:
     _validate_base_job_identity(repository_root)
     process_path = repository_root / "jobs/process/BaseProcess.py"
@@ -1505,12 +1519,26 @@ def _validate_resume_source_contract(repository_root: Path) -> None:
     methods = ([node for node in classes[0].body
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "run"]
                if len(classes) == 1 else [])
+    init_methods = ([node for node in classes[0].body
+                     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                     and node.name == "__init__"] if len(classes) == 1 else [])
     if (len(methods) != 1 or len(classes[0].bases) != 1
             or not isinstance(classes[0].bases[0], ast.Name)
             or classes[0].bases[0].id != "BaseTrainProcess"
             or len(train_base_imports) != 1
             or _bound_name_count(tree, "BaseTrainProcess") != 1
-            or _bound_name_count(classes[0], "get_conf") != 0):
+            or _bound_name_count(classes[0], "get_conf") != 0
+            or len(init_methods) != 1
+            or not isinstance(init_methods[0], ast.FunctionDef)
+            or not _exact_sd_init_signature(init_methods[0])
+            or not init_methods[0].body
+            or not _base_process_super_init(init_methods[0].body[0])
+            or any(
+                _runtime_self_attribute_store_count(classes[0], attribute) != 0
+                for attribute in (
+                    "save_root", "training_folder", "name", "config", "job"
+                )
+            )):
         raise ExampleError("optimizer resume source no longer preserves configured learning rates")
     if not _exact_get_optimizer_import(tree):
         raise ExampleError("optimizer resume source no longer preserves configured learning rates")
