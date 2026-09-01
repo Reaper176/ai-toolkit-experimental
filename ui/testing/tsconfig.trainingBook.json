@@ -13,6 +13,12 @@
     "rootDir": "..",
     "target": "es2022"
   },
-  "include": ["trainingBookFacts.ts", "trainingBook*.test.ts", "trainingBook*.test.tsx"],
+  "include": [
+    "trainingBookFacts.ts",
+    "trainingBook*.test.ts",
+    "trainingBook*.test.tsx",
+    "trainingGuideLink.test.tsx",
+    "../src/components/TrainingGuideLink.tsx"
+  ],
   "exclude": ["../.next", "../node_modules"]
 }

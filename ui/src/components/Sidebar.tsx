@@ -10,6 +10,7 @@ import ThemeToggle from './ThemeToggle';
 import ThemeLogo from './ThemeLogo';
 import ActiveJobWidget from './ActiveJobWidget';
 import OstrisCloudBalance from './OstrisCloudBalance';
+import TrainingGuideLink from './TrainingGuideLink';
 
 export const mobileSidebarState = createGlobalState<boolean>(false);
 
@@ -79,6 +80,7 @@ const Sidebar = () => {
         </ul>
       </nav>
       <ActiveJobWidget />
+      <TrainingGuideLink />
       <a
         href="https://ostris.com/support"
         target="_blank"

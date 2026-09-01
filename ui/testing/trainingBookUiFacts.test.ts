@@ -7606,7 +7606,7 @@ if (liveRoot !== undefined) {
     'defineProperties abrupt construction prepass uses normalized exact invocation identity',
   );
   assert.equal(summaryArchFacts.length, 30);
-  assert.equal(declaredTypeScriptSources.length, 150, 'every concrete TypeScript source matched by the declared globs is scanned');
+  assert.equal(declaredTypeScriptSources.length, 151, 'every concrete TypeScript source matched by the declared globs is scanned');
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/Card.tsx'), 'declared files with no relevant facts remain part of source coverage');
   assert.deepEqual(

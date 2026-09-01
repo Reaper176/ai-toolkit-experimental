@@ -14,8 +14,8 @@ const validator = join(repositoryRoot, 'scripts', 'validate_training_book.py');
 const referenceGenerator = join(repositoryRoot, 'scripts', 'generate_training_book_reference.py');
 const navigationGenerator = join(repositoryRoot, 'scripts', 'generate_training_book_navigation.py');
 const presetCatalogRunner = join(testingDirectory, 'runTrainingPresetCatalogBuildValidation.mjs');
-const testSourcePattern = /^trainingBook.*\.test\.tsx?$/u;
-const testContract = 'trainingBook*.test.tsx?';
+const testSourcePattern = /^(?:trainingBook.*|trainingGuideLink)\.test\.tsx?$/u;
+const testContract = 'trainingBook*.test.tsx? or trainingGuideLink.test.tsx';
 const testSources = readdirSync(testingDirectory)
   .filter(name => testSourcePattern.test(name))
   .sort();
@@ -28,6 +28,7 @@ const requiredArtifacts = [
   join(repositoryRoot, 'scripts', 'training_book', 'manifest.py'),
   join(repositoryRoot, 'docs', 'book', 'book-manifest.json'),
   join(repositoryRoot, 'docs', 'book', 'README.md'),
+  join(repositoryRoot, 'ui', 'src', 'components', 'TrainingGuideLink.tsx'),
   join(testingDirectory, 'trainingBookFacts.ts'),
   join(testingDirectory, 'trainingBookUiFacts.test.ts'),
   join(testingDirectory, 'tsconfig.trainingBook.json'),
@@ -84,21 +85,7 @@ try {
   mkdirSync(nextLinkStub, { recursive: true });
   writeFileSync(join(nextLinkStub, 'link.js'), "module.exports = function Link() { return null; }; module.exports.default = module.exports;\n");
   const reactStub = join(outputDirectory, 'node_modules', 'react');
-  mkdirSync(reactStub, { recursive: true });
-  writeFileSync(join(reactStub, 'package.json'), JSON.stringify({ type: 'commonjs', main: 'index.js' }));
-  writeFileSync(join(reactStub, 'index.js'), [
-    "const createElement = (type, props, ...children) => ({ type, props: { ...(props || {}), children: children.length > 0 ? children : props?.children } });",
-    "const context = value => ({ value, Provider: props => props.children });",
-    "module.exports = { createElement, createContext: context, useContext: item => item.value, useEffect: fn => fn(), useState: value => [value, () => {}], Fragment: Symbol.for('react.fragment') };",
-    "module.exports.default = module.exports;",
-    '',
-  ].join('\n'));
-  writeFileSync(join(reactStub, 'jsx-runtime.js'), [
-    "const React = require('./index.js');",
-    "const jsx = (type, props) => React.createElement(type, props);",
-    "module.exports = { jsx, jsxs: jsx, Fragment: React.Fragment };",
-    '',
-  ].join('\n'));
+  symlinkSync(join(uiRoot, 'node_modules', 'react'), reactStub, process.platform === 'win32' ? 'junction' : 'dir');
   const lucideStub = join(outputDirectory, 'node_modules', 'lucide-react');
   mkdirSync(lucideStub, { recursive: true });
   writeFileSync(join(lucideStub, 'package.json'), JSON.stringify({ type: 'commonjs', main: 'index.js' }));
