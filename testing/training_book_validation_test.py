@@ -16047,6 +16047,70 @@ class TroubleshootingNarrativePageTests(unittest.TestCase):
             self.assertIn(phrase.lower(), page.lower())
 
 
+class GlossaryNarrativePageTests(unittest.TestCase):
+    def test_advanced_page_glossary_defines_core_training_terms(self):
+        page = (REPOSITORY_ROOT / "docs/book/glossary.md").read_text(
+            encoding="utf-8"
+        )
+
+        for heading in (
+            "## A–C",
+            "## D–L",
+            "## M–R",
+            "## S–Z",
+            "## Further reading",
+        ):
+            self.assertEqual(page.count(heading), 1, heading)
+        for term in (
+            "Alpha",
+            "Architecture",
+            "Batch size",
+            "Bucket",
+            "Cache",
+            "Caption dropout",
+            "Checkpoint",
+            "Conditioning",
+            "Control",
+            "Epoch",
+            "Gradient accumulation",
+            "Gradient checkpointing",
+            "Latent",
+            "Learning rate",
+            "LoRA",
+            "Loss",
+            "Mask",
+            "Noise scheduler",
+            "Optimizer",
+            "Overfitting",
+            "Quantization",
+            "Rank",
+            "Resume",
+            "Sampler",
+            "Seed",
+            "Step",
+            "Text encoder",
+            "Timestep",
+            "Trigger",
+            "VAE",
+            "VRAM",
+        ):
+            self.assertEqual(page.count(f"### {term}"), 1, term)
+        for phrase in (
+            "alpha / rank",
+            "effective batch",
+            "not the same as",
+            "fixed seed",
+            "lowest loss",
+            "optimizer state",
+            "source media",
+            "getting-started/training-mental-model.md",
+            "reference/network.md",
+            "reference/training.md",
+            "workflow/sampling-and-evaluation.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
+
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
         "reference/job-and-model.md",
