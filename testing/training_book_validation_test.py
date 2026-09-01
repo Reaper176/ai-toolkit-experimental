@@ -15674,6 +15674,34 @@ class ModelNarrativePageTests(unittest.TestCase):
             ("model.qwen_image_edit_plus.model_kwargs.match_target_res",),
         )
 
+    def test_model_pages_page_model_sd_distinguishes_sdxl_and_sd15(self):
+        page, payload = self.assert_model_page_contract(
+            "models/sdxl-and-sd15.md", ("sdxl", "sd15")
+        )
+        for phrase in (
+            "stabilityai/stable-diffusion-xl-base-1.0",
+            "stable-diffusion-v1-5/stable-diffusion-v1-5",
+            "SDXL",
+            "SD 1.5",
+            "1024",
+            "512",
+            "ddpm",
+            "guidance scale",
+            "6",
+            "text encoder",
+            "optimizer",
+            "quantization",
+            "timestep",
+            "not interchangeable",
+            "fixed seed",
+            "../recipes/character-identity.md",
+            "../recipes/style.md",
+            "../datasets/resolution-and-bucketing.md",
+            "../workflow/sampling-and-evaluation.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+        self.assertEqual(payload["deferred_settings"], [])
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
