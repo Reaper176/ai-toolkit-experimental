@@ -14664,6 +14664,35 @@ class BeginnerNarrativePageTests(unittest.TestCase):
             self.assertIn(phrase.lower(), page.lower())
 
 
+class WorkflowNarrativePageTests(unittest.TestCase):
+    def test_workflow_page_simple_ui_covers_edit_save_import_and_clone(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/workflow/simple-ui.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Start in the Simple editor",
+            "## Know when a job is advanced",
+            "## Create, save, and update",
+            "## Import a configuration",
+            "## Clone before experimenting",
+            "## A safe editing routine",
+        ):
+            self.assertIn(heading, page)
+        for phrase in (
+            "Show Advanced",
+            "Show Simple",
+            "Create Job",
+            "Update Job",
+            "YAML",
+            "JSON",
+            "clone",
+            "source job",
+            "new job name",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
+
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
         "reference/job-and-model.md",
