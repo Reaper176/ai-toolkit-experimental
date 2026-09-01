@@ -14556,6 +14556,31 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
         )
 
 
+class BeginnerNarrativePageTests(unittest.TestCase):
+    def test_beginner_page_prerequisites_covers_the_safe_starting_contract(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/getting-started/prerequisites.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Install and start ai-toolkit",
+            "## Authentication and model access",
+            "## GPU support, memory, and storage",
+            "## Dataset rights, privacy, and safety",
+            "## Readiness checklist",
+        ):
+            self.assertIn(heading, page)
+        for phrase in (
+            "supported NVIDIA GPU",
+            "Hugging Face",
+            "training output",
+            "permission",
+            "first-lora-flex1.yaml",
+            "saving-resuming-and-optimizer-state.md",
+        ):
+            self.assertIn(phrase, page)
+
+
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
         "reference/job-and-model.md",
