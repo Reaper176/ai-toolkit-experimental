@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections import Counter
-from collections.abc import Sequence
-from pathlib import Path
+from collections.abc import Mapping, Sequence
+from pathlib import Path, PurePosixPath
 
 try:
     from training_book.catalog import CatalogError, Setting, load_settings_catalog
@@ -35,6 +36,21 @@ REFERENCE_PAGE_PATHS = (
     "reference/advanced-only-settings.md",
 )
 
+MODEL_PAGE_ARCHITECTURES = {
+    "models/anima.md": ("anima",),
+    "models/flux-and-flex.md": ("flux", "flux_kontext", "flex1"),
+    "models/qwen-image-and-edit.md": (
+        "qwen_image", "qwen_image:2512", "qwen_image_edit",
+        "qwen_image_edit_plus", "qwen_image_edit_plus:2511",
+    ),
+    "models/sdxl-and-sd15.md": ("sdxl", "sd15"),
+    "models/wan.md": ("wan21:1b", "wan22_14b:t2v"),
+}
+
+MODEL_FACTS_START = "<!-- model-facts:start -->"
+MODEL_FACTS_END = "<!-- model-facts:end -->"
+MODEL_FACTS_NOTICE = "<!-- generated; edit settings-catalog.json instead -->"
+
 CANONICAL_DEFERRED_ASSIGNMENTS = (
     ("cli.config_file_list", "advanced/yaml-and-cli.md"),
     ("cli.recover", "advanced/yaml-and-cli.md"),
@@ -54,6 +70,164 @@ CANONICAL_DEFERRED_ASSIGNMENTS = (
 
 class ReferenceGenerationError(ValueError):
     """Raised when committed reference output is missing or stale."""
+
+
+def validate_model_page_selector(
+    page: str,
+    model_page_architectures: Mapping[str, tuple[str, ...]] = MODEL_PAGE_ARCHITECTURES,
+) -> str:
+    """Return one exact manifest-relative model page or reject the selector."""
+
+    if not page or "\\" in page:
+        raise ReferenceGenerationError("model page selector must be a nonempty POSIX path")
+    candidate = PurePosixPath(page)
+    if candidate.is_absolute() or ".." in candidate.parts or candidate.as_posix() != page:
+        raise ReferenceGenerationError(f"unsafe model page selector {page!r}")
+    if not page.startswith("models/") or page not in model_page_architectures:
+        raise ReferenceGenerationError(f"unknown model page selector {page!r}")
+    return page
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def render_model_facts_block(
+    catalog: object,
+    relative_page: str,
+    architectures: Sequence[str],
+) -> str:
+    """Render exact catalog-owned facts for one focused model-family page."""
+
+    if not architectures or len(architectures) != len(set(architectures)):
+        raise ReferenceGenerationError(
+            f"{relative_page}: model architectures must be nonempty and unique"
+        )
+    architecture_rows = []
+    for architecture in architectures:
+        facts = [
+            owner.model_dump(mode="json", exclude_none=True)
+            for owner in catalog.ui_claims
+            if getattr(owner.fact, "architecture", None) == architecture
+        ]
+        if not facts:
+            raise ReferenceGenerationError(
+                f"{relative_page}: catalog has no UI facts for {architecture!r}"
+            )
+        architecture_rows.append({
+            "id": architecture,
+            "facts": sorted(facts, key=_canonical_json),
+        })
+    deferred_settings = sorted(
+        (
+            setting.model_dump(mode="json", exclude_none=True)
+            for setting in catalog.settings
+            if setting.render.page == relative_page
+        ),
+        key=lambda item: item["id"],
+    )
+    payload = {
+        "schema_version": 1,
+        "architectures": architecture_rows,
+        "deferred_settings": deferred_settings,
+    }
+    rendered_payload = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        indent=2,
+    )
+    return "\n".join((
+        MODEL_FACTS_START,
+        MODEL_FACTS_NOTICE,
+        "```json",
+        rendered_payload,
+        "```",
+        MODEL_FACTS_END,
+    ))
+
+
+def replace_model_facts_block(document: str, block: str) -> str:
+    """Replace one balanced model-facts block without changing prose."""
+
+    if block.count(MODEL_FACTS_START) != 1 or block.count(MODEL_FACTS_END) != 1:
+        raise ReferenceGenerationError(
+            "rendered block requires exactly one model-facts marker pair"
+        )
+    if not block.startswith(MODEL_FACTS_START) or not block.endswith(MODEL_FACTS_END):
+        raise ReferenceGenerationError(
+            "rendered model-facts markers must bound the complete block"
+        )
+    if (
+        document.count(MODEL_FACTS_START) != 1
+        or document.count(MODEL_FACTS_END) != 1
+    ):
+        raise ReferenceGenerationError(
+            "model page requires exactly one model-facts marker pair"
+        )
+    start = document.index(MODEL_FACTS_START)
+    end = document.index(MODEL_FACTS_END)
+    if end < start:
+        raise ReferenceGenerationError("model-facts markers are out of order")
+    end += len(MODEL_FACTS_END)
+    return f"{document[:start]}{block}{document[end:]}"
+
+
+def generate_model_fact_pages(
+    repository_root: Path,
+    catalog: object,
+    *,
+    check: bool,
+    page: str | None = None,
+    model_page_architectures: Mapping[
+        str, tuple[str, ...]
+    ] = MODEL_PAGE_ARCHITECTURES,
+) -> None:
+    """Write or verify existing focused model-page fact blocks atomically."""
+
+    root = repository_root.resolve()
+    if page is not None:
+        relative_pages = (
+            validate_model_page_selector(page, model_page_architectures),
+        )
+    else:
+        relative_pages = tuple(
+            relative_page
+            for relative_page in model_page_architectures
+            if (root / "docs/book" / relative_page).is_file()
+        )
+    documents: list[tuple[Path, str, str, str]] = []
+    for relative_page in relative_pages:
+        target = root / "docs/book" / relative_page
+        if not target.is_file():
+            raise ReferenceGenerationError(f"missing model page {relative_page}")
+        original = target.read_text(encoding="utf-8")
+        block = render_model_facts_block(
+            catalog,
+            relative_page,
+            model_page_architectures[relative_page],
+        )
+        rendered = replace_model_facts_block(original, block)
+        documents.append((target, relative_page, original, rendered))
+
+    drifted = [
+        relative_page
+        for _, relative_page, original, rendered in documents
+        if rendered != original
+    ]
+    if check and drifted:
+        raise ReferenceGenerationError(
+            "generated model-fact drift: " + ", ".join(drifted)
+        )
+    if not check:
+        for target, _, original, rendered in documents:
+            if rendered != original:
+                target.write_text(rendered, encoding="utf-8")
 
 
 def partition_reference_settings(
@@ -118,9 +292,10 @@ def generate_reference_pages(
     repository_root: Path,
     *,
     check: bool,
+    page: str | None = None,
     expected_deferred_assignments: Sequence[tuple[str, str]] = CANONICAL_DEFERRED_ASSIGNMENTS,
 ) -> None:
-    """Write or verify all Task 7 reference blocks under ``repository_root``."""
+    """Write or verify reference blocks and existing focused model-fact blocks."""
 
     root = repository_root.resolve()
     reference_root = root / "docs/book/reference"
@@ -132,6 +307,10 @@ def generate_reference_pages(
         )
     except CatalogError as error:
         raise ReferenceGenerationError(str(error)) from error
+
+    if page is not None:
+        generate_model_fact_pages(root, catalog, check=check, page=page)
+        return
 
     settings_by_page, _ = partition_reference_settings(
         catalog.settings,
@@ -163,17 +342,23 @@ def generate_reference_pages(
         for page, _, original, rendered in documents:
             if rendered != original:
                 page.write_text(rendered, encoding="utf-8")
+    generate_model_fact_pages(root, catalog, check=check)
 
 
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--page")
     return parser.parse_args()
 
 
 def main() -> None:
     arguments = _arguments()
-    generate_reference_pages(Path(__file__).resolve().parents[1], check=arguments.check)
+    generate_reference_pages(
+        Path(__file__).resolve().parents[1],
+        check=arguments.check,
+        page=arguments.page,
+    )
 
 
 if __name__ == "__main__":

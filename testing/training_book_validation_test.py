@@ -15889,6 +15889,261 @@ class GeneratedReferenceTests(unittest.TestCase):
             "generate_reference_pages(repository_root, check=True)", validator
         )
 
+    def model_fact_owner(self, setting_id, fact):
+        return catalog_module.UiFactOwner.model_validate({
+            "setting_id": setting_id,
+            "fact": fact,
+        })
+
+    def model_fact_fixture(self):
+        architecture = "fixture_image"
+        owners = []
+        value_fields = {
+            "label": {"kind": "string", "value": "Fixture Image"},
+            "group": {"kind": "string", "value": "image"},
+            "controls": {
+                "kind": "array",
+                "items": [{"kind": "string", "value": "control_path"}],
+            },
+            "disable_sections": {
+                "kind": "array",
+                "items": [{"kind": "string", "value": "network.conv"}],
+            },
+            "additional_sections": {
+                "kind": "array",
+                "items": [
+                    {"kind": "string", "value": "model.low_vram"},
+                    {"kind": "string", "value": "model.layer_offloading"},
+                ],
+            },
+        }
+        for field, value in value_fields.items():
+            owners.append(self.model_fact_owner(
+                "ui.architecture.fixture-image",
+                {
+                    "fact_type": "architecture-field",
+                    "architecture": architecture,
+                    "field": field,
+                    "payload": {"payload_kind": "value", "value": value},
+                },
+            ))
+        for field, value in (
+            ("model_path", "org/fixture-image"),
+            ("gate_url", "https://example.invalid/fixture-image"),
+            ("is_video_model", False),
+        ):
+            owners.append(self.model_fact_owner(
+                "ui.architecture.fixture-image",
+                {
+                    "fact_type": "architecture-field",
+                    "architecture": architecture,
+                    "field": field,
+                    "payload": {
+                        "payload_kind": "presence",
+                        "value": {
+                            "present": True,
+                            "value": {
+                                "kind": "boolean" if isinstance(value, bool) else "string",
+                                "value": value,
+                            },
+                        },
+                    },
+                },
+            ))
+        defaults = (
+            ("model.quantize", "config.process[*].model.quantize", True),
+            ("model.low_vram", "config.process[*].model.low_vram", True),
+            ("train.noise_scheduler", "config.process[*].train.noise_scheduler", "flowmatch"),
+            ("dataset.fps", "config.process[*].datasets[*].fps", 16),
+            ("sample.num_frames", "config.process[*].sample.num_frames", 41),
+        )
+        for setting_id, path, value in defaults:
+            kind = "boolean" if isinstance(value, bool) else (
+                "number" if isinstance(value, int) else "string"
+            )
+            owners.append(self.model_fact_owner(setting_id, {
+                "fact_type": "architecture-default",
+                "architecture": architecture,
+                "declaration_path": path,
+                "path": path,
+                "selected": {
+                    "present": True,
+                    "value": {"kind": kind, "value": value},
+                },
+                "unselected": {"present": False},
+            }))
+        deferred = self.catalog_entry(
+            setting_id="model.fixture.model_kwargs.incompatible_mode",
+            section="model-architecture",
+            anchor="model-fixture-incompatible-mode",
+        )
+        deferred["render"]["page"] = "models/anima.md"
+        return SimpleNamespace(
+            settings=self.typed_catalog([deferred]).settings,
+            ui_claims=tuple(owners),
+        )
+
+    def write_model_fact_page(self, root, relative_page):
+        page = root / "docs/book" / relative_page
+        page.parent.mkdir(parents=True, exist_ok=True)
+        page.write_text(
+            "# Fixture model\n\n[Table of contents](../README.md)\n\n"
+            "<!-- book-navigation:start -->\n"
+            "<!-- book-navigation:end -->\n\n"
+            "Hand-written model guidance.\n\n"
+            "<!-- model-facts:start -->\n"
+            "<!-- model-facts:end -->\n\n"
+            "<!-- book-verification:start -->\n"
+            "<!-- book-verification:end -->\n",
+            encoding="utf-8",
+        )
+        return page
+
+    def test_model_fact_generator_renders_exact_focused_catalog_facts(self):
+        from scripts.generate_training_book_reference import (
+            MODEL_PAGE_ARCHITECTURES,
+            render_model_facts_block,
+        )
+
+        self.assertEqual(MODEL_PAGE_ARCHITECTURES, {
+            "models/anima.md": ("anima",),
+            "models/flux-and-flex.md": ("flux", "flux_kontext", "flex1"),
+            "models/qwen-image-and-edit.md": (
+                "qwen_image", "qwen_image:2512", "qwen_image_edit",
+                "qwen_image_edit_plus", "qwen_image_edit_plus:2511",
+            ),
+            "models/sdxl-and-sd15.md": ("sdxl", "sd15"),
+            "models/wan.md": ("wan21:1b", "wan22_14b:t2v"),
+        })
+        catalog = self.model_fact_fixture()
+        first = render_model_facts_block(
+            catalog, "models/anima.md", ("fixture_image",)
+        )
+        reversed_catalog = SimpleNamespace(
+            settings=tuple(reversed(catalog.settings)),
+            ui_claims=tuple(reversed(catalog.ui_claims)),
+        )
+        self.assertEqual(
+            first,
+            render_model_facts_block(
+                reversed_catalog, "models/anima.md", ("fixture_image",)
+            ),
+        )
+        payload = json.loads(first.split("```json\n", 1)[1].split("\n```", 1)[0])
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(
+            tuple(item["id"] for item in payload["architectures"]),
+            ("fixture_image",),
+        )
+        facts = payload["architectures"][0]["facts"]
+        self.assertEqual(len(facts), len(catalog.ui_claims))
+        serialized = json.dumps(facts, sort_keys=True)
+        for required in (
+            "org/fixture-image", "https://example.invalid/fixture-image",
+            "flowmatch", "control_path", "model.low_vram",
+            "model.layer_offloading", "dataset.fps", "sample.num_frames",
+            "network.conv",
+        ):
+            self.assertIn(required, serialized)
+        self.assertEqual(
+            tuple(item["id"] for item in payload["deferred_settings"]),
+            ("model.fixture.model_kwargs.incompatible_mode",),
+        )
+        self.assertNotIn("preset", first.lower())
+        self.assertNotIn("quality", first.lower())
+
+    def test_model_fact_generator_writes_checks_and_preserves_prose(self):
+        from scripts.generate_training_book_reference import (
+            ReferenceGenerationError,
+            generate_model_fact_pages,
+        )
+
+        catalog = self.model_fact_fixture()
+        mapping = {"models/anima.md": ("fixture_image",)}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            page = self.write_model_fact_page(root, "models/anima.md")
+            original = page.read_text(encoding="utf-8")
+            generate_model_fact_pages(
+                root, catalog, check=False, page="models/anima.md",
+                model_page_architectures=mapping,
+            )
+            generated = page.read_text(encoding="utf-8")
+            self.assertIn('"id": "fixture_image"', generated)
+            self.assertEqual(
+                original.split("<!-- model-facts:start -->", 1)[0],
+                generated.split("<!-- model-facts:start -->", 1)[0],
+            )
+            self.assertEqual(
+                original.split("<!-- model-facts:end -->", 1)[1],
+                generated.split("<!-- model-facts:end -->", 1)[1],
+            )
+            generate_model_fact_pages(
+                root, catalog, check=True, page="models/anima.md",
+                model_page_architectures=mapping,
+            )
+            page.write_text(generated.replace("fixture_image", "drift", 1))
+            with self.assertRaisesRegex(
+                ReferenceGenerationError, "generated model-fact drift.*models/anima.md"
+            ):
+                generate_model_fact_pages(
+                    root, catalog, check=True, page="models/anima.md",
+                    model_page_architectures=mapping,
+                )
+
+    def test_model_fact_generator_page_selector_is_closed(self):
+        from scripts.generate_training_book_reference import (
+            ReferenceGenerationError,
+            validate_model_page_selector,
+        )
+
+        mapping = {"models/anima.md": ("anima",)}
+        self.assertEqual(
+            validate_model_page_selector("models/anima.md", mapping),
+            "models/anima.md",
+        )
+        for candidate in (
+            "", "reference/training.md", "/models/anima.md",
+            "models/../models/anima.md", "models/missing.md",
+            "models\\anima.md",
+        ):
+            with self.subTest(candidate=candidate), self.assertRaises(
+                ReferenceGenerationError
+            ):
+                validate_model_page_selector(candidate, mapping)
+
+    def test_model_fact_generator_full_write_is_atomic_on_late_error(self):
+        from scripts.generate_training_book_reference import (
+            ReferenceGenerationError,
+            generate_model_fact_pages,
+        )
+
+        catalog = self.model_fact_fixture()
+        mapping = {
+            "models/anima.md": ("fixture_image",),
+            "models/wan.md": ("fixture_image",),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            early = self.write_model_fact_page(root, "models/anima.md")
+            late = self.write_model_fact_page(root, "models/wan.md")
+            early_before = early.read_bytes()
+            late.write_text(
+                late.read_text(encoding="utf-8").replace(
+                    "<!-- model-facts:end -->", ""
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                ReferenceGenerationError,
+                "models/wan.md|exactly one model-facts marker pair",
+            ):
+                generate_model_fact_pages(
+                    root, catalog, check=False,
+                    model_page_architectures=mapping,
+                )
+            self.assertEqual(early.read_bytes(), early_before)
+
 
 class BookArtifactTests(unittest.TestCase):
     def test_canonical_book_manifest_matches_the_published_contract(self):
