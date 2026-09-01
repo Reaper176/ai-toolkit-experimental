@@ -15099,6 +15099,170 @@ class DatasetChaptersNarrativePageTests(unittest.TestCase):
             self.assertIn(phrase.lower(), page.lower())
 
 
+class RecipeNarrativePageTests(unittest.TestCase):
+    REQUIRED_SECTIONS = (
+        "Objective",
+        "Suitable models",
+        "Dataset design",
+        "Caption pattern",
+        "Starting settings and ranges",
+        "Sampling plan",
+        "Expected learning signals",
+        "Common failure modes",
+        "Settings deliberately not changed",
+        "Model-specific deviations",
+        "Further reading",
+    )
+    REQUIRED_MODEL_LINKS = {
+        "recipes/character-identity.md": (
+            "../models/anima.md",
+            "../models/flux-and-flex.md",
+            "../models/sdxl-and-sd15.md",
+            "../models/wan.md",
+        ),
+        "recipes/style.md": (
+            "../models/flux-and-flex.md",
+            "../models/sdxl-and-sd15.md",
+        ),
+        "recipes/object-concept.md": (
+            "../models/flux-and-flex.md",
+            "../models/qwen-image-and-edit.md",
+        ),
+        "recipes/focused-refinement.md": (
+            "../models/anima.md",
+            "../models/qwen-image-and-edit.md",
+        ),
+        "recipes/low-vram.md": ("../models/anima.md",),
+        "recipes/diagnostic-run.md": (
+            "../models/anima.md",
+            "../models/wan.md",
+        ),
+    }
+    PRESET_START = "<!-- built-in-presets:start -->"
+    PRESET_END = "<!-- built-in-presets:end -->"
+
+    def recipe_fixture(self, relative_path, *, preset_rows=()):
+        links = "\n".join(
+            f"- [Model guide]({target})"
+            for target in self.REQUIRED_MODEL_LINKS[relative_path]
+        )
+        sections = []
+        for section in self.REQUIRED_SECTIONS:
+            content = links if section == "Model-specific deviations" else "Fixture guidance."
+            sections.append(f"## {section}\n\n{content}")
+        block = "\n".join(
+            f"- `{preset_id}` — {name}" for preset_id, name in preset_rows
+        )
+        return (
+            "# Fixture recipe\n\n"
+            + "\n\n".join(sections)
+            + f"\n\n{self.PRESET_START}\n{block}\n{self.PRESET_END}\n"
+        )
+
+    def assert_recipe_contract(
+        self,
+        relative_path,
+        document,
+        *,
+        pre_catalog=False,
+        preset_facts=(),
+    ):
+        lines = document.splitlines()
+        for section in self.REQUIRED_SECTIONS:
+            self.assertEqual(lines.count(f"## {section}"), 1, section)
+        self.assertEqual(document.count(self.PRESET_START), 1)
+        self.assertEqual(document.count(self.PRESET_END), 1)
+        start = document.index(self.PRESET_START) + len(self.PRESET_START)
+        end = document.index(self.PRESET_END)
+        self.assertLess(start, end)
+        block = document[start:end].strip()
+
+        model_links = re.findall(
+            r"\[[^\]]+\]\((\.\./models/[^)#?]+\.md)\)", document
+        )
+        required_links = self.REQUIRED_MODEL_LINKS[relative_path]
+        self.assertEqual(len(model_links), len(required_links))
+        self.assertEqual(set(model_links), set(required_links))
+
+        if pre_catalog:
+            self.assertEqual(block, "")
+            return
+
+        expected = [
+            (fact["id"], fact["name"])
+            for fact in preset_facts
+            if fact["recipe_path"] == relative_path
+        ]
+        actual = re.findall(r"^- `([^`]+)` — (.+)$", block, re.MULTILINE)
+        self.assertTrue(expected, "final recipe must have emitted preset facts")
+        self.assertEqual(actual, expected)
+
+    def assert_recipe_set(self, pages, *, preset_facts):
+        self.assertEqual(
+            {fact["recipe_path"] for fact in preset_facts}, set(pages)
+        )
+        for relative_path, document in pages.items():
+            self.assert_recipe_contract(
+                relative_path, document, preset_facts=preset_facts
+            )
+
+    def test_recipe_contract_accepts_only_explicit_empty_pre_catalog_mode(self):
+        relative_path = "recipes/character-identity.md"
+        document = self.recipe_fixture(relative_path)
+        self.assert_recipe_contract(relative_path, document, pre_catalog=True)
+
+        with self.assertRaises(AssertionError):
+            self.assert_recipe_contract(relative_path, document)
+        with self.assertRaises(AssertionError):
+            self.assert_recipe_contract(
+                relative_path,
+                self.recipe_fixture(relative_path, preset_rows=(("preset-a", "A"),)),
+                pre_catalog=True,
+            )
+
+    def test_recipe_contract_rejects_sections_markers_and_wrong_model_links(self):
+        relative_path = "recipes/character-identity.md"
+        document = self.recipe_fixture(relative_path)
+        mutations = (
+            document.replace("## Objective\n", "", 1),
+            document.replace(self.PRESET_END, f"{self.PRESET_END}\n{self.PRESET_END}"),
+            document.replace("../models/anima.md", "../models/qwen-image-and-edit.md"),
+            document.replace(
+                "- [Model guide](../models/wan.md)",
+                "- [Model guide](../models/wan.md)\n- [Again](../models/wan.md)",
+            ),
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation[:80]), self.assertRaises(AssertionError):
+                self.assert_recipe_contract(
+                    relative_path, mutation, pre_catalog=True
+                )
+
+    def test_recipe_contract_enforces_bidirectional_final_preset_membership(self):
+        relative_path = "recipes/style.md"
+        facts = (
+            {"id": "style-a", "name": "Style A", "recipe_path": relative_path},
+            {"id": "style-b", "name": "Style B", "recipe_path": relative_path},
+        )
+        document = self.recipe_fixture(
+            relative_path,
+            preset_rows=(("style-a", "Style A"), ("style-b", "Style B")),
+        )
+        self.assert_recipe_set({relative_path: document}, preset_facts=facts)
+
+        invalid_facts = (
+            facts[:1],
+            facts + ({"id": "style-c", "name": "Style C", "recipe_path": relative_path},),
+            ({"id": "style-a", "name": "Wrong", "recipe_path": relative_path}, facts[1]),
+            facts + ({"id": "other", "name": "Other", "recipe_path": "recipes/other.md"},),
+        )
+        for mutation in invalid_facts:
+            with self.subTest(facts=mutation), self.assertRaises(AssertionError):
+                self.assert_recipe_set(
+                    {relative_path: document}, preset_facts=mutation
+                )
+
+
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
         "reference/job-and-model.md",
