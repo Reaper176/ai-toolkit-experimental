@@ -15813,6 +15813,50 @@ class AdvancedNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), page.lower())
 
+    def test_advanced_page_advanced_layers_covers_targeting_rank_and_alpha(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/advanced/layer-targeting.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Start from architecture-owned targets",
+            "## Understand rank and alpha",
+            "## Filter module names safely",
+            "## Choose linear and convolution capacity",
+            "## Use per-block capacity only with a map",
+            "## Verify the resulting network",
+            "## Common failure modes",
+            "## Further reading",
+        ):
+            self.assertEqual(page.count(heading), 1, heading)
+        for phrase in (
+            "target_lora_modules",
+            "linear",
+            "linear_alpha",
+            "alpha / rank",
+            "higher rank",
+            "memory",
+            "checkpoint size",
+            "ignore_if_contains",
+            "only_if_contains",
+            "substring",
+            "network_kwargs",
+            "broad filters",
+            "few or no trainable modules",
+            "conv",
+            "conv_alpha",
+            "block_dims",
+            "block_alphas",
+            "positional",
+            "architecture",
+            "one variable",
+            "fixed seed",
+            "../reference/network.md",
+            "../workflow/sampling-and-evaluation.md",
+            "../recipes/diagnostic-run.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
