@@ -14445,6 +14445,117 @@ def build(network_kwargs):
                 self.assertIn("scope", result.stderr)
 
 
+class NarrativeMarkdownContractTests(unittest.TestCase):
+    MANIFEST_PATHS = ("README.md", "guide/current.md", "guide/target.md", "guide/future.md")
+
+    def page(self, body="## Details\n\nSafe guidance."):
+        return (
+            "# Fixture page\n\n"
+            "[Table of contents](../README.md)\n\n"
+            "<!-- book-navigation:start -->\n"
+            "<!-- book-navigation:end -->\n\n"
+            f"{body}\n\n"
+            "<!-- book-verification:start -->\n"
+            "<!-- book-verification:end -->\n"
+        )
+
+    def validate(self, document, *, existing_paths=None, page_documents=None):
+        from scripts.training_book.markdown import validate_narrative_page
+
+        current = "guide/current.md"
+        documents = {current: document, **(page_documents or {})}
+        validate_narrative_page(
+            current,
+            document,
+            manifest_paths=self.MANIFEST_PATHS,
+            existing_paths=existing_paths or {"README.md", current},
+            page_documents=documents,
+        )
+
+    def test_narrative_contract_accepts_one_h1_unique_anchors_and_marker_boundaries(self):
+        self.validate(self.page('<a id="explicit-detail"></a>\n\n## Details'))
+
+        mutations = {
+            "missing H1": self.page().replace("# Fixture page\n", ""),
+            "second H1": self.page() + "\n# Another title\n",
+            "duplicate derived anchor": self.page("## Details\n\n## Details"),
+            "explicit-derived collision": self.page(
+                '<a id="details"></a>\n\n## Details'
+            ),
+            "duplicate marker": self.page().replace(
+                "<!-- book-navigation:end -->",
+                "<!-- book-navigation:end -->\n<!-- book-navigation:end -->",
+            ),
+            "marker order": self.page().replace(
+                "<!-- book-navigation:start -->\n<!-- book-navigation:end -->",
+                "<!-- book-navigation:end -->\n<!-- book-navigation:start -->",
+            ),
+            "content after footer": self.page() + "Unsafe trailing content.\n",
+        }
+        from scripts.training_book.markdown import MarkdownContractError
+
+        for label, document in mutations.items():
+            with self.subTest(label=label), self.assertRaises(MarkdownContractError):
+                self.validate(document)
+
+    def test_narrative_contract_enforces_staged_forward_link_rules(self):
+        target = self.page('<a id="usable"></a>\n\n## Target')
+        documents = {"guide/target.md": target}
+        existing = {"README.md", "guide/current.md", "guide/target.md"}
+        self.validate(
+            self.page(
+                "## Links\n\n[Existing](target.md#usable) and "
+                "[declared future](future.md)."
+            ),
+            existing_paths=existing,
+            page_documents=documents,
+        )
+
+        unsafe_targets = (
+            "future.md#missing", "undeclared.md", "../../escape.md",
+            "\\wrong.md", "/absolute.md", "target.md#missing",
+        )
+        from scripts.training_book.markdown import MarkdownContractError
+
+        for target_link in unsafe_targets:
+            with self.subTest(target=target_link), self.assertRaises(MarkdownContractError):
+                self.validate(
+                    self.page(f"## Links\n\n[Unsafe]({target_link})"),
+                    existing_paths=existing,
+                    page_documents=documents,
+                )
+
+    def test_narrative_contract_rejects_prohibited_training_claims(self):
+        claims = (
+            "The lowest loss checkpoint is always the best checkpoint.",
+            "Independent queue keys provide distributed training.",
+            "optimizer.pt contains the LoRA weights.",
+        )
+        from scripts.training_book.markdown import MarkdownContractError
+
+        for claim in claims:
+            with self.subTest(claim=claim), self.assertRaises(MarkdownContractError):
+                self.validate(self.page(f"## Claim\n\n{claim}"))
+
+        corrections = (
+            "The lowest loss checkpoint is not necessarily the best checkpoint.",
+            "Separate queue keys run independent jobs, not distributed training.",
+            "optimizer.pt does not contain LoRA weights.",
+        )
+        for correction in corrections:
+            with self.subTest(correction=correction):
+                self.validate(self.page(f"## Correction\n\n{correction}"))
+
+    def test_staged_pages_validate_only_current_manifest_declared_markdown(self):
+        from scripts.training_book.markdown import validate_staged_book_pages
+
+        manifest = load_book_manifest(REPOSITORY_ROOT / "docs/book/book-manifest.json")
+        validate_staged_book_pages(
+            REPOSITORY_ROOT / "docs/book",
+            tuple(page.path for page in manifest.pages),
+        )
+
+
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
         "reference/job-and-model.md",

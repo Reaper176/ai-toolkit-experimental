@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import html
 import json
+import posixpath
 import re
 from collections.abc import Iterable, Sequence
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .catalog import Applicability, Setting, SettingDefault
@@ -17,10 +19,187 @@ GENERATED_NOTICE = "<!-- generated; edit settings-catalog.json instead -->"
 
 _ANCHOR = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]*\Z")
 _MARKDOWN_PUNCTUATION = re.compile(r"([\\`*_[\]{}#])")
+_EXPLICIT_ANCHOR = re.compile(r'<a\s+id="([A-Za-z][A-Za-z0-9_.:-]*)"\s*></a>')
+_MARKDOWN_LINK = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)]+)\)")
+_EXTERNAL_LINK = re.compile(r"(?:https?|mailto):", re.IGNORECASE)
+_PROHIBITED_CLAIMS = (
+    re.compile(
+        r"\blowest\s+loss\b[^.!?\n]{0,80}\b(?:is|means|identifies)\s+"
+        r"(?!not\b)"
+        r"(?:always\s+)?(?:the\s+)?best\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bindependent\s+queue\s+keys?\b\s+"
+        r"(?:provide|enable|perform|constitute|are)\s+distributed\s+training\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\boptimizer\.pt\b\s+(?:files?\s+)?(?:contains?|stores?)\s+"
+        r"(?:the\s+)?lora\s+weights?\b",
+        re.IGNORECASE,
+    ),
+)
+_PAGE_MARKERS = (
+    "<!-- book-navigation:start -->",
+    "<!-- book-navigation:end -->",
+    "<!-- book-verification:start -->",
+    "<!-- book-verification:end -->",
+)
 
 
 class MarkdownGenerationError(ValueError):
     """Raised when a generated Markdown block cannot be rendered safely."""
+
+
+class MarkdownContractError(ValueError):
+    """Raised when a hand-written training-book page violates its contract."""
+
+
+def _outside_fences(document: str) -> str:
+    lines: list[str] = []
+    fence: str | None = None
+    for line in document.splitlines():
+        stripped = line.lstrip()
+        opening = re.match(r"(`{3,}|~{3,})", stripped)
+        if opening:
+            token = opening.group(1)
+            if fence is None:
+                fence = token[0]
+            elif token[0] == fence:
+                fence = None
+            lines.append("")
+        elif fence is None:
+            lines.append(line)
+        else:
+            lines.append("")
+    return "\n".join(lines)
+
+
+def _heading_anchor(heading: str) -> str:
+    value = re.sub(r"<[^>]+>", "", heading)
+    value = value.replace("`", "").strip().lower()
+    value = re.sub(r"[^\w\- ]", "", value)
+    return re.sub(r"[ -]+", "-", value).strip("-")
+
+
+def _page_anchors(document: str, page: str) -> set[str]:
+    visible = _outside_fences(document)
+    anchors = _EXPLICIT_ANCHOR.findall(visible)
+    anchors.extend(
+        _heading_anchor(match.group(1))
+        for line in visible.splitlines()
+        if (match := re.match(r"^#{1,6}\s+(.+?)\s*#*\s*$", line))
+    )
+    anchors = [anchor for anchor in anchors if anchor]
+    duplicates = sorted({anchor for anchor in anchors if anchors.count(anchor) > 1})
+    if duplicates:
+        raise MarkdownContractError(f"{page}: duplicate anchor {duplicates[0]!r}")
+    return set(anchors)
+
+
+def _normalized_link(page: str, target: str) -> tuple[str, str | None]:
+    if "\\" in target or target.startswith("/"):
+        raise MarkdownContractError(f"{page}: unsafe link target {target!r}")
+    path, separator, fragment = target.partition("#")
+    if not path:
+        normalized = page
+    else:
+        normalized = posixpath.normpath(
+            posixpath.join(str(PurePosixPath(page).parent), path)
+        )
+    if normalized == ".." or normalized.startswith("../"):
+        raise MarkdownContractError(f"{page}: link escapes the training book: {target!r}")
+    return normalized, fragment if separator else None
+
+
+def validate_narrative_page(
+    page: str,
+    document: str,
+    *,
+    manifest_paths: Sequence[str],
+    existing_paths: set[str],
+    page_documents: dict[str, str],
+) -> None:
+    """Validate one staged book page without requiring future manifest pages."""
+
+    visible = _outside_fences(document)
+    headings = [line for line in visible.splitlines() if line.startswith("# ")]
+    if len(headings) != 1:
+        raise MarkdownContractError(f"{page}: expected exactly one H1")
+    if next((line for line in visible.splitlines() if line.strip()), None) != headings[0]:
+        raise MarkdownContractError(f"{page}: H1 must be the first content line")
+    anchors = _page_anchors(document, page)
+
+    positions: list[int] = []
+    for marker in _PAGE_MARKERS:
+        if visible.count(marker) != 1:
+            raise MarkdownContractError(f"{page}: expected exactly one {marker}")
+        if marker not in visible.splitlines():
+            raise MarkdownContractError(f"{page}: marker must occupy its own line: {marker}")
+        positions.append(visible.index(marker))
+    if positions != sorted(positions):
+        raise MarkdownContractError(f"{page}: navigation/verification markers are out of order")
+    if visible.rstrip().endswith(_PAGE_MARKERS[-1]) is False:
+        raise MarkdownContractError(f"{page}: verification footer must end the page")
+
+    links = list(_MARKDOWN_LINK.finditer(visible))
+    toc_links = []
+    manifest_set = set(manifest_paths)
+    for match in links:
+        label, raw_target = match.groups()
+        target = raw_target.strip()
+        if target.startswith("<") and target.endswith(">"):
+            target = target[1:-1]
+        if _EXTERNAL_LINK.match(target):
+            continue
+        normalized, fragment = _normalized_link(page, target)
+        if "table of contents" in label.lower() and normalized == "README.md":
+            toc_links.append(match)
+        if normalized not in existing_paths:
+            if normalized not in manifest_set or fragment is not None:
+                raise MarkdownContractError(f"{page}: unresolved staged link {raw_target!r}")
+            continue
+        if fragment is not None:
+            if not fragment or normalized not in page_documents:
+                raise MarkdownContractError(f"{page}: invalid fragment link {raw_target!r}")
+            target_anchors = (
+                anchors if normalized == page
+                else _page_anchors(page_documents[normalized], normalized)
+            )
+            if fragment not in target_anchors:
+                raise MarkdownContractError(f"{page}: missing anchor for {raw_target!r}")
+    if len(toc_links) != 1:
+        raise MarkdownContractError(f"{page}: expected one table-of-contents link")
+
+    for pattern in _PROHIBITED_CLAIMS:
+        if pattern.search(visible):
+            raise MarkdownContractError(f"{page}: prohibited training claim")
+
+
+def validate_staged_book_pages(book_root: Path, manifest_paths: Sequence[str]) -> None:
+    """Validate only Markdown pages that currently exist beneath *book_root*."""
+
+    page_documents = {
+        path.relative_to(book_root).as_posix(): path.read_text(encoding="utf-8")
+        for path in sorted(book_root.rglob("*.md"))
+    }
+    manifest_set = set(manifest_paths)
+    undeclared = sorted(set(page_documents).difference(manifest_set))
+    if undeclared:
+        raise MarkdownContractError(f"undeclared staged page {undeclared[0]!r}")
+    existing_paths = {
+        path.relative_to(book_root).as_posix()
+        for path in book_root.rglob("*") if path.is_file()
+    }
+    for page, document in page_documents.items():
+        validate_narrative_page(
+            page,
+            document,
+            manifest_paths=manifest_paths,
+            existing_paths=existing_paths,
+            page_documents=page_documents,
+        )
 
 
 def _markdown_text(value: str) -> str:
