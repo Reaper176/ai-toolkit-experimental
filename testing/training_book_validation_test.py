@@ -15910,6 +15910,48 @@ class AdvancedNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), page.lower())
 
+    def test_advanced_page_advanced_debugging_defines_extension_boundary(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/advanced/extending-and-debugging.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Keep user settings and developer APIs separate",
+            "## Reproduce before instrumenting",
+            "## Read the first causal error",
+            "## Increase observability carefully",
+            "## Isolate configuration, data, model, and resource failures",
+            "## Extend toolkit code safely",
+            "## Keep optimizer constructor surfaces bounded",
+            "## Write a useful bug report",
+            "## Further reading",
+        ):
+            self.assertEqual(page.count(heading), 1, heading)
+        for phrase in (
+            "outside the user-setting contract",
+            "third-party optimizer",
+            "DEBUG_TOOLKIT=1",
+            "anomaly detection",
+            "substantially slows",
+            "performance_log_every",
+            "traceback",
+            "first causal",
+            "extension",
+            "unique uid",
+            "get_process",
+            "AI_TOOLKIT_EXTENSIONS",
+            "lazy import",
+            "minimal reproduction",
+            "git revision",
+            "redact",
+            "secrets",
+            "../reference/advanced-only-settings.md",
+            "../reference/optimizers-and-schedulers.md",
+            "../troubleshooting/diagnosis-guide.md",
+            "../recipes/diagnostic-run.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
