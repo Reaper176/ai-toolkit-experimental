@@ -15279,6 +15279,17 @@ for i, group in enumerate(optimizer.param_groups):
                 "        try:\n            return\n        finally:\n            pass\n"
                 "        optimizer_state_filename = f'optimizer.pt'", 1,
             ),
+            "try except terminal before discovery": live.replace(
+                "        optimizer_state_filename = f'optimizer.pt'",
+                "        try:\n            return\n"
+                "        except Exception:\n            pass\n"
+                "        optimizer_state_filename = f'optimizer.pt'", 1,
+            ),
+            "with terminal before discovery": live.replace(
+                "        optimizer_state_filename = f'optimizer.pt'",
+                "        with harmless_context():\n            return\n"
+                "        optimizer_state_filename = f'optimizer.pt'", 1,
+            ),
             "optimizer factory rebound": live.replace(
                 "        optimizer = get_optimizer(",
                 "        get_optimizer = malicious_optimizer_factory\n"
@@ -15293,6 +15304,11 @@ for i, group in enumerate(optimizer.param_groups):
                 "from toolkit.optimizer import get_optimizer",
                 "from toolkit.optimizer import get_optimizer\n"
                 "import malicious as get_optimizer", 1,
+            ),
+            "optimizer factory wildcard import": live.replace(
+                "from toolkit.optimizer import get_optimizer",
+                "from toolkit.optimizer import get_optimizer\n"
+                "from malicious import *", 1,
             ),
             "optimizer factory shadow function": live.replace(
                 "class BaseSDTrainProcess(BaseTrainProcess):",
@@ -15371,6 +15387,18 @@ for i, group in enumerate(optimizer.param_groups):
                 "        self.get_conf = lambda *args: '/tmp/wrong-root'\n"
                 "        self.training_folder = self.get_conf('training_folder',", 1,
             ),
+            "try except return before training folder": base_source.replace(
+                "        self.training_folder = self.get_conf('training_folder',",
+                "        try:\n            return\n"
+                "        except Exception:\n            pass\n"
+                "        self.training_folder = self.get_conf('training_folder',", 1,
+            ),
+            "try except return before save root": base_source.replace(
+                "        self.save_root = os.path.join(self.training_folder, self.name)",
+                "        try:\n            return\n"
+                "        except Exception:\n            pass\n"
+                "        self.save_root = os.path.join(self.training_folder, self.name)", 1,
+            ),
         }
         for label, mutation in mutations.items():
             with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
@@ -15388,6 +15416,50 @@ for i, group in enumerate(optimizer.param_groups):
         with tempfile.TemporaryDirectory() as directory:
             repository = self.write_resume_source_fixture(
                 directory, sd_source, base_source, process_source
+            )
+            with self.assertRaises(ExampleError):
+                _validate_resume_source_contract(repository)
+        try_return_process_source = (
+            REPOSITORY_ROOT / "jobs/process/BaseProcess.py"
+        ).read_text().replace(
+            "        self.name = self.get_conf('name', self.job.name)",
+            "        try:\n            return\n"
+            "        except Exception:\n            pass\n"
+            "        self.name = self.get_conf('name', self.job.name)", 1,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            repository = self.write_resume_source_fixture(
+                directory, sd_source, base_source, try_return_process_source
+            )
+            with self.assertRaises(ExampleError):
+                _validate_resume_source_contract(repository)
+        process_identity_mutations = {
+            "job rebound": "        self.job = malicious_job\n",
+            "config rebound": "        self.config = {'name': 'other-job'}\n",
+        }
+        for label, insertion in process_identity_mutations.items():
+            process_identity_source = (
+                REPOSITORY_ROOT / "jobs/process/BaseProcess.py"
+            ).read_text().replace(
+                "        self.name = self.get_conf('name', self.job.name)",
+                insertion + "        self.name = self.get_conf('name', self.job.name)", 1,
+            )
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                repository = self.write_resume_source_fixture(
+                    directory, sd_source, base_source, process_identity_source
+                )
+                with self.assertRaises(ExampleError):
+                    _validate_resume_source_contract(repository)
+        changed_accessor_source = (
+            REPOSITORY_ROOT / "jobs/process/BaseProcess.py"
+        ).read_text().replace(
+            "        # split key by '.' and recursively get the value",
+            "        return 'other-job'\n"
+            "        # split key by '.' and recursively get the value", 1,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            repository = self.write_resume_source_fixture(
+                directory, sd_source, base_source, changed_accessor_source
             )
             with self.assertRaises(ExampleError):
                 _validate_resume_source_contract(repository)

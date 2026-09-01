@@ -1015,7 +1015,13 @@ def _exact_get_optimizer_import(tree: ast.Module) -> bool:
         for alias in statement.names
         if alias.name == "get_optimizer" and alias.asname is None
     ]
-    return len(imports) == 1 and _bound_name_count(tree, "get_optimizer") == 1
+    wildcard_import = any(
+        isinstance(statement, ast.ImportFrom)
+        and any(alias.name == "*" for alias in statement.names)
+        for statement in tree.body
+    )
+    return (len(imports) == 1 and not wildcard_import
+            and _bound_name_count(tree, "get_optimizer") == 1)
 
 
 def _state_filename_assignment(statement: ast.stmt) -> bool:
@@ -1089,8 +1095,10 @@ def _block_definitely_terminates(statements: list[ast.stmt]) -> bool:
         if isinstance(statement, (ast.Try, ast.TryStar)):
             if _block_definitely_terminates(statement.finalbody):
                 return True
-            if (not statement.handlers
-                    and _block_definitely_terminates(statement.body)):
+            if _block_definitely_terminates(statement.body):
+                return True
+        if isinstance(statement, (ast.With, ast.AsyncWith)):
+            if _block_definitely_terminates(statement.body):
                 return True
     return False
 
@@ -1137,6 +1145,41 @@ def _self_attribute_store_count(node: ast.AST, attribute: str) -> int:
         and isinstance(child.ctx, (ast.Store, ast.Del))
         for child in ast.walk(node)
     )
+
+
+_EXPECTED_GET_CONF = ast.parse(
+    '''def get_conf(self, key, default=None, required=False, as_type=None):
+    keys = key.split('.')
+    value = self.config
+    for subkey in keys:
+        if subkey in value:
+            value = value[subkey]
+        else:
+            value = None
+            break
+    if value is not None:
+        if as_type is not None:
+            value = as_type(value)
+        return value
+    elif required:
+        raise ValueError(f'config file error. Missing "config.process[{self.process_id}].{key}" key')
+    else:
+        if as_type is not None and default is not None:
+            return as_type(default)
+        return default
+'''
+).body[0]
+
+
+def _exact_get_conf_method(node: ast.ClassDef) -> bool:
+    methods = [
+        child for child in node.body
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and child.name == "get_conf"
+    ]
+    return (len(methods) == 1 and isinstance(methods[0], ast.FunctionDef)
+            and ast.dump(methods[0], include_attributes=False)
+            == ast.dump(_EXPECTED_GET_CONF, include_attributes=False))
 
 
 def _captured_list_calls(node: ast.AST, captured: str) -> list[ast.Call]:
@@ -1211,8 +1254,16 @@ def _validate_save_root_source_contract(repository_root: Path) -> None:
                         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
                         and node.name == "__init__"] if len(process_classes) == 1 else [])
     name_assignments = []
+    job_assignments = []
+    config_assignments = []
     if len(process_methods) == 1:
         for statement in process_methods[0].body:
+            job_value = _assigned_self_attribute(statement, "job")
+            if isinstance(job_value, ast.Name) and job_value.id == "job":
+                job_assignments.append(statement)
+            config_value = _assigned_self_attribute(statement, "config")
+            if isinstance(config_value, ast.Name) and config_value.id == "config":
+                config_assignments.append(statement)
             value = _assigned_self_attribute(statement, "name")
             if (isinstance(value, ast.Call) and isinstance(value.func, ast.Attribute)
                     and value.func.attr == "get_conf"
@@ -1222,7 +1273,11 @@ def _validate_save_root_source_contract(repository_root: Path) -> None:
                     and value.args[0].value == "name"
                     and _self_attribute_chain(value.args[1], "job", "name")):
                 name_assignments.append(statement)
-    name_reachable = (len(process_methods) == 1 and len(name_assignments) == 1
+    name_reachable = (len(process_methods) == 1 and len(job_assignments) == 1
+                      and len(config_assignments) == 1 and len(name_assignments) == 1
+                      and process_methods[0].body.index(job_assignments[0])
+                      < process_methods[0].body.index(config_assignments[0])
+                      < process_methods[0].body.index(name_assignments[0])
                       and not _block_definitely_terminates(
                           process_methods[0].body[
                               :process_methods[0].body.index(name_assignments[0])
@@ -1230,7 +1285,10 @@ def _validate_save_root_source_contract(repository_root: Path) -> None:
                       ))
     if (len(process_classes) != 1 or not name_reachable
             or _self_attribute_store_count(process_classes[0], "name") != 1
-            or _self_attribute_store_count(process_classes[0], "get_conf") != 0):
+            or _self_attribute_store_count(process_classes[0], "get_conf") != 0
+            or _self_attribute_store_count(process_classes[0], "job") != 1
+            or _self_attribute_store_count(process_classes[0], "config") != 1
+            or not _exact_get_conf_method(process_classes[0])):
         raise ExampleError("process name is no longer derived from configured job identity")
 
     path = repository_root / "jobs/process/BaseTrainProcess.py"
