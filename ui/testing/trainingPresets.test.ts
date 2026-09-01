@@ -6,6 +6,7 @@ import {
   MAX_PRESET_SNAPSHOT_BYTES,
   SNAPSHOT_SCHEMA_VERSION,
   applyTrainingPreset,
+  applyTrainingPresetWithPolicy,
   normalizePresetName,
   sanitizeTrainingPreset,
   validateTrainingPresetSnapshot,
@@ -128,6 +129,23 @@ const sanitizedUserPreset = sanitizeTrainingPreset(userJobFixture());
 assert.equal((sanitizedUserPreset.config.process[0] as any).sample.neg, 'saved user negative');
 const ordinaryUserApplied = applyTrainingPreset(jobFixture(), sanitizedUserPreset, (job: JobConfig) => job);
 assert.equal((ordinaryUserApplied.config.process[0] as any).sample.neg, 'saved user negative');
+const policyCurrent = jobFixture();
+(policyCurrent.config.process[0] as any).sample.neg = 'current negative';
+const policySnapshot = structuredClone(sanitizedUserPreset);
+const ordinaryPolicyApplied = applyTrainingPresetWithPolicy(policyCurrent, policySnapshot, job => job, {
+  preserveCurrentNegativePrompt: false,
+});
+assert.equal((ordinaryPolicyApplied.config.process[0] as any).sample.neg, 'saved user negative');
+const builtInPolicySnapshot = structuredClone(sanitizedUserPreset) as any;
+delete builtInPolicySnapshot.config.process[0].sample.neg;
+const builtInPolicyApplied = applyTrainingPresetWithPolicy(policyCurrent, builtInPolicySnapshot, job => {
+  const process = job.config.process[0] as any;
+  process.sample.neg = process.model.name_or_path === 'current/model'
+    ? 'migrated current negative'
+    : 'candidate migration negative';
+  return job;
+}, { preserveCurrentNegativePrompt: true });
+assert.equal((builtInPolicyApplied.config.process[0] as any).sample.neg, 'migrated current negative');
 
 const userRecordContract: UserTrainingPresetRecord = {
   id: 'user-preset',

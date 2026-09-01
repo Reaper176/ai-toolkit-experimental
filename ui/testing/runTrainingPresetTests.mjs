@@ -22,12 +22,27 @@ const testFiles = [
   'trainingPresetAdvancedSync.test.js',
   'trainingPresetPageState.test.js',
 ];
+const catalogSliceArguments = process.argv.filter(argument => argument === '--catalog-slice' || argument.startsWith('--catalog-slice='));
+if (catalogSliceArguments.length > 1) throw new Error('--catalog-slice may be supplied only once');
+const catalogSliceArgument = catalogSliceArguments[0];
+let catalogSlice;
+if (catalogSliceArgument !== undefined) {
+  if (catalogSliceArgument === '--catalog-slice') {
+    const position = process.argv.indexOf(catalogSliceArgument);
+    catalogSlice = process.argv[position + 1];
+  } else {
+    catalogSlice = catalogSliceArgument.slice('--catalog-slice='.length);
+  }
+  if (!['anima', 'image-modern', 'sd-wan'].includes(catalogSlice)) {
+    throw new Error('--catalog-slice requires one of: anima, image-modern, sd-wan');
+  }
+}
 let outputDirectory;
 
 function run(command, args) {
   const result = spawnSync(command, args, {
     cwd: uiRoot,
-    env: { ...process.env, NODE_PATH: join(uiRoot, 'node_modules') },
+    env: { ...process.env, NODE_PATH: join(uiRoot, 'node_modules'), ...(catalogSlice ? { TRAINING_PRESET_CATALOG_SLICE: catalogSlice } : {}) },
     stdio: 'inherit',
   });
   if (result.error) throw result.error;

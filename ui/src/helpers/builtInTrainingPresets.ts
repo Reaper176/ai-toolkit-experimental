@@ -8,9 +8,12 @@ import {
 } from './builtInTrainingPresetBindings';
 import {
   SNAPSHOT_SCHEMA_VERSION,
+  applyTrainingPresetWithPolicy,
+  sanitizeTrainingPreset,
   validateTrainingPresetSnapshot,
   type BuiltInTrainingPresetRecord,
 } from './trainingPresets';
+import type { JobConfig } from '../types';
 
 const RECIPE_URL_BASE = 'https://github.com/Reaper176/ai-toolkit-experimental/blob/main/';
 const RECORD_KEYS = [
@@ -400,4 +403,22 @@ export function builtInsForArchitecture(
     .filter(record => record.model_arch === modelArchitecture)
     .sort(compareBuiltInTrainingPresetRecords)
     .map(record => copyBuiltInPreset(record));
+}
+
+export function applyBuiltInTrainingPreset(
+  currentJob: JobConfig,
+  preset: unknown,
+  migrate: (jobConfig: JobConfig) => JobConfig,
+): JobConfig {
+  const acceptedPreset = validateBuiltInTrainingPresetRecord(preset);
+  const currentProcess = currentJob?.config?.process?.[0] as unknown as Record<string, unknown> | undefined;
+  const currentModel = currentProcess?.model as Record<string, unknown> | undefined;
+  if (currentModel?.arch !== acceptedPreset.model_arch) {
+    throw new Error(`Current config.process[0].model.arch must be exactly ${acceptedPreset.model_arch}`);
+  }
+  const result = applyTrainingPresetWithPolicy(currentJob, acceptedPreset.snapshot, migrate, {
+    preserveCurrentNegativePrompt: true,
+  });
+  sanitizeTrainingPreset(result);
+  return copyBuiltInPreset(result);
 }

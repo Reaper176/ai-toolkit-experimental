@@ -59,7 +59,21 @@ export type TrainingPresetRecord = UserTrainingPresetRecord | BuiltInTrainingPre
 
 type PropertyCapture = { present: boolean; value?: unknown };
 
-const PROCESS_PROTECTED_KEYS = ['training_folder', 'sqlite_db_path', 'device', 'trigger_word', 'datasets'] as const;
+const PROCESS_PROTECTED_KEYS = [
+  'datasets',
+  'trigger_word',
+  'trigger',
+  'job',
+  'name',
+  'meta',
+  'training_folder',
+  'sqlite_db_path',
+  'device',
+  'output',
+  'output_dir',
+  'output_path',
+  'output_folder',
+] as const;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -242,10 +256,15 @@ export function sanitizeTrainingPreset(jobConfig: JobConfig): TrainingPresetSnap
   });
 }
 
-export function applyTrainingPreset(
+export interface TrainingPresetApplicationPolicy {
+  preserveCurrentNegativePrompt: boolean;
+}
+
+export function applyTrainingPresetWithPolicy(
   currentJob: JobConfig,
   untrustedSnapshot: unknown,
   migrate: (jobConfig: JobConfig) => JobConfig,
+  policy: TrainingPresetApplicationPolicy,
 ): JobConfig {
   const snapshot = validateTrainingPresetSnapshot(untrustedSnapshot);
   const currentCopy = deepCopy(currentJob, 'Current job config');
@@ -266,6 +285,9 @@ export function applyTrainingPreset(
 
   const currentSample = isPlainObject(current.process.sample) ? current.process.sample : {};
   const samples = preserveSamples ? captureProperty(currentSample, 'samples') : { present: false };
+  const negativePrompt = policy.preserveCurrentNegativePrompt
+    ? captureProperty(currentSample, 'neg')
+    : undefined;
 
   const candidateProcess = deepCopy(snapshot.config.process[0], 'Training preset process');
   const candidate: Record<string, unknown> = {
@@ -287,6 +309,14 @@ export function applyTrainingPreset(
       delete parts.process.sample.samples;
     }
     if (isPlainObject(parts.process.sample)) delete parts.process.sample.prompts;
+    if (negativePrompt !== undefined) {
+      if (negativePrompt.present) {
+        if (!isPlainObject(parts.process.sample)) parts.process.sample = {};
+        restoreProperty(parts.process.sample as Record<string, unknown>, 'neg', negativePrompt);
+      } else if (isPlainObject(parts.process.sample)) {
+        delete parts.process.sample.neg;
+      }
+    }
   };
 
   restoreProtected(candidate);
@@ -298,4 +328,14 @@ export function applyTrainingPreset(
   restoreProtected(migratedCandidate);
   validateTrainingProcess(getJobParts(migratedCandidate, 'Applied training preset').process, 'config.process[0]');
   return deepCopy(migratedCandidate, 'Applied training preset') as unknown as JobConfig;
+}
+
+export function applyTrainingPreset(
+  currentJob: JobConfig,
+  untrustedSnapshot: unknown,
+  migrate: (jobConfig: JobConfig) => JobConfig,
+): JobConfig {
+  return applyTrainingPresetWithPolicy(currentJob, untrustedSnapshot, migrate, {
+    preserveCurrentNegativePrompt: false,
+  });
 }
