@@ -15610,6 +15610,32 @@ class ModelNarrativePageTests(unittest.TestCase):
             ),
         )
 
+    def test_model_pages_page_model_flux_flex_covers_family_variants(self):
+        page, payload = self.assert_model_page_contract(
+            "models/flux-and-flex.md", ("flux", "flux_kontext", "flex1")
+        )
+        for phrase in (
+            "black-forest-labs/FLUX.1-dev",
+            "black-forest-labs/FLUX.1-Kontext-dev",
+            "ostris/Flex.1-alpha",
+            "https://huggingface.co/black-forest-labs/FLUX.1-dev",
+            "flowmatch",
+            "weighted",
+            "bypass_guidance_embedding",
+            "control_path",
+            "ctrl_img",
+            "paired",
+            "not interchangeable",
+            "quantization",
+            "fixed seed",
+            "../datasets/controls-video-audio.md",
+            "../recipes/style.md",
+            "../recipes/object-concept.md",
+            "../workflow/sampling-and-evaluation.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+        self.assertEqual(payload["deferred_settings"], [])
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
