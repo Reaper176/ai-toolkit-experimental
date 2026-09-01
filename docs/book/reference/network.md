@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](job-and-model.md) · [Next →](training.md)
 <!-- book-navigation:end -->
 
 This page covers the trainable network, adapter, embedding, and related module settings assigned here by the catalog. UI-created values and engine fallbacks are separate authorities, and applicability notes identify settings that exist only for particular network implementations.
@@ -1347,4 +1348,5 @@ Selects the network implementation family.
 <!-- settings-catalog:end -->
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

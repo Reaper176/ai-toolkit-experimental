@@ -190,6 +190,14 @@ def validate_book_manifest(
     _require_positive_integer(manifest.book_revision, "book_revision")
     _load_verified_date(manifest.verified_date)
     _require_string(manifest.required_footer, "required_footer")
+    expected_footer = (
+        "Verified against ai-toolkit-experimental book revision "
+        f"{manifest.book_revision} ({manifest.verified_date})."
+    )
+    if manifest.required_footer != expected_footer:
+        raise _invalid(
+            "required_footer", manifest.required_footer, f"expected {expected_footer!r}"
+        )
     if type(manifest.pages) is not tuple:
         raise _invalid("pages", manifest.pages, "expected an immutable ordered tuple")
 

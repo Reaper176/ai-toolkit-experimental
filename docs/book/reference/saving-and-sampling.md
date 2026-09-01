@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](masks-and-preservation.md) · [Next →](optimizers-and-schedulers.md)
 <!-- book-navigation:end -->
 
 This page covers checkpoint, validation, preview, and sampling settings assigned here by the catalog. UI-created schedules and engine fallbacks are shown separately, including absence as a meaningful state, so a generated job value is never confused with runtime fallback behavior.
@@ -1443,4 +1444,5 @@ Checkpoint configuration forwarded to SaveConfig.
 <!-- settings-catalog:end -->
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

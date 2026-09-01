@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](../datasets/rights-privacy-and-safety.md) · [Next →](sampling-and-evaluation.md)
 <!-- book-navigation:end -->
 
 The job editor presents one configuration through two views. The Simple editor covers the common training path; the advanced view exposes the serialized YAML structure. Saving, importing, and cloning all affect the same job configuration, so treat a view switch as an editing choice rather than a different trainer.
@@ -82,4 +83,5 @@ For each experiment:
 Continue with [sampling and evaluation](sampling-and-evaluation.md) before judging the result, and read [saving and optimizer state](saving-resuming-and-optimizer-state.md) before reusing files from the source job in a clone.
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

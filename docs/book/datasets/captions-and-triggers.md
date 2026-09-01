@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](curation.md) · [Next →](resolution-and-bucketing.md)
 <!-- book-navigation:end -->
 
 A caption tells the model which visible or audible relationships should be associated with text. It is not merely a filename description and it does not need to enumerate every pixel. The useful caption is specific enough to separate the target concept from its changing context, consistent enough to learn, and natural for the model family being trained.
@@ -102,4 +103,5 @@ Run a deterministic audit whenever the dataset version changes:
 For a diagnostic run, keep caption processing simple. Confirm that the baseline learns and responds to text before adding random triggers, token dropout, or shuffling. When a change helps one prompt but harms another, compare the same checkpoint cadence and fixed seeds, then decide whether the issue is caption content, trigger behavior, or training configuration.
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

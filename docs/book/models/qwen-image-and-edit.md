@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](flux-and-flex.md) · [Next →](sdxl-and-sd15.md)
 <!-- book-navigation:end -->
 
 This chapter covers five focused Qwen selectors: two text-to-image variants and three edit variants. Their version suffixes, checkpoint paths, and control-input shapes are not interchangeable.
@@ -3363,4 +3364,5 @@ Do not change revision, control topology, `match_target_res`, quantization, targ
 - [Job and model settings reference](../reference/job-and-model.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

@@ -3,6 +3,7 @@
 [Table of contents](README.md)
 
 <!-- book-navigation:start -->
+[← Previous](examples/README.md)
 <!-- book-navigation:end -->
 
 These definitions describe how terms are used in this training book and ai-toolkit configuration. Model papers and other applications may use the same words more broadly.
@@ -151,4 +152,5 @@ Accelerator memory used by weights, activations, gradients, optimizer state, tem
 - [Evidence-driven diagnosis](troubleshooting/diagnosis-guide.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

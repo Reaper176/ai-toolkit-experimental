@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](prerequisites.md) · [Next →](first-lora.md)
 <!-- book-navigation:end -->
 
 Choose the architecture before tuning rank, learning rate, or steps. A LoRA belongs to the base-model family it was trained against; changing families later is a new training project, not a small configuration edit.
@@ -108,4 +109,5 @@ These chapters connect the broad selection table to family-specific behavior:
 If the chosen family does not have a focused chapter, use this overview with the [exhaustive model and job settings reference](../reference/job-and-model.md), the UI defaults for that exact identifier, and a short diagnostic run. Continue to the [first LoRA walkthrough](first-lora.md) only after the checkpoint downloads successfully and the modality matches the dataset.
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

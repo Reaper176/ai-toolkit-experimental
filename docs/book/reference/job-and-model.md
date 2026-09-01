@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](../models/wan.md) · [Next →](network.md)
 <!-- book-navigation:end -->
 
 This page lists catalog-owned job envelopes and model-selection settings. “UI-created value” means the value written by a newly created UI job, while “engine fallback” means the value used when configuration is absent; when they differ, neither is presented as a universal default. Architecture-specific values apply only under the stated predicates.
@@ -5969,4 +5970,5 @@ Selects an optional separate VAE source.
 <!-- settings-catalog:end -->
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

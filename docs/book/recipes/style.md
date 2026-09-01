@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](character-identity.md) · [Next →](object-concept.md)
 <!-- book-navigation:end -->
 
 Use this recipe to teach a repeatable visual treatment while keeping subjects, layouts, and prompts controllable. Its ranges are starting boundaries for a measured experiment, not universal optimums.
@@ -123,4 +124,5 @@ If a validated built-in preset or family guide conflicts with a generic value he
 - [Loss and checkpoints](../workflow/loss-and-checkpoints.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

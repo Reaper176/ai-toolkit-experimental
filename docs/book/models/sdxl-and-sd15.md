@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](qwen-image-and-edit.md) · [Next →](wan.md)
 <!-- book-navigation:end -->
 
 This chapter covers the focused `sdxl` and `sd15` selectors. Both use a DDPM training path in the current catalog, but their checkpoints, latent-scale expectations, text conditioning, and useful resolutions are not interchangeable.
@@ -1043,4 +1044,5 @@ Resolution, batch size, optimizer, text encoder training, rank, and duration all
 - [Optimizers and schedulers reference](../reference/optimizers-and-schedulers.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

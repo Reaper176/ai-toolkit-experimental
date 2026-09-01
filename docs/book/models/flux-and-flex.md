@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](anima.md) · [Next →](qwen-image-and-edit.md)
 <!-- book-navigation:end -->
 
 This chapter covers the focused `flux`, `flux_kontext`, and `flex1` selectors. They share flow-matching defaults, but their checkpoints, conditioning paths, dataset requirements, and architecture overrides are not interchangeable.
@@ -1481,4 +1482,5 @@ Do not change selector, checkpoint, conditioning data, quantization, scheduler, 
 - [Job and model settings reference](../reference/job-and-model.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

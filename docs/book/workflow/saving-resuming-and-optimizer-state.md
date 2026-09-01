@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](queue-and-multiple-gpus.md) · [Next →](../recipes/character-identity.md)
 <!-- book-navigation:end -->
 
 A resumable run has several related artifacts, not one magic file. Safe recovery requires a compatible LoRA checkpoint, an intentional step, the correct job/output identity, and—when available—a compatible optimizer state. Preserve and verify each role separately.
@@ -123,4 +124,5 @@ A resumed counter is not proof that the numerical trajectory was restored. Recor
 See [loss and checkpoints](loss-and-checkpoints.md) for selecting the recovery point and the [saving settings reference](../reference/saving-and-sampling.md) for exact cadence, format, and retention controls.
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

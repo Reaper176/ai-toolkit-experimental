@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](saving-and-sampling.md) · [Next →](advanced-only-settings.md)
 <!-- book-navigation:end -->
 
 This page covers optimizer selection, optimizer-specific parameters, learning-rate schedulers, and scheduler parameters assigned here by the catalog. Applicability predicates are authoritative: similarly named parameters are not interchangeable across implementations, and UI-created values remain distinct from engine fallbacks.
@@ -2897,4 +2898,5 @@ BaseSDTrainProcess overwrites total\_iters with train.steps for cosine\_with\_re
 <!-- settings-catalog:end -->
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](focused-refinement.md) · [Next →](diagnostic-run.md)
 <!-- book-navigation:end -->
 
 Use this recipe to establish whether a representative LoRA training step and sample pass fit within limited accelerator memory. It prioritizes a measurable, reproducible baseline over maximum throughput.
@@ -118,4 +119,5 @@ Hardware, backend, and library support can change. Treat the family guide and a 
 - [Job and model settings reference](../reference/job-and-model.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

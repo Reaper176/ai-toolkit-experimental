@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](yaml-and-cli.md) · [Next →](performance-and-caching.md)
 <!-- book-navigation:end -->
 
 Layer targeting decides where adapter parameters are attached. It is an advanced experiment axis: a syntactically valid filter can leave too little capacity, adapt an unintended component, or make a checkpoint architecture-specific in ways its filename does not reveal.
@@ -103,4 +104,5 @@ Test the saved artifact in the intended inference host. A training-time module n
 - [Saving and optimizer state](../workflow/saving-resuming-and-optimizer-state.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

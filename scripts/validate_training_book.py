@@ -33,6 +33,7 @@ from training_book.catalog import (
     validate_ui_fact_ownership,
 )
 from training_book.manifest import load_book_manifest, validate_book_manifest
+from training_book.markdown import MarkdownContractError, validate_book_pages
 from training_book.examples import load_example_manifest, validate_examples
 from generate_training_book_reference import generate_reference_pages
 
@@ -347,11 +348,31 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--ui-facts", type=Path)
     parser.add_argument("--check-discovery", action="store_true")
     parser.add_argument("--check-examples", action="store_true")
+    parser.add_argument("--skip-smoke", action="store_true")
+    presets = parser.add_mutually_exclusive_group()
+    presets.add_argument("--preset-facts", type=Path)
+    presets.add_argument("--allow-empty-preset-links", action="store_true")
     parser.add_argument("--scope", action="append", default=[])
     target = parser.add_mutually_exclusive_group()
     target.add_argument("--target-source")
     target.add_argument("--target-symbol")
     return parser.parse_args()
+
+
+def _validate_empty_preset_links(repository_root: Path) -> None:
+    markers = ("<!-- built-in-presets:start -->", "<!-- built-in-presets:end -->")
+    for path in sorted((repository_root / "docs/book/recipes").glob("*.md")):
+        document = path.read_text(encoding="utf-8")
+        if not any(marker in document for marker in markers):
+            continue
+        if any(document.count(marker) != 1 for marker in markers):
+            raise MarkdownContractError(f"{path.name}: invalid built-in preset markers")
+        start = document.index(markers[0]) + len(markers[0])
+        end = document.index(markers[1])
+        if end < start or document[start:end].strip():
+            raise MarkdownContractError(
+                f"{path.name}: expected empty pre-catalog preset links"
+            )
 
 
 def _python_globs(catalog) -> tuple[str, ...]:
@@ -499,6 +520,30 @@ def main() -> None:
     validate_book_manifest(
         manifest, expected_full_architectures=FULL_ARCHITECTURES
     )
+    if (
+        manifest.schema_version,
+        manifest.book_revision,
+        manifest.verified_date,
+        manifest.required_footer,
+    ) != (
+        1,
+        1,
+        "2026-08-14",
+        "Verified against ai-toolkit-experimental book revision 1 (2026-08-14).",
+    ):
+        raise ValueError("canonical training-book edition metadata drifted")
+    if manifest.preset_architectures != (
+        "anima", "flux", "flex1", "qwen_image", "qwen_image_edit_plus",
+        "sdxl", "sd15", "wan21:1b", "wan22_14b:t2v",
+    ):
+        raise ValueError("canonical preset architecture order drifted")
+    if manifest.focused_architectures != (
+        "anima", "flux", "flux_kontext", "flex1", "qwen_image",
+        "qwen_image:2512", "qwen_image_edit", "qwen_image_edit_plus",
+        "qwen_image_edit_plus:2511", "sdxl", "sd15", "wan21:1b",
+        "wan22_14b:t2v",
+    ):
+        raise ValueError("canonical focused architecture order drifted")
     settings_catalog = load_settings_catalog(
         repository_root / "docs/book/reference/settings-catalog.json",
         repository_root / "docs/book/reference/settings-catalog.schema.json",
@@ -688,6 +733,31 @@ def main() -> None:
                 tuple(fact for fact in discovered if predicate(fact)),
                 tuple(claim for claim in claims if predicate(claim)),
                 tuple(item for item in exclusions if predicate(item)),
+            )
+
+    full_edition = aggregate_mode or not any((
+        arguments.inventory_json,
+        arguments.ui_facts,
+        arguments.check_discovery,
+        arguments.check_examples,
+        arguments.scope,
+        arguments.target_source,
+        arguments.target_symbol,
+    ))
+    if full_edition:
+        validate_book_pages(
+            repository_root / "docs/book", manifest, skip_smoke=arguments.skip_smoke
+        )
+        if arguments.preset_facts is not None:
+            try:
+                json.loads(arguments.preset_facts.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                raise MarkdownContractError("preset facts could not be loaded") from error
+        elif arguments.allow_empty_preset_links:
+            _validate_empty_preset_links(repository_root)
+        else:
+            raise MarkdownContractError(
+                "preset links require --preset-facts or --allow-empty-preset-links"
             )
 
 

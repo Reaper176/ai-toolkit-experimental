@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](choose-a-model.md) · [Next →](training-mental-model.md)
 <!-- book-navigation:end -->
 
 This walkthrough creates a small image LoRA through the Simple editor. It follows the validated [`first-lora-flex1.yaml`](../examples/first-lora-flex1.yaml) baseline, but every value described here can be entered through the form. Finish the [prerequisites](prerequisites.md) before starting.
@@ -91,4 +92,5 @@ Restarting from a LoRA checkpoint and restoring optimizer state are related but 
 After the first run, continue to the [training mental model](training-mental-model.md) to understand what rank, learning rate, steps, captions, and noise are doing beneath the form.
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

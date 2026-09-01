@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](style.md) · [Next →](focused-refinement.md)
 <!-- book-navigation:end -->
 
 Use this recipe to teach a specific object, product, prop, or designed concept while preserving control over scene, viewpoint, lighting, and presentation. Treat every range as an experiment boundary and verify the result with held-out prompts.
@@ -128,4 +129,5 @@ When a validated preset or family guide conflicts with a generic range here, the
 - [Loss and checkpoints](../workflow/loss-and-checkpoints.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

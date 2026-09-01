@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](../recipes/diagnostic-run.md) · [Next →](flux-and-flex.md)
 <!-- book-navigation:end -->
 
 This chapter narrows the general LoRA workflow to ai-toolkit's `anima` architecture. Treat the generated catalog block as the exact UI/default record and the prose as guidance for constructing and evaluating a run.
@@ -855,4 +856,5 @@ An all-white ordinary non-inverted mask is equivalent to no mask; mask inversion
 - [Job and model settings reference](../reference/job-and-model.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

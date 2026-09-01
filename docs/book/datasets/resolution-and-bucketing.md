@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](captions-and-triggers.md) · [Next →](masks.md)
 <!-- book-navigation:end -->
 
 Training media must be converted into tensor shapes that a model can batch. Resolution controls the spatial budget; buckets group compatible aspect ratios; resizing and cropping decide which source content enters that budget. These operations can remove or interpolate information, so inspect their results instead of treating them as neutral plumbing.
@@ -92,4 +93,5 @@ When samples show rigid framing, cropped anatomy, tiny subjects, stretched detai
 If the baseline composition becomes correct, restore at most one augmentation and measure its effect. If detail remains absent at every setting, return to source quality: raising `resolution` cannot restore detail, and more steps can only reinforce the information that survived preprocessing.
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

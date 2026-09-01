@@ -43,6 +43,7 @@ _PAGE_MARKERS = (
     "<!-- book-verification:start -->",
     "<!-- book-verification:end -->",
 )
+BOOK_NAVIGATION_START, BOOK_NAVIGATION_END, BOOK_VERIFICATION_START, BOOK_VERIFICATION_END = _PAGE_MARKERS
 
 
 class MarkdownGenerationError(ValueError):
@@ -51,6 +52,52 @@ class MarkdownGenerationError(ValueError):
 
 class MarkdownContractError(ValueError):
     """Raised when a hand-written training-book page violates its contract."""
+
+
+def _replace_owned_block(document: str, start_marker: str, end_marker: str, body: str) -> str:
+    for marker in (start_marker, end_marker):
+        if document.count(marker) != 1 or marker not in document.splitlines():
+            raise MarkdownGenerationError(f"document requires exactly one line containing {marker}")
+    start = document.index(start_marker)
+    end = document.index(end_marker)
+    if end < start:
+        raise MarkdownGenerationError(f"generated markers are out of order: {start_marker}")
+    content_start = start + len(start_marker)
+    replacement = f"\n{body}\n" if body else "\n"
+    return document[:content_start] + replacement + document[end:]
+
+
+def replace_book_blocks(document: str, *, navigation: str, verification: str) -> str:
+    """Replace only the two marker-owned book blocks."""
+
+    positions = []
+    for marker in _PAGE_MARKERS:
+        if document.count(marker) != 1 or marker not in document.splitlines():
+            raise MarkdownGenerationError(f"document requires exactly one line containing {marker}")
+        positions.append(document.index(marker))
+    if positions != sorted(positions):
+        raise MarkdownGenerationError("book navigation and verification markers are out of order")
+    rendered = _replace_owned_block(
+        document, BOOK_NAVIGATION_START, BOOK_NAVIGATION_END, navigation
+    )
+    return _replace_owned_block(
+        rendered, BOOK_VERIFICATION_START, BOOK_VERIFICATION_END, verification
+    )
+
+
+def _relative_book_link(page: str, target: str) -> str:
+    return posixpath.relpath(target, str(PurePosixPath(page).parent))
+
+
+def render_book_navigation(page: str, previous: str | None, next_: str | None) -> str:
+    """Render deterministic previous/next links for one manifest page."""
+
+    links = []
+    if previous is not None:
+        links.append(f"[← Previous]({_relative_book_link(page, previous)})")
+    if next_ is not None:
+        links.append(f"[Next →]({_relative_book_link(page, next_)})")
+    return " · ".join(links)
 
 
 def _outside_fences(document: str) -> str:
@@ -493,8 +540,11 @@ def validate_narrative_page(
         normalized = check_target(raw_target)
         if label is not None and "table of contents" in label.lower() and normalized == "README.md":
             toc_links.append((label, raw_target))
-    if len(toc_links) != 1:
-        raise MarkdownContractError(f"{page}: expected one table-of-contents link")
+    expected_toc_links = 0 if page == "README.md" else 1
+    if len(toc_links) != expected_toc_links:
+        raise MarkdownContractError(
+            f"{page}: expected {expected_toc_links} table-of-contents link(s)"
+        )
 
     if _has_prohibited_claim(claim_text):
         raise MarkdownContractError(f"{page}: prohibited training claim")
@@ -522,6 +572,54 @@ def validate_staged_book_pages(book_root: Path, manifest_paths: Sequence[str]) -
             manifest_paths=manifest_paths,
             existing_paths=existing_paths,
             page_documents=page_documents,
+        )
+
+
+def validate_book_pages(book_root: Path, manifest: Any, *, skip_smoke: bool) -> None:
+    """Validate the exact published Markdown tree and generated page blocks."""
+
+    expected_paths = tuple(page.path for page in manifest.pages)
+    expected_set = set(expected_paths)
+    smoke_path = "verification/first-run-smoke.md"
+    actual_documents = {
+        path.relative_to(book_root).as_posix(): path.read_text(encoding="utf-8")
+        for path in sorted(book_root.rglob("*.md"))
+    }
+    actual = set(actual_documents)
+    allowed = set(expected_set)
+    if skip_smoke and smoke_path not in actual:
+        allowed.remove(smoke_path)
+    if actual != allowed:
+        missing = sorted(allowed - actual)
+        extra = sorted(actual - allowed)
+        if missing:
+            raise MarkdownContractError(f"missing training-book page {missing[0]!r}")
+        raise MarkdownContractError(f"undeclared training-book page {extra[0]!r}")
+
+    existing_paths = {
+        path.relative_to(book_root).as_posix()
+        for path in book_root.rglob("*")
+        if path.is_file()
+    }
+    pages_by_path = {page.path: page for page in manifest.pages}
+    for page_path, document in actual_documents.items():
+        page = pages_by_path[page_path]
+        navigation = render_book_navigation(page.path, page.previous, page.next)
+        expected_document = replace_book_blocks(
+            document,
+            navigation=navigation,
+            verification=manifest.required_footer,
+        )
+        if expected_document != document:
+            raise MarkdownContractError(f"{page_path}: generated book blocks are stale")
+        if document.count(manifest.required_footer) != 1:
+            raise MarkdownContractError(f"{page_path}: expected one generated footer")
+        validate_narrative_page(
+            page_path,
+            document,
+            manifest_paths=expected_paths,
+            existing_paths=existing_paths,
+            page_documents=actual_documents,
         )
 
 

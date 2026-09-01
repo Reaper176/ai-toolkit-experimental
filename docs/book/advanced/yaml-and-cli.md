@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](../reference/advanced-only-settings.md) · [Next →](layer-targeting.md)
 <!-- book-navigation:end -->
 
 The Advanced editor and `run.py` expose the same training configuration with fewer guardrails than the Simple editor. Use them when a documented field is unavailable in the form, when a reviewed configuration must be reproduced exactly, or when several independent jobs need to run sequentially.
@@ -168,4 +169,5 @@ The [advanced-only settings reference](../reference/advanced-only-settings.md) i
 - [Saving, resuming, and optimizer state](../workflow/saving-resuming-and-optimizer-state.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

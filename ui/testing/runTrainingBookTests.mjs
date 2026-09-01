@@ -11,6 +11,9 @@ const repositoryRoot = resolve(testingDirectory, '..', '..');
 const tsc = join(uiRoot, 'node_modules', 'typescript', 'bin', 'tsc');
 const testFile = join(repositoryRoot, 'testing', 'training_book_validation_test.py');
 const validator = join(repositoryRoot, 'scripts', 'validate_training_book.py');
+const referenceGenerator = join(repositoryRoot, 'scripts', 'generate_training_book_reference.py');
+const navigationGenerator = join(repositoryRoot, 'scripts', 'generate_training_book_navigation.py');
+const presetCatalogRunner = join(testingDirectory, 'runTrainingPresetCatalogBuildValidation.mjs');
 const testSourcePattern = /^trainingBook.*\.test\.tsx?$/u;
 const testContract = 'trainingBook*.test.tsx?';
 const testSources = readdirSync(testingDirectory)
@@ -19,6 +22,8 @@ const testSources = readdirSync(testingDirectory)
 const requiredArtifacts = [
   testFile,
   validator,
+  referenceGenerator,
+  navigationGenerator,
   join(repositoryRoot, 'scripts', 'training_book', '__init__.py'),
   join(repositoryRoot, 'scripts', 'training_book', 'manifest.py'),
   join(repositoryRoot, 'docs', 'book', 'book-manifest.json'),
@@ -39,10 +44,11 @@ if (testSources.length === 0) {
 }
 
 const args = process.argv.slice(2);
-if (args.some(argument => argument !== '--facts-only') || args.length > 1) {
+const allowedArgs = new Set(['--skip-smoke', '--require-smoke']);
+if (args.some(argument => !allowedArgs.has(argument)) || args.length > 1) {
   throw new Error(`Unknown or incompatible training-book runner flags: ${args.join(' ')}`);
 }
-const factsOnly = args[0] === '--facts-only';
+const smokeArgs = args[0] === '--require-smoke' ? [] : ['--skip-smoke'];
 let outputDirectory;
 
 function run(command, commandArgs, options = {}) {
@@ -122,13 +128,22 @@ try {
   run(process.execPath, ['-e', `require(${JSON.stringify(collector)}).writeTrainingBookUiFacts(${JSON.stringify(repositoryRoot)}, ${JSON.stringify(factsPath)})`]);
   if (!existsSync(factsPath)) throw new Error('Training-book UI facts were not emitted');
 
-  if (!factsOnly) {
-    run('python', [validator, '--check-discovery', '--ui-facts', factsPath], { cwd: repositoryRoot });
-    run('python', [testFile], {
-      cwd: repositoryRoot,
-      env: { ...process.env, TRAINING_BOOK_UI_FACTS_PATH: factsPath },
-    });
+  const presetFactsPath = join(outputDirectory, 'training-book-preset-facts.json');
+  let presetArgs;
+  if (existsSync(presetCatalogRunner)) {
+    run(process.execPath, [presetCatalogRunner, '--emit-book-facts', presetFactsPath]);
+    if (!existsSync(presetFactsPath)) throw new Error('Training-book preset facts were not emitted');
+    presetArgs = ['--preset-facts', presetFactsPath];
+  } else {
+    presetArgs = ['--allow-empty-preset-links'];
   }
+  run('python', [referenceGenerator, '--check'], { cwd: repositoryRoot });
+  run('python', [navigationGenerator, '--check'], { cwd: repositoryRoot });
+  run('python', [validator, '--check-discovery', '--ui-facts', factsPath, ...smokeArgs, ...presetArgs], { cwd: repositoryRoot });
+  run('python', [testFile], {
+    cwd: repositoryRoot,
+    env: { ...process.env, TRAINING_BOOK_UI_FACTS_PATH: factsPath },
+  });
 } finally {
   if (outputDirectory !== undefined && existsSync(outputDirectory)) {
     assertSafe(outputDirectory);

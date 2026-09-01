@@ -405,6 +405,16 @@ class ManifestContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "required_footer"):
             load_book_manifest(self.write_manifest(data))
 
+    def test_manifest_rejects_footer_that_disagrees_with_revision_or_date(self):
+        data = self.valid_manifest()
+        data["required_footer"] = "Verified against a different edition."
+
+        with self.assertRaisesRegex(ValueError, "required_footer"):
+            validate_book_manifest(
+                load_book_manifest(self.write_manifest(data)),
+                expected_full_architectures=("anima", "flux"),
+            )
+
     def test_manifest_rejects_architecture_set_or_order_mismatch(self):
         manifest = load_book_manifest(self.write_manifest(self.valid_manifest()))
         for expected in (("anima",), ("flux", "anima")):
@@ -15231,7 +15241,16 @@ class RecipeNarrativePageTests(unittest.TestCase):
         self.assertLess(start, end)
         block = document[start:end].strip()
 
-        visible = markdown_module.rendered_markdown(document)
+        prose_document = document
+        navigation_start = "<!-- book-navigation:start -->"
+        navigation_end = "<!-- book-navigation:end -->"
+        if navigation_start in prose_document and navigation_end in prose_document:
+            start_index = prose_document.index(navigation_start) + len(navigation_start)
+            end_index = prose_document.index(navigation_end)
+            prose_document = (
+                prose_document[:start_index] + "\n" + prose_document[end_index:]
+            )
+        visible = markdown_module.rendered_markdown(prose_document)
         reference_definitions = markdown_module.markdown_reference_definitions(visible)
         section_heading = "## Model-specific deviations"
         section_start = visible.index(section_heading) + len(section_heading)
@@ -16171,7 +16190,8 @@ class GeneratedReferenceTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-    def test_generated_reference_pages_have_the_required_empty_scaffolding(self):
+    def test_generated_reference_pages_have_generated_book_blocks(self):
+        footer = "Verified against ai-toolkit-experimental book revision 1 (2026-08-14)."
         for relative_page in self.REFERENCE_PAGES:
             with self.subTest(page=relative_page):
                 text = (
@@ -16181,19 +16201,25 @@ class GeneratedReferenceTests(unittest.TestCase):
                     sum(line.startswith("# ") for line in text.splitlines()), 1
                 )
                 self.assertEqual(text.count("[Table of contents](../README.md)"), 1)
-                for start, end in (
-                    (
-                        "<!-- book-navigation:start -->",
-                        "<!-- book-navigation:end -->",
-                    ),
-                    (
-                        "<!-- book-verification:start -->",
-                        "<!-- book-verification:end -->",
-                    ),
+                navigation_start = "<!-- book-navigation:start -->"
+                navigation_end = "<!-- book-navigation:end -->"
+                verification_start = "<!-- book-verification:start -->"
+                verification_end = "<!-- book-verification:end -->"
+                for marker in (
+                    navigation_start, navigation_end,
+                    verification_start, verification_end,
                 ):
-                    self.assertEqual(text.count(start), 1)
-                    self.assertEqual(text.count(end), 1)
-                    self.assertIn(f"{start}\n{end}", text)
+                    self.assertEqual(text.count(marker), 1)
+                navigation = text[
+                    text.index(navigation_start) + len(navigation_start):
+                    text.index(navigation_end)
+                ].strip()
+                verification = text[
+                    text.index(verification_start) + len(verification_start):
+                    text.index(verification_end)
+                ].strip()
+                self.assertTrue(navigation)
+                self.assertEqual(verification, footer)
 
     def test_generated_renderer_is_deterministic_ordered_escaped_and_anchor_stable(self):
         from scripts.training_book.markdown import render_settings_catalog_block
@@ -16811,13 +16837,20 @@ class BookArtifactTests(unittest.TestCase):
         self.assertEqual(manifest.full_architectures, FULL_ARCHITECTURES)
         self.assertEqual(tuple(page.path for page in manifest.pages), BOOK_PAGES)
 
-    def test_book_readme_has_the_skeletal_marker_contract(self):
+    def test_book_readme_is_the_complete_landing_page(self):
         readme = (REPOSITORY_ROOT / "docs/book/README.md").read_text(encoding="utf-8")
 
         self.assertEqual(
             sum(line.startswith("# ") for line in readme.splitlines()), 1
         )
-        self.assertIn("](README.md)", readme)
+        for heading in (
+            "## Beginner", "## Dataset", "## Recipes", "## Model families",
+            "## Reference", "## Advanced", "## Troubleshooting", "## Examples",
+            "## Verification",
+        ):
+            self.assertIn(heading, readme)
+        self.assertIn("start", readme.lower())
+        self.assertIn("evidence", readme.lower())
         for marker in (
             "<!-- book-navigation:start -->",
             "<!-- book-navigation:end -->",
@@ -16826,9 +16859,44 @@ class BookArtifactTests(unittest.TestCase):
         ):
             self.assertEqual(readme.count(marker), 1)
 
+    def test_repository_markdown_tree_exactly_matches_manifest_with_skip_smoke(self):
+        manifest = load_book_manifest(REPOSITORY_ROOT / "docs/book/book-manifest.json")
+        actual = {
+            path.relative_to(REPOSITORY_ROOT / "docs/book").as_posix()
+            for path in (REPOSITORY_ROOT / "docs/book").rglob("*.md")
+        }
+        expected = set(BOOK_PAGES)
+        expected.remove("verification/first-run-smoke.md")
+
+        self.assertEqual(actual, expected)
+        self.assertEqual(tuple(page.path for page in manifest.pages), BOOK_PAGES)
+
+    def test_every_existing_page_has_generated_navigation_footer_and_valid_links(self):
+        from scripts.training_book.markdown import validate_book_pages
+
+        manifest = load_book_manifest(REPOSITORY_ROOT / "docs/book/book-manifest.json")
+        validate_book_pages(
+            REPOSITORY_ROOT / "docs/book", manifest, skip_smoke=True
+        )
+
+    def test_navigation_generator_check_accepts_the_canonical_book(self):
+        result = subprocess.run(
+            [sys.executable, "scripts/generate_training_book_navigation.py", "--check"],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_validation_cli_accepts_the_canonical_manifest(self):
         result = subprocess.run(
-            [sys.executable, "scripts/validate_training_book.py"],
+            [
+                sys.executable,
+                "scripts/validate_training_book.py",
+                "--skip-smoke",
+                "--allow-empty-preset-links",
+            ],
             cwd=REPOSITORY_ROOT,
             capture_output=True,
             text=True,
@@ -16848,6 +16916,8 @@ class BookArtifactTests(unittest.TestCase):
             for artifact in (
                 "testing/training_book_validation_test.py",
                 "scripts/validate_training_book.py",
+                "scripts/generate_training_book_reference.py",
+                "scripts/generate_training_book_navigation.py",
                 "scripts/training_book/manifest.py",
                 "docs/book/book-manifest.json",
                 "docs/book/README.md",
@@ -16877,15 +16947,29 @@ class BookArtifactTests(unittest.TestCase):
         self.assertIn("const reactStub", runner)
         self.assertIn("const lucideStub", runner)
         self.assertIn("writeTrainingBookUiFacts", runner)
+        self.assertIn("generate_training_book_reference.py", runner)
+        self.assertIn("generate_training_book_navigation.py", runner)
         self.assertIn("'--check-discovery', '--ui-facts', factsPath", runner)
+        self.assertIn("'--skip-smoke'", runner)
+        preset_runner = REPOSITORY_ROOT / "ui/testing/runTrainingPresetCatalogBuildValidation.mjs"
+        if preset_runner.exists():
+            self.assertIn("--emit-book-facts", runner)
+            self.assertIn("'--preset-facts', presetFactsPath", runner)
+        else:
+            self.assertIn("'--allow-empty-preset-links'", runner)
+            self.assertIn("existsSync(presetCatalogRunner)", runner)
+            self.assertIn("--emit-book-facts", runner)
+            self.assertIn("'--preset-facts', presetFactsPath", runner)
+            self.assertIn("Training-book preset facts were not emitted", runner)
         self.assertIn("assertSafe(outputDirectory)", runner)
 
-    def test_runner_rejects_unknown_duplicate_and_full_mode_flags(self):
+    def test_runner_rejects_unknown_duplicate_and_incompatible_smoke_flags(self):
         runner = REPOSITORY_ROOT / "ui/testing/runTrainingBookTests.mjs"
         for arguments in (
-            ("--facts-only", "--facts-only"),
+            ("--skip-smoke", "--skip-smoke"),
+            ("--require-smoke", "--require-smoke"),
+            ("--skip-smoke", "--require-smoke"),
             ("--full",),
-            ("--facts-only", "--full"),
         ):
             with self.subTest(arguments=arguments):
                 result = subprocess.run(
@@ -16896,6 +16980,111 @@ class BookArtifactTests(unittest.TestCase):
                 )
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("Unknown or incompatible", result.stderr)
+
+
+class NavigationGenerationContractTests(unittest.TestCase):
+    def test_marker_replacement_changes_only_owned_blocks(self):
+        from scripts.training_book.markdown import replace_book_blocks
+
+        original = (
+            "# Hand-written title\n\nHand-written prose.\n\n"
+            "<!-- book-navigation:start -->\nstale navigation\n"
+            "<!-- book-navigation:end -->\n\nMore prose.\n\n"
+            "<!-- book-verification:start -->\nstale footer\n"
+            "<!-- book-verification:end -->\n"
+        )
+        rendered = replace_book_blocks(
+            original,
+            navigation="[Previous](previous.md) | [Next](next.md)",
+            verification="Verified fixture.",
+        )
+
+        self.assertEqual(
+            rendered,
+            original.replace("stale navigation", "[Previous](previous.md) | [Next](next.md)")
+            .replace("stale footer", "Verified fixture."),
+        )
+
+    def test_marker_replacement_rejects_missing_duplicate_or_reordered_markers(self):
+        from scripts.training_book.markdown import (
+            MarkdownGenerationError,
+            replace_book_blocks,
+        )
+
+        valid = (
+            "# Fixture\n\n<!-- book-navigation:start -->\n<!-- book-navigation:end -->\n\n"
+            "<!-- book-verification:start -->\n<!-- book-verification:end -->\n"
+        )
+        invalid_documents = (
+            valid.replace("<!-- book-navigation:start -->\n", ""),
+            valid.replace(
+                "<!-- book-navigation:start -->",
+                "<!-- book-navigation:start -->\n<!-- book-navigation:start -->",
+            ),
+            valid.replace("book-navigation:start", "book-verification:start", 1),
+        )
+        for document in invalid_documents:
+            with self.subTest(document=document), self.assertRaises(MarkdownGenerationError):
+                replace_book_blocks(document, navigation="nav", verification="footer")
+
+    def test_validator_requires_explicit_skip_for_missing_smoke_page(self):
+        base = [sys.executable, "scripts/validate_training_book.py", "--allow-empty-preset-links"]
+        required = subprocess.run(
+            base,
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        skipped = subprocess.run(
+            [*base, "--skip-smoke"],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertNotEqual(required.returncode, 0)
+        self.assertIn("verification/first-run-smoke.md", required.stderr)
+        self.assertEqual(skipped.returncode, 0, skipped.stdout + skipped.stderr)
+
+    def test_skip_smoke_allows_but_does_not_require_an_existing_smoke_page(self):
+        from scripts.training_book.markdown import validate_book_pages
+
+        footer = "Verified against ai-toolkit-experimental book revision 1 (2026-08-14)."
+        manifest = SimpleNamespace(
+            required_footer=footer,
+            pages=(
+                SimpleNamespace(
+                    path="README.md", previous=None,
+                    next="verification/first-run-smoke.md",
+                ),
+                SimpleNamespace(
+                    path="verification/first-run-smoke.md",
+                    previous="README.md", next=None,
+                ),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            smoke = root / "verification/first-run-smoke.md"
+            smoke.parent.mkdir()
+            (root / "README.md").write_text(
+                "# Fixture book\n\n<!-- book-navigation:start -->\n"
+                "[Next →](verification/first-run-smoke.md)\n"
+                "<!-- book-navigation:end -->\n\n<!-- book-verification:start -->\n"
+                f"{footer}\n<!-- book-verification:end -->\n",
+                encoding="utf-8",
+            )
+            smoke.write_text(
+                "# Smoke\n\n[Table of contents](../README.md)\n\n"
+                "<!-- book-navigation:start -->\n[← Previous](../README.md)\n"
+                "<!-- book-navigation:end -->\n\n<!-- book-verification:start -->\n"
+                f"{footer}\n<!-- book-verification:end -->\n",
+                encoding="utf-8",
+            )
+
+            validate_book_pages(root, manifest, skip_smoke=True)
 
 
 class TrainingBookExamplesContractTests(unittest.TestCase):

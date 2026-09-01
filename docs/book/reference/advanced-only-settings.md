@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](optimizers-and-schedulers.md) · [Next →](../advanced/yaml-and-cli.md)
 <!-- book-navigation:end -->
 
 This page collects catalog settings intended for advanced YAML, CLI, environment, or specialized model workflows rather than ordinary Simple UI editing. Absent values, engine fallbacks, runtime-forced values, and architecture overrides retain their separate authorities; the generated contract does not promote an implementation fallback into a recommendation.
@@ -4487,4 +4488,5 @@ Uses OmniGen 2 image-refiner transformer blocks for layer targeting.
 <!-- settings-catalog:end -->
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

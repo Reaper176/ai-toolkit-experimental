@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](masks.md) · [Next →](rights-privacy-and-safety.md)
 <!-- book-navigation:end -->
 
 Specialized datasets teach relationships among multiple inputs: a target and a depth map, a video and its first frame, or frames and synchronized audio. File quality is necessary but not sufficient. The inputs must refer to the same example, cover the same geometry or time span, and use settings supported by the selected architecture.
@@ -108,4 +109,5 @@ Then run a short diagnostic that saves samples early. A low training loss cannot
 If a job fails intermittently, look for the one source with insufficient frames, missing audio, a mismatched basename, unusual dimensions, or corrupt metadata. If it runs but ignores conditioning, verify the architecture consumes the enabled setting and that the control is not uniform, stale, or misaligned.
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

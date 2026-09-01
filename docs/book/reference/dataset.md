@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](training.md) · [Next →](masks-and-preservation.md)
 <!-- book-navigation:end -->
 
 This page covers dataset sources, captions, bucketing, masks, controls, modality options, and cache behavior assigned here by the catalog. UI-created values are not assumed to equal engine fallbacks, and each normalization or applicability condition is part of the setting contract.
@@ -2432,4 +2433,5 @@ Selects caption\_short from JSON-backed dataset records where supported.
 <!-- settings-catalog:end -->
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](../getting-started/training-mental-model.md) · [Next →](captions-and-triggers.md)
 <!-- book-navigation:end -->
 
 Training settings determine how ai-toolkit uses a dataset, but curation determines what evidence the dataset contains. A clean, varied collection makes the intended relationship easier to learn and easier to evaluate. A large collection of contradictory, repeated, or accidental patterns can instead make a reasonable configuration look broken.
@@ -75,4 +76,5 @@ The preset workflow can retain a **source-missing** item from a prior verified m
 Record the dataset version beside checkpoints and sample comparisons. If two runs use different data, treat them as different experiments even when their YAML settings match. Provenance makes a useful result reproducible and makes privacy, consent, licensing, and deletion decisions traceable; those responsibilities are covered in [rights, privacy, and safety](rights-privacy-and-safety.md).
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

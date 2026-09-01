@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](layer-targeting.md) · [Next →](extending-and-debugging.md)
 <!-- book-navigation:end -->
 
 Performance tuning moves work among the accelerator, host memory, storage, and repeated computation. There is no universally fastest or lowest-memory configuration: measure the complete workload on the exact model, dataset, hardware, and software revision you intend to use.
@@ -98,4 +99,5 @@ Performance results do not transfer cleanly between GPUs, drivers, storage, prec
 - [Saving and optimizer state](../workflow/saving-resuming-and-optimizer-state.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

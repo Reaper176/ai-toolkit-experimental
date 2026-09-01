@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](sampling-and-evaluation.md) · [Next →](queue-and-multiple-gpus.md)
 <!-- book-navigation:end -->
 
 Loss describes the optimization problem seen by each training batch. Checkpoints and samples describe what the adapter can actually do. Use the graph to decide where to inspect, not to replace controlled evaluation.
@@ -90,4 +91,5 @@ If loss is non-finite, stop and diagnose rather than waiting for a sample. If lo
 See [sampling and evaluation](sampling-and-evaluation.md) for the fixed comparison suite, [training settings](../reference/training.md) for loss and optimizer controls, and [saving settings](../reference/saving-and-sampling.md) for exact cadence and retention fields.
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](network.md) · [Next →](dataset.md)
 <!-- book-navigation:end -->
 
 This page covers optimization targets, loss behavior, timestep selection, and other training controls assigned here by the catalog. A UI-created value describes newly authored UI configuration; an engine fallback describes absent-key behavior. Architecture overrides and runtime-forced values are shown independently.
@@ -5129,4 +5130,5 @@ Persists the log y preference for the loss graph under the current job URL.
 <!-- settings-catalog:end -->
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](controls-video-audio.md) · [Next →](../workflow/simple-ui.md)
 <!-- book-navigation:end -->
 
 A technically valid dataset can still be inappropriate to collect, train on, retain, or distribute. Review authority and risk before copying media into ai-toolkit, and repeat that review before publishing a dataset version, sharing a LoRA, or changing the intended use.
@@ -125,4 +126,5 @@ If any answer is unknown, pause the job. Create a quarantined review area rather
 Re-run preflight when data, consent, license terms, jurisdiction, model, product purpose, audience, or distribution changes. A passed review applies to a defined version and use; it is not permanent blanket permission.
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

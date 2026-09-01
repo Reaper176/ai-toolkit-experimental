@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](performance-and-caching.md) · [Next →](../troubleshooting/diagnosis-guide.md)
 <!-- book-navigation:end -->
 
 Debugging should reduce uncertainty, not create a second uncontrolled experiment. Preserve the failing inputs, identify the earliest causal boundary, and enable heavier diagnostics only when ordinary logs do not answer the question.
@@ -134,4 +135,5 @@ State whether the job ever loaded, cached, trained, sampled, or saved. “Traini
 - [Queue and GPU behavior](../workflow/queue-and-multiple-gpus.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

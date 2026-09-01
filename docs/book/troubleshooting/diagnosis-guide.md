@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](../advanced/extending-and-debugging.md) · [Next →](common-failure-patterns.md)
 <!-- book-navigation:end -->
 
 Troubleshooting is an experiment. The goal is not to make an error disappear by changing many settings; it is to identify which boundary failed and preserve enough evidence to explain why.
@@ -114,4 +115,5 @@ For symptom-specific reminders, continue to [common failure patterns](common-fai
 - [Common failure patterns](common-failure-patterns.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

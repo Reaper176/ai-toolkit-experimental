@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](diagnosis-guide.md) · [Next →](../verification/first-run-smoke.md)
 <!-- book-navigation:end -->
 
 Use this page as an index after applying the [diagnosis loop](diagnosis-guide.md). Each pattern lists likely boundaries, evidence to collect, and one first experiment. A matching symptom does not prove the listed cause.
@@ -117,4 +118,5 @@ For an unlisted symptom, return to the [diagnosis guide](diagnosis-guide.md) and
 - [Extending and debugging](../advanced/extending-and-debugging.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

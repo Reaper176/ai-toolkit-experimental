@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](object-concept.md) · [Next →](low-vram.md)
 <!-- book-navigation:end -->
 
 Use this recipe only after an unmasked baseline shows a measurable spatial-confounding problem. Mask-focused refinement changes where loss is weighted; it does not repair weak captions, missing viewpoints, poor alignment, or an unsuitable base model.
@@ -122,4 +123,5 @@ Family-specific compatibility and validated preset values override the generic c
 - [Dataset settings reference](../reference/dataset.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

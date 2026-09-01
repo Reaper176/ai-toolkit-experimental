@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](sdxl-and-sd15.md) · [Next →](../reference/job-and-model.md)
 <!-- book-navigation:end -->
 
 This chapter gives focused starting guidance for the `wan21:1b` and `wan22_14b:t2v` selectors. Video training multiplies the dataset, memory, and evaluation variables that must be held constant, so begin with a diagnostic run before committing to a long job.
@@ -1853,4 +1854,5 @@ Resource uncertainty is unavoidable across GPUs and software builds. No GPU memo
 - [Saving, resuming, and optimizer state](../workflow/saving-resuming-and-optimizer-state.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

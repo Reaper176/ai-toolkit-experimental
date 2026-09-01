@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](loss-and-checkpoints.md) · [Next →](saving-resuming-and-optimizer-state.md)
 <!-- book-navigation:end -->
 
 The UI queue is a scheduler for job processes. Its identity and exclusion boundary are the stored `gpu_ids` string, not a normalized set of physical devices. Understanding that distinction prevents accidental overlap and incorrect expectations about multi-GPU training.
@@ -99,4 +100,5 @@ Queue separation also does not coordinate disk bandwidth, system RAM, CPU worker
 See [saving and resume behavior](saving-resuming-and-optimizer-state.md) before restarting interrupted work, and consult the [job/model reference](../reference/job-and-model.md) for the exact `gpu_ids` configuration boundary.
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

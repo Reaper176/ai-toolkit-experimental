@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](first-lora.md) · [Next →](../datasets/curation.md)
 <!-- book-navigation:end -->
 
 Training becomes easier to diagnose when the controls are connected to one simple loop: show the base model a captioned example, perturb the example, measure its prediction error, and make a small update to the LoRA. The loop repeats; samples reveal whether those updates produce useful behavior.
@@ -65,4 +66,5 @@ These states do not have a single loss threshold. Raw loss is noisy because batc
 When diagnosing, change one axis at a time and keep an experiment log. Start with data and captions, then consider learning rate and duration, then capacity. The [loss and checkpoint chapter](../workflow/loss-and-checkpoints.md) develops the evaluation process, and [dataset curation](../datasets/curation.md) explains how the evidence presented to the model shapes every setting decision.
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

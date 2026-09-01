@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](simple-ui.md) · [Next →](loss-and-checkpoints.md)
 <!-- book-navigation:end -->
 
 Training samples are an experiment instrument. They are useful only when the comparison controls are stable enough to attribute a visual change to the checkpoint rather than to a new seed, prompt, sampler, or image size.
@@ -96,4 +97,5 @@ An image folder without this context is difficult to interpret later. Keep the c
 Continue with [loss and checkpoints](loss-and-checkpoints.md) to connect this visual process to raw and smoothed loss, checkpoint cadence, and valleys versus peaks. The [sampling settings reference](../reference/saving-and-sampling.md) documents exact field types and defaults.
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

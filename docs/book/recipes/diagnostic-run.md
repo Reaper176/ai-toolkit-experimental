@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](low-vram.md) · [Next →](../models/anima.md)
 <!-- book-navigation:end -->
 
 Use this short run before committing hours to a new model, dataset, cache, or configuration. It tests the pipeline rather than LoRA quality: successful completion proves that major stages connect, not that 250 steps are enough to learn the concept.
@@ -121,4 +122,5 @@ Family-specific compatibility and built-in preset values override generic assump
 - [Choose a model](../getting-started/choose-a-model.md)
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->

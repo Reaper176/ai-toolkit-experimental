@@ -3,6 +3,7 @@
 [Table of contents](../README.md)
 
 <!-- book-navigation:start -->
+[← Previous](../README.md) · [Next →](choose-a-model.md)
 <!-- book-navigation:end -->
 
 This chapter is the preflight check. Complete it before creating a job so a model download, full disk, inaccessible dataset, or exposed UI does not interrupt the first run.
@@ -69,4 +70,5 @@ Before the first job, verify that:
 The next practical run uses [`first-lora-flex1.yaml`](../examples/first-lora-flex1.yaml). Read [safe saving and resume behavior](../workflow/saving-resuming-and-optimizer-state.md) before relying on a checkpoint as the only copy of ongoing work.
 
 <!-- book-verification:start -->
+Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
 <!-- book-verification:end -->
