@@ -107,12 +107,28 @@ def _page_anchors(document: str, page: str) -> set[str]:
 
 def _claim_text(document: str) -> str:
     value = re.sub(r"<[^>]+>", " ", document)
-    value = re.sub(r"[`*_~]", "", value)
-    return "\n".join(
-        re.sub(r"\s+", " ", paragraph).strip()
-        for paragraph in re.split(r"\n[ \t]*\n", value.lower())
-        if paragraph.strip()
-    ).strip()
+    blocks: list[str] = []
+    current: list[str] = []
+
+    def finish_block() -> None:
+        if current:
+            blocks.append(re.sub(r"\s+", " ", " ".join(current)).strip())
+            current.clear()
+
+    for raw_line in value.lower().splitlines():
+        line = re.sub(r"[`*_~]", "", raw_line)
+        if not line.strip():
+            finish_block()
+            continue
+        if re.match(r"^ {0,3}(?:[-+*]|\d+[.)])\s+", raw_line):
+            finish_block()
+        elif re.match(r"^ {0,3}#{1,6}\s+", line):
+            finish_block()
+            blocks.append(line.strip())
+            continue
+        current.append(line.strip())
+    finish_block()
+    return "\n".join(blocks)
 
 
 def _relation_is_negated(text: str, verb_start: int, verb_end: int) -> bool:
