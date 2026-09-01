@@ -14580,6 +14580,34 @@ class BeginnerNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase, page)
 
+    def test_beginner_page_choose_model_covers_every_supported_architecture(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/getting-started/choose-a-model.md"
+        ).read_text(encoding="utf-8")
+        manifest = load_book_manifest(REPOSITORY_ROOT / "docs/book/book-manifest.json")
+
+        for architecture in manifest.full_architectures:
+            self.assertEqual(
+                page.count(f"`{architecture}`"), 1,
+                f"expected one overview row for {architecture}",
+            )
+        for heading in (
+            "## Decide by task and modality",
+            "## Complete architecture overview",
+            "## Access, licenses, and downloads",
+            "## Memory is a configuration question",
+            "## Focused family guides",
+        ):
+            self.assertIn(heading, page)
+        for link in (
+            "../models/anima.md",
+            "../models/flux-and-flex.md",
+            "../models/qwen-image-and-edit.md",
+            "../models/sdxl-and-sd15.md",
+            "../models/wan.md",
+        ):
+            self.assertIn(link, page)
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
