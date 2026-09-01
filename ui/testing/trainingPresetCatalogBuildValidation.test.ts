@@ -1,19 +1,26 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import {
   validateBuiltInTrainingPresetRelease,
+  verifyTrainingPresetEvidenceCommit,
   type TrainingPresetBackendMappingReport,
   type TrainingPresetUiMappingReport,
 } from '../src/server/trainingPresetCatalogBuildValidation';
-import { BUILT_IN_ARCHITECTURE_BINDINGS } from '../src/helpers/builtInTrainingPresetBindings';
+import { BUILT_IN_ARCHITECTURE_BINDINGS, BUILT_IN_RECIPE_PATHS } from '../src/helpers/builtInTrainingPresetBindings';
 import { BUILT_IN_PRESET_ROWS, materializeBuiltInTrainingPresetRow } from '../src/helpers/builtInTrainingPresetDefinitions';
 import { canonicalizePresetJson } from '../src/helpers/builtInTrainingPresets';
 import type { BuiltInTrainingPresetRecord } from '../src/helpers/trainingPresets';
+import {
+  writeJsonExclusive,
+  writeTrainingPresetRecipesAtomically,
+  type ExclusiveJsonFileOperations,
+  type TrainingPresetRecipeFileOperations,
+} from './trainingPresetCatalogBuildValidationCli';
 
 const repositoryRoot = resolve(process.env.TRAINING_PRESET_REPOSITORY_ROOT ?? resolve(__dirname, '..', '..'));
 const records = BUILT_IN_PRESET_ROWS.map(materializeBuiltInTrainingPresetRow);
@@ -171,7 +178,7 @@ test('rejects a malformed evidence filename digest', () => assert.match(evidence
 test('rejects the wrong evidence preset ID', () => assert.match(evidenceError(({ evidence }) => { evidence.preset_id = 'wrong'; }), /identity.*mismatch/i));
 test('rejects the wrong evidence catalog revision', () => assert.match(evidenceError(({ evidence }) => { evidence.catalog_revision = 2; }), /revision.*mismatch/i));
 test('rejects a stale evidence snapshot digest', () => assert.match(evidenceError(({ evidence }) => { evidence.snapshot_sha256 = '0'.repeat(64); }), /stale snapshot/i));
-test('rejects an unknown evidence commit', () => assert.match(evidenceError(({ evidence }) => { evidence.repository_commit = 'f'.repeat(40); }), /unknown.*commit/i));
+test('classifies an unexpected cat-file status as an explicit verification failure', () => assert.match(evidenceError(({ evidence }) => { evidence.repository_commit = 'f'.repeat(40); }), /verification failed.*cat-file.*status 128/i));
 test('rejects a known nonancestor evidence commit', () => assert.match(evidenceError(({ evidence, nonancestor }) => { evidence.repository_commit = nonancestor; }), /not an ancestor/i));
 test('rejects a non-Z evidence date', () => assert.match(evidenceError(({ evidence }) => { evidence.tested_at = '2026-08-14T12:34:56+00:00'; }), /UTC RFC 3339/i));
 test('rejects an impossible evidence calendar date', () => assert.match(evidenceError(({ evidence }) => { evidence.tested_at = '2026-02-30T12:34:56Z'; }), /UTC RFC 3339/i));
@@ -197,3 +204,120 @@ test('omitted records materialize every raw row without the fail-soft runtime ge
   assert.match(validator, /BUILT_IN_PRESET_ROWS\.forEach/);
   assert.doesNotMatch(validator, /getBuiltInTrainingPresetCatalog/);
 });
+
+function recipeContents(root: string): string[] {
+  return BUILT_IN_RECIPE_PATHS.map(path => readFileSync(join(root, path), 'utf8'));
+}
+
+test('recipe publication preflight rejects an external symlink without changing any recipe', () => {
+  const root = copiedBook();
+  const before = recipeContents(root);
+  const external = `${root}-external.md`;
+  const recipe = join(root, BUILT_IN_RECIPE_PATHS[0]);
+  try {
+    writeFileSync(external, readFileSync(recipe)); rmSync(recipe); symlinkSync(external, recipe);
+    assert.throws(() => writeTrainingPresetRecipesAtomically(root, records), /symlink|escapes/i);
+    assert.deepEqual(recipeContents(root).slice(1), before.slice(1));
+    assert.equal(readFileSync(external, 'utf8'), before[0]);
+  } finally { rmSync(root, { recursive: true }); rmSync(external, { force: true }); }
+});
+
+test('late malformed recipe markers leave every earlier recipe unchanged', () => {
+  const root = copiedBook();
+  const before = recipeContents(root);
+  const late = join(root, BUILT_IN_RECIPE_PATHS.at(-1)!);
+  try {
+    writeFileSync(late, readFileSync(late, 'utf8').replace('<!-- built-in-presets:end -->', ''));
+    const expected = recipeContents(root);
+    assert.throws(() => writeTrainingPresetRecipesAtomically(root, records), /invalid built-in preset markers/i);
+    assert.deepEqual(recipeContents(root), expected);
+    assert.deepEqual(recipeContents(root).slice(0, -1), before.slice(0, -1));
+  } finally { rmSync(root, { recursive: true }); }
+});
+
+test('injected late rename failure rolls back all recipes and cleans temporary files', () => {
+  const root = copiedBook();
+  const before = recipeContents(root);
+  let publications = 0;
+  const operations: TrainingPresetRecipeFileOperations = {
+    rename(source, target) {
+      if (target.endsWith('.md') && ++publications === 3) throw new Error('injected rename failure');
+      renameSync(source, target);
+    },
+  };
+  try {
+    assert.throws(() => writeTrainingPresetRecipesAtomically(root, records, operations), /injected rename failure/i);
+    assert.deepEqual(recipeContents(root), before);
+    for (const recipe of BUILT_IN_RECIPE_PATHS) {
+      assert.deepEqual(readdirSync(resolve(root, recipe, '..')).filter(name => name.includes('.training-preset-tmp-')), []);
+    }
+  } finally { rmSync(root, { recursive: true }); }
+});
+
+test('exclusive JSON publication never overwrites a preexisting file', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'training-preset-exclusive-'));
+  const target = join(directory, 'facts.json');
+  try {
+    writeFileSync(target, 'owner');
+    assert.throws(() => writeJsonExclusive(target, { schema_version: 1 }), /exist|exclusive/i);
+    assert.equal(readFileSync(target, 'utf8'), 'owner');
+  } finally { rmSync(directory, { recursive: true }); }
+});
+
+test('exclusive JSON publication never follows or overwrites a target symlink', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'training-preset-exclusive-'));
+  const external = join(directory, 'external.json');
+  const target = join(directory, 'facts.json');
+  try {
+    writeFileSync(external, 'owner'); symlinkSync(external, target);
+    assert.throws(() => writeJsonExclusive(target, { schema_version: 1 }), /exist|exclusive/i);
+    assert.equal(readFileSync(external, 'utf8'), 'owner');
+  } finally { rmSync(directory, { recursive: true }); }
+});
+
+test('exclusive JSON publication loses a simulated target race without overwriting the winner', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'training-preset-exclusive-'));
+  const target = join(directory, 'facts.json');
+  const operations: ExclusiveJsonFileOperations = {
+    link(source, destination) { writeFileSync(destination, 'racer', { flag: 'wx' }); linkSync(source, destination); },
+  };
+  try {
+    assert.throws(() => writeJsonExclusive(target, { schema_version: 1 }, operations), /exist|exclusive/i);
+    assert.equal(readFileSync(target, 'utf8'), 'racer');
+    assert.deepEqual(readdirSync(directory), ['facts.json']);
+  } finally { rmSync(directory, { recursive: true }); }
+});
+
+test('evidence directory symlink cannot import external attestations', () => {
+  const fixture = evidenceFixture();
+  const directory = resolve(fixture.path, '..');
+  const external = mkdtempSync(join(tmpdir(), 'training-preset-external-evidence-'));
+  try {
+    copyFileSync(fixture.path, join(external, fixture.path.split('/').at(-1)!));
+    rmSync(directory, { recursive: true }); symlinkSync(external, directory, 'dir');
+    assert.match(errorFrom(() => validate(fixture.root, fixture.release)), /evidence.*symlink|evidence.*escapes/i);
+  } finally { rmSync(fixture.root, { recursive: true }); rmSync(external, { recursive: true }); }
+});
+
+test('evidence file symlink cannot import an external attestation', () => {
+  const fixture = evidenceFixture();
+  const external = `${fixture.root}-external-evidence.json`;
+  try {
+    copyFileSync(fixture.path, external); rmSync(fixture.path); symlinkSync(external, fixture.path);
+    assert.match(errorFrom(() => validate(fixture.root, fixture.release)), /evidence.*symlink|evidence.*escapes/i);
+  } finally { rmSync(fixture.root, { recursive: true }); rmSync(external, { force: true }); }
+});
+
+const commit = '1'.repeat(40);
+test('Git verification removes ambient repository-selection variables', () => {
+  const calls: Array<{ env: NodeJS.ProcessEnv }> = [];
+  verifyTrainingPresetEvidenceCommit('/repo', commit, (_args, options) => { calls.push(options); return { status: 0, signal: null }; });
+  for (const { env } of calls) for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_INDEX_FILE', 'GIT_CEILING_DIRECTORIES', 'GIT_DISCOVERY_ACROSS_FILESYSTEM']) assert.equal(env[key], undefined);
+});
+test('Git cat-file status one means unknown commit', () => assert.throws(() => verifyTrainingPresetEvidenceCommit('/repo', commit, () => ({ status: 1, signal: null })), /unknown evidence commit/i));
+test('Git merge-base status one means known nonancestor', () => {
+  let call = 0; assert.throws(() => verifyTrainingPresetEvidenceCommit('/repo', commit, () => ({ status: ++call === 1 ? 0 : 1, signal: null })), /not an ancestor/i);
+});
+test('Git non-one failure status is an explicit verification failure', () => assert.throws(() => verifyTrainingPresetEvidenceCommit('/repo', commit, () => ({ status: 2, signal: null })), /verification failed.*status 2/i));
+test('Git spawn errors are explicit verification failures', () => assert.throws(() => verifyTrainingPresetEvidenceCommit('/repo', commit, () => ({ status: null, signal: null, error: new Error('spawn broke') })), /verification failed.*spawn broke/i));
+test('Git signals are explicit verification failures', () => assert.throws(() => verifyTrainingPresetEvidenceCommit('/repo', commit, () => ({ status: null, signal: 'SIGTERM' })), /verification failed.*SIGTERM/i));

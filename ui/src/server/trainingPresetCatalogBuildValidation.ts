@@ -147,30 +147,122 @@ function modelArchitectures(root: string, path: string): string[] {
   });
 }
 
+const GIT_REPOSITORY_ENVIRONMENT = [
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_COMMON_DIR',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_INDEX_FILE',
+  'GIT_CEILING_DIRECTORIES',
+  'GIT_DISCOVERY_ACROSS_FILESYSTEM',
+  'GIT_NAMESPACE',
+  'GIT_SHALLOW_FILE',
+  'GIT_CONFIG',
+  'GIT_CONFIG_SYSTEM',
+  'GIT_CONFIG_GLOBAL',
+  'GIT_CONFIG_NOSYSTEM',
+] as const;
+
+export interface TrainingPresetGitRunResult {
+  status: number | null;
+  signal: string | null;
+  error?: Error;
+}
+
+export type TrainingPresetGitRunner = (
+  args: string[],
+  options: { cwd: string; env: NodeJS.ProcessEnv },
+) => TrainingPresetGitRunResult;
+
+const runGit: TrainingPresetGitRunner = (args, options) => spawnSync('git', args, {
+  cwd: options.cwd,
+  env: options.env,
+  stdio: 'ignore',
+});
+
+function checkedGitResult(result: TrainingPresetGitRunResult, operation: string, statusOneMessage: string): void {
+  if (result.error) throw new Error(`Git evidence verification failed during ${operation}: ${result.error.message}`);
+  if (result.signal !== null) throw new Error(`Git evidence verification failed during ${operation}: terminated by signal ${result.signal}`);
+  if (result.status === 1) throw new Error(statusOneMessage);
+  if (result.status !== 0) throw new Error(`Git evidence verification failed during ${operation}: exit status ${String(result.status)}`);
+}
+
+export function verifyTrainingPresetEvidenceCommit(
+  root: string,
+  commit: string,
+  runner: TrainingPresetGitRunner = runGit,
+): void {
+  const env = { ...process.env };
+  for (const variable of GIT_REPOSITORY_ENVIRONMENT) delete env[variable];
+  for (const variable of Object.keys(env)) {
+    if (/^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/u.test(variable)) delete env[variable];
+  }
+  checkedGitResult(
+    runner(['cat-file', '-e', `${commit}^{commit}`], { cwd: root, env }),
+    'cat-file',
+    'unknown evidence commit',
+  );
+  checkedGitResult(
+    runner(['merge-base', '--is-ancestor', commit, 'HEAD'], { cwd: root, env }),
+    'merge-base',
+    'evidence commit is not an ancestor',
+  );
+}
+
+function confinedEvidenceDirectory(root: string): string {
+  const realRoot = realpathSync(root);
+  const book = resolve(root, 'docs/book');
+  const directory = resolve(book, 'preset-evidence');
+  let cursor = root;
+  for (const component of relative(root, directory).split(sep).filter(Boolean)) {
+    cursor = resolve(cursor, component);
+    if (lstatSync(cursor).isSymbolicLink()) throw new Error('preset evidence path contains a symlink');
+  }
+  const realBook = realpathSync(book);
+  const realDirectory = realpathSync(directory);
+  const bookFromRoot = relative(realRoot, realBook);
+  const evidenceFromBook = relative(realBook, realDirectory);
+  if (bookFromRoot === '..' || bookFromRoot.startsWith(`..${sep}`) || isAbsolute(bookFromRoot)
+    || evidenceFromBook === '..' || evidenceFromBook.startsWith(`..${sep}`) || isAbsolute(evidenceFromBook)
+    || !lstatSync(realDirectory).isDirectory()) throw new Error('preset evidence path escapes repository book');
+  return realDirectory;
+}
+
+function confinedEvidenceFile(directory: string, filename: string): string {
+  const path = resolve(directory, filename);
+  if (lstatSync(path).isSymbolicLink()) throw new Error(`preset evidence file is a symlink: ${filename}`);
+  const real = realpathSync(path);
+  const fromDirectory = relative(directory, real);
+  if (fromDirectory === '..' || fromDirectory.startsWith(`..${sep}`) || isAbsolute(fromDirectory) || !lstatSync(real).isFile()) {
+    throw new Error(`${filename}: preset evidence file escapes its directory`);
+  }
+  return real;
+}
+
 function validateEvidence(root: string, records: readonly BuiltInTrainingPresetRecord[]): void {
-  const directory = resolve(root, 'docs/book/preset-evidence');
+  const configuredDirectory = resolve(root, 'docs/book/preset-evidence');
   const stronger = records.filter(record => record.evidence !== 'configuration-validated');
   if (stronger.length === 0) {
-    if (existsSync(directory)) throw new Error('configuration-validated revision must not contain preset evidence');
+    if (existsSync(configuredDirectory)) throw new Error('configuration-validated revision must not contain preset evidence');
     return;
   }
-  if (!existsSync(directory)) throw new Error('missing preset evidence directory');
+  if (!existsSync(configuredDirectory)) throw new Error('missing preset evidence directory');
+  const directory = confinedEvidenceDirectory(root);
   const expectedFiles = new Set(stronger.map(record => `${createHash('sha256').update(record.id).digest('hex')}.json`));
   const actualFiles = readdirSync(directory).sort();
   if (canonical(actualFiles) !== canonical([...expectedFiles].sort())) throw new Error('missing or extra preset evidence files');
   for (const record of stronger) {
     const filename = `${createHash('sha256').update(record.id).digest('hex')}.json`;
-    const attestation = JSON.parse(readFileSync(resolve(directory, filename), 'utf8')) as PresetEvidenceAttestation;
+    const attestation = JSON.parse(readFileSync(confinedEvidenceFile(directory, filename), 'utf8')) as PresetEvidenceAttestation;
     const keys = ['schema_version','preset_id','catalog_revision','snapshot_sha256','repository_commit','tested_at','hardware_model','model_identifier','test_scope','result','reviewer'];
     if (!exactKeys(attestation, keys)) throw new Error(`${record.id}: evidence has missing or extra fields`);
     if (attestation.schema_version !== 1 || attestation.preset_id !== record.id || attestation.catalog_revision !== record.catalog_revision) throw new Error(`${record.id}: evidence identity/revision mismatch`);
     const digest = createHash('sha256').update(canonicalizePresetJson(record.snapshot)).digest('hex');
     if (attestation.snapshot_sha256 !== digest) throw new Error(`${record.id}: stale snapshot evidence`);
     if (!/^[0-9a-f]{40}$/u.test(attestation.repository_commit)) throw new Error(`${record.id}: malformed repository commit`);
-    const known = spawnSync('git', ['cat-file', '-e', `${attestation.repository_commit}^{commit}`], { cwd: root, stdio: 'ignore' });
-    if (known.status !== 0) throw new Error(`${record.id}: unknown evidence commit`);
-    const ancestor = spawnSync('git', ['merge-base', '--is-ancestor', attestation.repository_commit, 'HEAD'], { cwd: root, stdio: 'ignore' });
-    if (ancestor.status !== 0) throw new Error(`${record.id}: evidence commit is not an ancestor`);
+    try { verifyTrainingPresetEvidenceCommit(root, attestation.repository_commit); }
+    catch (error) { throw new Error(`${record.id}: ${error instanceof Error ? error.message : String(error)}`); }
     if (!isStrictUtcRfc3339(attestation.tested_at)) throw new Error(`${record.id}: tested_at must be UTC RFC 3339 with a valid calendar date`);
     for (const key of ['hardware_model','model_identifier','reviewer'] as const) if (typeof attestation[key] !== 'string' || !attestation[key].trim()) throw new Error(`${record.id}: ${key} must be nonblank`);
     if (attestation.result !== 'passed' || attestation.test_scope !== record.evidence) throw new Error(`${record.id}: unsuccessful or scope/label mismatch evidence`);

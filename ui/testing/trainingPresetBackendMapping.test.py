@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,7 +25,9 @@ BINDINGS = (
 UI_ARCHITECTURES = tuple(row[0] for row in BINDINGS)
 
 def source(path: str, overrides: dict[str, str] | None = None) -> str:
-    return (overrides or {}).get(path, (ROOT / path).read_text(encoding="utf-8"))
+    if overrides is not None and path in overrides:
+        return overrides[path]
+    return (ROOT / path).read_text(encoding="utf-8")
 
 def tree(path: str, overrides: dict[str, str] | None = None) -> ast.Module:
     return ast.parse(source(path, overrides), filename=path)
@@ -64,8 +67,8 @@ def normalize_architecture(value: str, overrides: dict[str, str] | None = None) 
 
 def _literal_name_list(module: ast.Module, variable: str) -> list[str]:
     for node in module.body:
-        if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == variable for target in node.targets) and isinstance(node.value, (ast.List, ast.Tuple)):
-            if not all(isinstance(item, ast.Name) for item in node.value.elts):
+        if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == variable for target in node.targets):
+            if not isinstance(node.value, (ast.List, ast.Tuple)) or not all(isinstance(item, ast.Name) for item in node.value.elts):
                 raise AssertionError(f"{variable} must be a literal source-visible name list")
             return [item.id for item in node.value.elts]
     return []
@@ -114,7 +117,7 @@ def resolver_contract(overrides: dict[str, str] | None = None) -> tuple[list[str
 
 ModelDefinition = tuple[str, str, str | None]
 
-def _module_path(current_path: str, imported: ast.ImportFrom) -> str:
+def _module_path(current_path: str, imported: ast.ImportFrom, overrides: dict[str, str] | None = None) -> str:
     package = current_path.split("/")[:-1]
     if imported.level:
         keep = len(package) - (imported.level - 1)
@@ -126,7 +129,7 @@ def _module_path(current_path: str, imported: ast.ImportFrom) -> str:
     module = "/".join(parts)
     candidates = (f"{module}.py", f"{module}/__init__.py")
     for candidate in candidates:
-        if (ROOT / candidate).is_file():
+        if (ROOT / candidate).is_file() or (overrides is not None and candidate in overrides):
             return candidate
     raise AssertionError(f"imported source module {module} is missing")
 
@@ -159,7 +162,7 @@ def resolve_symbol(module_path: str, symbol: str, overrides: dict[str, str] | No
             continue
         for alias in node.names:
             if (alias.asname or alias.name) == symbol:
-                imported_path = _module_path(module_path, node)
+                imported_path = _module_path(module_path, node, overrides)
                 return resolve_symbol(imported_path, alias.name, overrides, chain)
     raise AssertionError(f"{module_path} does not bind {symbol}")
 
@@ -171,10 +174,38 @@ def registered_model_definitions(overrides: dict[str, str] | None = None) -> tup
         absolute = ROOT / folder
         if not absolute.is_dir():
             continue
-        for child in sorted(path for path in absolute.iterdir() if path.is_dir()):
-            relative = f"{folder}/{child.name}/__init__.py"
-            if (ROOT / relative).is_file() or relative in (overrides or {}):
-                definitions.extend(resolve_symbol(relative, symbol, overrides) for symbol in _literal_name_list(tree(relative, overrides), "AI_TOOLKIT_MODELS"))
+        eligible: dict[str, str] = {}
+        for child in absolute.iterdir():
+            relative = None
+            if child.is_dir() and (child / "__init__.py").is_file():
+                relative = f"{folder}/{child.name}/__init__.py"
+            elif child.is_file() and child.suffix == ".py" and child.name != "__init__.py":
+                relative = f"{folder}/{child.name}"
+            if relative is not None:
+                module_name = child.stem if child.is_file() else child.name
+                if module_name in eligible:
+                    raise AssertionError(f"ambiguous eligible extension module {folder}/{module_name}")
+                eligible[module_name] = relative
+        for relative in (overrides or {}):
+            prefix = f"{folder}/"
+            if not relative.startswith(prefix):
+                continue
+            remainder = relative[len(prefix):]
+            if remainder.endswith(".py") and "/" not in remainder and remainder != "__init__.py":
+                module_name = remainder[:-3]
+                existing = eligible.get(module_name)
+                if existing is not None and existing != relative:
+                    raise AssertionError(f"ambiguous eligible extension module {folder}/{module_name}")
+                eligible[module_name] = relative
+            elif remainder.endswith("/__init__.py") and remainder.count("/") == 1:
+                module_name = remainder.split("/", 1)[0]
+                existing = eligible.get(module_name)
+                if existing is not None and existing != relative:
+                    raise AssertionError(f"ambiguous eligible extension module {folder}/{module_name}")
+                eligible[module_name] = relative
+        for module_name in sorted(eligible):
+            relative = eligible[module_name]
+            definitions.extend(resolve_symbol(relative, symbol, overrides) for symbol in _literal_name_list(tree(relative, overrides), "AI_TOOLKIT_MODELS"))
     return definitions, resolve_symbol(resolver_path, fallback_symbol, overrides)
 
 def build_report(overrides: dict[str, str] | None = None) -> dict[str, object]:
@@ -211,6 +242,13 @@ def report() -> dict[str, object]:
     value = build_report()
     validate_expected_report(value)
     return value
+
+def emit_report_exclusive(target: Path, value: dict[str, object]) -> None:
+    with target.open("x", encoding="utf-8") as stream:
+        json.dump(value, stream, indent=2)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
 
 class BackendMappingTests(unittest.TestCase):
     def test_model_config_suffix_and_flex1_normalization_are_ast_derived(self) -> None:
@@ -258,6 +296,40 @@ class BackendMappingTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "does not bind AnimaModel"):
             build_report({path: mutated})
 
+    def test_top_level_extension_module_interceptor_is_discovered(self) -> None:
+        path = "extensions_built_in/interceptor.py"
+        actual = build_report({
+            path: "from .interceptor_model import FluxInterceptor\n\nAI_TOOLKIT_MODELS = [FluxInterceptor]\n",
+            "extensions_built_in/interceptor_model.py": "class FluxInterceptor:\n    arch = 'flux'\n",
+        })
+        flux = next(row for row in actual["bindings"] if row["ui_architecture"] == "flux")
+        self.assertEqual(flux["model_class"], "FluxInterceptor")
+        with self.assertRaisesRegex(AssertionError, "backend mapping report drift"):
+            validate_expected_report(actual)
+
+    def test_unsupported_eligible_top_level_registry_fails_closed(self) -> None:
+        path = "extensions_built_in/dynamic_registry.py"
+        with self.assertRaisesRegex(AssertionError, "AI_TOOLKIT_MODELS must be a literal"):
+            build_report({path: "def models():\n    return []\nAI_TOOLKIT_MODELS = models()\n"})
+
+    def test_exclusive_emitter_does_not_overwrite_preexisting_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "backend.json"
+            target.write_text("owner", encoding="utf-8")
+            with self.assertRaises(FileExistsError):
+                emit_report_exclusive(target, report())
+            self.assertEqual(target.read_text(encoding="utf-8"), "owner")
+
+    def test_exclusive_emitter_does_not_follow_target_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            external = Path(directory) / "external.json"
+            target = Path(directory) / "backend.json"
+            external.write_text("owner", encoding="utf-8")
+            target.symlink_to(external)
+            with self.assertRaises(FileExistsError):
+                emit_report_exclusive(target, report())
+            self.assertEqual(external.read_text(encoding="utf-8"), "owner")
+
     def test_exact_nine_canonical_source_only_bindings(self) -> None:
         value = report()
         self.assertEqual([row["ui_architecture"] for row in value["bindings"]], [row[0] for row in BINDINGS])
@@ -276,9 +348,9 @@ def main() -> None:
     if args.emit is None:
         unittest.main(argv=[__file__])
         return
-    if args.emit.exists() or not args.emit.parent.is_dir():
+    if not args.emit.parent.is_dir() or args.emit.parent.is_symlink():
         raise SystemExit("--emit requires a nonexistent path in an owned existing directory")
-    args.emit.write_text(json.dumps(report(), indent=2) + "\n", encoding="utf-8")
+    emit_report_exclusive(args.emit, report())
 
 if __name__ == "__main__":
     main()
