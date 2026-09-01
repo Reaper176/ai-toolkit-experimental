@@ -16,6 +16,7 @@
   "include": [
     "../src/components/TrainingPresetSelect.tsx",
     "../src/components/TrainingPresetControl.tsx",
+    "../src/components/TrainingPresetDetails.tsx",
     "../src/components/TrainingPresetDialog.tsx",
     "../src/components/AdvancedConfigEditor.tsx",
     "../src/app/jobs/new/jobConfig.ts",
@@ -23,6 +24,7 @@
     "../src/helpers/trainingPresets.ts",
     "../src/helpers/builtInTrainingPresetBindings.ts",
     "../src/helpers/builtInTrainingPresets.ts",
+    "../src/helpers/jobDatasetPresetClient.ts",
     "../src/helpers/maskTrainingValidation.ts",
     "../src/server/trainingPresetCatalogDigest.ts",
     "../src/server/trainingPresetCatalogRuntime.ts",

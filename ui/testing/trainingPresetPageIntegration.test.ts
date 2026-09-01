@@ -238,6 +238,9 @@ assert.equal(
   0,
   'TrainingPresetControl subtree must not reference gpuIDs',
 );
+for (const catalogField of ['source', 'read_only', 'category', 'intent_slug', 'catalog_revision', 'summary', 'warnings', 'prerequisites', 'evidence']) {
+  assert.equal(getAttribute(presetControl, catalogField), undefined, `page must not pass catalog-only ${catalogField} into job state`);
+}
 
 const classAttribute = getAttribute(presetWrapper, 'className');
 assert.ok(

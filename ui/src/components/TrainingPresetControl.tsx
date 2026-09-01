@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useReducer, useRef, useState, type Compo
 import type { JobConfig } from '../types';
 import { normalizePresetName, type TrainingPresetRecord } from '../helpers/trainingPresets';
 import { apiClient } from '../utils/api';
+import { TrainingPresetDetails } from './TrainingPresetDetails';
 import {
   CLOSED_TRAINING_PRESET_DIALOG,
   TrainingPresetDialogView,
@@ -167,7 +168,7 @@ export function TrainingPresetControl({
         return;
       }
       try {
-        const transaction = preparePresetApplication(jobConfigRef.current, preset.snapshot, migrateRef.current);
+        const transaction = preparePresetApplication(jobConfigRef.current, preset, migrateRef.current);
         changeRef.current(transaction.jobConfig);
         setUndoConfig(transaction.undoConfig);
         setSelectedPresetId(preset.id);
@@ -197,7 +198,7 @@ export function TrainingPresetControl({
 
     const selected =
       selectedPresetId === null ? undefined : presets.find(candidate => candidate.id === selectedPresetId);
-    if (!selected || selected.source === 'builtin') return;
+    if (!selected || selected.source !== 'user' || selected.read_only) return;
     if (selection.type === 'update') {
       dispatchDialog({ type: 'open-update', presetId: selected.id, presetName: selected.name });
     } else if (selection.type === 'delete') {
@@ -215,6 +216,10 @@ export function TrainingPresetControl({
     )
       return;
     const activeDialog = expectedDialog;
+    if (activeDialog.kind === 'update' || activeDialog.kind === 'delete') {
+      const target = presets.find(preset => preset.id === activeDialog.presetId);
+      if (!target || target.source !== 'user' || target.read_only) return;
+    }
     let normalizedName: string | undefined;
     if (activeDialog.kind === 'save') {
       try {
@@ -264,6 +269,10 @@ export function TrainingPresetControl({
     }
   };
 
+  const selectedBuiltIn = selectedPresetId === null
+    ? undefined
+    : presets.find(preset => preset.id === selectedPresetId && preset.source === 'builtin');
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       <TrainingPresetSelect
@@ -274,6 +283,7 @@ export function TrainingPresetControl({
         disabled={disabled || loading || pending || dialog.kind !== 'closed'}
         onSelect={handleSelection}
       />
+      {selectedBuiltIn?.source === 'builtin' && <TrainingPresetDetails preset={selectedBuiltIn} />}
       {(loading || pending) && (
         <span role="status" className="text-xs text-gray-400">
           {loading ? 'Loading presets…' : 'Updating presets…'}

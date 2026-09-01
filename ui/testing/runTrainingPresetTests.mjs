@@ -18,6 +18,8 @@ const testFiles = [
   'trainingPresetRouteHandlers.test.js',
   'trainingPresetPrismaIntegration.test.js',
   'trainingPresetSelect.test.js',
+  'trainingPresetDetails.test.js',
+  'trainingPresetApplicationIntegration.test.js',
   'trainingPresetControl.test.js',
   'trainingPresetPageIntegration.test.js',
   'trainingPresetAdvancedSync.test.js',

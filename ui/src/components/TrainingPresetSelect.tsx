@@ -7,12 +7,14 @@ import {
   applyTrainingPreset,
   compareTrainingPresetRecords,
   normalizePresetName,
+  sanitizeTrainingPreset,
   type BuiltInTrainingPresetRecord,
   type TrainingPresetRecord,
   type UserTrainingPresetRecord,
   validateTrainingPresetSnapshot,
 } from '../helpers/trainingPresets';
 import {
+  applyBuiltInTrainingPreset,
   compareBuiltInTrainingPresetRecords,
   validateBuiltInTrainingPresetRecord,
 } from '../helpers/builtInTrainingPresets';
@@ -213,10 +215,14 @@ function copyJobConfig(jobConfig: JobConfig): JobConfig {
 
 export function preparePresetApplication(
   currentJobConfig: JobConfig,
-  snapshot: unknown,
+  preset: TrainingPresetRecord,
   migrateJobConfig: (jobConfig: JobConfig) => JobConfig,
 ): { jobConfig: JobConfig; undoConfig: JobConfig } {
-  const jobConfig = applyTrainingPreset(currentJobConfig, snapshot, migrateJobConfig);
+  const acceptedPreset = validateTrainingPresetRecord(preset);
+  const jobConfig = acceptedPreset.source === 'builtin'
+    ? applyBuiltInTrainingPreset(currentJobConfig, acceptedPreset, migrateJobConfig)
+    : applyTrainingPreset(currentJobConfig, acceptedPreset.snapshot, migrateJobConfig);
+  sanitizeTrainingPreset(jobConfig);
   return { jobConfig, undoConfig: copyJobConfig(currentJobConfig) };
 }
 
@@ -426,7 +432,7 @@ export function updateTrainingPresetAndRefresh(
   currentState: TrainingPresetControllerState,
   signal: AbortSignal,
 ): Promise<TrainingPresetMutationResult> {
-  if (currentState.presets.some(preset => preset.id === presetId && preset.source === 'builtin')) {
+  if (currentState.presets.some(preset => preset.id === presetId && (preset.source !== 'user' || preset.read_only))) {
     return Promise.reject(new Error('Built-in training presets are read-only.'));
   }
   return runTrainingPresetMutation(
@@ -451,7 +457,7 @@ export async function deleteTrainingPresetAndRefresh(
   currentState: TrainingPresetControllerState,
   signal: AbortSignal = new AbortController().signal,
 ): Promise<TrainingPresetMutationResult> {
-  if (currentState.presets.some(preset => preset.id === presetId && preset.source === 'builtin')) {
+  if (currentState.presets.some(preset => preset.id === presetId && (preset.source !== 'user' || preset.read_only))) {
     return Promise.reject(new Error('Built-in training presets are read-only.'));
   }
   return runTrainingPresetMutation(

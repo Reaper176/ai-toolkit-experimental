@@ -436,14 +436,48 @@ assert.equal(reconcileSelectedPresetId('missing', unsorted), null);
 assert.equal(reconcileSelectedPresetId(null, unsorted), null);
 
 const current = jobFixture(100);
-const applied = preparePresetApplication(current, record('p', 'Preset', 777).snapshot, value => value);
+const applied = preparePresetApplication(current, record('p', 'Preset', 777), value => value);
 assert.equal(applied.jobConfig.config.process[0].train.steps, 777);
 assert.equal(applied.undoConfig.config.process[0].train.steps, 100);
 (current.config.process[0].train as { steps: number }).steps = 300;
 assert.equal(applied.undoConfig.config.process[0].train.steps, 100, 'undo must be isolated from current config');
 
 const beforeFailure = jobFixture(123);
-assert.throws(() => preparePresetApplication(beforeFailure, { schema_version: 1 }, value => value), /snapshot|config/i);
+assert.throws(
+  () => preparePresetApplication(beforeFailure, { ...record('invalid', 'Invalid'), snapshot: { schema_version: 1 } } as never, value => value),
+  /snapshot|config/i,
+);
+
+const builtinApplication = preparePresetApplication(
+  { ...jobFixture(), config: { ...jobFixture().config, process: [{ ...jobFixture().config.process[0], model: { name_or_path: 'current', arch: fluxCharacter.model_arch }, sample: { samples: [], neg: 'keep current negative' } }] } } as unknown as JobConfig,
+  fluxCharacter,
+  value => value,
+);
+assert.equal(builtinApplication.jobConfig.config.process[0].model.arch, fluxCharacter.model_arch);
+assert.equal((builtinApplication.jobConfig.config.process[0].sample as any).neg, 'keep current negative');
+const mismatchedArchitecture = jobFixture();
+(mismatchedArchitecture.config.process[0].model as any).arch = 'sdxl';
+assert.throws(
+  () => preparePresetApplication(mismatchedArchitecture, fluxCharacter, value => value),
+  /model\.arch must be exactly flux/i,
+);
+
+const userWithNegative = record('negative', 'Negative');
+(userWithNegative.snapshot.config.process[0].sample as any).neg = 'use preset negative';
+const userNegativeApplication = preparePresetApplication(
+  { ...jobFixture(), config: { ...jobFixture().config, process: [{ ...jobFixture().config.process[0], sample: { samples: [], neg: 'replace me' } }] } } as unknown as JobConfig,
+  userWithNegative,
+  value => value,
+);
+assert.equal((userNegativeApplication.jobConfig.config.process[0].sample as any).neg, 'use preset negative');
+assert.throws(
+  () => preparePresetApplication(jobFixture(), record('bad-migration', 'Bad migration'), value => {
+    (value.config.process[0].model as any).name_or_path = '';
+    return value;
+  }),
+  /name_or_path/i,
+  'invalid migrated candidates are rejected before a state transaction is returned',
+);
 assert.equal(beforeFailure.config.process[0].train.steps, 123);
 
 const undo = jobFixture(456);

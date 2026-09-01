@@ -523,10 +523,14 @@ async function run(): Promise<void> {
     const builtinFlux = materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[4]);
     const builtinWan = materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[12]);
     const personal = record('personal', 'Personal');
+    let savedFromBuiltin: UserTrainingPresetRecord | undefined;
+    let builtinPostBody: unknown;
     const builtinApi: TrainingPresetApi = {
-      get: async () => ({ data: { presets: [personal, builtinWan, builtinFlux] } }),
-      post: async () => {
-        throw new Error('unexpected POST');
+      get: async () => ({ data: { presets: [personal, builtinWan, builtinFlux, ...(savedFromBuiltin ? [savedFromBuiltin] : [])] } }),
+      post: async (_url, body) => {
+        builtinPostBody = body;
+        savedFromBuiltin = record('saved-from-builtin', 'Saved from built-in');
+        return { data: savedFromBuiltin };
       },
       put: async () => {
         throw new Error('built-ins must not PUT');
@@ -545,8 +549,11 @@ async function run(): Promise<void> {
       />
     );
     let builtinRenderer!: TestRenderer.ReactTestRenderer;
+    const builtinInitial = jobFixture(100, 'flux');
+    (builtinInitial.config.process[0].sample as any).neg = 'retain-current-negative';
+    builtinInitial.config.process[0].datasets = [{ folder_path: '/distinctive-dataset' } as any];
     await act(async () => {
-      builtinRenderer = TestRenderer.create(builtinElement(jobFixture(100, 'flux')));
+      builtinRenderer = TestRenderer.create(builtinElement(builtinInitial));
     });
     const builtinRoot = builtinRenderer.root;
     assert.equal(
@@ -555,6 +562,12 @@ async function run(): Promise<void> {
       'incompatible built-ins are not options',
     );
     act(() => select(builtinRoot).props.onChange({ currentTarget: { value: presetValue(builtinFlux.id) } }));
+    const builtinApplied = builtinChanges[0];
+    assert.equal(builtinApplied.config.process[0].train.steps, (builtinFlux.snapshot.config.process[0].train as any).steps);
+    assert.equal((builtinApplied.config.process[0].sample as any).neg, 'retain-current-negative');
+    assert.deepEqual(builtinApplied.config.process[0].datasets, builtinInitial.config.process[0].datasets);
+    assert.notEqual(builtinApplied.config.process[0].datasets, builtinInitial.config.process[0].datasets);
+    assert.equal(builtinRoot.findByProps({ 'data-preset-summary': true }).children.join(''), builtinFlux.summary);
     assert.equal(select(builtinRoot).props.value, presetValue(builtinFlux.id));
     assert.equal(builtinRoot.findByProps({ value: PRESET_ACTION_UPDATE }).props.disabled, true);
     assert.equal(builtinRoot.findByProps({ value: PRESET_ACTION_DELETE }).props.disabled, true);
@@ -564,6 +577,11 @@ async function run(): Promise<void> {
     act(() => select(builtinRoot).props.onChange({ currentTarget: { value: PRESET_ACTION_DELETE } }));
     assert.equal(builtinRoot.findAllByProps({ 'data-dialog': 'update' }).length, 0);
     assert.equal(builtinRoot.findAllByProps({ 'data-dialog': 'delete' }).length, 0);
+
+    await act(async () => builtinRenderer.update(builtinElement(builtinApplied)));
+    act(() => select(builtinRoot).props.onChange({ currentTarget: { value: PRESET_ACTION_UNDO } }));
+    assert.deepEqual(builtinChanges[1], builtinInitial, 'built-in apply has a full one-level undo snapshot');
+    await act(async () => builtinRenderer.update(builtinElement(builtinApplied)));
 
     await act(async () => {
       builtinRenderer.update(builtinElement(jobFixture(100, 'sdxl')));
@@ -584,7 +602,66 @@ async function run(): Promise<void> {
       1,
       'colon-bearing Wan architecture IDs are matched as opaque strings',
     );
+
+    await act(async () => builtinRenderer.update(builtinElement(builtinApplied)));
+    act(() => select(builtinRoot).props.onChange({ currentTarget: { value: presetValue(builtinFlux.id) } }));
+    await act(async () => builtinRenderer.update(builtinElement(builtinChanges.at(-1)!)));
+    act(() => chooseSave(builtinRoot));
+    act(() => builtinRoot.findByProps({ 'aria-label': 'Test preset name' }).props.onChange({ currentTarget: { value: 'Saved from built-in' } }));
+    await act(async () => {
+      builtinRoot.findByProps({ 'data-confirm': true }).props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    assert.ok(builtinPostBody, 'Save as New remains functional after built-in application');
+    assert.equal(JSON.stringify(builtinPostBody).includes('catalog_revision'), false, 'catalog metadata is never posted');
+    assert.ok(builtinRoot.findAll(node => node.type === 'optgroup' && node.props.label === 'Built-in recipes').length === 1);
     await act(async () => builtinRenderer.unmount());
+
+    const rejectedChanges: JobConfig[] = [];
+    let rejectedRenderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      rejectedRenderer = TestRenderer.create(
+        <TrainingPresetControl
+          jobConfig={jobFixture()}
+          onJobConfigChange={value => rejectedChanges.push(value)}
+          migrateJobConfig={value => {
+            (value.config.process[0].model as any).name_or_path = '';
+            return value;
+          }}
+          dependencies={{ api: { ...builtinApi, get: async () => ({ data: { presets: [personal] } }) }, Dialog: TestDialog }}
+        />,
+      );
+    });
+    act(() => select(rejectedRenderer.root).props.onChange({ currentTarget: { value: presetValue(personal.id) } }));
+    assert.equal(rejectedChanges.length, 0, 'invalid post-application validation blocks the mounted state commit');
+    assert.match(rejectedRenderer.root.findByProps({ role: 'alert' }).findByType('span').children.join(''), /could not apply/i);
+    await act(async () => rejectedRenderer.unmount());
+
+    const catalog = BUILT_IN_PRESET_ROWS.map(materializeBuiltInTrainingPresetRow);
+    for (const catalogPreset of catalog) {
+      const catalogChanges: JobConfig[] = [];
+      const catalogApi: TrainingPresetApi = {
+        get: async () => ({ data: { presets: catalog } }),
+        post: async () => { throw new Error('unexpected POST'); },
+        put: async () => { throw new Error('unexpected PUT'); },
+        delete: async () => { throw new Error('unexpected DELETE'); },
+      };
+      let catalogRenderer!: TestRenderer.ReactTestRenderer;
+      await act(async () => {
+        catalogRenderer = TestRenderer.create(
+          <TrainingPresetControl
+            jobConfig={jobFixture(100, catalogPreset.model_arch)}
+            onJobConfigChange={value => catalogChanges.push(value)}
+            migrateJobConfig={value => value}
+            dependencies={{ api: catalogApi, Dialog: TestDialog }}
+          />,
+        );
+      });
+      act(() => select(catalogRenderer.root).props.onChange({ currentTarget: { value: presetValue(catalogPreset.id) } }));
+      assert.equal(catalogChanges.length, 1, `${catalogPreset.id} is consumed by the mounted mixed-record control`);
+      await act(async () => catalogRenderer.unmount());
+    }
 
     const unexpectedWarnings = rendererWarnings.filter(
       args => !String(args[0]).includes('react-test-renderer is deprecated'),
