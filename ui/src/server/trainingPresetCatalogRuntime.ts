@@ -21,6 +21,11 @@ type RawCatalogIdentity = {
   digestInput: string;
 };
 
+type RawCatalogEntry = {
+  value: unknown;
+  identity: RawCatalogIdentity;
+};
+
 function rawCatalogIdentity(row: unknown, index: number): RawCatalogIdentity {
   try {
     if (row !== null && typeof row === 'object') {
@@ -35,33 +40,54 @@ function rawCatalogIdentity(row: unknown, index: number): RawCatalogIdentity {
   return { id: undefined, digestInput: `invalid-entry:${index}` };
 }
 
+function snapshotRawCatalogEntry(rows: readonly unknown[], index: number): RawCatalogEntry {
+  let value: unknown;
+  try {
+    value = rows[index];
+  } catch {
+    value = undefined;
+  }
+  return { value, identity: rawCatalogIdentity(value, index) };
+}
+
+function logCatalogEntryBestEffort(
+  logger: (event: TrainingPresetCatalogEntryEvent) => void,
+  event: TrainingPresetCatalogEntryEvent,
+): void {
+  try {
+    logger(event);
+  } catch {
+    // Logging must not make catalog loading unavailable or trigger recursive logging.
+  }
+}
+
 export function loadBuiltInTrainingPresetCatalog(
   rows: readonly unknown[],
   logger: (event: TrainingPresetCatalogEntryEvent) => void,
 ): BuiltInTrainingPresetRecord[] {
-  const identities = Array.from(
-    { length: rows.length },
-    (_, index) => rawCatalogIdentity(rows[index], index),
+  const rowCount = rows.length;
+  const entries = Array.from(
+    { length: rowCount },
+    (_, index) => snapshotRawCatalogEntry(rows, index),
   );
   const counts = new Map<string, number>();
-  for (const identity of identities) {
+  for (const { identity } of entries) {
     if (identity.id !== undefined) counts.set(identity.id, (counts.get(identity.id) ?? 0) + 1);
   }
 
   const accepted: BuiltInTrainingPresetRecord[] = [];
-  for (let index = 0; index < rows.length; index += 1) {
-    const identity = identities[index];
+  for (const { value, identity } of entries) {
     const idDigest = trainingPresetCatalogIdLogDigest(identity.digestInput);
     if (identity.id !== undefined && (counts.get(identity.id) ?? 0) > 1) {
-      logger({ code: 'BUILTIN_PRESET_ID_COLLISION', id_digest: idDigest });
+      logCatalogEntryBestEffort(logger, { code: 'BUILTIN_PRESET_ID_COLLISION', id_digest: idDigest });
       continue;
     }
 
     try {
-      const preset = materializeBuiltInTrainingPresetRow(rows[index] as BuiltInTrainingPresetRow);
+      const preset = materializeBuiltInTrainingPresetRow(value as BuiltInTrainingPresetRow);
       accepted.push(deepFreezePreset(preset));
     } catch {
-      logger({ code: 'BUILTIN_PRESET_INVALID', id_digest: idDigest });
+      logCatalogEntryBestEffort(logger, { code: 'BUILTIN_PRESET_INVALID', id_digest: idDigest });
     }
   }
 

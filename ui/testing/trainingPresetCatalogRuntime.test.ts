@@ -52,6 +52,17 @@ assert.equal(trainingPresetCatalogIdLogDigest('builtin:anima:character-identity@
 }
 
 {
+  const malformed = { ...BUILT_IN_PRESET_ROWS[0], id: 'builtin:anima:wrong@1' };
+  const events: TrainingPresetCatalogEntryEvent[] = [];
+  const actual = loadBuiltInTrainingPresetCatalog([malformed, BUILT_IN_PRESET_ROWS[1]], event => {
+    events.push(event);
+    throw new Error('private logger detail');
+  });
+  assert.deepEqual(actual, [materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[1])]);
+  assert.deepEqual(events, [{ code: 'BUILTIN_PRESET_INVALID', id_digest: '287d77226dca' }]);
+}
+
+{
   const duplicateId = BUILT_IN_PRESET_ROWS[0].id;
   const { events, logger } = collectEvents();
   const actual = loadBuiltInTrainingPresetCatalog(
@@ -62,6 +73,22 @@ assert.equal(trainingPresetCatalogIdLogDigest('builtin:anima:character-identity@
   assert.deepEqual(events, [
     { code: 'BUILTIN_PRESET_ID_COLLISION', id_digest: trainingPresetCatalogIdLogDigest(duplicateId) },
     { code: 'BUILTIN_PRESET_ID_COLLISION', id_digest: trainingPresetCatalogIdLogDigest(duplicateId) },
+  ]);
+}
+
+{
+  const events: TrainingPresetCatalogEntryEvent[] = [];
+  const actual = loadBuiltInTrainingPresetCatalog(
+    [structuredClone(BUILT_IN_PRESET_ROWS[0]), structuredClone(BUILT_IN_PRESET_ROWS[0]), BUILT_IN_PRESET_ROWS[1]],
+    event => {
+      events.push(event);
+      throw new Error('private logger detail');
+    },
+  );
+  assert.deepEqual(actual, [materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[1])]);
+  assert.deepEqual(events, [
+    { code: 'BUILTIN_PRESET_ID_COLLISION', id_digest: '66606e16d08a' },
+    { code: 'BUILTIN_PRESET_ID_COLLISION', id_digest: '66606e16d08a' },
   ]);
 }
 
@@ -105,6 +132,48 @@ assert.equal(trainingPresetCatalogIdLogDigest('builtin:anima:character-identity@
     materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[0]),
     materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[1]),
   ]);
+  assert.deepEqual(events, [
+    { code: 'BUILTIN_PRESET_INVALID', id_digest: 'd195b43dc9ba' },
+  ]);
+}
+
+{
+  let firstIndexReads = 0;
+  const changingRows = new Proxy([BUILT_IN_PRESET_ROWS[0], BUILT_IN_PRESET_ROWS[1]], {
+    get: (target, key, receiver) => {
+      if (key === '0') {
+        firstIndexReads += 1;
+        return firstIndexReads === 1 ? BUILT_IN_PRESET_ROWS[0] : BUILT_IN_PRESET_ROWS[1];
+      }
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  const { events, logger } = collectEvents();
+  assert.deepEqual(loadBuiltInTrainingPresetCatalog(changingRows, logger), [
+    materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[0]),
+    materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[1]),
+  ]);
+  assert.equal(firstIndexReads, 1, 'each numeric row index is snapshotted exactly once');
+  assert.deepEqual(events, []);
+}
+
+{
+  const throwingRows: unknown[] = [BUILT_IN_PRESET_ROWS[0], undefined, BUILT_IN_PRESET_ROWS[1]];
+  let throwingIndexReads = 0;
+  Object.defineProperty(throwingRows, 1, {
+    enumerable: true,
+    configurable: true,
+    get: () => {
+      throwingIndexReads += 1;
+      throw new Error('private row provider detail');
+    },
+  });
+  const { events, logger } = collectEvents();
+  assert.deepEqual(loadBuiltInTrainingPresetCatalog(throwingRows, logger), [
+    materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[0]),
+    materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[1]),
+  ]);
+  assert.equal(throwingIndexReads, 1);
   assert.deepEqual(events, [
     { code: 'BUILTIN_PRESET_INVALID', id_digest: 'd195b43dc9ba' },
   ]);
