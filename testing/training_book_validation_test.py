@@ -15308,6 +15308,30 @@ class RecipeNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), page.lower())
 
+    def test_recipes_page_recipe_object_covers_concept_baseline(self):
+        relative_path = "recipes/object-concept.md"
+        page = (REPOSITORY_ROOT / "docs/book" / relative_path).read_text(
+            encoding="utf-8"
+        )
+        self.assert_recipe_contract(relative_path, page, pre_catalog=True)
+        for phrase in (
+            "object",
+            "trigger",
+            "viewpoint",
+            "shape",
+            "material",
+            "rank",
+            "16 to 64",
+            "5e-5 to 1e-4",
+            "1,000 to 3,000",
+            "fixed seed",
+            "overfitting",
+            "../datasets/curation.md",
+            "../datasets/captions-and-triggers.md",
+            "../workflow/sampling-and-evaluation.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
