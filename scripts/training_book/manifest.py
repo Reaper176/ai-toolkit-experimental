@@ -306,9 +306,12 @@ def _reject_sensitive_smoke_text(value: str, field: str) -> None:
     if any(re.search(pattern, lowered) for pattern in secret_patterns):
         raise _invalid(field, value, "secret or credential material is not allowed")
     path_patterns = (
-        r"(?:^|\s)/(?:home|root|run/media|mnt|media|users|tmp|var/tmp)/",
-        r"(?:^|\s)[a-zA-Z]:[\\/]",
-        r"(?:^|\s)~[\\/]",
+        # A local path may follow prose punctuation, but a slash embedded in a
+        # repository identifier or URL is not an absolute filesystem path.
+        r"(?<![A-Za-z0-9._/\\:-])/(?!/)[^\s,;)}\]]+",
+        r"(?<![A-Za-z0-9._/\\:-])[a-zA-Z]:[\\/]",
+        r"(?<![A-Za-z0-9._/\\:-])~[\\/]",
+        r"file:///[A-Za-z0-9._~/-]+",
     )
     if any(re.search(pattern, value, re.IGNORECASE) for pattern in path_patterns):
         raise _invalid(field, value, "local or managed-root path leakage is not allowed")

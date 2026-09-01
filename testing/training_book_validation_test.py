@@ -688,6 +688,7 @@ class SmokeRecordContractTests(unittest.TestCase):
             (lambda value: value["workflow"].update(queue="skipped"), "workflow.queue"),
             (lambda value: value.update(model_identifier="https://user:secret@example.invalid/model"), "secret"),
             (lambda value: value["hardware"].update(software="Linux /home/test/private"), "path"),
+            (lambda value: value["hardware"].update(software="Linux (/home/test/private)"), "path"),
         )
         for mutate, message in mutations:
             with self.subTest(message=message):
