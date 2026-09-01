@@ -3,6 +3,10 @@ import React from 'react';
 import TestRenderer, { act, type ReactTestInstance } from 'react-test-renderer';
 import type { JobConfig } from '../src/types';
 import { sanitizeTrainingPreset, type UserTrainingPresetRecord } from '../src/helpers/trainingPresets';
+import {
+  BUILT_IN_PRESET_ROWS,
+  materializeBuiltInTrainingPresetRow,
+} from '../src/helpers/builtInTrainingPresetDefinitions';
 import { TrainingPresetControl } from '../src/components/TrainingPresetControl';
 import type { TrainingPresetDialogViewProps } from '../src/components/TrainingPresetDialog';
 import {
@@ -18,7 +22,7 @@ import {
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
 
-function jobFixture(steps = 100): JobConfig {
+function jobFixture(steps = 100, arch = 'flux'): JobConfig {
   return {
     job: 'extension',
     config: {
@@ -32,7 +36,7 @@ function jobFixture(steps = 100): JobConfig {
           datasets: [],
           train: { steps },
           save: {},
-          model: { name_or_path: 'model' },
+          model: { name_or_path: 'model', arch },
           sample: { samples: [] },
         },
       ],
@@ -515,6 +519,72 @@ async function run(): Promise<void> {
     assert.equal(actionCalls[3].signal.aborted, false);
     await act(async () => actionRenderer.unmount());
     assert.equal(actionCalls[3].signal.aborted, true, 'unmount aborts the current delete controller');
+
+    const builtinFlux = materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[4]);
+    const builtinWan = materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[12]);
+    const personal = record('personal', 'Personal');
+    const builtinApi: TrainingPresetApi = {
+      get: async () => ({ data: { presets: [personal, builtinWan, builtinFlux] } }),
+      post: async () => {
+        throw new Error('unexpected POST');
+      },
+      put: async () => {
+        throw new Error('built-ins must not PUT');
+      },
+      delete: async () => {
+        throw new Error('built-ins must not DELETE');
+      },
+    };
+    const builtinChanges: JobConfig[] = [];
+    const builtinElement = (config: JobConfig) => (
+      <TrainingPresetControl
+        jobConfig={config}
+        onJobConfigChange={value => builtinChanges.push(value)}
+        migrateJobConfig={value => value}
+        dependencies={{ api: builtinApi, Dialog: TestDialog }}
+      />
+    );
+    let builtinRenderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      builtinRenderer = TestRenderer.create(builtinElement(jobFixture(100, 'flux')));
+    });
+    const builtinRoot = builtinRenderer.root;
+    assert.equal(
+      builtinRoot.findAll(node => node.type === 'option' && node.props.value === presetValue(builtinWan.id)).length,
+      0,
+      'incompatible built-ins are not options',
+    );
+    act(() => select(builtinRoot).props.onChange({ currentTarget: { value: presetValue(builtinFlux.id) } }));
+    assert.equal(select(builtinRoot).props.value, presetValue(builtinFlux.id));
+    assert.equal(builtinRoot.findByProps({ value: PRESET_ACTION_UPDATE }).props.disabled, true);
+    assert.equal(builtinRoot.findByProps({ value: PRESET_ACTION_DELETE }).props.disabled, true);
+    assert.equal(builtinRoot.findByProps({ value: PRESET_ACTION_SAVE }).props.disabled, undefined);
+    assert.equal(builtinRoot.findByProps({ value: PRESET_ACTION_UNDO }).props.disabled, undefined);
+    act(() => select(builtinRoot).props.onChange({ currentTarget: { value: PRESET_ACTION_UPDATE } }));
+    act(() => select(builtinRoot).props.onChange({ currentTarget: { value: PRESET_ACTION_DELETE } }));
+    assert.equal(builtinRoot.findAllByProps({ 'data-dialog': 'update' }).length, 0);
+    assert.equal(builtinRoot.findAllByProps({ 'data-dialog': 'delete' }).length, 0);
+
+    await act(async () => {
+      builtinRenderer.update(builtinElement(jobFixture(100, 'sdxl')));
+    });
+    assert.equal(select(builtinRoot).props.value, '', 'architecture change clears a selected incompatible built-in');
+    act(() => select(builtinRoot).props.onChange({ currentTarget: { value: presetValue(personal.id) } }));
+    assert.equal(select(builtinRoot).props.value, presetValue(personal.id));
+    await act(async () => {
+      builtinRenderer.update(builtinElement(jobFixture(100, 'wan21:1b')));
+    });
+    assert.equal(
+      select(builtinRoot).props.value,
+      presetValue(personal.id),
+      'architecture change retains a user preset',
+    );
+    assert.equal(
+      builtinRoot.findAll(node => node.type === 'option' && node.props.value === presetValue(builtinWan.id)).length,
+      1,
+      'colon-bearing Wan architecture IDs are matched as opaque strings',
+    );
+    await act(async () => builtinRenderer.unmount());
 
     const unexpectedWarnings = rendererWarnings.filter(
       args => !String(args[0]).includes('react-test-renderer is deprecated'),

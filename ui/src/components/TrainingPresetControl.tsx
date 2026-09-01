@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useReducer, useRef, useState, type ComponentType } from 'react';
 import type { JobConfig } from '../types';
-import { normalizePresetName, type UserTrainingPresetRecord } from '../helpers/trainingPresets';
+import { normalizePresetName, type TrainingPresetRecord } from '../helpers/trainingPresets';
 import { apiClient } from '../utils/api';
 import {
   CLOSED_TRAINING_PRESET_DIALOG,
@@ -56,7 +56,7 @@ export function TrainingPresetControl({
 }: TrainingPresetControlProps) {
   const api = dependencies?.api ?? apiClient;
   const Dialog = dependencies?.Dialog ?? TrainingPresetDialogView;
-  const [presets, setPresets] = useState<UserTrainingPresetRecord[]>([]);
+  const [presets, setPresets] = useState<TrainingPresetRecord[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [undoConfig, setUndoConfig] = useState<JobConfig | null>(null);
   const [pending, setPending] = useState(false);
@@ -101,7 +101,9 @@ export function TrainingPresetControl({
       const nextPresets = validateTrainingPresetListResponse(response.data);
       if (!mountedRef.current || controller.signal.aborted) return;
       setPresets(nextPresets);
-      setSelectedPresetId(current => reconcileSelectedPresetId(current, nextPresets));
+      setSelectedPresetId(current =>
+        reconcileSelectedPresetId(current, nextPresets, jobConfigRef.current.config.process[0].model.arch),
+      );
     } catch (requestError) {
       if (!mountedRef.current || isTrainingPresetCancellation(requestError, controller.signal)) return;
       setFetchFailed(true);
@@ -119,6 +121,10 @@ export function TrainingPresetControl({
       requestControllerRef.current?.abort();
     };
   }, [fetchPresets]);
+
+  useEffect(() => {
+    setSelectedPresetId(current => reconcileSelectedPresetId(current, presets, jobConfig.config.process[0].model.arch));
+  }, [jobConfig.config.process, presets]);
 
   const beginPending = (): boolean => {
     if (!mountedRef.current || pendingRef.current || disabledRef.current) return false;
@@ -156,6 +162,10 @@ export function TrainingPresetControl({
     if (selection.type === 'preset') {
       const preset = presets.find(candidate => candidate.id === selection.id);
       if (!preset) return;
+      if (preset.source === 'builtin' && preset.model_arch !== jobConfigRef.current.config.process[0].model.arch) {
+        setSelectedPresetId(null);
+        return;
+      }
       try {
         const transaction = preparePresetApplication(jobConfigRef.current, preset.snapshot, migrateRef.current);
         changeRef.current(transaction.jobConfig);
@@ -187,7 +197,7 @@ export function TrainingPresetControl({
 
     const selected =
       selectedPresetId === null ? undefined : presets.find(candidate => candidate.id === selectedPresetId);
-    if (!selected) return;
+    if (!selected || selected.source === 'builtin') return;
     if (selection.type === 'update') {
       dispatchDialog({ type: 'open-update', presetId: selected.id, presetName: selected.name });
     } else if (selection.type === 'delete') {
@@ -259,6 +269,7 @@ export function TrainingPresetControl({
       <TrainingPresetSelect
         presets={presets}
         selectedPresetId={selectedPresetId}
+        currentModelArch={jobConfig.config.process[0].model.arch}
         canUndo={undoConfig !== null}
         disabled={disabled || loading || pending || dialog.kind !== 'closed'}
         onSelect={handleSelection}
