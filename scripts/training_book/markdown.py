@@ -80,6 +80,153 @@ def _outside_fences(document: str) -> str:
     return "\n".join(lines)
 
 
+def _blank_preserving_newlines(value: str) -> str:
+    return "".join("\n" if character == "\n" else " " for character in value)
+
+
+def _outside_inline_code(document: str) -> str:
+    characters = list(document)
+    index = 0
+    while index < len(document):
+        if document[index] != "`":
+            index += 1
+            continue
+        run_end = index
+        while run_end < len(document) and document[run_end] == "`":
+            run_end += 1
+        run_length = run_end - index
+        search = run_end
+        closing_end = None
+        while search < len(document):
+            if document[search] != "`":
+                search += 1
+                continue
+            candidate_end = search
+            while candidate_end < len(document) and document[candidate_end] == "`":
+                candidate_end += 1
+            if candidate_end - search == run_length:
+                closing_end = candidate_end
+                break
+            search = candidate_end
+        if closing_end is None:
+            index = run_end
+            continue
+        characters[index:closing_end] = _blank_preserving_newlines(
+            document[index:closing_end]
+        )
+        index = closing_end
+    return "".join(characters)
+
+
+def _outside_html_comments(document: str) -> str:
+    return re.sub(
+        r"<!--.*?-->",
+        lambda match: _blank_preserving_newlines(match.group(0)),
+        document,
+        flags=re.DOTALL,
+    )
+
+
+def _without_escaped_punctuation(document: str) -> str:
+    characters = list(document)
+    punctuation = set(r'''!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~''')
+    index = 0
+    while index < len(document):
+        if document[index] != "\\":
+            index += 1
+            continue
+        run_end = index
+        while run_end < len(document) and document[run_end] == "\\":
+            run_end += 1
+        if (
+            (run_end - index) % 2 == 1
+            and run_end < len(document)
+            and document[run_end] in punctuation
+        ):
+            characters[run_end - 1] = " "
+            characters[run_end] = " "
+        index = run_end + 1
+    return "".join(characters)
+
+
+def rendered_markdown(document: str) -> str:
+    """Return link-visible Markdown while preserving line and character positions."""
+
+    visible = _outside_fences(document)
+    visible = _outside_html_comments(visible)
+    visible = _outside_inline_code(visible)
+    return _without_escaped_punctuation(visible)
+
+
+def _link_destination(raw_target: str) -> str:
+    target = raw_target.strip()
+    if target.startswith("<"):
+        closing = target.find(">")
+        if closing != -1:
+            return target[1:closing]
+    return target.split(maxsplit=1)[0]
+
+
+def markdown_reference_definitions(document: str) -> dict[str, str]:
+    """Return case-insensitive reference-link destinations from rendered Markdown."""
+
+    visible = rendered_markdown(document)
+    return {
+        match.group(1).casefold(): _link_destination(match.group(2))
+        for match in _REFERENCE_DEFINITION.finditer(visible)
+    }
+
+
+def extract_rendered_links(
+    document: str,
+    *,
+    reference_definitions: dict[str, str] | None = None,
+) -> list[tuple[str | None, str]]:
+    """Extract rendered Markdown, reference, HTML, and autolink destinations."""
+
+    visible = rendered_markdown(document)
+    definitions = (
+        markdown_reference_definitions(visible)
+        if reference_definitions is None
+        else reference_definitions
+    )
+    links: list[tuple[str | None, str]] = []
+    occupied: list[tuple[int, int]] = [
+        match.span() for match in _REFERENCE_DEFINITION.finditer(visible)
+    ]
+
+    for match in _MARKDOWN_LINK.finditer(visible):
+        links.append((match.group(1), _link_destination(match.group(2))))
+        occupied.append(match.span())
+    for match in _HTML_HREF.finditer(visible):
+        if any(start <= match.start() < end for start, end in occupied):
+            continue
+        raw_target = next(group for group in match.groups() if group is not None)
+        links.append((None, _link_destination(raw_target)))
+        occupied.append(match.span())
+    for match in _AUTOLINK.finditer(visible):
+        if any(start <= match.start() < end for start, end in occupied):
+            continue
+        links.append((None, _link_destination(match.group(1))))
+        occupied.append(match.span())
+
+    for match in re.finditer(r"(?<!!)\[([^\]]+)\]\[([^\]]*)\]", visible):
+        if any(start <= match.start() < end for start, end in occupied):
+            continue
+        reference_id = match.group(2) or match.group(1)
+        target = definitions.get(reference_id.casefold())
+        if target is not None:
+            links.append((match.group(1), target))
+        occupied.append(match.span())
+    for match in re.finditer(r"(?<![!\]])\[([^\]]+)\](?![\[(])", visible):
+        if any(start <= match.start() < end for start, end in occupied):
+            continue
+        target = definitions.get(match.group(1).casefold())
+        if target is not None:
+            links.append((match.group(1), target))
+    return links
+
+
 def _heading_anchor(heading: str) -> str:
     value = re.sub(r"<[^>]+>", "", heading)
     value = value.replace("`", "").strip().lower()
@@ -88,7 +235,7 @@ def _heading_anchor(heading: str) -> str:
 
 
 def _page_anchors(document: str, page: str) -> set[str]:
-    visible = _outside_fences(document)
+    visible = rendered_markdown(document)
     anchors = [
         next(group for group in match.groups() if group is not None)
         for match in _EXPLICIT_ANCHOR.finditer(visible)
@@ -308,7 +455,7 @@ def validate_narrative_page(
     if visible.rstrip().endswith(_PAGE_MARKERS[-1]) is False:
         raise MarkdownContractError(f"{page}: verification footer must end the page")
 
-    links = list(_MARKDOWN_LINK.finditer(visible))
+    links = extract_rendered_links(visible)
     toc_links = []
     manifest_set = set(manifest_paths)
     def check_target(raw_target: str) -> str:
@@ -333,17 +480,12 @@ def validate_narrative_page(
                 raise MarkdownContractError(f"{page}: missing anchor for {raw_target!r}")
         return normalized
 
-    for match in links:
-        label, raw_target = match.groups()
+    for label, raw_target in links:
         normalized = check_target(raw_target)
-        if "table of contents" in label.lower() and normalized == "README.md":
-            toc_links.append(match)
+        if label is not None and "table of contents" in label.lower() and normalized == "README.md":
+            toc_links.append((label, raw_target))
     for match in _REFERENCE_DEFINITION.finditer(visible):
         check_target(match.group(2))
-    for match in _HTML_HREF.finditer(visible):
-        check_target(next(group for group in match.groups() if group is not None))
-    for match in _AUTOLINK.finditer(visible):
-        check_target(match.group(1))
     if len(toc_links) != 1:
         raise MarkdownContractError(f"{page}: expected one table-of-contents link")
 

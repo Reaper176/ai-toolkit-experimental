@@ -38,6 +38,7 @@ from scripts.training_book.catalog import (  # noqa: E402
     validate_training_book_ui_facts,
 )
 from scripts.training_book import catalog as catalog_module  # noqa: E402
+from scripts.training_book import markdown as markdown_module  # noqa: E402
 from scripts.training_book.discovery import (  # noqa: E402
     DiscoveredSetting,
     DiscoveryError,
@@ -14633,6 +14634,31 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
 
         self.validate(self.page(fenced_example))
 
+    def test_narrative_link_extractor_distinguishes_rendered_and_hidden_links(self):
+        target = "../models/anima.md"
+        rendered = (
+            f"[Inline](<{target}> \"guide\")\n"
+            f"[Reference][model]\n\n[model]: <{target}>\n"
+            f'<a href="{target}">HTML</a>\n'
+            f"<{target}>"
+        )
+        self.assertEqual(
+            markdown_module.extract_rendered_links(rendered),
+            [
+                ("Inline", target),
+                (None, target),
+                (None, target),
+                ("Reference", target),
+            ],
+        )
+        for hidden in (
+            f"`[Code]({target})`",
+            f"<!-- [Comment]({target}) -->",
+            rf"\[Escaped]({target})",
+        ):
+            with self.subTest(hidden=hidden):
+                self.assertEqual(markdown_module.extract_rendered_links(hidden), [])
+
     def test_staged_pages_validate_only_current_manifest_declared_markdown(self):
         from scripts.training_book.markdown import validate_staged_book_pages
 
@@ -15159,77 +15185,6 @@ class RecipeNarrativePageTests(unittest.TestCase):
             + f"\n\n{self.PRESET_START}\n{block}\n{self.PRESET_END}\n"
         )
 
-    @staticmethod
-    def visible_recipe_markdown(document):
-        lines = []
-        fence = None
-        for line in document.splitlines():
-            if fence is not None:
-                marker, minimum_length = fence
-                if re.match(
-                    rf"^ {{0,3}}{re.escape(marker)}{{{minimum_length},}}[ \t]*$",
-                    line,
-                ):
-                    fence = None
-                lines.append("")
-                continue
-            opening = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
-            if opening and not (
-                opening.group(1).startswith("`") and "`" in opening.group(2)
-            ):
-                token = opening.group(1)
-                fence = (token[0], len(token))
-                lines.append("")
-            else:
-                lines.append(line)
-        return "\n".join(lines)
-
-    @staticmethod
-    def recipe_link_targets(document, reference_definitions):
-        def clean_target(target):
-            target = target.strip()
-            if target.startswith("<") and target.endswith(">"):
-                return target[1:-1]
-            return target.split(maxsplit=1)[0]
-
-        targets = [
-            clean_target(match.group(1))
-            for match in re.finditer(r"(?<!!)\[[^\]]+\]\(([^)]+)\)", document)
-        ]
-        targets.extend(
-            clean_target(next(group for group in match.groups() if group is not None))
-            for match in re.finditer(
-                r'''<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))''',
-                document,
-                re.IGNORECASE,
-            )
-        )
-        targets.extend(
-            clean_target(match.group(1))
-            for match in re.finditer(r"<((?:\.\.?/)[^<>\s]+\.md(?:#[^<>\s]+)?)>", document)
-        )
-
-        without_definitions = re.sub(
-            r"^\s{0,3}\[[^\]]+\]:\s*(?:<[^>]+>|\S+).*$",
-            "",
-            document,
-            flags=re.MULTILINE,
-        )
-        consumed_spans = []
-        for match in re.finditer(r"(?<!!)\[([^\]]+)\]\[([^\]]*)\]", without_definitions):
-            reference_id = match.group(2) or match.group(1)
-            target = reference_definitions.get(reference_id.casefold())
-            if target is not None:
-                targets.append(target)
-            consumed_spans.append(match.span())
-        for match in re.finditer(r"(?<![!\]])\[([^\]]+)\](?![\[(])", without_definitions):
-            if any(start <= match.start() < end for start, end in consumed_spans):
-                continue
-            target = reference_definitions.get(match.group(1).casefold())
-            if target is not None:
-                targets.append(target)
-        return targets
-
     def assert_recipe_contract(
         self,
         relative_path,
@@ -15248,15 +15203,8 @@ class RecipeNarrativePageTests(unittest.TestCase):
         self.assertLess(start, end)
         block = document[start:end].strip()
 
-        visible = self.visible_recipe_markdown(document)
-        reference_definitions = {
-            match.group(1).casefold(): match.group(2).strip("<>").split(maxsplit=1)[0]
-            for match in re.finditer(
-                r"^\s{0,3}\[([^\]]+)\]:\s*(<[^>]+>|\S+)",
-                visible,
-                re.MULTILINE,
-            )
-        }
+        visible = markdown_module.rendered_markdown(document)
+        reference_definitions = markdown_module.markdown_reference_definitions(visible)
         section_heading = "## Model-specific deviations"
         section_start = visible.index(section_heading) + len(section_heading)
         following_heading = re.search(r"^## ", visible[section_start:], re.MULTILINE)
@@ -15268,12 +15216,16 @@ class RecipeNarrativePageTests(unittest.TestCase):
         section = visible[section_start:section_end]
         all_model_links = [
             target
-            for target in self.recipe_link_targets(visible, reference_definitions)
+            for _, target in markdown_module.extract_rendered_links(
+                visible, reference_definitions=reference_definitions
+            )
             if target.startswith("../models/")
         ]
         section_model_links = [
             target
-            for target in self.recipe_link_targets(section, reference_definitions)
+            for _, target in markdown_module.extract_rendered_links(
+                section, reference_definitions=reference_definitions
+            )
             if target.startswith("../models/")
         ]
         required_links = self.REQUIRED_MODEL_LINKS[relative_path]
@@ -15342,6 +15294,21 @@ class RecipeNarrativePageTests(unittest.TestCase):
                 "Fixture guidance.",
                 "Fixture guidance.\n\n[Extra family][qwen]\n\n"
                 "[qwen]: ../models/qwen-image-and-edit.md",
+                1,
+            ),
+            document.replace(
+                "[Model guide](../models/anima.md)",
+                "`[Model guide](../models/anima.md)`",
+                1,
+            ),
+            document.replace(
+                "[Model guide](../models/anima.md)",
+                "<!-- [Model guide](../models/anima.md) -->",
+                1,
+            ),
+            document.replace(
+                "[Model guide](../models/anima.md)",
+                r"\[Model guide](../models/anima.md)",
                 1,
             ),
         )
