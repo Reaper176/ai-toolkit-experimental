@@ -14719,6 +14719,34 @@ class WorkflowNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), page.lower())
 
+    def test_workflow_page_loss_checkpoints_explains_valleys_without_ranking_them(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/workflow/loss-and-checkpoints.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Read raw loss as a noisy measurement",
+            "## Use smoothed loss to see direction",
+            "## Treat valleys and peaks as inspection points",
+            "## Align checkpoint and sample cadence",
+            "## Select checkpoints by evidence",
+            "## Diagnose patterns before changing settings",
+        ):
+            self.assertIn(heading, page)
+        for phrase in (
+            "raw loss",
+            "smoothed loss",
+            "valley",
+            "peak",
+            "lowest loss is not",
+            "save_every",
+            "sample_every",
+            "fixed seed",
+            "Save Next Step",
+            "Sample Next Step",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
