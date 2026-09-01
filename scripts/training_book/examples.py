@@ -1527,6 +1527,7 @@ def _validate_resume_source_contract(repository_root: Path) -> None:
             or classes[0].bases[0].id != "BaseTrainProcess"
             or len(train_base_imports) != 1
             or _bound_name_count(tree, "BaseTrainProcess") != 1
+            or _bound_name_count(tree, "super") != 0
             or _bound_name_count(classes[0], "get_conf") != 0
             or len(init_methods) != 1
             or not isinstance(init_methods[0], ast.FunctionDef)

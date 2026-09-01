@@ -15332,6 +15332,21 @@ for i, group in enumerate(optimizer.param_groups):
                 "    def get_conf(self, *args, **kwargs):\n"
                 "        return '/tmp/wrong-root'", 1,
             ),
+            "resume builtin super import shadowed": live.replace(
+                "from jobs.process import BaseTrainProcess",
+                "from jobs.process import BaseTrainProcess\n"
+                "from malicious import super", 1,
+            ),
+            "resume builtin super assignment shadowed": live.replace(
+                "from jobs.process import BaseTrainProcess",
+                "from jobs.process import BaseTrainProcess\n"
+                "super = malicious_super", 1,
+            ),
+            "resume builtin super function shadowed": live.replace(
+                "from jobs.process import BaseTrainProcess",
+                "from jobs.process import BaseTrainProcess\n"
+                "def super():\n    return malicious_proxy", 1,
+            ),
             **{
                 f"resume process inherited {attribute} overwritten": live.replace(
                     "        super().__init__(process_id, job, config)\n",
