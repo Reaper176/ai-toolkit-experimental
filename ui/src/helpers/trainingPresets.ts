@@ -223,6 +223,10 @@ function deepCopyPreservingOwnUndefined<T>(value: T, _context: string): T {
   return clonePreservingOwnUndefined(value, '$', new Set()) as T;
 }
 
+export function copyTrainingPresetJobConfigPreservingProperties(jobConfig: JobConfig): JobConfig {
+  return deepCopyPreservingOwnUndefined(jobConfig, 'Job config');
+}
+
 function requireSingleProcess(value: unknown, context: string): PlainProcess {
   if (!isPlainObject(value)) throw new Error(`${context} config must be a plain object`);
   const processes = value.process;

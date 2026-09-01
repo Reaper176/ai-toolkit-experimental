@@ -436,11 +436,19 @@ assert.equal(reconcileSelectedPresetId('missing', unsorted), null);
 assert.equal(reconcileSelectedPresetId(null, unsorted), null);
 
 const current = jobFixture(100);
+(current.config.process[0].datasets[0] as any) = { folder_path: '/undo', nested: { explicit: undefined } };
 const applied = preparePresetApplication(current, record('p', 'Preset', 777), value => value);
 assert.equal(applied.jobConfig.config.process[0].train.steps, 777);
 assert.equal(applied.undoConfig.config.process[0].train.steps, 100);
+assert.equal(
+  Object.hasOwn((applied.undoConfig.config.process[0].datasets[0] as any).nested, 'explicit'),
+  true,
+  'undo snapshot preserves nested explicit undefined property presence',
+);
 (current.config.process[0].train as { steps: number }).steps = 300;
+(current.config.process[0].datasets[0] as any).nested.explicit = 'mutated';
 assert.equal(applied.undoConfig.config.process[0].train.steps, 100, 'undo must be isolated from current config');
+assert.equal((applied.undoConfig.config.process[0].datasets[0] as any).nested.explicit, undefined);
 
 const beforeFailure = jobFixture(123);
 assert.throws(
@@ -488,6 +496,11 @@ assert.equal(
 );
 assert.equal(restored?.config.process[0].train.steps, 456);
 assert.notEqual(restored, undo);
+(undo.config.process[0].datasets[0] as any) = { folder_path: '/restore', nested: { explicit: undefined } };
+restorePresetUndo(undo, value => (restored = value));
+assert.equal(Object.hasOwn((restored!.config.process[0].datasets[0] as any).nested, 'explicit'), true);
+(restored!.config.process[0].datasets[0] as any).nested.explicit = 'restored mutation';
+assert.equal((undo.config.process[0].datasets[0] as any).nested.explicit, undefined, 'restored undo is isolated');
 (restored!.config.process[0].train as { steps: number }).steps = 999;
 assert.equal(undo.config.process[0].train.steps, 456);
 assert.throws(

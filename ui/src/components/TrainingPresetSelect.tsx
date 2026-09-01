@@ -6,6 +6,7 @@ import {
   SNAPSHOT_SCHEMA_VERSION,
   applyTrainingPreset,
   compareTrainingPresetRecords,
+  copyTrainingPresetJobConfigPreservingProperties,
   normalizePresetName,
   sanitizeTrainingPreset,
   type BuiltInTrainingPresetRecord,
@@ -205,14 +206,6 @@ export function reconcileSelectedPresetId(
   return selected.source === 'builtin' && selected.model_arch !== currentModelArch ? null : selectedPresetId;
 }
 
-function copyJobConfig(jobConfig: JobConfig): JobConfig {
-  try {
-    return JSON.parse(JSON.stringify(jobConfig)) as JobConfig;
-  } catch {
-    throw new Error('Job config must be JSON serializable');
-  }
-}
-
 export function preparePresetApplication(
   currentJobConfig: JobConfig,
   preset: TrainingPresetRecord,
@@ -223,11 +216,11 @@ export function preparePresetApplication(
     ? applyBuiltInTrainingPreset(currentJobConfig, acceptedPreset, migrateJobConfig)
     : applyTrainingPreset(currentJobConfig, acceptedPreset.snapshot, migrateJobConfig);
   sanitizeTrainingPreset(jobConfig);
-  return { jobConfig, undoConfig: copyJobConfig(currentJobConfig) };
+  return { jobConfig, undoConfig: copyTrainingPresetJobConfigPreservingProperties(currentJobConfig) };
 }
 
 export function restorePresetUndo(undoConfig: JobConfig, onJobConfigChange: (jobConfig: JobConfig) => void): null {
-  onJobConfigChange(copyJobConfig(undoConfig));
+  onJobConfigChange(copyTrainingPresetJobConfigPreservingProperties(undoConfig));
   return null;
 }
 

@@ -642,7 +642,7 @@ async function run(): Promise<void> {
     for (const catalogPreset of catalog) {
       const catalogChanges: JobConfig[] = [];
       const catalogApi: TrainingPresetApi = {
-        get: async () => ({ data: { presets: catalog } }),
+        get: async () => ({ data: { presets: [personal, ...catalog] } }),
         post: async () => { throw new Error('unexpected POST'); },
         put: async () => { throw new Error('unexpected PUT'); },
         delete: async () => { throw new Error('unexpected DELETE'); },
@@ -658,6 +658,13 @@ async function run(): Promise<void> {
           />,
         );
       });
+      assert.equal(catalogRenderer.root.findAll(node => node.type === 'optgroup' && node.props.label === 'Built-in recipes').length, 1);
+      assert.equal(catalogRenderer.root.findAll(node => node.type === 'optgroup' && node.props.label === 'My presets').length, 1);
+      assert.equal(
+        catalogRenderer.root.findAll(node => node.type === 'option' && node.props.value === presetValue(personal.id)).length,
+        1,
+        'mixed mounted response retains user presets alongside the complete catalog',
+      );
       act(() => select(catalogRenderer.root).props.onChange({ currentTarget: { value: presetValue(catalogPreset.id) } }));
       assert.equal(catalogChanges.length, 1, `${catalogPreset.id} is consumed by the mounted mixed-record control`);
       await act(async () => catalogRenderer.unmount());
