@@ -15529,6 +15529,88 @@ class RecipeNarrativePageTests(unittest.TestCase):
             self.assertIn(phrase.lower(), page.lower())
 
 
+class ModelNarrativePageTests(unittest.TestCase):
+    REQUIRED_SECTIONS = (
+        "What this family covers",
+        "Model access and paths",
+        "Dataset and captions",
+        "Starting configuration",
+        "Memory, quantization, and offloading",
+        "Sampling and evaluation",
+        "Incompatibilities and cautions",
+        "Further reading",
+    )
+
+    def assert_model_page_contract(self, relative_path, architectures):
+        from scripts.generate_training_book_reference import (
+            MODEL_FACTS_END,
+            MODEL_FACTS_START,
+            render_model_facts_block,
+        )
+
+        page = (REPOSITORY_ROOT / "docs/book" / relative_path).read_text(
+            encoding="utf-8"
+        )
+        lines = page.splitlines()
+        for section in self.REQUIRED_SECTIONS:
+            self.assertEqual(lines.count(f"## {section}"), 1, section)
+        self.assertEqual(page.count(MODEL_FACTS_START), 1)
+        self.assertEqual(page.count(MODEL_FACTS_END), 1)
+        start = page.index(MODEL_FACTS_START)
+        end = page.index(MODEL_FACTS_END) + len(MODEL_FACTS_END)
+
+        catalog = load_settings_catalog(
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
+            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json",
+            None,
+        )
+        expected = render_model_facts_block(catalog, relative_path, architectures)
+        self.assertEqual(page[start:end], expected)
+        payload = json.loads(
+            expected.split("```json\n", 1)[1].split("\n```", 1)[0]
+        )
+        self.assertEqual(
+            tuple(item["id"] for item in payload["architectures"]),
+            architectures,
+        )
+        self.assertTrue(
+            all(item["facts"] for item in payload["architectures"]),
+            "every focused architecture must own generated catalog facts",
+        )
+        return page, payload
+
+    def test_model_pages_page_model_anima_covers_anima_training(self):
+        page, payload = self.assert_model_page_contract(
+            "models/anima.md", ("anima",)
+        )
+        for phrase in (
+            "circlestone-labs/Anima-Base-v1.0-Diffusers",
+            "flowmatch",
+            "weighted",
+            "max_sequence_length",
+            "512",
+            "train_text_conditioner",
+            "false",
+            "low_vram",
+            "layer offloading",
+            "1024",
+            "fixed seed",
+            "../recipes/character-identity.md",
+            "../recipes/focused-refinement.md",
+            "../recipes/low-vram.md",
+            "../datasets/captions-and-triggers.md",
+            "../workflow/sampling-and-evaluation.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+        self.assertEqual(
+            tuple(item["id"] for item in payload["deferred_settings"]),
+            (
+                "model.anima.model_kwargs.max_sequence_length",
+                "model.anima.model_kwargs.train_text_conditioner",
+            ),
+        )
+
+
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
         "reference/job-and-model.md",
