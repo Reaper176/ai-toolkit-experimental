@@ -6,8 +6,8 @@ import {
   normalizePresetName,
   sanitizeTrainingPreset,
   validateTrainingPresetSnapshot,
-  type TrainingPresetRecord,
   type TrainingPresetSnapshotV1,
+  type UserTrainingPresetRecord,
 } from '../helpers/trainingPresets';
 
 export const MAX_PRESET_REQUEST_BYTES = 1024 * 1024;
@@ -119,7 +119,7 @@ function serializeSnapshot(snapshot: TrainingPresetSnapshotV1): string {
   return serialized;
 }
 
-function deserializeRow(row: TrainingPresetRow): TrainingPresetRecord {
+function deserializeRow(row: TrainingPresetRow): UserTrainingPresetRecord {
   try {
     let parsed: unknown;
     try {
@@ -137,6 +137,8 @@ function deserializeRow(row: TrainingPresetRow): TrainingPresetRecord {
     return {
       id: row.id,
       name: row.name,
+      source: 'user',
+      read_only: false,
       schema_version: SNAPSHOT_SCHEMA_VERSION,
       snapshot,
       created_at: createdAt,
@@ -212,20 +214,20 @@ export async function readPresetRequestText(request: Pick<Request, 'body' | 'hea
 }
 
 export interface TrainingPresetService {
-  list(): Promise<TrainingPresetRecord[]>;
-  create(nameInput: unknown, currentJobConfig: JobConfig): Promise<TrainingPresetRecord>;
-  update(idInput: unknown, currentJobConfig: JobConfig): Promise<TrainingPresetRecord>;
+  list(): Promise<UserTrainingPresetRecord[]>;
+  create(nameInput: unknown, currentJobConfig: JobConfig): Promise<UserTrainingPresetRecord>;
+  update(idInput: unknown, currentJobConfig: JobConfig): Promise<UserTrainingPresetRecord>;
   remove(idInput: unknown): Promise<void>;
 }
 
 export function createTrainingPresetService(store: TrainingPresetStore): TrainingPresetService {
   return {
-    async list(): Promise<TrainingPresetRecord[]> {
+    async list(): Promise<UserTrainingPresetRecord[]> {
       const records = (await store.findMany()).map(deserializeRow);
       return records.sort(compareTrainingPresetRecords);
     },
 
-    async create(nameInput: unknown, currentJobConfig: JobConfig): Promise<TrainingPresetRecord> {
+    async create(nameInput: unknown, currentJobConfig: JobConfig): Promise<UserTrainingPresetRecord> {
       let normalized: { name: string; nameKey: string };
       try {
         normalized = normalizePresetName(nameInput);
@@ -256,7 +258,7 @@ export function createTrainingPresetService(store: TrainingPresetStore): Trainin
       }
     },
 
-    async update(idInput: unknown, currentJobConfig: JobConfig): Promise<TrainingPresetRecord> {
+    async update(idInput: unknown, currentJobConfig: JobConfig): Promise<UserTrainingPresetRecord> {
       const id = validateId(idInput);
       if (!(await store.findUnique({ where: { id } }))) {
         throw new TrainingPresetNotFoundError(`Training preset "${id}" was not found`);

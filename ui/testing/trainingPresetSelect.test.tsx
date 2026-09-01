@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { JobConfig } from '../src/types';
-import { sanitizeTrainingPreset, type TrainingPresetRecord } from '../src/helpers/trainingPresets';
+import { sanitizeTrainingPreset, type UserTrainingPresetRecord } from '../src/helpers/trainingPresets';
 import {
   CLOSED_TRAINING_PRESET_DIALOG,
   TrainingPresetDialogContent,
@@ -57,10 +57,12 @@ function jobFixture(steps = 100): JobConfig {
   } as unknown as JobConfig;
 }
 
-function record(id: string, name: string, steps = 200): TrainingPresetRecord {
+function record(id: string, name: string, steps = 200): UserTrainingPresetRecord {
   return {
     id,
     name,
+    source: 'user',
+    read_only: false,
     schema_version: 1,
     snapshot: sanitizeTrainingPreset(jobFixture(steps)),
     created_at: '2026-01-01T00:00:00.000Z',
@@ -215,6 +217,29 @@ for (const malformed of [null, {}, { presets: 'no' }, { presets: [{ id: '', name
 assert.throws(
   () => validateTrainingPresetListResponse({ presets: [{ ...record('bad', 'Bad'), snapshot: {} }] }),
   /snapshot/i,
+);
+for (const invalidUserRecord of [
+  { ...record('missing-source', 'Missing source'), source: undefined },
+  { ...record('builtin', 'Built in'), source: 'builtin', read_only: true },
+  { ...record('writable', 'Writable mismatch'), read_only: true },
+  { ...record('catalog-field', 'Catalog field'), category: 'style' },
+  { ...record('catalog-summary', 'Catalog summary'), summary: 'catalog only' },
+]) {
+  assert.throws(
+    () => validateTrainingPresetListResponse({ presets: [invalidUserRecord] }),
+    /training preset.*(source|read_only|catalog)/i,
+  );
+}
+const validatedUserInput = record('isolated-user', 'Isolated user');
+const validatedUsers = validateTrainingPresetListResponse({ presets: [validatedUserInput] });
+assert.equal(validatedUsers[0].source, 'user');
+assert.equal(validatedUsers[0].read_only, false);
+assert.equal(validatedUserInput.source, 'user', 'validation must not mutate the source discriminator');
+(validatedUsers[0].snapshot.config.process[0] as any).model.name_or_path = 'mutated result';
+assert.equal(
+  (validatedUserInput.snapshot.config.process[0] as any).model.name_or_path,
+  'model',
+  'validated user records must isolate their snapshot result',
 );
 assert.equal(reconcileSelectedPresetId('b', unsorted), 'b');
 assert.equal(reconcileSelectedPresetId('missing', unsorted), null);

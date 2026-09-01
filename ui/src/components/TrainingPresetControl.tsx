@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useReducer, useRef, useState, type ComponentType } from 'react';
 import type { JobConfig } from '../types';
-import { normalizePresetName, type TrainingPresetRecord } from '../helpers/trainingPresets';
+import { normalizePresetName, type UserTrainingPresetRecord } from '../helpers/trainingPresets';
 import { apiClient } from '../utils/api';
 import {
   CLOSED_TRAINING_PRESET_DIALOG,
@@ -56,7 +56,7 @@ export function TrainingPresetControl({
 }: TrainingPresetControlProps) {
   const api = dependencies?.api ?? apiClient;
   const Dialog = dependencies?.Dialog ?? TrainingPresetDialogView;
-  const [presets, setPresets] = useState<TrainingPresetRecord[]>([]);
+  const [presets, setPresets] = useState<UserTrainingPresetRecord[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [undoConfig, setUndoConfig] = useState<JobConfig | null>(null);
   const [pending, setPending] = useState(false);

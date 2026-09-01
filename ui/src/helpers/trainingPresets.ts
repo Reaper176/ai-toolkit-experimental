@@ -14,7 +14,7 @@ export interface TrainingPresetSnapshotV1 {
   };
 }
 
-export interface TrainingPresetRecord {
+export interface TrainingPresetRecordBase {
   id: string;
   name: string;
   schema_version: typeof SNAPSHOT_SCHEMA_VERSION;
@@ -22,6 +22,40 @@ export interface TrainingPresetRecord {
   created_at: string;
   updated_at: string;
 }
+
+export interface UserTrainingPresetRecord extends TrainingPresetRecordBase {
+  readonly source: 'user';
+  readonly read_only: false;
+}
+
+export type BuiltInTrainingPresetCategory =
+  | 'character'
+  | 'style'
+  | 'object'
+  | 'refinement'
+  | 'low-vram'
+  | 'diagnostic';
+
+export type BuiltInTrainingPresetEvidence =
+  | 'configuration-validated'
+  | 'launch-tested'
+  | 'training-tested';
+
+export interface BuiltInTrainingPresetRecord extends TrainingPresetRecordBase {
+  readonly source: 'builtin';
+  readonly read_only: true;
+  category: BuiltInTrainingPresetCategory;
+  intent_slug: string;
+  model_arch: string;
+  catalog_revision: string;
+  summary: string;
+  recipe_path: string;
+  prerequisites: string[];
+  warnings: string[];
+  evidence: BuiltInTrainingPresetEvidence;
+}
+
+export type TrainingPresetRecord = UserTrainingPresetRecord | BuiltInTrainingPresetRecord;
 
 type PropertyCapture = { present: boolean; value?: unknown };
 

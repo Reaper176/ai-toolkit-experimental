@@ -31,7 +31,12 @@ function jobFixture(model = 'current/model'): JobConfig {
           model: { arch: 'flux', name_or_path: model },
           train: { steps: 1000 },
           save: { save_every: 250 },
-          sample: { sampler: 'flowmatch', samples: [{ prompt: 'private' }], prompts: ['private'] },
+          sample: {
+            sampler: 'flowmatch',
+            neg: 'saved user negative',
+            samples: [{ prompt: 'private', control_image_path: '/private/control.png' }],
+            prompts: ['private'],
+          },
         },
       ],
     },
@@ -144,6 +149,8 @@ async function main(): Promise<void> {
   );
   assert.equal(listed[0].created_at, '2025-01-01T00:00:00.000Z');
   assert.equal(listed[0].updated_at, '2025-01-02T00:00:00.000Z');
+  assert.equal(listed[0].source, 'user');
+  assert.equal(listed[0].read_only, false);
 
   const originalLocaleCompare = String.prototype.localeCompare;
   let localeCompareCalls = 0;
@@ -172,6 +179,9 @@ async function main(): Promise<void> {
   }
   assert.equal('samples' in createdProcess.sample, false);
   assert.equal('prompts' in createdProcess.sample, false);
+  assert.equal(createdProcess.sample.neg, 'saved user negative');
+  assert.equal(created.source, 'user');
+  assert.equal(created.read_only, false);
 
   const invalidCreateStore = new FakeStore();
   await assert.rejects(
@@ -194,6 +204,8 @@ async function main(): Promise<void> {
   assert.equal((isolated.snapshot.config.process[0] as any).model.name_or_path, 'isolated/model');
   (isolated.snapshot.config.process[0] as any).model.name_or_path = 'mutated/output';
   assert.equal(JSON.parse(isolatedStore.rows[0].preset_config).config.process[0].model.name_or_path, 'isolated/model');
+  (isolated as any).source = 'builtin';
+  assert.equal((await createTrainingPresetService(isolatedStore).list())[0].source, 'user');
 
   const updateStore = new FakeStore([row('keep', 'Keep Name', 'old/model')]);
   const updated = await createTrainingPresetService(updateStore).update('keep', jobFixture('new/model'));

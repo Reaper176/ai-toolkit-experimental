@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { JobConfig } from '../src/types';
-import type { TrainingPresetRecord } from '../src/helpers/trainingPresets';
+import type { UserTrainingPresetRecord } from '../src/helpers/trainingPresets';
 import {
   MAX_PRESET_REQUEST_BYTES,
   TrainingPresetPayloadTooLargeError,
@@ -37,6 +37,8 @@ function jobFixture(): JobConfig {
 const recordFixture = {
   id: 'preset-id',
   name: 'Preset',
+  source: 'user',
+  read_only: false,
   schema_version: 1,
   snapshot: {
     schema_version: 1,
@@ -45,22 +47,22 @@ const recordFixture = {
   },
   created_at: '2025-01-01T00:00:00.000Z',
   updated_at: '2025-01-01T00:00:00.000Z',
-} as TrainingPresetRecord;
+} as UserTrainingPresetRecord;
 
 class FakeService implements TrainingPresetServiceApi {
   createCalls = 0;
   updateCalls = 0;
 
-  async list(): Promise<TrainingPresetRecord[]> {
+  async list(): Promise<UserTrainingPresetRecord[]> {
     return [];
   }
 
-  async create(): Promise<TrainingPresetRecord> {
+  async create(): Promise<UserTrainingPresetRecord> {
     this.createCalls += 1;
     return structuredClone(recordFixture);
   }
 
-  async update(): Promise<TrainingPresetRecord> {
+  async update(): Promise<UserTrainingPresetRecord> {
     this.updateCalls += 1;
     return structuredClone(recordFixture);
   }

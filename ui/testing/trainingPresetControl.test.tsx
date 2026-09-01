@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import TestRenderer, { act, type ReactTestInstance } from 'react-test-renderer';
 import type { JobConfig } from '../src/types';
-import { sanitizeTrainingPreset, type TrainingPresetRecord } from '../src/helpers/trainingPresets';
+import { sanitizeTrainingPreset, type UserTrainingPresetRecord } from '../src/helpers/trainingPresets';
 import { TrainingPresetControl } from '../src/components/TrainingPresetControl';
 import type { TrainingPresetDialogViewProps } from '../src/components/TrainingPresetDialog';
 import {
@@ -41,10 +41,12 @@ function jobFixture(steps = 100): JobConfig {
   } as unknown as JobConfig;
 }
 
-function record(id: string, name: string): TrainingPresetRecord {
+function record(id: string, name: string): UserTrainingPresetRecord {
   return {
     id,
     name,
+    source: 'user',
+    read_only: false,
     schema_version: 1,
     snapshot: sanitizeTrainingPreset(jobFixture(200)),
     created_at: '2026-01-01T00:00:00.000Z',

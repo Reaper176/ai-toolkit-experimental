@@ -7,7 +7,7 @@ import {
   applyTrainingPreset,
   compareTrainingPresetRecords,
   normalizePresetName,
-  type TrainingPresetRecord,
+  type UserTrainingPresetRecord,
   validateTrainingPresetSnapshot,
 } from '../helpers/trainingPresets';
 
@@ -58,7 +58,9 @@ export function handleTrainingPresetSelection(
   onSelect(selection);
 }
 
-export function sortTrainingPresetRecords(presets: readonly TrainingPresetRecord[]): TrainingPresetRecord[] {
+export function sortTrainingPresetRecords(
+  presets: readonly UserTrainingPresetRecord[],
+): UserTrainingPresetRecord[] {
   return [...presets].sort(compareTrainingPresetRecords);
 }
 
@@ -68,8 +70,27 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
-export function validateTrainingPresetRecord(value: unknown): TrainingPresetRecord {
+const CATALOG_ONLY_RECORD_KEYS = [
+  'category',
+  'intent_slug',
+  'model_arch',
+  'catalog_revision',
+  'summary',
+  'recipe_path',
+  'prerequisites',
+  'warnings',
+  'evidence',
+] as const;
+
+export function validateTrainingPresetRecord(value: unknown): UserTrainingPresetRecord {
   if (!isPlainObject(value)) throw new Error('Training preset record must be an object');
+  if (value.source !== 'user') throw new Error('Training preset record source must be user');
+  if (value.read_only !== false) throw new Error('Training preset record read_only must be false');
+  for (const key of CATALOG_ONLY_RECORD_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) {
+      throw new Error(`Training preset user record must not contain catalog field ${key}`);
+    }
+  }
   if (typeof value.id !== 'string' || value.id.trim() === '') {
     throw new Error('Training preset record id must be a nonblank string');
   }
@@ -85,6 +106,8 @@ export function validateTrainingPresetRecord(value: unknown): TrainingPresetReco
   return {
     id: value.id,
     name: value.name,
+    source: 'user',
+    read_only: false,
     schema_version: SNAPSHOT_SCHEMA_VERSION,
     snapshot: validateTrainingPresetSnapshot(value.snapshot),
     created_at: value.created_at,
@@ -92,7 +115,7 @@ export function validateTrainingPresetRecord(value: unknown): TrainingPresetReco
   };
 }
 
-export function validateTrainingPresetListResponse(response: unknown): TrainingPresetRecord[] {
+export function validateTrainingPresetListResponse(response: unknown): UserTrainingPresetRecord[] {
   if (!isPlainObject(response) || !Array.isArray(response.presets)) {
     throw new Error('Training preset response must contain a presets array');
   }
@@ -101,7 +124,7 @@ export function validateTrainingPresetListResponse(response: unknown): TrainingP
 
 export function reconcileSelectedPresetId(
   selectedPresetId: string | null,
-  presets: readonly TrainingPresetRecord[],
+  presets: readonly UserTrainingPresetRecord[],
 ): string | null {
   return selectedPresetId !== null && presets.some(preset => preset.id === selectedPresetId) ? selectedPresetId : null;
 }
@@ -168,7 +191,7 @@ export async function createTrainingPreset(
   nameInput: unknown,
   jobConfig: JobConfig,
   signal?: AbortSignal,
-): Promise<TrainingPresetRecord> {
+): Promise<UserTrainingPresetRecord> {
   const { name } = normalizePresetName(nameInput);
   const response = await api.post('/api/training-presets', { name, job_config: jobConfig }, requestOptions(signal));
   return validateTrainingPresetRecord(response.data);
@@ -179,7 +202,7 @@ export async function updateTrainingPreset(
   presetId: string,
   jobConfig: JobConfig,
   signal?: AbortSignal,
-): Promise<TrainingPresetRecord> {
+): Promise<UserTrainingPresetRecord> {
   const response = await api.put(
     `/api/training-presets/${encodeURIComponent(presetId)}`,
     { job_config: jobConfig },
@@ -205,14 +228,14 @@ export function createTrainingPresetActionLock(): TrainingPresetActionLock {
 }
 
 export interface TrainingPresetControllerState {
-  presets: readonly TrainingPresetRecord[];
+  presets: readonly UserTrainingPresetRecord[];
   selectedPresetId: string | null;
   jobConfig: JobConfig;
   undoConfig: JobConfig | null;
 }
 
 export type TrainingPresetNextState = Omit<TrainingPresetControllerState, 'presets'> & {
-  presets: TrainingPresetRecord[];
+  presets: UserTrainingPresetRecord[];
 };
 
 export type TrainingPresetMutationResult =
@@ -255,7 +278,7 @@ export function commitTrainingPresetMutationResult(
 async function requestTrainingPresetCollection(
   api: Pick<TrainingPresetApi, 'get'>,
   signal: AbortSignal,
-): Promise<TrainingPresetRecord[]> {
+): Promise<UserTrainingPresetRecord[]> {
   const response = await api.get('/api/training-presets', requestOptions(signal));
   return validateTrainingPresetListResponse(response.data);
 }
@@ -265,9 +288,12 @@ async function runTrainingPresetMutation(
   lock: TrainingPresetActionLock,
   signal: AbortSignal,
   currentState: TrainingPresetControllerState,
-  mutate: () => Promise<TrainingPresetRecord | null>,
-  fallback: (record: TrainingPresetRecord | null) => TrainingPresetRecord[],
-  selectAfterRefresh: (presets: TrainingPresetRecord[], record: TrainingPresetRecord | null) => string | null,
+  mutate: () => Promise<UserTrainingPresetRecord | null>,
+  fallback: (record: UserTrainingPresetRecord | null) => UserTrainingPresetRecord[],
+  selectAfterRefresh: (
+    presets: UserTrainingPresetRecord[],
+    record: UserTrainingPresetRecord | null,
+  ) => string | null,
   missingSelectionMessage?: string,
 ): Promise<TrainingPresetMutationResult> {
   if (lock.active) return { status: 'busy' };
@@ -399,7 +425,7 @@ export async function deleteTrainingPresetAndRefresh(
 }
 
 export interface TrainingPresetSelectProps {
-  presets: readonly Pick<TrainingPresetRecord, 'id' | 'name'>[];
+  presets: readonly Pick<UserTrainingPresetRecord, 'id' | 'name'>[];
   selectedPresetId: string | null;
   canUndo: boolean;
   disabled: boolean;

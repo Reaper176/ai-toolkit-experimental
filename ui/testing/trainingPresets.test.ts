@@ -9,6 +9,9 @@ import {
   normalizePresetName,
   sanitizeTrainingPreset,
   validateTrainingPresetSnapshot,
+  type BuiltInTrainingPresetRecord,
+  type TrainingPresetRecord,
+  type UserTrainingPresetRecord,
 } from '../src/helpers/trainingPresets';
 
 type LooseJobConfig = JobConfig & Record<string, unknown>;
@@ -40,7 +43,7 @@ function jobFixture(): LooseJobConfig {
             sampler: 'flowmatch',
             sample_every: 100,
             guidance_scale: 3.5,
-            samples: [{ prompt: 'current sample', seed: 12 }],
+            samples: [{ prompt: 'current sample', seed: 12, control_image_path: '/current/control.png' }],
           },
           future_training_option: { enabled: true },
         },
@@ -71,6 +74,12 @@ function presetJobFixture(): LooseJobConfig {
     prompts: ['legacy preset prompt'],
   };
   process.future_training_option = { enabled: false, mode: 'future' };
+  return job;
+}
+
+function userJobFixture(): LooseJobConfig {
+  const job = presetJobFixture();
+  (job.config.process[0] as any).sample.neg = 'saved user negative';
   return job;
 }
 
@@ -112,7 +121,45 @@ assert.deepEqual(sanitizedProcess.save, { save_every: 250 });
 assert.deepEqual(sanitizedProcess.logging, { log_every: 1 });
 assert.equal(sanitizedProcess.sample.sampler, 'ddim');
 assert.equal(sanitizedProcess.sample.sample_every, 25);
+assert.equal('neg' in sanitizedProcess.sample, false);
 assert.deepEqual(sanitizedProcess.future_training_option, { enabled: false, mode: 'future' });
+
+const sanitizedUserPreset = sanitizeTrainingPreset(userJobFixture());
+assert.equal((sanitizedUserPreset.config.process[0] as any).sample.neg, 'saved user negative');
+const ordinaryUserApplied = applyTrainingPreset(jobFixture(), sanitizedUserPreset, (job: JobConfig) => job);
+assert.equal((ordinaryUserApplied.config.process[0] as any).sample.neg, 'saved user negative');
+
+const userRecordContract: UserTrainingPresetRecord = {
+  id: 'user-preset',
+  name: 'User preset',
+  source: 'user',
+  read_only: false,
+  schema_version: 1,
+  snapshot: sanitizedUserPreset,
+  created_at: '2026-01-01T00:00:00.000Z',
+  updated_at: '2026-01-01T00:00:00.000Z',
+};
+const builtInRecordContract: BuiltInTrainingPresetRecord = {
+  id: 'builtin-preset',
+  name: 'Built-in preset',
+  source: 'builtin',
+  read_only: true,
+  schema_version: 1,
+  snapshot: sanitizedUserPreset,
+  created_at: '2026-01-01T00:00:00.000Z',
+  updated_at: '2026-01-01T00:00:00.000Z',
+  category: 'style',
+  intent_slug: 'style-balanced',
+  model_arch: 'flux',
+  catalog_revision: '2026-09-01',
+  summary: 'Balanced style training.',
+  recipe_path: 'recipes/style-balanced.yaml',
+  prerequisites: ['captioned images'],
+  warnings: [],
+  evidence: 'configuration-validated',
+};
+const recordContracts: TrainingPresetRecord[] = [userRecordContract, builtInRecordContract];
+assert.deepEqual(recordContracts.map(record => record.source), ['user', 'builtin']);
 
 const sourceForSanitize = presetJobFixture();
 const isolatedSnapshot = sanitizeTrainingPreset(sourceForSanitize);
@@ -360,7 +407,9 @@ assert.equal(appliedProcess.sqlite_db_path, '/current/jobs.sqlite');
 assert.equal(appliedProcess.device, 'cuda:1');
 assert.equal(appliedProcess.trigger_word, 'CURRENT');
 assert.deepEqual(appliedProcess.datasets, [{ folder_path: '/current/images', resolution: [1024] }]);
-assert.deepEqual(appliedProcess.sample.samples, [{ prompt: 'current sample', seed: 12 }]);
+assert.deepEqual(appliedProcess.sample.samples, [
+  { prompt: 'current sample', seed: 12, control_image_path: '/current/control.png' },
+]);
 assert.equal(appliedProcess.sample.sampler, 'ddim');
 assert.equal(appliedProcess.sample.guidance_scale, 7);
 assert.equal(appliedProcess.model.arch, 'sdxl');
