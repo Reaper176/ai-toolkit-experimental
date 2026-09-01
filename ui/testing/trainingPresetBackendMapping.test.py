@@ -84,14 +84,22 @@ def _literal_name_list(module: ast.Module, variable: str) -> list[str]:
         def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
             if node.name == variable:
                 self.found = True
-            self.generic_visit(node)
 
         visit_AsyncFunctionDef = visit_FunctionDef
 
         def visit_ClassDef(self, node: ast.ClassDef) -> None:
             if node.name == variable:
                 self.found = True
-            self.generic_visit(node)
+
+        def visit_Lambda(self, node: ast.Lambda) -> None:
+            pass
+
+        def visit_ListComp(self, node: ast.ListComp) -> None:
+            pass
+
+        visit_SetComp = visit_ListComp
+        visit_DictComp = visit_ListComp
+        visit_GeneratorExp = visit_ListComp
 
         def visit_Import(self, node: ast.Import) -> None:
             if any((alias.asname or alias.name.split(".")[0]) == variable for alias in node.names):
@@ -221,21 +229,33 @@ def registered_model_definitions(overrides: dict[str, str] | None = None) -> tup
         absolute = ROOT / folder
         if not absolute.is_dir():
             continue
-        eligible: dict[str, str | None] = {}
+        EligibleEntry = tuple[int, int, str | None]
+        eligible: dict[str, EligibleEntry] = {}
         import_suffixes = tuple(sorted(set(importlib.machinery.all_suffixes()), key=len, reverse=True))
 
         def suffix_for(filename: str) -> str | None:
             return next((suffix for suffix in import_suffixes if filename.endswith(suffix)), None)
 
-        def register(module_name: str, relative: str, parseable: bool) -> None:
+        def loader_precedence(suffix: str) -> int:
+            if suffix in importlib.machinery.EXTENSION_SUFFIXES:
+                return 0
+            if suffix in importlib.machinery.SOURCE_SUFFIXES:
+                return 1
+            if suffix in importlib.machinery.BYTECODE_SUFFIXES:
+                return 2
+            raise AssertionError(f"unsupported import loader suffix {suffix}")
+
+        def register(module_name: str, relative: str, suffix: str, package: bool) -> None:
+            candidate: EligibleEntry = (
+                0 if package else 1,
+                loader_precedence(suffix),
+                relative if suffix in importlib.machinery.SOURCE_SUFFIXES else None,
+            )
             existing = eligible.get(module_name)
-            if module_name in eligible and existing != relative:
-                if existing is None or not parseable:
-                    eligible[module_name] = None
-                else:
-                    raise AssertionError(f"ambiguous eligible extension module {folder}/{module_name}")
-            else:
-                eligible[module_name] = relative if parseable else None
+            if existing is None or candidate[:2] < existing[:2]:
+                eligible[module_name] = candidate
+            elif candidate[:2] == existing[:2] and candidate[2] != existing[2]:
+                raise AssertionError(f"ambiguous eligible extension module {folder}/{module_name}")
 
         for child in absolute.iterdir():
             if child.is_dir():
@@ -243,15 +263,16 @@ def registered_model_definitions(overrides: dict[str, str] | None = None) -> tup
                     entry for entry in child.iterdir()
                     if (suffix := suffix_for(entry.name)) is not None and entry.name[:-len(suffix)] == "__init__"
                 ]
-                if initializers:
-                    source_initializer = next((entry for entry in initializers if entry.name == "__init__.py"), None)
-                    register(child.name, f"{folder}/{child.name}/__init__.py", source_initializer is not None)
+                for initializer in initializers:
+                    suffix = suffix_for(initializer.name)
+                    assert suffix is not None
+                    register(child.name, f"{folder}/{child.name}/{initializer.name}", suffix, True)
             elif child.is_file():
                 suffix = suffix_for(child.name)
                 if suffix is not None:
                     module_name = child.name[:-len(suffix)]
                     if module_name != "__init__":
-                        register(module_name, f"{folder}/{child.name}", suffix == ".py")
+                        register(module_name, f"{folder}/{child.name}", suffix, False)
         for relative in (overrides or {}):
             prefix = f"{folder}/"
             if not relative.startswith(prefix):
@@ -260,14 +281,14 @@ def registered_model_definitions(overrides: dict[str, str] | None = None) -> tup
             if "/" not in remainder:
                 suffix = suffix_for(remainder)
                 if suffix is not None and remainder[:-len(suffix)] != "__init__":
-                    register(remainder[:-len(suffix)], relative, suffix == ".py")
+                    register(remainder[:-len(suffix)], relative, suffix, False)
             elif remainder.count("/") == 1:
                 module_name, initializer = remainder.split("/", 1)
                 suffix = suffix_for(initializer)
                 if suffix is not None and initializer[:-len(suffix)] == "__init__":
-                    register(module_name, relative, suffix == ".py")
+                    register(module_name, relative, suffix, True)
         for module_name in sorted(eligible):
-            relative = eligible[module_name]
+            relative = eligible[module_name][2]
             if relative is None:
                 raise AssertionError(f"eligible extension module {folder}/{module_name} lacks parseable .py source")
             definitions.extend(resolve_symbol(relative, symbol, overrides) for symbol in _literal_name_list(tree(relative, overrides), "AI_TOOLKIT_MODELS"))
@@ -388,9 +409,47 @@ class BackendMappingTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "AI_TOOLKIT_MODELS.*unsupported"):
             build_report({path: "AI_TOOLKIT_MODELS = []\nif __debug__:\n    AI_TOOLKIT_MODELS = []\n"})
 
+    def test_nested_local_registry_names_do_not_change_module_registry(self) -> None:
+        path = "extensions_built_in/local_registry_names.py"
+        actual = build_report({path: """
+def local_registry():
+    AI_TOOLKIT_MODELS = []
+    AI_TOOLKIT_MODELS.append(object)
+
+class LocalRegistry:
+    AI_TOOLKIT_MODELS = []
+
+local_lambda = lambda: (AI_TOOLKIT_MODELS := [])
+local_comprehension = [AI_TOOLKIT_MODELS for AI_TOOLKIT_MODELS in []]
+AI_TOOLKIT_MODELS = []
+"""})
+        self.assertEqual(actual, report())
+
+    def test_module_loop_registry_binding_fails_closed(self) -> None:
+        path = "extensions_built_in/loop_registry.py"
+        with self.assertRaisesRegex(AssertionError, "AI_TOOLKIT_MODELS.*unsupported"):
+            build_report({path: "AI_TOOLKIT_MODELS = []\nfor AI_TOOLKIT_MODELS in [[]]:\n    pass\n"})
+
     def test_eligible_native_module_without_python_source_fails_closed(self) -> None:
         with self.assertRaisesRegex(AssertionError, r"eligible extension module.*parseable.*\.py"):
             build_report({"extensions_built_in/native_interceptor.so": "binary fixture"})
+
+    def test_native_package_initializer_takes_precedence_over_source_and_fails_closed(self) -> None:
+        package = "extensions_built_in/native_package"
+        with self.assertRaisesRegex(AssertionError, r"eligible extension module.*parseable.*\.py"):
+            build_report({
+                f"{package}/__init__.py": "AI_TOOLKIT_MODELS = []\n",
+                f"{package}/__init__.cpython-312-x86_64-linux-gnu.so": "binary fixture",
+            })
+
+    def test_source_package_initializer_precedes_bytecode(self) -> None:
+        package = "extensions_built_in/source_package"
+        actual = build_report({
+            f"{package}/__init__.py": "class FluxInterceptor:\n    arch = 'flux'\nAI_TOOLKIT_MODELS = [FluxInterceptor]\n",
+            f"{package}/__init__.pyc": "bytecode fixture",
+        })
+        flux = next(row for row in actual["bindings"] if row["ui_architecture"] == "flux")
+        self.assertEqual(flux["model_class"], "FluxInterceptor")
 
     def test_unsupported_eligible_top_level_registry_fails_closed(self) -> None:
         path = "extensions_built_in/dynamic_registry.py"
