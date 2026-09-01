@@ -98,10 +98,11 @@ function confinedFile(root: string, relativePath: string): string {
   if (isAbsolute(relativePath) || relativePath.includes('\\')) throw new Error(`unsafe recipe path ${relativePath}`);
   const resolvedRoot = realpathSync(root);
   const candidate = resolve(root, relativePath);
-  if (!existsSync(candidate) || lstatSync(candidate).isSymbolicLink()) throw new Error(`missing or symbolic recipe path ${relativePath}`);
+  if (!existsSync(candidate)) throw new Error(`missing recipe path ${relativePath}`);
   const resolved = realpathSync(candidate);
   const child = relative(resolvedRoot, resolved);
   if (child === '' || child === '..' || child.startsWith(`..${sep}`) || isAbsolute(child)) throw new Error(`recipe path escapes repository: ${relativePath}`);
+  if (lstatSync(candidate).isSymbolicLink()) throw new Error(`symbolic recipe path ${relativePath}`);
   return resolved;
 }
 
@@ -166,12 +167,40 @@ function validateEvidence(root: string, records: readonly BuiltInTrainingPresetR
     const digest = createHash('sha256').update(canonicalizePresetJson(record.snapshot)).digest('hex');
     if (attestation.snapshot_sha256 !== digest) throw new Error(`${record.id}: stale snapshot evidence`);
     if (!/^[0-9a-f]{40}$/u.test(attestation.repository_commit)) throw new Error(`${record.id}: malformed repository commit`);
-    const git = spawnSync('git', ['merge-base', '--is-ancestor', attestation.repository_commit, 'HEAD'], { cwd: root, stdio: 'ignore' });
-    if (git.status !== 0) throw new Error(`${record.id}: evidence commit is unknown or not an ancestor`);
-    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(attestation.tested_at) || Number.isNaN(Date.parse(attestation.tested_at))) throw new Error(`${record.id}: tested_at must be UTC RFC 3339`);
+    const known = spawnSync('git', ['cat-file', '-e', `${attestation.repository_commit}^{commit}`], { cwd: root, stdio: 'ignore' });
+    if (known.status !== 0) throw new Error(`${record.id}: unknown evidence commit`);
+    const ancestor = spawnSync('git', ['merge-base', '--is-ancestor', attestation.repository_commit, 'HEAD'], { cwd: root, stdio: 'ignore' });
+    if (ancestor.status !== 0) throw new Error(`${record.id}: evidence commit is not an ancestor`);
+    if (!isStrictUtcRfc3339(attestation.tested_at)) throw new Error(`${record.id}: tested_at must be UTC RFC 3339 with a valid calendar date`);
     for (const key of ['hardware_model','model_identifier','reviewer'] as const) if (typeof attestation[key] !== 'string' || !attestation[key].trim()) throw new Error(`${record.id}: ${key} must be nonblank`);
     if (attestation.result !== 'passed' || attestation.test_scope !== record.evidence) throw new Error(`${record.id}: unsuccessful or scope/label mismatch evidence`);
   }
+}
+
+function isStrictUtcRfc3339(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?Z$/u);
+  if (!match) return false;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  if (month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (day < 1 || day > days[month - 1]) return false;
+  const roundTrip = new Date(0);
+  roundTrip.setUTCFullYear(year, month - 1, day);
+  roundTrip.setUTCHours(hour, minute, second, 0);
+  return roundTrip.getUTCFullYear() === year
+    && roundTrip.getUTCMonth() === month - 1
+    && roundTrip.getUTCDate() === day
+    && roundTrip.getUTCHours() === hour
+    && roundTrip.getUTCMinutes() === minute
+    && roundTrip.getUTCSeconds() === second;
 }
 
 export function validateBuiltInTrainingPresetRelease(options: {
@@ -195,9 +224,19 @@ export function validateBuiltInTrainingPresetRelease(options: {
   const ids = records.map(record => record.id);
   if (new Set(ids).size !== ids.length) errors.push('release contains duplicate IDs');
   records.forEach((record, index) => {
-    if (index >= EXPECTED_BUILT_IN_PRESET_RELEASE.length || canonical(record) !== canonical(expectedRecord(index))) errors.push(`release order/content drift at row ${index}: ${record.id}`);
+    if (index >= EXPECTED_BUILT_IN_PRESET_RELEASE.length) return;
+    const expected = expectedRecord(index) as BuiltInTrainingPresetRecord;
+    if (record.id !== expected.id || record.model_arch !== expected.model_arch || record.intent_slug !== expected.intent_slug || record.catalog_revision !== expected.catalog_revision) errors.push(`ID/field identity drift at row ${index}: ${record.id}`);
+    if (record.evidence !== expected.evidence) errors.push(`unsupported stronger evidence label at row ${index}: ${record.evidence}`);
+    if (canonical(record) !== canonical(expected)) errors.push(`release order/content drift at row ${index}: ${record.id}`);
   });
   if (new Set(records.map(record => record.catalog_revision)).size !== 1) errors.push('mixed catalog revision');
+  const expectedCategories = EXPECTED_BUILT_IN_PRESET_RELEASE.map(record => record.category).sort();
+  const actualCategories = records.map(record => record.category).sort();
+  if (canonical(actualCategories) !== canonical(expectedCategories)) errors.push('category coverage drift');
+  const expectedRecipes = EXPECTED_BUILT_IN_PRESET_RELEASE.map(record => record.recipe_path).sort();
+  const actualRecipes = records.map(record => record.recipe_path).sort();
+  if (canonical(actualRecipes) !== canonical(expectedRecipes)) errors.push('recipe coverage drift');
   if (canonical(BUILT_IN_ARCHITECTURE_BINDINGS) !== canonical(GOLDEN_BINDINGS)) errors.push('production architecture binding drift from golden release');
   if (canonical(BUILT_IN_ARCHITECTURE_ORDER) !== canonical(GOLDEN_BINDINGS.map(binding => binding.ui_arch))) errors.push('production architecture order drift from golden release');
   if (canonical(BUILT_IN_RECIPE_PATHS) !== canonical(GOLDEN_RECIPE_PATHS)) errors.push('production recipe path coverage/order drift from golden release');
@@ -214,7 +253,13 @@ export function validateBuiltInTrainingPresetRelease(options: {
       const document = readFileSync(confinedFile(options.repositoryRoot, recipe), 'utf8');
       validateMarkers(document, records, recipe);
       const links = modelLinks(document, recipe);
-      if (canonical(links) !== canonical(RECIPE_MODEL_PAGES[recipe])) throw new Error(`${recipe}: wrong/missing/extra model-family deviation link`);
+      const expectedLinks = RECIPE_MODEL_PAGES[recipe];
+      if (canonical(links) !== canonical(expectedLinks)) {
+        const missing = expectedLinks.filter(link => !links.includes(link));
+        const extra = links.filter(link => !expectedLinks.includes(link));
+        const kind = missing.length > 0 && extra.length > 0 ? 'wrong' : missing.length > 0 ? 'missing' : 'extra';
+        throw new Error(`${recipe}: ${kind} model-family deviation link`);
+      }
       const memberships = links.map(path => ({ path, architectures: modelArchitectures(options.repositoryRoot, path) }));
       const recipeArchitectures = new Set(records.filter(record => record.recipe_path === recipe).map(record => record.model_arch));
       for (const architecture of recipeArchitectures) if (!memberships.some(item => item.architectures.includes(architecture))) throw new Error(`${recipe}: model links do not contain generated membership for ${architecture}`);
@@ -226,6 +271,7 @@ export function validateBuiltInTrainingPresetRelease(options: {
     ui_architecture: binding.ui_arch, normalized_architecture: binding.engine_arch, model_class: binding.model_class,
     source_path: BACKEND_SOURCE_PATHS[binding.ui_arch], symbol: binding.model_class,
   })) };
+  if (options.backendReport.bindings.some((binding, index) => binding.model_class !== expectedBackend.bindings[index]?.model_class)) errors.push('backend class drift');
   if (canonical(options.backendReport) !== canonical(expectedBackend)) errors.push('backend mapping report drift');
   const expectedUi = { schema_version: 1, architectures: GOLDEN_BINDINGS.map(binding => ({
     name: binding.ui_arch, model_path: binding.model_path,
