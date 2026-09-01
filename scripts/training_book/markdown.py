@@ -28,17 +28,14 @@ _REFERENCE_DEFINITION = re.compile(
     r"^\s{0,3}\[([^\]]+)\]:\s*(<[^>]+>|\S+)", re.MULTILINE
 )
 _HTML_HREF = re.compile(
-    r"<a\b[^>]*\bhref\s*=\s*(['\"])(.*?)\1", re.IGNORECASE
+    r'''<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))''',
+    re.IGNORECASE,
 )
 _AUTOLINK = re.compile(
     r"<((?:https?://|mailto:|(?:\.\.?/|/)?[^<>\s]+\.md(?:#[^<>\s]+)?|#[^<>\s]+))>",
     re.IGNORECASE,
 )
 _EXTERNAL_LINK = re.compile(r"(?:https?|mailto):", re.IGNORECASE)
-_NEGATION = re.compile(
-    r"\b(?:not|never|no|cannot|without|isn't|aren't|doesn't|don't|can't)\b",
-    re.IGNORECASE,
-)
 _PAGE_MARKERS = (
     "<!-- book-navigation:start -->",
     "<!-- book-navigation:end -->",
@@ -57,21 +54,28 @@ class MarkdownContractError(ValueError):
 
 def _outside_fences(document: str) -> str:
     lines: list[str] = []
-    fence: str | None = None
+    fence: tuple[str, int] | None = None
     for line in document.splitlines():
-        stripped = line.lstrip()
-        opening = re.match(r"(`{3,}|~{3,})", stripped)
-        if opening:
-            token = opening.group(1)
-            if fence is None:
-                fence = token[0]
-            elif token[0] == fence:
+        if fence is not None:
+            marker, minimum_length = fence
+            closing = re.match(
+                rf"^ {{0,3}}({re.escape(marker)}{{{minimum_length},}})[ \t]*$",
+                line,
+            )
+            if closing:
                 fence = None
             lines.append("")
-        elif fence is None:
-            lines.append(line)
-        else:
+            continue
+
+        opening = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if opening and not (
+            opening.group(1).startswith("`") and "`" in opening.group(2)
+        ):
+            token = opening.group(1)
+            fence = (token[0], len(token))
             lines.append("")
+        else:
+            lines.append(line)
     return "\n".join(lines)
 
 
@@ -103,26 +107,74 @@ def _claim_text(document: str) -> str:
     return re.sub(r"\s+", " ", value).strip().lower()
 
 
+def _relation_is_negated(text: str, verb_start: int, verb_end: int) -> bool:
+    """Return whether negation is grammatically local to a relation verb."""
+
+    before = text[max(0, verb_start - 32):verb_start]
+    after = text[verb_end:verb_end + 24]
+    negated_auxiliary = re.search(
+        r"\b(?:(?:do|does|did|can|will|would|should|could)\s+not|"
+        r"doesn't|don't|didn't|can't|won't|wouldn't|shouldn't|couldn't|without)\s+$",
+        before,
+    )
+    negated_complement = re.match(r"\s+(?:not|never|no)\b", after)
+    return bool(negated_auxiliary or negated_complement)
+
+
+def _positive_relation(
+    sentence: str,
+    *,
+    subject: re.Pattern[str],
+    verbs: re.Pattern[str],
+    object_: re.Pattern[str],
+    span: int,
+) -> bool:
+    for subject_match in subject.finditer(sentence):
+        end = min(len(sentence), subject_match.end() + span)
+        for verb_match in verbs.finditer(sentence, subject_match.end(), end):
+            object_match = object_.search(sentence, verb_match.end(), end)
+            if object_match and not _relation_is_negated(
+                sentence, verb_match.start(), verb_match.end()
+            ):
+                return True
+    return False
+
+
 def _has_prohibited_claim(document: str) -> bool:
     claim_text = _claim_text(document).replace("optimizer.pt", "optimizer_pt")
     for sentence in re.split(r"[.!?]+", claim_text):
         sentence = sentence.replace("optimizer_pt", "optimizer.pt")
-        if _NEGATION.search(sentence):
-            continue
-        if "lowest loss" in sentence and "best" in sentence:
+        if _positive_relation(
+            sentence,
+            subject=re.compile(r"\blowest loss\b"),
+            verbs=re.compile(
+                r"\b(?:is|are|gives?|yields?|selects?|identifies?|means?|"
+                r"indicates?|marks?|produces?|guarantees?)\b"
+            ),
+            object_=re.compile(r"\bbest\b"),
+            span=120,
+        ):
             return True
-        if ("independent" in sentence and "queue key" in sentence
-                and "distributed training" in sentence):
+        if _positive_relation(
+            sentence,
+            subject=re.compile(r"\bindependent(?:\s+\w+){0,3}\s+queue keys?\b"),
+            verbs=re.compile(
+                r"\b(?:allows?|provides?|enables?|performs?|constitutes?|are|is|"
+                r"represents?|gives?|delivers?)\b"
+            ),
+            object_=re.compile(r"\bdistributed training\b"),
+            span=160,
+        ):
             return True
-        if ("optimizer.pt" in sentence and "lora weight" in sentence
-                and (re.search(
-                    r"\b(?:contain|contains|store|stores|hold|holds|include|includes|"
-                    r"carry|carries)\b",
-                    sentence,
-                ) or re.search(
-                    r"optimizer\.pt.{0,40}\b(?:is|are)\b.{0,40}lora weights?",
-                    sentence,
-                ))):
+        if _positive_relation(
+            sentence,
+            subject=re.compile(r"\boptimizer\.pt\b"),
+            verbs=re.compile(
+                r"\b(?:contains?|stores?|holds?|includes?|carr(?:y|ies)|is|are)\b"
+            ),
+            object_=re.compile(r"\blora weights?\b"),
+            span=180,
+        ):
             return True
     return False
 
@@ -205,7 +257,7 @@ def validate_narrative_page(
     for match in _REFERENCE_DEFINITION.finditer(visible):
         check_target(match.group(2))
     for match in _HTML_HREF.finditer(visible):
-        check_target(match.group(2))
+        check_target(next(group for group in match.groups() if group is not None))
     for match in _AUTOLINK.finditer(visible):
         check_target(match.group(1))
     if len(toc_links) != 1:

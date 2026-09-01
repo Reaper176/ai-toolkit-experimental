@@ -14539,6 +14539,8 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
             "[Unsafe][escape]\n\n[escape]: undeclared.md",
             '<a href="../../outside.md">Unsafe</a>',
             '<a href="undeclared.md">Unsafe</a>',
+            '<a href=../../outside.md>Unsafe</a>',
+            '<a HREF=undeclared.md>Unsafe</a>',
             "<../../outside.md>",
             "<undeclared.md>",
         )
@@ -14560,6 +14562,9 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
             "optimizer.pt contains the LoRA weights.",
             "`optimizer.pt` contains the LoRA weights.",
             "optimizer.pt holds the LoRA weights.",
+            "The lowest loss is the best checkpoint, not the latest checkpoint.",
+            "Independent queue keys do not wait; they provide distributed training.",
+            "optimizer.pt does not contain logs; it contains LoRA weights.",
         )
         from scripts.training_book.markdown import MarkdownContractError
 
@@ -14571,10 +14576,24 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
             "The lowest loss checkpoint is not necessarily the best checkpoint.",
             "Separate queue keys run independent jobs, not distributed training.",
             "optimizer.pt does not contain LoRA weights.",
+            "Compare the lowest loss checkpoint with the best checkpoint selected by fixed samples.",
         )
         for correction in corrections:
             with self.subTest(correction=correction):
                 self.validate(self.page(f"## Correction\n\n{correction}"))
+
+    def test_narrative_contract_ignores_content_inside_longer_outer_fences(self):
+        fenced_example = (
+            "## Fenced example\n\n"
+            "````markdown\n"
+            "```markdown\n"
+            "# Not a real heading\n"
+            "[Unsafe](../../outside.md)\n"
+            "```\n"
+            "````"
+        )
+
+        self.validate(self.page(fenced_example))
 
     def test_staged_pages_validate_only_current_manifest_declared_markdown(self):
         from scripts.training_book.markdown import validate_staged_book_pages
