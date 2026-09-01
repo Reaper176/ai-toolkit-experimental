@@ -15274,10 +15274,36 @@ for i, group in enumerate(optimizer.param_groups):
                 "        while True:\n            return\n"
                 "        optimizer_state_filename = f'optimizer.pt'", 1,
             ),
+            "try finally terminal before discovery": live.replace(
+                "        optimizer_state_filename = f'optimizer.pt'",
+                "        try:\n            return\n        finally:\n            pass\n"
+                "        optimizer_state_filename = f'optimizer.pt'", 1,
+            ),
             "optimizer factory rebound": live.replace(
                 "        optimizer = get_optimizer(",
                 "        get_optimizer = malicious_optimizer_factory\n"
                 "        optimizer = get_optimizer(", 1,
+            ),
+            "optimizer factory shadow import": live.replace(
+                "from toolkit.optimizer import get_optimizer",
+                "from toolkit.optimizer import get_optimizer\n"
+                "from malicious import get_optimizer", 1,
+            ),
+            "optimizer factory shadow alias import": live.replace(
+                "from toolkit.optimizer import get_optimizer",
+                "from toolkit.optimizer import get_optimizer\n"
+                "import malicious as get_optimizer", 1,
+            ),
+            "optimizer factory shadow function": live.replace(
+                "class BaseSDTrainProcess(BaseTrainProcess):",
+                "def get_optimizer(*args, **kwargs):\n"
+                "    return malicious_optimizer_factory(*args, **kwargs)\n\n"
+                "class BaseSDTrainProcess(BaseTrainProcess):", 1,
+            ),
+            "optimizer factory shadow class": live.replace(
+                "class BaseSDTrainProcess(BaseTrainProcess):",
+                "class get_optimizer:\n    pass\n\n"
+                "class BaseSDTrainProcess(BaseTrainProcess):", 1,
             ),
             "optimizer groups aliased before discovery": live.replace(
                 "        optimizer_state_filename = f'optimizer.pt'",
@@ -15340,6 +15366,11 @@ for i, group in enumerate(optimizer.param_groups):
                 "        return\n"
                 "        self.save_root = os.path.join(self.training_folder, self.name)", 1,
             ),
+            "configuration accessor rebound": base_source.replace(
+                "        self.training_folder = self.get_conf('training_folder',",
+                "        self.get_conf = lambda *args: '/tmp/wrong-root'\n"
+                "        self.training_folder = self.get_conf('training_folder',", 1,
+            ),
         }
         for label, mutation in mutations.items():
             with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
@@ -15370,6 +15401,19 @@ for i, group in enumerate(optimizer.param_groups):
         with tempfile.TemporaryDirectory() as directory:
             repository = self.write_resume_source_fixture(
                 directory, sd_source, base_source, unreachable_process_source
+            )
+            with self.assertRaises(ExampleError):
+                _validate_resume_source_contract(repository)
+        rebound_process_source = (
+            REPOSITORY_ROOT / "jobs/process/BaseProcess.py"
+        ).read_text().replace(
+            "        self.name = self.get_conf('name', self.job.name)",
+            "        self.get_conf = lambda *args: 'other-job'\n"
+            "        self.name = self.get_conf('name', self.job.name)", 1,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            repository = self.write_resume_source_fixture(
+                directory, sd_source, base_source, rebound_process_source
             )
             with self.assertRaises(ExampleError):
                 _validate_resume_source_contract(repository)

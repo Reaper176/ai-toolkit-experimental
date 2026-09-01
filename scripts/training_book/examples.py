@@ -1015,7 +1015,7 @@ def _exact_get_optimizer_import(tree: ast.Module) -> bool:
         for alias in statement.names
         if alias.name == "get_optimizer" and alias.asname is None
     ]
-    return len(imports) == 1 and _name_store_count(tree, "get_optimizer") == 0
+    return len(imports) == 1 and _bound_name_count(tree, "get_optimizer") == 1
 
 
 def _state_filename_assignment(statement: ast.stmt) -> bool:
@@ -1086,6 +1086,12 @@ def _block_definitely_terminates(statements: list[ast.stmt]) -> bool:
                     return True
             elif _block_definitely_terminates(statement.orelse):
                 return True
+        if isinstance(statement, (ast.Try, ast.TryStar)):
+            if _block_definitely_terminates(statement.finalbody):
+                return True
+            if (not statement.handlers
+                    and _block_definitely_terminates(statement.body)):
+                return True
     return False
 
 
@@ -1104,6 +1110,24 @@ def _name_store_count(node: ast.AST, name: str) -> int:
         and isinstance(child.ctx, (ast.Store, ast.Del))
         for child in ast.walk(node)
     )
+
+
+def _bound_name_count(node: ast.AST, name: str) -> int:
+    """Count every syntax form that can bind *name* in inspected source."""
+    count = _name_store_count(node, name)
+    for child in ast.walk(node):
+        if isinstance(child, ast.alias):
+            bound = child.asname or child.name.split(".", 1)[0]
+            count += bound == name
+        elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            count += child.name == name
+        elif isinstance(child, ast.arg):
+            count += child.arg == name
+        elif isinstance(child, ast.ExceptHandler):
+            count += child.name == name
+        elif isinstance(child, (ast.MatchAs, ast.MatchStar)):
+            count += child.name == name
+    return count
 
 
 def _self_attribute_store_count(node: ast.AST, attribute: str) -> int:
@@ -1205,7 +1229,8 @@ def _validate_save_root_source_contract(repository_root: Path) -> None:
                           ]
                       ))
     if (len(process_classes) != 1 or not name_reachable
-            or _self_attribute_store_count(process_classes[0], "name") != 1):
+            or _self_attribute_store_count(process_classes[0], "name") != 1
+            or _self_attribute_store_count(process_classes[0], "get_conf") != 0):
         raise ExampleError("process name is no longer derived from configured job identity")
 
     path = repository_root / "jobs/process/BaseTrainProcess.py"
@@ -1235,7 +1260,8 @@ def _validate_save_root_source_contract(repository_root: Path) -> None:
     )
     if (not valid or _self_attribute_store_count(classes[0], "training_folder") != 1
             or _self_attribute_store_count(classes[0], "save_root") != 1
-            or _self_attribute_store_count(classes[0], "name") != 0):
+            or _self_attribute_store_count(classes[0], "name") != 0
+            or _self_attribute_store_count(classes[0], "get_conf") != 0):
         raise ExampleError("training save root is no longer derived from output/name identity")
 
 
