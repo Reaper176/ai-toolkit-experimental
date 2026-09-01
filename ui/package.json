@@ -13,7 +13,7 @@
     "test:dinov3-tagger-captioner": "node testing/runDinov3TaggerTests.mjs",
     "test:training-presets": "node testing/runTrainingPresetTests.mjs",
     "validate:training-presets": "node testing/runTrainingPresetTests.mjs --catalog-only",
-    "test:training-book": "node testing/runTrainingBookTests.mjs",
+    "test:training-book": "node testing/runTrainingBookTests.mjs --require-smoke",
     "test:dataset-presets": "node testing/runDatasetPresetTests.mjs",
     "lint": "next lint",
     "update_db": "npx prisma generate && npx prisma db push",

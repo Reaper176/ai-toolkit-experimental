@@ -17309,6 +17309,41 @@ class BookArtifactTests(unittest.TestCase):
         self.assertNotIn("existsSync(presetCatalogRunner)", runner)
         self.assertIn("assertSafe(outputDirectory)", runner)
 
+    def test_package_runner_is_the_complete_smoke_required_release_gate(self):
+        runner = (
+            REPOSITORY_ROOT / "ui/testing/runTrainingBookTests.mjs"
+        ).read_text(encoding="utf-8")
+        package = json.loads(
+            (REPOSITORY_ROOT / "ui/package.json").read_text(encoding="utf-8")
+        )
+
+        # Task 14's temporary default is the behavior this release-gate test removes.
+        self.assertIn("['--skip-smoke']", runner)
+        self.assertEqual(
+            package["scripts"]["test:training-book"],
+            "node testing/runTrainingBookTests.mjs --require-smoke",
+        )
+        for command in (
+            "run('python', [testFile]",
+            "run(process.execPath, [artifact]",
+            "run('python', [referenceGenerator, '--check']",
+            "run('python', [navigationGenerator, '--check']",
+            "[presetCatalogRunner, '--emit-book-facts', presetFactsPath]",
+            "[validator, '--check-discovery', '--ui-facts', factsPath, "
+            "...smokeArgs, ...presetArgs]",
+        ):
+            with self.subTest(command=command):
+                self.assertIn(command, runner)
+        self.assertIn(
+            "const smokeArgs = args[0] === '--require-smoke' ? [] : "
+            "['--skip-smoke'];",
+            runner,
+        )
+        self.assertIn("const presetArgs = ['--preset-facts', presetFactsPath]", runner)
+        self.assertIn("readdirSync(testingDirectory)", runner)
+        self.assertIn("trainingBook*.test.tsx?", runner)
+        self.assertIn("Required compiled test artifact is missing", runner)
+
     def test_runner_rejects_unknown_duplicate_and_incompatible_smoke_flags(self):
         runner = REPOSITORY_ROOT / "ui/testing/runTrainingBookTests.mjs"
         for arguments in (
