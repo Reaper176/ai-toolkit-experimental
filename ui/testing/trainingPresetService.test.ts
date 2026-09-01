@@ -149,18 +149,20 @@ async function main(): Promise<void> {
   assert.equal(MAX_PRESET_REQUEST_BYTES, 1024 * 1024);
 
   const emptyStore = new FakeStore();
-  assert.deepEqual(await createTrainingPresetService(emptyStore).list(), []);
+  const defaultCatalog = await createTrainingPresetService(emptyStore).list();
+  assert.equal(defaultCatalog.length, 14);
+  assert.deepEqual(defaultCatalog.map(preset => preset.id), getBuiltInTrainingPresetCatalog(() => undefined).map(preset => preset.id));
 
   const unorderedStore = new FakeStore([row('z', 'beta'), row('c', 'Alpha'), row('b', 'alpha'), row('a', 'ALPHA')]);
   const listed = await createTrainingPresetService(unorderedStore).list();
   assert.deepEqual(
-    listed.map(preset => `${preset.name}:${preset.id}`),
+    listed.slice(14).map(preset => `${preset.name}:${preset.id}`),
     ['ALPHA:a', 'Alpha:c', 'alpha:b', 'beta:z'],
   );
-  assert.equal(listed[0].created_at, '2025-01-01T00:00:00.000Z');
-  assert.equal(listed[0].updated_at, '2025-01-02T00:00:00.000Z');
-  assert.equal(listed[0].source, 'user');
-  assert.equal(listed[0].read_only, false);
+  assert.equal(listed[14].created_at, '2025-01-01T00:00:00.000Z');
+  assert.equal(listed[14].updated_at, '2025-01-02T00:00:00.000Z');
+  assert.equal(listed[14].source, 'user');
+  assert.equal(listed[14].read_only, false);
 
   const originalLocaleCompare = String.prototype.localeCompare;
   let localeCompareCalls = 0;
@@ -312,7 +314,8 @@ async function main(): Promise<void> {
   const defaultOnlyUsers = await createTrainingPresetService(new FakeStore([row('default-user', 'Default')])).list();
   assert.deepEqual(
     defaultOnlyUsers.map(preset => preset.id),
-    ['default-user'],
+    [...getBuiltInTrainingPresetCatalog(() => undefined).map(preset => preset.id), 'default-user'],
+    'the production default returns the validated built-in release before sorted user presets',
   );
 
   const createStore = new FakeStore();
@@ -351,7 +354,7 @@ async function main(): Promise<void> {
   (isolated.snapshot.config.process[0] as any).model.name_or_path = 'mutated/output';
   assert.equal(JSON.parse(isolatedStore.rows[0].preset_config).config.process[0].model.name_or_path, 'isolated/model');
   (isolated as any).source = 'builtin';
-  assert.equal((await createTrainingPresetService(isolatedStore).list())[0].source, 'user');
+  assert.equal((await createTrainingPresetService(isolatedStore).list()).at(-1)?.source, 'user');
 
   const updateStore = new FakeStore([row('keep', 'Keep Name', 'old/model')]);
   const updated = await createTrainingPresetService(updateStore).update('keep', jobFixture('new/model'));
@@ -588,9 +591,9 @@ async function main(): Promise<void> {
   const listIsolationStore = new FakeStore([row('reference', 'Reference', 'reference/model')]);
   const isolationService = createTrainingPresetService(listIsolationStore);
   const firstList = await isolationService.list();
-  (firstList[0].snapshot.config.process[0] as any).model.name_or_path = 'mutated';
+  (firstList.at(-1)!.snapshot.config.process[0] as any).model.name_or_path = 'mutated';
   const secondList = await isolationService.list();
-  assert.equal((secondList[0].snapshot.config.process[0] as any).model.name_or_path, 'reference/model');
+  assert.equal((secondList.at(-1)!.snapshot.config.process[0] as any).model.name_or_path, 'reference/model');
 
   console.log('Training preset service tests passed');
 }

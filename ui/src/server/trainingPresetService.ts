@@ -13,9 +13,10 @@ import {
 } from '../helpers/trainingPresets';
 import { copyBuiltInPreset } from '../helpers/builtInTrainingPresets';
 import { trainingPresetCatalogIdLogDigest } from './trainingPresetCatalogDigest';
-import type {
-  TrainingPresetCatalogEntryEvent,
-  TrainingPresetCatalogProviderEvent,
+import {
+  getBuiltInTrainingPresetCatalog,
+  type TrainingPresetCatalogEntryEvent,
+  type TrainingPresetCatalogProviderEvent,
 } from './trainingPresetCatalogRuntime';
 
 export const MAX_PRESET_REQUEST_BYTES = 1024 * 1024;
@@ -317,7 +318,7 @@ export interface TrainingPresetServiceDependencies {
 }
 
 const defaultTrainingPresetServiceDependencies: TrainingPresetServiceDependencies = {
-  listBuiltIns: _logger => [],
+  listBuiltIns: getBuiltInTrainingPresetCatalog,
   logCatalogEvent: () => undefined,
   logCatalogProviderFailure: () => undefined,
   logCorruptUserPreset: () => undefined,

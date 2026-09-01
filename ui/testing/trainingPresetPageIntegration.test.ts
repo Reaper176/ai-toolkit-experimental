@@ -14,6 +14,19 @@ const advancedSourceFile = ts.createSourceFile(
   ts.ScriptKind.TSX,
 );
 const runnerSource = readFileSync(resolve(process.cwd(), 'testing/runTrainingPresetTests.mjs'), 'utf8');
+const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')) as {
+  scripts: Record<string, string>;
+};
+assert.equal(
+  packageJson.scripts['validate:training-presets'],
+  'node testing/runTrainingPresetTests.mjs --catalog-only',
+  'the release catalog validation command must be stable',
+);
+assert.equal(
+  packageJson.scripts.build,
+  'npm run validate:training-presets && tsc -p tsconfig.worker.json && next build',
+  'build must validate the built-in release before either compiler/build phase',
+);
 assert.doesNotMatch(runnerSource, /optionalTestFiles/, 'every committed preset test artifact must be mandatory');
 assert.doesNotMatch(
   runnerSource,
@@ -25,6 +38,36 @@ for (const sourceTest of readdirSync(resolve(process.cwd(), 'testing')).filter(f
 )) {
   const compiledTest = sourceTest.replace(/\.tsx?$/, '.js');
   assert.match(runnerSource, new RegExp(`['"]${compiledTest}['"]`), `${compiledTest} must be required by the runner`);
+}
+for (const requiredCatalogArtifact of [
+  'trainingPresetCatalog.test.js',
+  'trainingPresetCatalogRuntime.test.js',
+  'trainingPresetCatalogBuildValidation.test.js',
+]) {
+  assert.match(runnerSource, new RegExp(`['"]${requiredCatalogArtifact}['"]`), `${requiredCatalogArtifact} must be catalog-gated`);
+}
+assert.match(runnerSource, /--catalog-only/, 'runner must expose the build-safe catalog-only mode');
+assert.match(runnerSource, /trainingPresetBackendMapping\.test\.py/, 'catalog validation must run the Python mapping checks');
+assert.match(runnerSource, /trainingPresetCatalogBuildValidationCli\.js[\s\S]*--check/, 'catalog validation must run the strict release check');
+assert.match(runnerSource, /generate_training_book_reference\.py[\s\S]*--check/, 'catalog validation must check generated book references');
+const catalogTestFilesSource = /const catalogTestFiles = \[([\s\S]*?)\];/.exec(runnerSource)?.[1];
+const lifecycleTestFilesSource = /const lifecycleTestFiles = \[([\s\S]*?)\];/.exec(runnerSource)?.[1];
+assert.ok(catalogTestFilesSource, 'runner must declare its catalog-only artifacts explicitly');
+assert.ok(lifecycleTestFilesSource, 'runner must declare its normal-mode lifecycle artifacts explicitly');
+for (const normalOnlyArtifact of [
+  'trainingPresets.test.js',
+  'trainingPresetApplicationIntegration.test.js',
+]) {
+  assert.doesNotMatch(
+    catalogTestFilesSource,
+    new RegExp(normalOnlyArtifact.replaceAll('.', '\\.')),
+    `catalog-only validation must not compile or execute ${normalOnlyArtifact}`,
+  );
+  assert.match(
+    lifecycleTestFilesSource,
+    new RegExp(normalOnlyArtifact.replaceAll('.', '\\.')),
+    `normal validation must retain ${normalOnlyArtifact}`,
+  );
 }
 
 function visitDescendants(node: ts.Node, predicate: (candidate: ts.Node) => boolean): ts.Node[] {

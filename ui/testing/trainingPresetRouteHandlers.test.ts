@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import type { JobConfig } from '../src/types';
 import type { UserTrainingPresetRecord } from '../src/helpers/trainingPresets';
-import { getBuiltInTrainingPresetCatalog } from '../src/server/trainingPresetCatalogRuntime';
+import { migrateJobConfig } from '../src/app/jobs/new/jobConfig';
+import {
+  preparePresetApplication,
+  validateTrainingPresetListResponse,
+} from '../src/components/TrainingPresetSelect';
 import {
   MAX_PRESET_REQUEST_BYTES,
   TrainingPresetPayloadTooLargeError,
@@ -186,12 +190,13 @@ async function main(): Promise<void> {
   const routeStore = new RecordingStore();
   await createTrainingPresetService(routeStore).create('Route User', jobFixture());
   const injectedGet = createTrainingPresetCollectionHandlers(
-    createTrainingPresetService(routeStore, { listBuiltIns: getBuiltInTrainingPresetCatalog }),
+    createTrainingPresetService(routeStore),
     () => undefined,
   );
   const getResponse = await injectedGet.GET();
   assert.equal(getResponse.status, 200);
-  const getPresets = ((await getResponse.json()) as { presets: Array<{ source: string; read_only: boolean }> }).presets;
+  const getBody = await getResponse.json();
+  const getPresets = (getBody as { presets: Array<{ source: string; read_only: boolean }> }).presets;
   assert.equal(getPresets.length, 15);
   assert.deepEqual(
     getPresets.slice(0, 14).map(preset => [preset.source, preset.read_only]),
@@ -200,6 +205,16 @@ async function main(): Promise<void> {
   assert.deepEqual(
     getPresets.slice(14).map(preset => [preset.source, preset.read_only]),
     [['user', false]],
+  );
+  const acceptedGetPresets = validateTrainingPresetListResponse(getBody);
+  assert.equal(acceptedGetPresets.length, 15, 'the client accepts every production GET record');
+  const fluxPreset = acceptedGetPresets.find(preset => preset.id === 'builtin:flux:character-general-concept@1');
+  assert(fluxPreset);
+  const appliedGetPreset = preparePresetApplication(jobFixture(), fluxPreset, migrateJobConfig);
+  assert.equal(
+    appliedGetPreset.jobConfig.config.process[0].model.name_or_path,
+    'black-forest-labs/FLUX.1-dev',
+    'the production GET record traverses the source-aware built-in application path',
   );
 
   const chunk = new Uint8Array(256 * 1024);
