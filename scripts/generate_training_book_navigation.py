@@ -4,25 +4,83 @@
 from __future__ import annotations
 
 import argparse
+import os
+import stat
 import sys
+import tempfile
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from training_book.manifest import load_book_manifest
-from training_book.markdown import replace_book_blocks, render_book_navigation
+from scripts.training_book.manifest import (
+    BookPage,
+    load_book_manifest,
+    validate_book_manifest,
+)
+from scripts.training_book.markdown import replace_book_blocks, render_book_navigation
+
+
+_DEFERRED_SMOKE_PAGE = "verification/first-run-smoke.md"
+
+
+def _safe_page_path(book_root: Path, page: str) -> Path:
+    candidate = book_root / page
+    resolved = candidate.resolve(strict=False)
+    try:
+        resolved.relative_to(book_root)
+    except ValueError as error:
+        raise ValueError(f"training-book page escapes resolved book root: {page!r}") from error
+    return candidate
+
+
+def _atomic_write(path: Path, document: str) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, stat.S_IMODE(path.stat().st_mode))
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            descriptor = -1
+            output.write(document)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def generate_navigation(repository_root: Path, *, check: bool) -> None:
-    book_root = repository_root / "docs/book"
+    book_root = (repository_root / "docs/book").resolve(strict=True)
     manifest = load_book_manifest(book_root / "book-manifest.json")
-    stale: list[str] = []
+    validate_book_manifest(
+        manifest, expected_full_architectures=manifest.full_architectures
+    )
+
+    page_paths: list[tuple[BookPage, Path]] = []
+    missing: list[str] = []
     for page in manifest.pages:
-        path = book_root / page.path
+        path = _safe_page_path(book_root, page.path)
         if not path.exists():
+            if page.path != _DEFERRED_SMOKE_PAGE:
+                missing.append(page.path)
             continue
+        if not path.is_file():
+            raise ValueError(f"training-book page is not a file: {page.path!r}")
+        page_paths.append((page, path))
+    if missing:
+        raise FileNotFoundError(
+            f"missing manifest training-book page(s): {', '.join(missing)}"
+        )
+
+    stale: list[str] = []
+    rendered_pages: list[tuple[Path, str]] = []
+    for page, path in page_paths:
         document = path.read_text(encoding="utf-8")
         rendered = replace_book_blocks(
             document,
@@ -34,9 +92,11 @@ def generate_navigation(repository_root: Path, *, check: bool) -> None:
         if check:
             stale.append(page.path)
         else:
-            path.write_text(rendered, encoding="utf-8")
+            rendered_pages.append((path, rendered))
     if stale:
         raise SystemExit(f"stale generated book navigation: {', '.join(stale)}")
+    for path, rendered in rendered_pages:
+        _atomic_write(path, rendered)
 
 
 def main() -> None:

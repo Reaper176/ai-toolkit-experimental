@@ -16983,6 +16983,46 @@ class BookArtifactTests(unittest.TestCase):
 
 
 class NavigationGenerationContractTests(unittest.TestCase):
+    FOOTER = "Verified against ai-toolkit-experimental book revision 1 (2026-08-14)."
+
+    def write_generator_manifest(self, root, paths):
+        book_root = root / "docs/book"
+        book_root.mkdir(parents=True, exist_ok=True)
+        pages = [
+            {
+                "path": path,
+                "previous": paths[index - 1] if index else None,
+                "next": paths[index + 1] if index + 1 < len(paths) else None,
+            }
+            for index, path in enumerate(paths)
+        ]
+        (book_root / "book-manifest.json").write_text(
+            json.dumps({
+                "schema_version": 1,
+                "book_revision": 1,
+                "verified_date": "2026-08-14",
+                "pages": pages,
+                "preset_architectures": ["fixture"],
+                "focused_architectures": ["fixture"],
+                "full_architectures": ["fixture"],
+                "required_footer": self.FOOTER,
+            }),
+            encoding="utf-8",
+        )
+        return book_root
+
+    def generator_page(self, title="Fixture", *, valid=True):
+        verification_end = (
+            "<!-- book-verification:end -->\n" if valid else ""
+        )
+        return (
+            f"# {title}\n\nHand-written prose.\n\n"
+            "<!-- book-navigation:start -->\nstale navigation\n"
+            "<!-- book-navigation:end -->\n\n"
+            "<!-- book-verification:start -->\nstale footer\n"
+            f"{verification_end}"
+        )
+
     def test_marker_replacement_changes_only_owned_blocks(self):
         from scripts.training_book.markdown import replace_book_blocks
 
@@ -17085,6 +17125,96 @@ class NavigationGenerationContractTests(unittest.TestCase):
             )
 
             validate_book_pages(root, manifest, skip_smoke=True)
+
+    def test_generator_rejects_absolute_and_traversal_paths_without_outside_mutation(self):
+        from scripts.generate_training_book_navigation import generate_navigation
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "repository"
+            outside = Path(directory) / "outside.md"
+            outside.write_text(self.generator_page("Outside"), encoding="utf-8")
+            before = outside.read_bytes()
+            for unsafe_path in (str(outside), "../../outside.md"):
+                with self.subTest(path=unsafe_path):
+                    self.write_generator_manifest(root, [unsafe_path])
+                    with self.assertRaisesRegex(ValueError, "path"):
+                        generate_navigation(root, check=False)
+                    self.assertEqual(outside.read_bytes(), before)
+
+    def test_generator_rejects_symlink_escape_without_outside_mutation(self):
+        from scripts.generate_training_book_navigation import generate_navigation
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "repository"
+            book_root = self.write_generator_manifest(root, ["README.md"])
+            outside = Path(directory) / "outside.md"
+            outside.write_text(self.generator_page("Outside"), encoding="utf-8")
+            before = outside.read_bytes()
+            (book_root / "README.md").symlink_to(outside)
+
+            with self.assertRaisesRegex(ValueError, "escapes"):
+                generate_navigation(root, check=False)
+
+            self.assertEqual(outside.read_bytes(), before)
+
+    def test_generator_validates_every_page_before_changing_any_page(self):
+        from scripts.generate_training_book_navigation import generate_navigation
+        from scripts.training_book.markdown import MarkdownGenerationError
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            book_root = self.write_generator_manifest(
+                root, ["README.md", "guide.md"]
+            )
+            first = book_root / "README.md"
+            second = book_root / "guide.md"
+            first.write_text(self.generator_page("First"), encoding="utf-8")
+            second.write_text(
+                self.generator_page("Malformed", valid=False), encoding="utf-8"
+            )
+            before = first.read_bytes()
+
+            with self.assertRaises(MarkdownGenerationError):
+                generate_navigation(root, check=False)
+
+            self.assertEqual(first.read_bytes(), before)
+
+    def test_generator_check_rejects_missing_non_smoke_page(self):
+        from scripts.generate_training_book_navigation import generate_navigation
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            book_root = self.write_generator_manifest(
+                root, ["README.md", "guide.md", "verification/first-run-smoke.md"]
+            )
+            (book_root / "README.md").write_text(
+                self.generator_page("Landing"), encoding="utf-8"
+            )
+
+            with self.assertRaisesRegex(FileNotFoundError, "guide[.]md"):
+                generate_navigation(root, check=True)
+
+    def test_generator_atomic_write_failure_preserves_page_and_cleans_temp_file(self):
+        from scripts.generate_training_book_navigation import generate_navigation
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            book_root = self.write_generator_manifest(root, ["README.md"])
+            page = book_root / "README.md"
+            page.write_text(self.generator_page("Landing"), encoding="utf-8")
+            before = page.read_bytes()
+
+            with mock.patch(
+                "scripts.generate_training_book_navigation.os.replace",
+                side_effect=OSError("fixture replace failure"),
+            ), self.assertRaisesRegex(OSError, "fixture replace failure"):
+                generate_navigation(root, check=False)
+
+            self.assertEqual(page.read_bytes(), before)
+            self.assertEqual(
+                sorted(path.name for path in book_root.iterdir()),
+                ["README.md", "book-manifest.json"],
+            )
 
 
 class TrainingBookExamplesContractTests(unittest.TestCase):
