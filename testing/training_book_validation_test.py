@@ -15857,6 +15857,59 @@ class AdvancedNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), page.lower())
 
+    def test_advanced_page_advanced_performance_covers_caches_and_tradeoffs(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/advanced/performance-and-caching.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Measure the whole pipeline",
+            "## Separate latent and text caches",
+            "## Invalidate latent caches deliberately",
+            "## Invalidate text caches deliberately",
+            "## Trade memory for recomputation and transfers",
+            "## Treat quantization and compilation as compatibility choices",
+            "## Benchmark one variable at a time",
+            "## Further reading",
+        ):
+            self.assertEqual(page.count(heading), 1, heading)
+        for phrase in (
+            "peak vram",
+            "host ram",
+            "disk",
+            "throughput",
+            "cache_latents",
+            "cache_latents_to_disk",
+            "_latent_cache",
+            "source content identity",
+            "in place",
+            "augmentations",
+            "cache_text_embeddings",
+            "_t_e_cache",
+            "effective caption",
+            "control",
+            "first-frame",
+            "train_text_encoder",
+            "independent",
+            "gradient_checkpointing",
+            "recomputes",
+            "layer_offloading",
+            "transfer",
+            "low_vram",
+            "quantization",
+            "compile",
+            "experimental",
+            "batch_size",
+            "gradient_accumulation",
+            "fixed seed",
+            "../reference/dataset.md",
+            "../reference/training.md",
+            "../reference/job-and-model.md",
+            "../recipes/low-vram.md",
+            "../workflow/sampling-and-evaluation.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
