@@ -14747,6 +14747,35 @@ class WorkflowNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), page.lower())
 
+    def test_workflow_page_queue_gpus_states_exact_queue_boundaries(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/workflow/queue-and-multiple-gpus.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Queue identity is the exact gpu_ids key",
+            "## One queue runs one job process at a time",
+            "## Start, stop, and return jobs deliberately",
+            "## Use multiple GPUs for independent jobs",
+            "## Recover from a hung or stale job",
+            "## Know the concurrency limits",
+        ):
+            self.assertIn(heading, page)
+        for phrase in (
+            "gpu_ids",
+            '"0"',
+            '"0,1"',
+            '"1,0"',
+            "return to queue",
+            "queued",
+            "running",
+            "stopped",
+            "distributed multi-GPU training",
+            "global exclusion",
+            "independent single-process jobs",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
