@@ -17095,15 +17095,25 @@ class BookArtifactTests(unittest.TestCase):
 
     def test_repository_markdown_tree_exactly_matches_manifest_with_skip_smoke(self):
         manifest = load_book_manifest(REPOSITORY_ROOT / "docs/book/book-manifest.json")
+        smoke_path = REPOSITORY_ROOT / "docs/book/verification/first-run-smoke.md"
         actual = {
             path.relative_to(REPOSITORY_ROOT / "docs/book").as_posix()
             for path in (REPOSITORY_ROOT / "docs/book").rglob("*.md")
         }
         expected = set(BOOK_PAGES)
-        expected.remove("verification/first-run-smoke.md")
+        if not smoke_path.exists():
+            expected.remove("verification/first-run-smoke.md")
 
         self.assertEqual(actual, expected)
         self.assertEqual(tuple(page.path for page in manifest.pages), BOOK_PAGES)
+
+    def test_existing_repository_smoke_record_matches_the_current_edition(self):
+        record = REPOSITORY_ROOT / "docs/book/verification/first-run-smoke.md"
+        if not record.exists():
+            self.skipTest("supported-GPU smoke has not been recorded yet")
+        manifest = load_book_manifest(REPOSITORY_ROOT / "docs/book/book-manifest.json")
+
+        validate_smoke_record(REPOSITORY_ROOT, manifest)
 
     def test_every_existing_page_has_generated_navigation_footer_and_valid_links(self):
         from scripts.training_book.markdown import validate_book_pages
@@ -17361,6 +17371,8 @@ class NavigationGenerationContractTests(unittest.TestCase):
                 replace_book_blocks(document, navigation="nav", verification="footer")
 
     def test_validator_requires_explicit_skip_for_missing_smoke_page(self):
+        if (REPOSITORY_ROOT / "docs/book/verification/first-run-smoke.md").exists():
+            self.skipTest("canonical repository now contains the observed smoke record")
         with tempfile.TemporaryDirectory() as directory:
             facts_path = Path(directory) / "preset-facts.json"
             facts_path.write_text(
