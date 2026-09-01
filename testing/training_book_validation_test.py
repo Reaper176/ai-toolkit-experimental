@@ -15702,6 +15702,46 @@ class ModelNarrativePageTests(unittest.TestCase):
             self.assertIn(phrase.lower(), page.lower())
         self.assertEqual(payload["deferred_settings"], [])
 
+    def test_model_pages_page_model_wan_covers_video_and_multistage_training(self):
+        page, payload = self.assert_model_page_contract(
+            "models/wan.md", ("wan21:1b", "wan22_14b:t2v")
+        )
+        for phrase in (
+            "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
+            "ai-toolkit/Wan2.2-T2V-A14B-Diffusers-bf16",
+            "41",
+            "16 FPS",
+            "T2V",
+            "I2V",
+            "train_high_noise",
+            "train_low_noise",
+            "at least one",
+            "switch_boundary_every",
+            "vae_tiling",
+            "sampling cost",
+            "resource uncertainty",
+            "no GPU",
+            "fixed seed",
+            "wan21_i2v:14b480p",
+            "wan21_i2v:14b",
+            "wan21:14b",
+            "wan22_14b_i2v",
+            "wan22_5b",
+            "../datasets/controls-video-audio.md",
+            "../recipes/diagnostic-run.md",
+            "../recipes/low-vram.md",
+            "../workflow/sampling-and-evaluation.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+        self.assertEqual(
+            tuple(item["id"] for item in payload["deferred_settings"]),
+            (
+                "model.wan.model_kwargs.vae_tiling",
+                "model.wan22_14b.model_kwargs.train_high_noise",
+                "model.wan22_14b.model_kwargs.train_low_noise",
+            ),
+        )
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
