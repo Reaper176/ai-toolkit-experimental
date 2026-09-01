@@ -1147,6 +1147,66 @@ def _self_attribute_store_count(node: ast.AST, attribute: str) -> int:
     )
 
 
+def _runtime_self_attribute_store_count(node: ast.AST, attribute: str) -> int:
+    annotation_only = {
+        id(child.target) for child in ast.walk(node)
+        if isinstance(child, ast.AnnAssign) and child.value is None
+    }
+    return sum(
+        isinstance(child, ast.Attribute) and child.attr == attribute
+        and isinstance(child.value, ast.Name) and child.value.id == "self"
+        and isinstance(child.ctx, (ast.Store, ast.Del))
+        and id(child) not in annotation_only
+        for child in ast.walk(node)
+    )
+
+
+def _exact_positional_signature(method: ast.FunctionDef, names: tuple[str, ...]) -> bool:
+    arguments = method.args
+    return (
+        not method.decorator_list and not arguments.posonlyargs
+        and not arguments.kwonlyargs and arguments.vararg is None
+        and arguments.kwarg is None and not arguments.defaults
+        and not arguments.kw_defaults
+        and tuple(argument.arg for argument in arguments.args) == names
+    )
+
+
+def _body_has_prefix(method: ast.FunctionDef, expected: list[ast.stmt]) -> bool:
+    if len(method.body) < len(expected):
+        return False
+    return all(
+        ast.dump(actual, include_attributes=False)
+        == ast.dump(wanted, include_attributes=False)
+        for actual, wanted in zip(method.body, expected)
+    )
+
+
+_EXPECTED_BASE_PROCESS_INIT_PREFIX = ast.parse(
+    '''def __init__(self, process_id, job, config):
+    self.process_id = process_id
+    self.meta: OrderedDict
+    self.job = job
+    self.config = config
+    self.raw_process_config = config
+    self.name = self.get_conf('name', self.job.name)
+'''
+).body[0].body
+
+
+_EXPECTED_BASE_JOB_INIT_PREFIX = ast.parse(
+    '''def __init__(self, config):
+    if not config:
+        raise ValueError('config is required')
+    self.process: List[BaseProcess]
+    self.config = config['config']
+    self.raw_config = config
+    self.job = config['job']
+    self.name = self.get_conf('name', required=True)
+'''
+).body[0].body
+
+
 _EXPECTED_GET_CONF = ast.parse(
     '''def get_conf(self, key, default=None, required=False, as_type=None):
     keys = key.split('.')
@@ -1171,6 +1231,18 @@ _EXPECTED_GET_CONF = ast.parse(
 ).body[0]
 
 
+_EXPECTED_BASE_JOB_GET_CONF = ast.parse(
+    '''def get_conf(self, key, default=None, required=False):
+    if key in self.config:
+        return self.config[key]
+    elif required:
+        raise ValueError(f'config file error. Missing "config.{key}" key')
+    else:
+        return default
+'''
+).body[0]
+
+
 def _exact_get_conf_method(node: ast.ClassDef) -> bool:
     methods = [
         child for child in node.body
@@ -1180,6 +1252,17 @@ def _exact_get_conf_method(node: ast.ClassDef) -> bool:
     return (len(methods) == 1 and isinstance(methods[0], ast.FunctionDef)
             and ast.dump(methods[0], include_attributes=False)
             == ast.dump(_EXPECTED_GET_CONF, include_attributes=False))
+
+
+def _exact_base_job_get_conf_method(node: ast.ClassDef) -> bool:
+    methods = [
+        child for child in node.body
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and child.name == "get_conf"
+    ]
+    return (len(methods) == 1 and isinstance(methods[0], ast.FunctionDef)
+            and ast.dump(methods[0], include_attributes=False)
+            == ast.dump(_EXPECTED_BASE_JOB_GET_CONF, include_attributes=False))
 
 
 def _captured_list_calls(node: ast.AST, captured: str) -> list[ast.Call]:
@@ -1240,7 +1323,50 @@ def _direct_lr_restore(guard: ast.If, captured: str) -> tuple[int, int] | None:
     return _lr_restore_candidate(loops[0], captured)
 
 
+def _validate_base_job_identity(repository_root: Path) -> None:
+    path = repository_root / "jobs/BaseJob.py"
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError) as error:
+        raise ExampleError(f"cannot inspect job-name source: {error}") from error
+    classes = [node for node in tree.body
+               if isinstance(node, ast.ClassDef) and node.name == "BaseJob"]
+    methods = ([node for node in classes[0].body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == "__init__"] if len(classes) == 1 else [])
+    valid = (
+        len(classes) == 1 and len(methods) == 1
+        and isinstance(methods[0], ast.FunctionDef)
+        and _exact_positional_signature(methods[0], ("self", "config"))
+        and _body_has_prefix(methods[0], _EXPECTED_BASE_JOB_INIT_PREFIX)
+        and _self_attribute_store_count(classes[0], "config") == 1
+        and _self_attribute_store_count(classes[0], "name") == 1
+        and _exact_base_job_get_conf_method(classes[0])
+    )
+    if not valid:
+        raise ExampleError("job name is no longer derived from configured job identity")
+
+
+def _base_process_super_init(statement: ast.stmt) -> bool:
+    if not isinstance(statement, ast.Expr) or not isinstance(statement.value, ast.Call):
+        return False
+    call = statement.value
+    if (call.keywords or len(call.args) != 3
+            or not isinstance(call.func, ast.Attribute)
+            or call.func.attr != "__init__"
+            or not isinstance(call.func.value, ast.Call)
+            or call.func.value.args or call.func.value.keywords
+            or not isinstance(call.func.value.func, ast.Name)
+            or call.func.value.func.id != "super"):
+        return False
+    return all(
+        isinstance(argument, ast.Name) and argument.id == name
+        for argument, name in zip(call.args, ("process_id", "job", "config"))
+    )
+
+
 def _validate_save_root_source_contract(repository_root: Path) -> None:
+    _validate_base_job_identity(repository_root)
     process_path = repository_root / "jobs/process/BaseProcess.py"
     try:
         process_tree = ast.parse(
@@ -1273,7 +1399,15 @@ def _validate_save_root_source_contract(repository_root: Path) -> None:
                     and value.args[0].value == "name"
                     and _self_attribute_chain(value.args[1], "job", "name")):
                 name_assignments.append(statement)
-    name_reachable = (len(process_methods) == 1 and len(job_assignments) == 1
+    process_method = process_methods[0] if len(process_methods) == 1 else None
+    name_reachable = (isinstance(process_method, ast.FunctionDef)
+                      and _exact_positional_signature(
+                          process_method, ("self", "process_id", "job", "config")
+                      )
+                      and _body_has_prefix(
+                          process_method, _EXPECTED_BASE_PROCESS_INIT_PREFIX
+                      )
+                      and len(job_assignments) == 1
                       and len(config_assignments) == 1 and len(name_assignments) == 1
                       and process_methods[0].body.index(job_assignments[0])
                       < process_methods[0].body.index(config_assignments[0])
@@ -1298,6 +1432,13 @@ def _validate_save_root_source_contract(repository_root: Path) -> None:
         raise ExampleError(f"cannot inspect training save-root source: {error}") from error
     classes = [node for node in tree.body
                if isinstance(node, ast.ClassDef) and node.name == "BaseTrainProcess"]
+    base_imports = [
+        alias for statement in tree.body
+        if isinstance(statement, ast.ImportFrom)
+        and statement.module == "jobs.process.BaseProcess" and statement.level == 0
+        for alias in statement.names
+        if alias.name == "BaseProcess" and alias.asname is None
+    ]
     methods = ([node for node in classes[0].body
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
                 and node.name == "__init__"] if len(classes) == 1 else [])
@@ -1308,18 +1449,37 @@ def _validate_save_root_source_contract(repository_root: Path) -> None:
                         if _training_folder_assignment(statement)]
     save_indices = [index for index, statement in enumerate(method.body)
                     if _save_root_assignment(statement)]
-    valid = any(
+    valid = (
+        isinstance(method, ast.FunctionDef)
+        and len(classes[0].bases) == 1
+        and isinstance(classes[0].bases[0], ast.Name)
+        and classes[0].bases[0].id == "BaseProcess"
+        and len(base_imports) == 1
+        and _bound_name_count(tree, "BaseProcess") == 1
+        and not any(
+            isinstance(statement, ast.ImportFrom)
+            and any(alias.name == "*" for alias in statement.names)
+            for statement in tree.body
+        )
+        and _exact_positional_signature(
+            method, ("self", "process_id", "job", "config")
+        )
+        and bool(method.body) and _base_process_super_init(method.body[0])
+        and any(
         training_index < save_index
         and not _block_definitely_terminates(method.body[:training_index])
         and not _block_definitely_terminates(
             method.body[training_index + 1:save_index]
         )
         for training_index in training_indices for save_index in save_indices
+        )
     )
     if (not valid or _self_attribute_store_count(classes[0], "training_folder") != 1
             or _self_attribute_store_count(classes[0], "save_root") != 1
             or _self_attribute_store_count(classes[0], "name") != 0
-            or _self_attribute_store_count(classes[0], "get_conf") != 0):
+            or _self_attribute_store_count(classes[0], "get_conf") != 0
+            or _runtime_self_attribute_store_count(classes[0], "job") != 0
+            or _runtime_self_attribute_store_count(classes[0], "config") != 0):
         raise ExampleError("training save root is no longer derived from output/name identity")
 
 

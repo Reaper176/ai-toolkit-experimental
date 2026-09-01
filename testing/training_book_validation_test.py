@@ -14944,12 +14944,14 @@ class TrainingBookExamplesContractTests(unittest.TestCase):
     )
 
     def write_resume_source_fixture(
-        self, directory, sd_source, base_source=None, process_source=None
+        self, directory, sd_source, base_source=None, process_source=None,
+        job_source=None,
     ):
         repository = Path(directory)
         sd_target = repository / "jobs/process/BaseSDTrainProcess.py"
         base_target = repository / "jobs/process/BaseTrainProcess.py"
         process_target = repository / "jobs/process/BaseProcess.py"
+        job_target = repository / "jobs/BaseJob.py"
         sd_target.parent.mkdir(parents=True)
         sd_target.write_text(sd_source)
         if base_source is None:
@@ -14962,6 +14964,9 @@ class TrainingBookExamplesContractTests(unittest.TestCase):
                 REPOSITORY_ROOT / "jobs/process/BaseProcess.py"
             ).read_text()
         process_target.write_text(process_source)
+        if job_source is None:
+            job_source = (REPOSITORY_ROOT / "jobs/BaseJob.py").read_text()
+        job_target.write_text(job_source)
         return repository
 
     def test_examples_manifest_and_exact_file_set(self):
@@ -15387,6 +15392,25 @@ for i, group in enumerate(optimizer.param_groups):
                 "        self.get_conf = lambda *args: '/tmp/wrong-root'\n"
                 "        self.training_folder = self.get_conf('training_folder',", 1,
             ),
+            "inherited configuration rebound": base_source.replace(
+                "        self.training_folder = self.get_conf('training_folder',",
+                "        self.config = {'training_folder': '/tmp/wrong-root'}\n"
+                "        self.training_folder = self.get_conf('training_folder',", 1,
+            ),
+            "inherited job rebound": base_source.replace(
+                "        self.training_folder = self.get_conf('training_folder',",
+                "        self.job = malicious_job\n"
+                "        self.training_folder = self.get_conf('training_folder',", 1,
+            ),
+            "base initializer skipped": base_source.replace(
+                "        super().__init__(process_id, job, config)",
+                "        pass", 1,
+            ),
+            "base initializer arguments redirected": base_source.replace(
+                "        super().__init__(process_id, job, config)",
+                "        super().__init__(process_id, malicious_job, "
+                "{'name': 'other-job'})", 1,
+            ),
             "try except return before training folder": base_source.replace(
                 "        self.training_folder = self.get_conf('training_folder',",
                 "        try:\n            return\n"
@@ -15450,6 +15474,30 @@ for i, group in enumerate(optimizer.param_groups):
                 )
                 with self.assertRaises(ExampleError):
                     _validate_resume_source_contract(repository)
+        local_identity_mutations = {
+            "local job rebound": (
+                "        self.job = job",
+                "        job = malicious_job\n        self.job = job",
+            ),
+            "local config rebound": (
+                "        self.config = config",
+                "        config = malicious_config\n        self.config = config",
+            ),
+            "constructor parameters removed": (
+                "            job: 'BaseJob',\n            config: OrderedDict",
+                "            unrelated: OrderedDict",
+            ),
+        }
+        for label, (old, new) in local_identity_mutations.items():
+            process_identity_source = (
+                REPOSITORY_ROOT / "jobs/process/BaseProcess.py"
+            ).read_text().replace(old, new, 1)
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                repository = self.write_resume_source_fixture(
+                    directory, sd_source, base_source, process_identity_source
+                )
+                with self.assertRaises(ExampleError):
+                    _validate_resume_source_contract(repository)
         changed_accessor_source = (
             REPOSITORY_ROOT / "jobs/process/BaseProcess.py"
         ).read_text().replace(
@@ -15460,6 +15508,18 @@ for i, group in enumerate(optimizer.param_groups):
         with tempfile.TemporaryDirectory() as directory:
             repository = self.write_resume_source_fixture(
                 directory, sd_source, base_source, changed_accessor_source
+            )
+            with self.assertRaises(ExampleError):
+                _validate_resume_source_contract(repository)
+        job_source = (REPOSITORY_ROOT / "jobs/BaseJob.py").read_text().replace(
+            "        self.name = self.get_conf('name', required=True)",
+            "        self.name = 'other-job'", 1,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            repository = self.write_resume_source_fixture(
+                directory, sd_source, base_source,
+                (REPOSITORY_ROOT / "jobs/process/BaseProcess.py").read_text(),
+                job_source,
             )
             with self.assertRaises(ExampleError):
                 _validate_resume_source_contract(repository)
