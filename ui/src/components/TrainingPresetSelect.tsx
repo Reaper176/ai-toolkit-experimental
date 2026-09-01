@@ -132,13 +132,6 @@ function validateUserTrainingPresetRecord(value: unknown): UserTrainingPresetRec
   };
 }
 
-export function validateTrainingPresetRecord(value: unknown): TrainingPresetRecord {
-  if (!isPlainObject(value)) throw new Error('Training preset record must be an object');
-  if (value.source === 'user') return validateUserTrainingPresetRecord(value);
-  if (value.source === 'builtin') return validateBuiltInTrainingPresetRecord(value);
-  throw new Error('Training preset record source must be user or builtin');
-}
-
 export type TrainingPresetDroppedRecordReason =
   | 'invalid-user-record'
   | 'invalid-builtin-record'
@@ -153,8 +146,21 @@ export interface TrainingPresetDroppedRecordDiagnostic {
 export type TrainingPresetDroppedRecordCallback = (diagnostic: TrainingPresetDroppedRecordDiagnostic) => void;
 
 function droppedRecordSource(value: unknown): TrainingPresetDroppedRecordDiagnostic['source'] {
-  if (!isPlainObject(value)) return 'unknown';
-  return value.source === 'user' || value.source === 'builtin' ? value.source : 'unknown';
+  if (value === null || typeof value !== 'object') return 'unknown';
+  try {
+    const source = Object.getOwnPropertyDescriptor(value, 'source');
+    if (source === undefined || !source.enumerable || !('value' in source)) return 'unknown';
+    return source.value === 'user' || source.value === 'builtin' ? source.value : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+export function validateTrainingPresetRecord(value: unknown): TrainingPresetRecord {
+  const source = droppedRecordSource(value);
+  if (source === 'user') return validateUserTrainingPresetRecord(value);
+  if (source === 'builtin') return validateBuiltInTrainingPresetRecord(value);
+  throw new Error('Training preset record source must be an own enumerable user or builtin data property');
 }
 
 export function validateTrainingPresetListResponse(

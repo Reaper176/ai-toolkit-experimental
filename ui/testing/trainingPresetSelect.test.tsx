@@ -286,6 +286,71 @@ assert.deepEqual(dropped, [
 ]);
 assert.equal(JSON.stringify(dropped).includes('snapshot'), false, 'drop diagnostics never expose snapshots');
 
+let sourceAccessorCalls = 0;
+const sourceAccessorRecord = {
+  get source(): never {
+    sourceAccessorCalls += 1;
+    throw new Error('source getter must not execute');
+  },
+  snapshot: { secret: 'accessor snapshot' },
+};
+const throwingPrototypeProxy = new Proxy(
+  { snapshot: { secret: 'prototype snapshot' } },
+  {
+    getPrototypeOf() {
+      throw new Error('hostile getPrototypeOf');
+    },
+  },
+);
+const throwingDescriptorProxy = new Proxy(
+  { snapshot: { secret: 'descriptor snapshot' } },
+  {
+    getOwnPropertyDescriptor() {
+      throw new Error('hostile getOwnPropertyDescriptor');
+    },
+  },
+);
+const throwingGetProxy = new Proxy(
+  { source: 'user', snapshot: { secret: 'get snapshot' } },
+  {
+    get() {
+      throw new Error('hostile get');
+    },
+  },
+);
+const hostileDiagnostics: Array<{ source: string; index: number; reason: string }> = [];
+const hostileIsolated = validateTrainingPresetListResponse(
+  {
+    presets: [
+      record('before-hostile', 'Before hostile'),
+      sourceAccessorRecord,
+      throwingPrototypeProxy,
+      throwingDescriptorProxy,
+      throwingGetProxy,
+      builtin(12),
+    ],
+  },
+  diagnostic => hostileDiagnostics.push(diagnostic),
+);
+assert.equal(sourceAccessorCalls, 0, 'source accessors are classified without executing their getter');
+assert.deepEqual(
+  hostileIsolated.map(item => item.id),
+  [builtin(12).id, 'before-hostile'],
+  'hostile reflection traps cannot abort validation of surrounding records',
+);
+assert.deepEqual(hostileDiagnostics, [
+  { source: 'unknown', index: 1, reason: 'invalid-record-source' },
+  { source: 'unknown', index: 2, reason: 'invalid-record-source' },
+  { source: 'unknown', index: 3, reason: 'invalid-record-source' },
+  { source: 'user', index: 4, reason: 'invalid-user-record' },
+]);
+assert.equal(hostileDiagnostics.length, 4, 'each malformed hostile record emits exactly one diagnostic');
+assert.equal(
+  JSON.stringify(hostileDiagnostics).includes('snapshot'),
+  false,
+  'hostile drop diagnostics remain redacted',
+);
+
 const groupedMarkup = renderToStaticMarkup(
   <TrainingPresetSelect
     presets={sortTrainingPresetRecords([builtin(12), record('mine', 'Mine'), fluxStyleUpper, fluxCharacter])}
