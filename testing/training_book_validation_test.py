@@ -15377,6 +15377,28 @@ class RecipeNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), page.lower())
 
+    def test_recipes_page_recipe_diagnostic_covers_pipeline_check(self):
+        relative_path = "recipes/diagnostic-run.md"
+        page = (REPOSITORY_ROOT / "docs/book" / relative_path).read_text(
+            encoding="utf-8"
+        )
+        self.assert_recipe_contract(relative_path, page, pre_catalog=True)
+        for phrase in (
+            "250-step",
+            "save/sample interval",
+            "fixed seed",
+            "one retained periodic checkpoint",
+            "queue",
+            "preflight",
+            "pipeline rather than lora quality",
+            "largest bucket",
+            "cache",
+            "resume",
+            "../workflow/queue-and-multiple-gpus.md",
+            "../workflow/sampling-and-evaluation.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
