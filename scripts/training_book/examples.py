@@ -1456,6 +1456,8 @@ def _validate_save_root_source_contract(repository_root: Path) -> None:
         and classes[0].bases[0].id == "BaseProcess"
         and len(base_imports) == 1
         and _bound_name_count(tree, "BaseProcess") == 1
+        and _bound_name_count(tree, "super") == 0
+        and _bound_name_count(classes[0], "get_conf") == 0
         and not any(
             isinstance(statement, ast.ImportFrom)
             and any(alias.name == "*" for alias in statement.names)
@@ -1492,10 +1494,23 @@ def _validate_resume_source_contract(repository_root: Path) -> None:
         raise ExampleError(f"cannot inspect optimizer resume source: {error}") from error
     classes = [node for node in tree.body
                if isinstance(node, ast.ClassDef) and node.name == "BaseSDTrainProcess"]
+    train_base_imports = [
+        alias for statement in tree.body
+        if isinstance(statement, ast.ImportFrom)
+        and statement.module == "jobs.process"
+        and statement.level == 0
+        for alias in statement.names
+        if alias.name == "BaseTrainProcess" and alias.asname is None
+    ]
     methods = ([node for node in classes[0].body
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "run"]
                if len(classes) == 1 else [])
-    if len(methods) != 1:
+    if (len(methods) != 1 or len(classes[0].bases) != 1
+            or not isinstance(classes[0].bases[0], ast.Name)
+            or classes[0].bases[0].id != "BaseTrainProcess"
+            or len(train_base_imports) != 1
+            or _bound_name_count(tree, "BaseTrainProcess") != 1
+            or _bound_name_count(classes[0], "get_conf") != 0):
         raise ExampleError("optimizer resume source no longer preserves configured learning rates")
     if not _exact_get_optimizer_import(tree):
         raise ExampleError("optimizer resume source no longer preserves configured learning rates")

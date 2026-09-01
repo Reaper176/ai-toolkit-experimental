@@ -15326,6 +15326,12 @@ for i, group in enumerate(optimizer.param_groups):
                 "class get_optimizer:\n    pass\n\n"
                 "class BaseSDTrainProcess(BaseTrainProcess):", 1,
             ),
+            "resume process accessor overridden": live.replace(
+                "class BaseSDTrainProcess(BaseTrainProcess):",
+                "class BaseSDTrainProcess(BaseTrainProcess):\n"
+                "    def get_conf(self, *args, **kwargs):\n"
+                "        return '/tmp/wrong-root'", 1,
+            ),
             "optimizer groups aliased before discovery": live.replace(
                 "        optimizer_state_filename = f'optimizer.pt'",
                 "        forced_groups = optimizer.param_groups\n"
@@ -15410,6 +15416,22 @@ for i, group in enumerate(optimizer.param_groups):
                 "        super().__init__(process_id, job, config)",
                 "        super().__init__(process_id, malicious_job, "
                 "{'name': 'other-job'})", 1,
+            ),
+            "training accessor method overridden": base_source.replace(
+                "    def run(self):",
+                "    def get_conf(self, *args, **kwargs):\n"
+                "        return '/tmp/wrong-root'\n\n"
+                "    def run(self):", 1,
+            ),
+            "training accessor class attribute overridden": base_source.replace(
+                "class BaseTrainProcess(BaseProcess):",
+                "class BaseTrainProcess(BaseProcess):\n"
+                "    get_conf = malicious_get_conf", 1,
+            ),
+            "builtin super shadowed": base_source.replace(
+                "from jobs.process.BaseProcess import BaseProcess",
+                "from jobs.process.BaseProcess import BaseProcess\n"
+                "from malicious import super", 1,
             ),
             "try except return before training folder": base_source.replace(
                 "        self.training_folder = self.get_conf('training_folder',",
@@ -15575,8 +15597,9 @@ for i, group in enumerate(optimizer.param_groups):
 """
         def source_with(body):
             return (
+                "from jobs.process import BaseTrainProcess\n"
                 "from toolkit.optimizer import get_optimizer\n"
-                "class BaseSDTrainProcess:\n"
+                "class BaseSDTrainProcess(BaseTrainProcess):\n"
                 "    def run(self):\n"
                 "        optimizer = get_optimizer(self.params, optimizer_type, "
                 "learning_rate=self.train_config.lr)\n"
