@@ -14482,6 +14482,15 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
             "explicit-derived collision": self.page(
                 '<a id="details"></a>\n\n## Details'
             ),
+            "single-quoted explicit-derived collision": self.page(
+                "<a id='details'></a>\n\n## Details"
+            ),
+            "spaced explicit-derived collision": self.page(
+                '<a id = "details"></a>\n\n## Details'
+            ),
+            "uppercase explicit-derived collision": self.page(
+                '<a ID="details"></a>\n\n## Details'
+            ),
             "duplicate marker": self.page().replace(
                 "<!-- book-navigation:end -->",
                 "<!-- book-navigation:end -->\n<!-- book-navigation:end -->",
@@ -14525,11 +14534,32 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
                     page_documents=documents,
                 )
 
+        alternate_links = (
+            "[Unsafe][escape]\n\n[escape]: ../../outside.md",
+            "[Unsafe][escape]\n\n[escape]: undeclared.md",
+            '<a href="../../outside.md">Unsafe</a>',
+            '<a href="undeclared.md">Unsafe</a>',
+            "<../../outside.md>",
+            "<undeclared.md>",
+        )
+        for link in alternate_links:
+            with self.subTest(link=link), self.assertRaises(MarkdownContractError):
+                self.validate(
+                    self.page(f"## Links\n\n{link}"),
+                    existing_paths=existing,
+                    page_documents=documents,
+                )
+
     def test_narrative_contract_rejects_prohibited_training_claims(self):
         claims = (
             "The lowest loss checkpoint is always the best checkpoint.",
+            "The checkpoint with the lowest loss gives the best result.",
             "Independent queue keys provide distributed training.",
+            "Independent queue keys are a form of distributed training.",
+            "Independent queue keys allow distributed training.",
             "optimizer.pt contains the LoRA weights.",
+            "`optimizer.pt` contains the LoRA weights.",
+            "optimizer.pt holds the LoRA weights.",
         )
         from scripts.training_book.markdown import MarkdownContractError
 

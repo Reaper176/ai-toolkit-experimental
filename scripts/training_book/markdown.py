@@ -19,26 +19,25 @@ GENERATED_NOTICE = "<!-- generated; edit settings-catalog.json instead -->"
 
 _ANCHOR = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]*\Z")
 _MARKDOWN_PUNCTUATION = re.compile(r"([\\`*_[\]{}#])")
-_EXPLICIT_ANCHOR = re.compile(r'<a\s+id="([A-Za-z][A-Za-z0-9_.:-]*)"\s*></a>')
+_EXPLICIT_ANCHOR = re.compile(
+    r"<a\b[^>]*\bid\s*=\s*(['\"])([A-Za-z][A-Za-z0-9_.:-]*)\1[^>]*>\s*</a>",
+    re.IGNORECASE,
+)
 _MARKDOWN_LINK = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)]+)\)")
+_REFERENCE_DEFINITION = re.compile(
+    r"^\s{0,3}\[([^\]]+)\]:\s*(<[^>]+>|\S+)", re.MULTILINE
+)
+_HTML_HREF = re.compile(
+    r"<a\b[^>]*\bhref\s*=\s*(['\"])(.*?)\1", re.IGNORECASE
+)
+_AUTOLINK = re.compile(
+    r"<((?:https?://|mailto:|(?:\.\.?/|/)?[^<>\s]+\.md(?:#[^<>\s]+)?|#[^<>\s]+))>",
+    re.IGNORECASE,
+)
 _EXTERNAL_LINK = re.compile(r"(?:https?|mailto):", re.IGNORECASE)
-_PROHIBITED_CLAIMS = (
-    re.compile(
-        r"\blowest\s+loss\b[^.!?\n]{0,80}\b(?:is|means|identifies)\s+"
-        r"(?!not\b)"
-        r"(?:always\s+)?(?:the\s+)?best\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\bindependent\s+queue\s+keys?\b\s+"
-        r"(?:provide|enable|perform|constitute|are)\s+distributed\s+training\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\boptimizer\.pt\b\s+(?:files?\s+)?(?:contains?|stores?)\s+"
-        r"(?:the\s+)?lora\s+weights?\b",
-        re.IGNORECASE,
-    ),
+_NEGATION = re.compile(
+    r"\b(?:not|never|no|cannot|without|isn't|aren't|doesn't|don't|can't)\b",
+    re.IGNORECASE,
 )
 _PAGE_MARKERS = (
     "<!-- book-navigation:start -->",
@@ -85,7 +84,7 @@ def _heading_anchor(heading: str) -> str:
 
 def _page_anchors(document: str, page: str) -> set[str]:
     visible = _outside_fences(document)
-    anchors = _EXPLICIT_ANCHOR.findall(visible)
+    anchors = [match.group(2) for match in _EXPLICIT_ANCHOR.finditer(visible)]
     anchors.extend(
         _heading_anchor(match.group(1))
         for line in visible.splitlines()
@@ -96,6 +95,36 @@ def _page_anchors(document: str, page: str) -> set[str]:
     if duplicates:
         raise MarkdownContractError(f"{page}: duplicate anchor {duplicates[0]!r}")
     return set(anchors)
+
+
+def _claim_text(document: str) -> str:
+    value = re.sub(r"<[^>]+>", " ", document)
+    value = re.sub(r"[`*_~]", "", value)
+    return re.sub(r"\s+", " ", value).strip().lower()
+
+
+def _has_prohibited_claim(document: str) -> bool:
+    claim_text = _claim_text(document).replace("optimizer.pt", "optimizer_pt")
+    for sentence in re.split(r"[.!?]+", claim_text):
+        sentence = sentence.replace("optimizer_pt", "optimizer.pt")
+        if _NEGATION.search(sentence):
+            continue
+        if "lowest loss" in sentence and "best" in sentence:
+            return True
+        if ("independent" in sentence and "queue key" in sentence
+                and "distributed training" in sentence):
+            return True
+        if ("optimizer.pt" in sentence and "lora weight" in sentence
+                and (re.search(
+                    r"\b(?:contain|contains|store|stores|hold|holds|include|includes|"
+                    r"carry|carries)\b",
+                    sentence,
+                ) or re.search(
+                    r"optimizer\.pt.{0,40}\b(?:is|are)\b.{0,40}lora weights?",
+                    sentence,
+                ))):
+            return True
+    return False
 
 
 def _normalized_link(page: str, target: str) -> tuple[str, str | None]:
@@ -146,20 +175,17 @@ def validate_narrative_page(
     links = list(_MARKDOWN_LINK.finditer(visible))
     toc_links = []
     manifest_set = set(manifest_paths)
-    for match in links:
-        label, raw_target = match.groups()
+    def check_target(raw_target: str) -> str:
         target = raw_target.strip()
         if target.startswith("<") and target.endswith(">"):
             target = target[1:-1]
         if _EXTERNAL_LINK.match(target):
-            continue
+            return ""
         normalized, fragment = _normalized_link(page, target)
-        if "table of contents" in label.lower() and normalized == "README.md":
-            toc_links.append(match)
         if normalized not in existing_paths:
             if normalized not in manifest_set or fragment is not None:
                 raise MarkdownContractError(f"{page}: unresolved staged link {raw_target!r}")
-            continue
+            return normalized
         if fragment is not None:
             if not fragment or normalized not in page_documents:
                 raise MarkdownContractError(f"{page}: invalid fragment link {raw_target!r}")
@@ -169,12 +195,24 @@ def validate_narrative_page(
             )
             if fragment not in target_anchors:
                 raise MarkdownContractError(f"{page}: missing anchor for {raw_target!r}")
+        return normalized
+
+    for match in links:
+        label, raw_target = match.groups()
+        normalized = check_target(raw_target)
+        if "table of contents" in label.lower() and normalized == "README.md":
+            toc_links.append(match)
+    for match in _REFERENCE_DEFINITION.finditer(visible):
+        check_target(match.group(2))
+    for match in _HTML_HREF.finditer(visible):
+        check_target(match.group(2))
+    for match in _AUTOLINK.finditer(visible):
+        check_target(match.group(1))
     if len(toc_links) != 1:
         raise MarkdownContractError(f"{page}: expected one table-of-contents link")
 
-    for pattern in _PROHIBITED_CLAIMS:
-        if pattern.search(visible):
-            raise MarkdownContractError(f"{page}: prohibited training claim")
+    if _has_prohibited_claim(visible):
+        raise MarkdownContractError(f"{page}: prohibited training claim")
 
 
 def validate_staged_book_pages(book_root: Path, manifest_paths: Sequence[str]) -> None:
