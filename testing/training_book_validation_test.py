@@ -14776,6 +14776,35 @@ class WorkflowNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), page.lower())
 
+    def test_workflow_page_resume_optimizer_separates_artifacts_and_compatibility(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/workflow/saving-resuming-and-optimizer-state.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Separate LoRA checkpoints from optimizer state",
+            "## Save and prune without losing the recovery point",
+            "## Select the newest complete compatible checkpoint",
+            "## Wire an explicit resume",
+            "## Restore compatible optimizer state without changing LR",
+            "## Decide which changes are compatible",
+            "## Recover from interruption or corruption",
+        ):
+            self.assertIn(heading, page)
+        for phrase in (
+            "network.pretrained_lora_path",
+            "train.start_step",
+            "optimizer.pt",
+            "does not contain LoRA weights",
+            "training_folder / name",
+            "configured learning rate",
+            "newest",
+            "partial",
+            "corrupt",
+            "resume-from-checkpoint.yaml",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
