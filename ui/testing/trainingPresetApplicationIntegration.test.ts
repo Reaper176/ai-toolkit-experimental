@@ -82,11 +82,23 @@ for (const [index, preset] of goldenRecords.entries()) {
   const request = buildTrainingJobSaveRequest({ runId: null, cloneId: null, name: `save-${index}`, gpuIds: '0', jobConfig: migrated });
   const savedProcess = request.job_config.config.process[0];
   const savedDataset = savedProcess.datasets[0] as any;
+  const editorDataset = migrated.config.process[0].datasets[0] as any;
   assert.notEqual(savedProcess.datasets, migrated.config.process[0].datasets, `${preset.id} save clones datasets`);
+  assert.notEqual(savedDataset, editorDataset, `${preset.id} save clones each dataset object`);
+  for (const key of ['folder_path', 'control_path', 'optional_identity'] as const) {
+    assert.deepEqual(
+      capture(savedDataset, key),
+      capture(editorDataset, key),
+      `${preset.id} save preserves dataset.${key} value and own-property presence`,
+    );
+  }
   assert.equal(savedDataset.mask_path, null);
   assert.equal(Object.hasOwn(savedDataset, 'resolved_mask_available'), false);
   assert.deepEqual(savedDataset.dataset_preset, datasets[0].dataset_preset);
   assert.equal(savedDataset.provenance_note, `keep-${index}`);
+  assert.equal(editorDataset.mask_path, `/browser-mask/${index}`, `${preset.id} editor mask_path remains unchanged`);
+  assert.equal(editorDataset.resolved_mask_available, true, `${preset.id} editor mask status remains unchanged`);
+  assert.equal(Object.hasOwn(editorDataset, 'optional_identity'), true, `${preset.id} editor property presence remains unchanged`);
   for (const key of protectedProcessKeys.filter(key => key !== 'datasets')) {
     assert.deepEqual(capture(savedProcess, key), capture(migrated.config.process[0], key), `${preset.id} save preserves process.${key}`);
   }
