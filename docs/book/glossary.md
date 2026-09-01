@@ -11,7 +11,7 @@ These definitions describe how terms are used in this training book and ai-toolk
 
 ### Alpha
 
-The scaling parameter paired with LoRA rank. In the active adapter implementations, runtime scale is based on `alpha / rank`. Alpha equal to rank gives scale one; changing rank while holding alpha fixed changes both capacity and scale. See [network settings](reference/network.md).
+The scaling parameter paired with LoRA rank. On non-PEFT adapter paths, module scale is based on `alpha / rank`, so alpha equal to rank gives scale one. Transformer-family PEFT format normally forces alpha to rank (except the active legacy LoKr-format case), so configured alpha may not independently change scaling. Verify the resolved format before interpreting an alpha experiment; see [network settings](reference/network.md).
 
 ### Architecture
 

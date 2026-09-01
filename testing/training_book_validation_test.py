@@ -15834,6 +15834,10 @@ class AdvancedNarrativePageTests(unittest.TestCase):
             "linear",
             "linear_alpha",
             "alpha / rank",
+            "peft_format",
+            "forces alpha to rank",
+            "resolved format",
+            "legacy lokr",
             "higher rank",
             "memory",
             "checkpoint size",
@@ -16097,6 +16101,8 @@ class GlossaryNarrativePageTests(unittest.TestCase):
             self.assertEqual(page.count(f"### {term}"), 1, term)
         for phrase in (
             "alpha / rank",
+            "peft format",
+            "forces alpha to rank",
             "effective batch",
             "not the same as",
             "fixed seed",

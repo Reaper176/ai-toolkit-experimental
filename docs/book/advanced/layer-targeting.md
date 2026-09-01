@@ -19,9 +19,11 @@ Treat a base-model revision change like a targeting change. Module names and sha
 
 `network.linear` is the low-rank dimension for eligible linear modules. Higher rank adds representational capacity, trainable parameters, memory use, compute, and checkpoint size. It does not guarantee better learning: data coverage, captions, learning rate, duration, and the target set may be the real constraint.
 
-`network.linear_alpha` controls update scaling separately from rank. In the active implementations, the runtime scale is based on `alpha / rank`. Explicit null or zero alpha is normalized to the effective module rank, producing a scale of one; omission first inherits `network.alpha`. Because presence changes that path, record both rank and alpha rather than describing a run by rank alone.
+On non-PEFT adapter paths, `network.linear_alpha` can control update scaling separately from rank: the module runtime scale is based on `alpha / rank`. Explicit null or zero alpha is normalized to the effective module rank, producing a scale of one; omission first inherits `network.alpha`.
 
-For an interpretable first rank comparison, keep alpha equal to rank and hold the dataset, seed, learning rate, optimizer, steps, and targets constant. Then change one variable. A comparison of rank 16/alpha 16 against rank 64/alpha 16 changes both capacity and scale, so it cannot isolate the benefit of rank.
+Transformer-family LoRA networks normally force `peft_format` unless the legacy LoKr format is active. PEFT format forces alpha to rank, so a configured `linear_alpha` does not independently change scaling on that resolved path. Record the requested rank/alpha and verify the resolved format and creation log; otherwise an apparent alpha experiment may have been normalized to scale one.
+
+For an interpretable first rank comparison, hold the dataset, seed, learning rate, optimizer, steps, and targets constant. Change one variable at a time within the chosen resolved path. On a resolved non-PEFT path, keep alpha equal to rank when isolating capacity; rank 16/alpha 16 versus rank 64/alpha 16 changes both capacity and scale. On a transformer PEFT path that forces alpha to rank, compare ranks as capacity changes and do not claim an independent alpha result.
 
 Legacy `network.rank` can take precedence over `network.linear` when non-null. Prefer `linear` in new configurations and remove ambiguous duplicate spelling after checking the [network reference](../reference/network.md).
 
