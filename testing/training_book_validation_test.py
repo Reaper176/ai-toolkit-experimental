@@ -15953,6 +15953,53 @@ class AdvancedNarrativePageTests(unittest.TestCase):
             self.assertIn(phrase.lower(), page.lower())
 
 
+class TroubleshootingNarrativePageTests(unittest.TestCase):
+    def test_advanced_troubleshooting_page_diagnosis_uses_evidence_driven_experiments(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/troubleshooting/diagnosis-guide.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Use the diagnosis loop",
+            "## Identify the failing phase",
+            "## Diagnose jobs that do not queue or start",
+            "## Diagnose dataset and cache failures",
+            "## Diagnose out-of-memory and slow runs",
+            "## Diagnose loss and numerical failures",
+            "## Diagnose weak or overfit samples",
+            "## Preserve evidence and escalate",
+            "## Further reading",
+        ):
+            self.assertEqual(page.count(heading), 1, heading)
+        for phrase in (
+            "symptom",
+            "evidence",
+            "one-variable experiment",
+            "blind setting changes",
+            "first causal",
+            "add to queue",
+            "queued",
+            "running",
+            "gpu",
+            "preflight",
+            "stale cache",
+            "out of memory",
+            "failing phase",
+            "non-finite",
+            "lowest loss",
+            "fixed seed",
+            "overfitting",
+            "minimal reproduction",
+            "../workflow/queue-and-multiple-gpus.md",
+            "../workflow/loss-and-checkpoints.md",
+            "../workflow/sampling-and-evaluation.md",
+            "../recipes/diagnostic-run.md",
+            "../advanced/performance-and-caching.md",
+            "common-failure-patterns.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
+
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
         "reference/job-and-model.md",
