@@ -14635,6 +14635,34 @@ class BeginnerNarrativePageTests(unittest.TestCase):
             self.assertIn(phrase, page)
         self.assertNotIn("Advanced YAML", page)
 
+    def test_beginner_page_training_mental_model_explains_the_learning_loop(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/getting-started/training-mental-model.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## What the LoRA changes",
+            "## From caption and image to gradient",
+            "## Rank is capacity, not quality",
+            "## Learning rate and optimizer steps",
+            "## Underfitting, useful fit, and overfitting",
+        ):
+            self.assertIn(heading, page)
+        for phrase in (
+            "base model",
+            "caption",
+            "noise",
+            "gradient",
+            "LoRA",
+            "rank",
+            "learning rate",
+            "optimizer step",
+            "underfitting",
+            "overfitting",
+            "fixed-seed samples",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
