@@ -484,13 +484,14 @@ async function main(): Promise<void> {
       () =>
         parsePresetRequestText(
           JSON.stringify({ name: 'Owned', job_config: jobFixture(), [provenanceField]: 'client-owned' }),
+          true,
         ),
       TrainingPresetProvenanceError,
       `${provenanceField} must be rejected as top-level provenance`,
     );
     const nestedJobConfig = { ...jobFixture(), [provenanceField]: 'nested-value' } as unknown as JobConfig;
     assert.doesNotThrow(() =>
-      parsePresetRequestText(JSON.stringify({ name: 'Nested', job_config: nestedJobConfig })),
+      parsePresetRequestText(JSON.stringify({ name: 'Nested', job_config: nestedJobConfig }), true),
     );
   }
   const exactAscii = JSON.stringify({ job_config: 'x'.repeat(MAX_PRESET_REQUEST_BYTES - 17) });

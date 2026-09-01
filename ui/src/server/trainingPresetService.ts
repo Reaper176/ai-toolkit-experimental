@@ -181,7 +181,10 @@ function deserializeRow(row: TrainingPresetRow): UserTrainingPresetRecord {
   }
 }
 
-export function parsePresetRequestText(text: string): { name: unknown; job_config: JobConfig } {
+export function parsePresetRequestText(
+  text: string,
+  rejectCatalogProvenance = false,
+): { name: unknown; job_config: JobConfig } {
   if (new TextEncoder().encode(text).byteLength > MAX_PRESET_REQUEST_BYTES) {
     throw new TrainingPresetPayloadTooLargeError();
   }
@@ -196,18 +199,20 @@ export function parsePresetRequestText(text: string): { name: unknown; job_confi
   if (!isPlainObject(body)) {
     throw new TrainingPresetValidationError('Preset request body must be a plain object');
   }
-  for (const field of [
-    'source',
-    'read_only',
-    'category',
-    'intent_slug',
-    'model_arch',
-    'catalog_revision',
-    'recipe_path',
-    'evidence',
-  ]) {
-    if (Object.prototype.hasOwnProperty.call(body, field)) {
-      throw new TrainingPresetProvenanceError();
+  if (rejectCatalogProvenance) {
+    for (const field of [
+      'source',
+      'read_only',
+      'category',
+      'intent_slug',
+      'model_arch',
+      'catalog_revision',
+      'recipe_path',
+      'evidence',
+    ]) {
+      if (Object.prototype.hasOwnProperty.call(body, field)) {
+        throw new TrainingPresetProvenanceError();
+      }
     }
   }
   if (!Object.prototype.hasOwnProperty.call(body, 'job_config')) {

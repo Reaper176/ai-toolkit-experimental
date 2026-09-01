@@ -305,6 +305,31 @@ async function main(): Promise<void> {
     assert.equal(provenanceService.createCalls, 0);
   }
 
+  for (const provenanceField of [
+    'source',
+    'read_only',
+    'category',
+    'intent_slug',
+    'model_arch',
+    'catalog_revision',
+    'recipe_path',
+    'evidence',
+  ]) {
+    const ordinaryUpdateService = new FakeService();
+    const ordinaryUpdateResponse = await createTrainingPresetDetailHandlers(
+      ordinaryUpdateService,
+      () => undefined,
+    ).PUT(
+      new Request('http://localhost/api/training-presets', {
+        method: 'PUT',
+        body: JSON.stringify({ job_config: jobFixture(), [provenanceField]: 'ignored' }),
+      }),
+      { params: Promise.resolve({ presetId: 'user-preset' }) },
+    );
+    assert.equal(ordinaryUpdateResponse.status, 200, `${provenanceField} must remain compatible on PUT`);
+    assert.equal(ordinaryUpdateService.updateCalls, 1);
+  }
+
   const nestedProvenanceService = new FakeService();
   const nestedProvenanceResponse = await createTrainingPresetCollectionHandlers(
     nestedProvenanceService,

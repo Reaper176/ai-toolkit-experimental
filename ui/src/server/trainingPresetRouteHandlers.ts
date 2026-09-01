@@ -36,7 +36,7 @@ export function createTrainingPresetCollectionHandlers(
 
     async POST(request: Request): Promise<Response> {
       try {
-        const body = parsePresetRequestText(await readPresetRequestText(request));
+        const body = parsePresetRequestText(await readPresetRequestText(request), true);
         return Response.json(await service.create(body.name, body.job_config), { status: 201 });
       } catch (error) {
         return errorResponse(error, 'create', logError);
