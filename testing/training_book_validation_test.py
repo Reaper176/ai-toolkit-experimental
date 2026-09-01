@@ -14893,6 +14893,42 @@ class WorkflowNarrativePageTests(unittest.TestCase):
             self.assertIn(phrase.lower(), page.lower())
 
 
+class DatasetChaptersNarrativePageTests(unittest.TestCase):
+    def test_dataset_chapters_page_dataset_curation_covers_selection_balance_and_provenance(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/datasets/curation.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Define the learning goal",
+            "## Prefer quality before quantity",
+            "## Exact and near duplicates",
+            "## Outliers",
+            "## Variety and balance",
+            "## Version the dataset and preserve provenance",
+        ):
+            self.assertIn(heading, page)
+        for phrase in (
+            "subject",
+            "style",
+            "object",
+            "edit",
+            "image",
+            "video",
+            "audio",
+            "pose",
+            "background",
+            "lighting",
+            "source-missing",
+            "toolkit/config_modules.py",
+            "../reference/dataset.md#dataset-folder-path",
+            "../reference/dataset.md#dataset-num-repeats",
+            "../reference/dataset.md#dataset-network-weight",
+            "../reference/dataset.md#dataset-is-reg",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
+
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
         "reference/job-and-model.md",
