@@ -259,9 +259,10 @@ async function main(): Promise<void> {
   const providerEvents: unknown[] = [];
   const entryEvents: unknown[] = [];
   const entryLogger = (event: unknown) => entryEvents.push(event);
+  let receivedEntryLogger: unknown;
   const providerFailureList = await createTrainingPresetService(new FakeStore([row('user', 'User')]), {
     listBuiltIns(logger) {
-      assert.equal(logger, entryLogger, 'service passes the injected entry logger to the provider');
+      receivedEntryLogger = logger;
       throw new Error('private provider detail');
     },
     logCatalogEvent: entryLogger,
@@ -273,6 +274,32 @@ async function main(): Promise<void> {
   );
   assert.deepEqual(entryEvents, [], 'provider failure does not fabricate an entry event');
   assert.deepEqual(providerEvents, [{ code: 'BUILTIN_PRESET_PROVIDER_FAILED' }]);
+  assert.equal(typeof receivedEntryLogger, 'function', 'service passes an entry logger to the provider');
+
+  const successfulProviderEvents: unknown[] = [];
+  let entryObserverCalls = 0;
+  const successfulProviderList = await createTrainingPresetService(new FakeStore([row('user', 'User')]), {
+    listBuiltIns(logger) {
+      logger({ code: 'BUILTIN_PRESET_INVALID', id_digest: '0123456789ab' });
+      return [providerOwnedCatalog[0]];
+    },
+    logCatalogEvent: () => {
+      entryObserverCalls += 1;
+      throw new Error('observer unavailable');
+    },
+    logCatalogProviderFailure: event => successfulProviderEvents.push(event),
+  }).list();
+  assert.deepEqual(
+    successfulProviderList.map(preset => preset.id),
+    ['builtin:anima:character-identity@1', 'user'],
+    'a throwing entry observer must not discard a successful provider result',
+  );
+  assert.deepEqual(
+    successfulProviderEvents,
+    [],
+    'a throwing entry observer must not be misclassified as a provider failure',
+  );
+  assert.equal(entryObserverCalls, 1, 'the best-effort wrapper still invokes the entry observer');
 
   const defaultOnlyUsers = await createTrainingPresetService(new FakeStore([row('default-user', 'Default')])).list();
   assert.deepEqual(

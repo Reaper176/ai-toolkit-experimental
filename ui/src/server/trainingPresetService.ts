@@ -259,7 +259,9 @@ export function createTrainingPresetService(
     async list(): Promise<TrainingPresetRecord[]> {
       let builtIns: BuiltInTrainingPresetRecord[] = [];
       try {
-        builtIns = resolvedDependencies.listBuiltIns(resolvedDependencies.logCatalogEvent).map(copyBuiltInPreset);
+        builtIns = resolvedDependencies
+          .listBuiltIns(event => logBestEffort(resolvedDependencies.logCatalogEvent, event))
+          .map(copyBuiltInPreset);
       } catch {
         logBestEffort(resolvedDependencies.logCatalogProviderFailure, {
           code: 'BUILTIN_PRESET_PROVIDER_FAILED',
