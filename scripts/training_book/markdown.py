@@ -108,7 +108,10 @@ def _page_anchors(document: str, page: str) -> set[str]:
 def _claim_text(document: str) -> str:
     value = re.sub(r"<[^>]+>", " ", document)
     value = re.sub(r"[`*_~]", "", value)
-    return re.sub(r"\s+", " ", value).strip().lower()
+    return "\n".join(
+        re.sub(r"[ \t]+", " ", line).strip()
+        for line in value.lower().splitlines()
+    ).strip()
 
 
 def _relation_is_negated(text: str, verb_start: int, verb_end: int) -> bool:
@@ -213,28 +216,31 @@ def _has_prohibited_relation(clause: str) -> bool:
 
 def _has_prohibited_claim(document: str) -> bool:
     claim_text = _claim_text(document).replace("optimizer.pt", "optimizer_pt")
-    for sentence in re.split(r"[.!?]+", claim_text):
+    for sentence in re.split(r"[.!?\n]+", claim_text):
         sentence = sentence.replace("optimizer_pt", "optimizer.pt")
         previous_optimizer_subject = False
         previous_queue_subject = False
         for raw_clause in sentence.split(";"):
             clause = raw_clause.strip()
-            if previous_optimizer_subject and re.match(r"^it\b", clause):
+            if previous_optimizer_subject and re.match(
+                r"^(?:(?:however|but|therefore|still|instead|also),?\s+)?it\b",
+                clause,
+            ):
                 clause = f"optimizer.pt {clause}"
-            if previous_queue_subject and re.match(r"^they\b", clause):
+            if previous_queue_subject and re.match(
+                r"^(?:(?:however|but|therefore|still|instead|also),?\s+)?they\b",
+                clause,
+            ):
                 clause = f"independent queue keys {clause}"
             if _has_prohibited_relation(clause):
                 return True
-            previous_optimizer_subject = bool(re.search(
-                r"\boptimizer\.pt\s+(?:do|does|did|cannot|can|contains?|stores?|"
-                r"holds?|includes?|carr(?:y|ies)|is|are)\b",
-                raw_clause,
+            previous_optimizer_subject = bool(re.match(
+                r"^(?:[-+]\s+)?optimizer\.pt\b",
+                raw_clause.strip(),
             ))
-            previous_queue_subject = bool(re.search(
-                r"\bindependent(?:\s+\w+){0,3}\s+queue keys?\s+"
-                r"(?:do|does|did|cannot|can|allows?|provides?|enables?|performs?|"
-                r"constitutes?|are|is|represents?|gives?|delivers?)\b",
-                raw_clause,
+            previous_queue_subject = bool(re.match(
+                r"^(?:[-+]\s+)?independent(?:\s+\w+){0,3}\s+queue keys?\b",
+                raw_clause.strip(),
             ))
     return False
 
