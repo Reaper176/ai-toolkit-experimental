@@ -16144,6 +16144,51 @@ class GeneratedReferenceTests(unittest.TestCase):
                 )
             self.assertEqual(early.read_bytes(), early_before)
 
+    def test_model_fact_generator_full_mode_confines_every_mapping_key(self):
+        from scripts.generate_training_book_reference import (
+            ReferenceGenerationError,
+            generate_model_fact_pages,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "docs/book/models").mkdir(parents=True)
+            victim = self.write_model_fact_page(root, "../../victim.md")
+            before = victim.read_bytes()
+            with self.assertRaises(ReferenceGenerationError):
+                generate_model_fact_pages(
+                    root,
+                    self.model_fact_fixture(),
+                    check=False,
+                    model_page_architectures={
+                        "models/../../../victim.md": ("fixture_image",),
+                    },
+                )
+            self.assertEqual(victim.read_bytes(), before)
+
+    def test_model_fact_generator_full_reference_and_model_write_is_atomic(self):
+        from scripts.generate_training_book_reference import (
+            ReferenceGenerationError,
+            generate_reference_pages,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_generator_fixture(root, [self.catalog_entry()])
+            reference = root / "docs/book/reference/job-and-model.md"
+            before = reference.read_bytes()
+            self.write_model_fact_page(root, "models/anima.md")
+            with self.assertRaisesRegex(
+                ReferenceGenerationError,
+                "models/anima.md.*no UI facts",
+            ):
+                generate_reference_pages(
+                    root,
+                    check=False,
+                    expected_deferred_assignments=(),
+                )
+            self.assertEqual(reference.read_bytes(), before)
+
 
 class BookArtifactTests(unittest.TestCase):
     def test_canonical_book_manifest_matches_the_published_contract(self):

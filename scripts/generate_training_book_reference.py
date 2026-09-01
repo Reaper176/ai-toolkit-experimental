@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import stat
+import tempfile
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
@@ -50,6 +53,8 @@ MODEL_PAGE_ARCHITECTURES = {
 MODEL_FACTS_START = "<!-- model-facts:start -->"
 MODEL_FACTS_END = "<!-- model-facts:end -->"
 MODEL_FACTS_NOTICE = "<!-- generated; edit settings-catalog.json instead -->"
+
+GeneratedDocument = tuple[Path, str, str, str, str]
 
 CANONICAL_DEFERRED_ASSIGNMENTS = (
     ("cli.config_file_list", "advanced/yaml-and-cli.md"),
@@ -178,19 +183,28 @@ def replace_model_facts_block(document: str, block: str) -> str:
     return f"{document[:start]}{block}{document[end:]}"
 
 
-def generate_model_fact_pages(
+def _prepare_model_fact_pages(
     repository_root: Path,
     catalog: object,
     *,
-    check: bool,
-    page: str | None = None,
-    model_page_architectures: Mapping[
-        str, tuple[str, ...]
-    ] = MODEL_PAGE_ARCHITECTURES,
-) -> None:
-    """Write or verify existing focused model-page fact blocks atomically."""
-
+    page: str | None,
+    model_page_architectures: Mapping[str, tuple[str, ...]],
+) -> list[GeneratedDocument]:
     root = repository_root.resolve()
+    book_root = (root / "docs/book").resolve()
+    for relative_page in model_page_architectures:
+        validate_model_page_selector(relative_page, model_page_architectures)
+        unresolved_target = root / "docs/book" / relative_page
+        resolved_target = unresolved_target.resolve()
+        if not resolved_target.is_relative_to(book_root):
+            raise ReferenceGenerationError(
+                f"model page escapes the training book: {relative_page!r}"
+            )
+        if unresolved_target.is_symlink():
+            raise ReferenceGenerationError(
+                f"model page may not be a symbolic link: {relative_page!r}"
+            )
+
     if page is not None:
         relative_pages = (
             validate_model_page_selector(page, model_page_architectures),
@@ -201,33 +215,113 @@ def generate_model_fact_pages(
             for relative_page in model_page_architectures
             if (root / "docs/book" / relative_page).is_file()
         )
-    documents: list[tuple[Path, str, str, str]] = []
+
+    documents: list[GeneratedDocument] = []
     for relative_page in relative_pages:
         target = root / "docs/book" / relative_page
         if not target.is_file():
             raise ReferenceGenerationError(f"missing model page {relative_page}")
         original = target.read_text(encoding="utf-8")
-        block = render_model_facts_block(
-            catalog,
-            relative_page,
-            model_page_architectures[relative_page],
-        )
-        rendered = replace_model_facts_block(original, block)
-        documents.append((target, relative_page, original, rendered))
+        try:
+            block = render_model_facts_block(
+                catalog,
+                relative_page,
+                model_page_architectures[relative_page],
+            )
+            rendered = replace_model_facts_block(original, block)
+        except ReferenceGenerationError as error:
+            if str(error).startswith(f"{relative_page}:"):
+                raise
+            raise ReferenceGenerationError(f"{relative_page}: {error}") from error
+        documents.append((target, relative_page, original, rendered, "model-fact"))
+    return documents
 
-    drifted = [
+
+def _stage_text(target: Path, text: str) -> Path:
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=target.parent,
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, stat.S_IMODE(target.stat().st_mode))
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return temporary
+
+
+def _write_generated_documents(documents: Sequence[GeneratedDocument]) -> None:
+    changed = [document for document in documents if document[2] != document[3]]
+    staged: list[tuple[GeneratedDocument, Path]] = []
+    committed: list[GeneratedDocument] = []
+    try:
+        for document in changed:
+            staged.append((document, _stage_text(document[0], document[3])))
+        for document, temporary in staged:
+            os.replace(temporary, document[0])
+            committed.append(document)
+    except BaseException:
+        for document in reversed(committed):
+            rollback = _stage_text(document[0], document[2])
+            os.replace(rollback, document[0])
+        raise
+    finally:
+        for _, temporary in staged:
+            temporary.unlink(missing_ok=True)
+
+
+def _process_generated_documents(
+    documents: Sequence[GeneratedDocument],
+    *,
+    check: bool,
+) -> None:
+    drifted_reference = [
         relative_page
-        for _, relative_page, original, rendered in documents
-        if rendered != original
+        for _, relative_page, original, rendered, kind in documents
+        if kind == "reference" and rendered != original
     ]
-    if check and drifted:
+    drifted_model = [
+        relative_page
+        for _, relative_page, original, rendered, kind in documents
+        if kind == "model-fact" and rendered != original
+    ]
+    if check and drifted_reference:
         raise ReferenceGenerationError(
-            "generated model-fact drift: " + ", ".join(drifted)
+            "generated reference drift: " + ", ".join(drifted_reference)
+        )
+    if check and drifted_model:
+        raise ReferenceGenerationError(
+            "generated model-fact drift: " + ", ".join(drifted_model)
         )
     if not check:
-        for target, _, original, rendered in documents:
-            if rendered != original:
-                target.write_text(rendered, encoding="utf-8")
+        _write_generated_documents(documents)
+
+
+def generate_model_fact_pages(
+    repository_root: Path,
+    catalog: object,
+    *,
+    check: bool,
+    page: str | None = None,
+    model_page_architectures: Mapping[
+        str, tuple[str, ...]
+    ] = MODEL_PAGE_ARCHITECTURES,
+) -> None:
+    """Write or verify an all-validated focused model-page fact batch."""
+
+    documents = _prepare_model_fact_pages(
+        repository_root,
+        catalog,
+        page=page,
+        model_page_architectures=model_page_architectures,
+    )
+    _process_generated_documents(documents, check=check)
 
 
 def partition_reference_settings(
@@ -316,33 +410,26 @@ def generate_reference_pages(
         catalog.settings,
         expected_deferred_assignments=expected_deferred_assignments,
     )
-    documents: list[tuple[Path, str, str, str]] = []
+    documents: list[GeneratedDocument] = []
     for relative_page in REFERENCE_PAGE_PATHS:
-        page = root / "docs/book" / relative_page
-        if not page.is_file():
+        target = root / "docs/book" / relative_page
+        if not target.is_file():
             raise ReferenceGenerationError(f"missing reference page {relative_page}")
-        original = page.read_text(encoding="utf-8")
+        original = target.read_text(encoding="utf-8")
         try:
             block = render_settings_catalog_block(settings_by_page[relative_page])
             rendered = replace_settings_catalog_block(original, block)
         except MarkdownGenerationError as error:
             raise ReferenceGenerationError(f"{relative_page}: {error}") from error
-        documents.append((page, relative_page, original, rendered))
+        documents.append((target, relative_page, original, rendered, "reference"))
 
-    drifted = [
-        relative_page
-        for _, relative_page, original, rendered in documents
-        if rendered != original
-    ]
-    if check and drifted:
-        raise ReferenceGenerationError(
-            "generated reference drift: " + ", ".join(drifted)
-        )
-    if not check:
-        for page, _, original, rendered in documents:
-            if rendered != original:
-                page.write_text(rendered, encoding="utf-8")
-    generate_model_fact_pages(root, catalog, check=check)
+    documents.extend(_prepare_model_fact_pages(
+        root,
+        catalog,
+        page=None,
+        model_page_architectures=MODEL_PAGE_ARCHITECTURES,
+    ))
+    _process_generated_documents(documents, check=check)
 
 
 def _arguments() -> argparse.Namespace:
