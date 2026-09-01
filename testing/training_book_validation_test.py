@@ -14608,6 +14608,33 @@ class BeginnerNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(link, page)
 
+    def test_beginner_page_first_lora_is_a_simple_fixed_sample_walkthrough(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/getting-started/first-lora.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Build the training dataset",
+            "## Create the job in the Simple editor",
+            "## Configure fixed samples",
+            "## Queue and start the job",
+            "## Compare samples and checkpoints",
+            "## Stop and resume safely",
+        ):
+            self.assertIn(heading, page)
+        for phrase in (
+            "first-lora-flex1.yaml",
+            "seed 42",
+            "walk seed",
+            "every 250 steps",
+            "Add to queue",
+            "same prompt",
+            "same seed",
+            "saving-resuming-and-optimizer-state.md",
+        ):
+            self.assertIn(phrase, page)
+        self.assertNotIn("Advanced YAML", page)
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
