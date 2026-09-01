@@ -5,6 +5,7 @@ export const MAX_PRESET_NAME_LENGTH = 80;
 export const MAX_PRESET_SNAPSHOT_BYTES = 512 * 1024;
 
 type PlainProcess = Record<string, unknown>;
+type CopyValue = <T>(value: T, context: string) => T;
 
 export interface TrainingPresetSnapshotV1 {
   schema_version: typeof SNAPSHOT_SCHEMA_VERSION;
@@ -149,6 +150,79 @@ function deepCopy<T>(value: T, context: string): T {
   return JSON.parse(serializeJson(value, context)) as T;
 }
 
+function clonePreservingOwnUndefined(value: unknown, path: string, ancestors: Set<object>): unknown {
+  if (value === undefined || value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error(`${path} must be a finite number`);
+    return value;
+  }
+  if (typeof value !== 'object') throw new Error(`${path} contains unsupported ${typeof value}`);
+  if (ancestors.has(value)) throw new Error(`${path} contains a circular reference`);
+
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
+      if (
+        lengthDescriptor === undefined ||
+        !('value' in lengthDescriptor) ||
+        !Number.isSafeInteger(lengthDescriptor.value) ||
+        lengthDescriptor.value < 0
+      ) {
+        throw new Error(`${path} array length is invalid`);
+      }
+      const length = lengthDescriptor.value as number;
+      const descriptors = new Map<number, PropertyDescriptor>();
+      for (const key of Reflect.ownKeys(value)) {
+        if (key === 'length') continue;
+        if (typeof key !== 'string' || !/^(0|[1-9][0-9]*)$/.test(key)) {
+          throw new Error(`${path} array has a symbol or non-index property`);
+        }
+        const index = Number(key);
+        if (!Number.isSafeInteger(index) || index < 0 || index >= length || String(index) !== key) {
+          throw new Error(`${path} array has an out-of-range index property`);
+        }
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) {
+          throw new Error(`${path}[${key}] must be an enumerable data property, not an accessor`);
+        }
+        descriptors.set(index, descriptor);
+      }
+      if (descriptors.size !== length) throw new Error(`${path} array must not be sparse`);
+      const copy: unknown[] = [];
+      for (let index = 0; index < length; index += 1) {
+        const child = descriptors.get(index)!.value;
+        if (child === undefined) throw new Error(`${path}[${index}] must not be undefined`);
+        copy.push(clonePreservingOwnUndefined(child, `${path}[${index}]`, ancestors));
+      }
+      return copy;
+    }
+
+    if (!isPlainObject(value)) throw new Error(`${path} must be a plain object or array`);
+    const copy = Object.create(Object.getPrototypeOf(value)) as Record<string, unknown>;
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== 'string') throw new Error(`${path} contains an unsupported symbol key`);
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) {
+        throw new Error(`${path}.${key} must be an enumerable data property, not an accessor`);
+      }
+      Object.defineProperty(copy, key, {
+        value: clonePreservingOwnUndefined(descriptor.value, `${path}.${key}`, ancestors),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return copy;
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function deepCopyPreservingOwnUndefined<T>(value: T, _context: string): T {
+  return clonePreservingOwnUndefined(value, '$', new Set()) as T;
+}
+
 function requireSingleProcess(value: unknown, context: string): PlainProcess {
   if (!isPlainObject(value)) throw new Error(`${context} config must be a plain object`);
   const processes = value.process;
@@ -161,15 +235,23 @@ function requireSingleProcess(value: unknown, context: string): PlainProcess {
   return processes[0];
 }
 
-function captureProperty(object: Record<string, unknown>, key: string): PropertyCapture {
+function captureProperty(object: Record<string, unknown>, key: string, copyValue: CopyValue = deepCopy): PropertyCapture {
   return Object.prototype.hasOwnProperty.call(object, key)
-    ? { present: true, value: object[key] === undefined ? undefined : deepCopy(object[key], `Protected field ${key}`) }
+    ? {
+        present: true,
+        value: object[key] === undefined ? undefined : copyValue(object[key], `Protected field ${key}`),
+      }
     : { present: false };
 }
 
-function restoreProperty(object: Record<string, unknown>, key: string, capture: PropertyCapture): void {
+function restoreProperty(
+  object: Record<string, unknown>,
+  key: string,
+  capture: PropertyCapture,
+  copyValue: CopyValue = deepCopy,
+): void {
   if (capture.present) {
-    object[key] = capture.value === undefined ? undefined : deepCopy(capture.value, `Protected field ${key}`);
+    object[key] = capture.value === undefined ? undefined : copyValue(capture.value, `Protected field ${key}`);
   }
   else delete object[key];
 }
@@ -269,29 +351,15 @@ export function applyTrainingPresetWithPolicy(
   policy: TrainingPresetApplicationPolicy,
 ): JobConfig {
   const snapshot = validateTrainingPresetSnapshot(untrustedSnapshot);
-  let unnormalizedNegativePrompt: PropertyCapture | undefined;
-  if (policy.preserveCurrentNegativePrompt) {
-    const unnormalizedCurrent = getJobParts(currentJob, 'Current job config');
-    const unnormalizedSample = isPlainObject(unnormalizedCurrent.process.sample)
-      ? unnormalizedCurrent.process.sample
-      : {};
-    unnormalizedNegativePrompt = captureProperty(unnormalizedSample, 'neg');
-  }
-  const currentCopy = deepCopy(currentJob, 'Current job config');
-  if (unnormalizedNegativePrompt !== undefined) {
-    const currentCopyParts = getJobParts(currentCopy, 'Current job config');
-    if (!isPlainObject(currentCopyParts.process.sample)) currentCopyParts.process.sample = {};
-    restoreProperty(
-      currentCopyParts.process.sample as Record<string, unknown>,
-      'neg',
-      unnormalizedNegativePrompt,
-    );
-  }
+  const copyForApplication: CopyValue = policy.preserveCurrentNegativePrompt
+    ? deepCopyPreservingOwnUndefined
+    : deepCopy;
+  const currentCopy = copyForApplication(currentJob, 'Current job config');
   const original = getJobParts(currentCopy, 'Current job config');
-  const configName = captureProperty(original.config, 'name');
-  const meta = captureProperty(original.root, 'meta');
+  const configName = captureProperty(original.config, 'name', copyForApplication);
+  const meta = captureProperty(original.root, 'meta', copyForApplication);
   const protectedProcess = Object.fromEntries(
-    PROCESS_PROTECTED_KEYS.map(key => [key, captureProperty(original.process, key)]),
+    PROCESS_PROTECTED_KEYS.map(key => [key, captureProperty(original.process, key, copyForApplication)]),
   ) as Record<(typeof PROCESS_PROTECTED_KEYS)[number], PropertyCapture>;
   const originalSample = isPlainObject(original.process.sample) ? original.process.sample : {};
   const preserveSamples =
@@ -305,14 +373,16 @@ export function applyTrainingPresetWithPolicy(
     ? migratedCurrentParts.process.sample
     : {};
   const negativePrompt = policy.preserveCurrentNegativePrompt
-    ? captureProperty(migratedCurrentSample, 'neg')
+    ? captureProperty(migratedCurrentSample, 'neg', copyForApplication)
     : undefined;
-  const normalizedCurrent = deepCopy(migratedCurrent, 'Migrated current job config');
+  const normalizedCurrent = copyForApplication(migratedCurrent, 'Migrated current job config');
   const current = getJobParts(normalizedCurrent, 'Migrated current job config');
   validateTrainingProcess(current.process, 'config.process[0]');
 
   const currentSample = isPlainObject(current.process.sample) ? current.process.sample : {};
-  const samples = preserveSamples ? captureProperty(currentSample, 'samples') : { present: false };
+  const samples = preserveSamples
+    ? captureProperty(currentSample, 'samples', copyForApplication)
+    : { present: false };
 
   const candidateProcess = deepCopy(snapshot.config.process[0], 'Training preset process');
   const candidate: Record<string, unknown> = {
@@ -322,14 +392,14 @@ export function applyTrainingPresetWithPolicy(
 
   const restoreProtected = (job: Record<string, unknown>): void => {
     const parts = getJobParts(job, 'Preset candidate');
-    restoreProperty(parts.config, 'name', configName);
-    restoreProperty(parts.root, 'meta', meta);
+    restoreProperty(parts.config, 'name', configName, copyForApplication);
+    restoreProperty(parts.root, 'meta', meta, copyForApplication);
     for (const key of PROCESS_PROTECTED_KEYS) {
-      restoreProperty(parts.process, key, protectedProcess[key]);
+      restoreProperty(parts.process, key, protectedProcess[key], copyForApplication);
     }
     if (samples.present) {
       if (!isPlainObject(parts.process.sample)) parts.process.sample = {};
-      restoreProperty(parts.process.sample as Record<string, unknown>, 'samples', samples);
+      restoreProperty(parts.process.sample as Record<string, unknown>, 'samples', samples, copyForApplication);
     } else if (isPlainObject(parts.process.sample)) {
       delete parts.process.sample.samples;
     }
@@ -337,7 +407,7 @@ export function applyTrainingPresetWithPolicy(
     if (negativePrompt !== undefined) {
       if (negativePrompt.present) {
         if (!isPlainObject(parts.process.sample)) parts.process.sample = {};
-        restoreProperty(parts.process.sample as Record<string, unknown>, 'neg', negativePrompt);
+        restoreProperty(parts.process.sample as Record<string, unknown>, 'neg', negativePrompt, copyForApplication);
       } else if (isPlainObject(parts.process.sample)) {
         delete parts.process.sample.neg;
       }
@@ -345,16 +415,16 @@ export function applyTrainingPresetWithPolicy(
   };
 
   restoreProtected(candidate);
-  const candidateForMigration = deepCopy(candidate, 'Preset candidate') as unknown as Record<string, unknown>;
+  const candidateForMigration = copyForApplication(candidate, 'Preset candidate') as unknown as Record<string, unknown>;
   restoreProtected(candidateForMigration);
-  const migratedCandidate = deepCopy(
+  const migratedCandidate = copyForApplication(
     migrate(candidateForMigration as unknown as JobConfig),
     'Migrated preset candidate',
   ) as unknown as Record<string, unknown>;
   validateTrainingProcess(getJobParts(migratedCandidate, 'Migrated preset candidate').process, 'config.process[0]');
   restoreProtected(migratedCandidate);
   validateTrainingProcess(getJobParts(migratedCandidate, 'Applied training preset').process, 'config.process[0]');
-  const result = deepCopy(migratedCandidate, 'Applied training preset') as unknown as Record<string, unknown>;
+  const result = copyForApplication(migratedCandidate, 'Applied training preset') as unknown as Record<string, unknown>;
   restoreProtected(result);
   validateTrainingProcess(getJobParts(result, 'Applied training preset').process, 'config.process[0]');
   return result as unknown as JobConfig;

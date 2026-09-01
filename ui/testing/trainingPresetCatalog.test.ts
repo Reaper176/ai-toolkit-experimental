@@ -79,6 +79,9 @@ const currentForBuiltIn = {
   },
   meta: { name: '[name]', custom: 'keep' },
 } as any;
+(currentForBuiltIn.config.process[0].train as any).optional_current_setting = undefined;
+(currentForBuiltIn.config.process[0].datasets[0] as any).optional_control_setting = undefined;
+(currentForBuiltIn.meta as any).optional_identity_setting = undefined;
 const builtInFlux = materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[4]);
 const builtInSourceBefore = structuredClone(builtInFlux);
 const currentForBuiltInBefore = structuredClone(currentForBuiltIn);
@@ -120,12 +123,25 @@ assert.equal(builtInProcess.output, 'current-output');
 assert.equal(builtInProcess.output_dir, 'current-output-dir');
 assert.equal(builtInProcess.output_path, 'current-output-path');
 assert.equal(builtInProcess.output_folder, 'current-output-folder');
-assert.deepEqual(builtInProcess.datasets, [{ folder_path: '/current/images', controls: ['current-control'] }]);
+assert.deepEqual(builtInProcess.datasets, [{
+  folder_path: '/current/images',
+  controls: ['current-control'],
+  optional_control_setting: undefined,
+}]);
 assert.equal(builtInApplied.config.name, 'current identity');
-assert.deepEqual(builtInApplied.meta, { name: '[name]', custom: 'keep' });
+assert.deepEqual(builtInApplied.meta, { name: '[name]', custom: 'keep', optional_identity_setting: undefined });
 assert.deepEqual(builtInFlux, builtInSourceBefore);
 assert.deepEqual(currentForBuiltIn, currentForBuiltInBefore);
 assert.deepEqual(builtInUndoInput, currentForBuiltInBefore, 'undo input is the complete pre-application current job');
+assert.equal(
+  Object.prototype.hasOwnProperty.call((builtInUndoInput as any).config.process[0].train, 'optional_current_setting'),
+  true,
+);
+assert.equal(
+  Object.prototype.hasOwnProperty.call((builtInUndoInput as any).config.process[0].datasets[0], 'optional_control_setting'),
+  true,
+);
+assert.equal(Object.prototype.hasOwnProperty.call((builtInUndoInput as any).meta, 'optional_identity_setting'), true);
 assert.deepEqual(candidateNegativeBeforeMigration, { present: true, value: 'migrated current negative' });
 assert.equal('category' in builtInApplied, false);
 builtInApplied.config.process[0].datasets[0].controls[0] = 'mutated-result-control';
@@ -154,10 +170,6 @@ const undefinedNegativeApplied = applyBuiltInTrainingPreset(undefinedNegativeCur
 assert.equal(undefinedMigrationCall, 2);
 assert.equal(Object.prototype.hasOwnProperty.call(undefinedNegativeApplied.config.process[0].sample, 'neg'), true);
 assert.equal(undefinedNegativeApplied.config.process[0].sample.neg, undefined);
-
-const currentWithOptionalUndefined = structuredClone(currentForBuiltIn);
-(currentWithOptionalUndefined.config.process[0] as any).train.optional_current_setting = undefined;
-assert.doesNotThrow(() => applyBuiltInTrainingPreset(currentWithOptionalUndefined, builtInFlux, job => job));
 
 const wrongArchitecture = structuredClone(currentForBuiltIn);
 wrongArchitecture.config.process[0].model.arch = 'sdxl';

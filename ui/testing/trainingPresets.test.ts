@@ -147,6 +147,53 @@ const builtInPolicyApplied = applyTrainingPresetWithPolicy(policyCurrent, builtI
 }, { preserveCurrentNegativePrompt: true });
 assert.equal((builtInPolicyApplied.config.process[0] as any).sample.neg, 'migrated current negative');
 
+const arrayPropertyCurrent = jobFixture() as any;
+arrayPropertyCurrent.config.process[0].train.future_values = [1];
+arrayPropertyCurrent.config.process[0].train.future_values.extra = Number.NaN;
+assert.throws(
+  () => applyTrainingPresetWithPolicy(arrayPropertyCurrent, builtInPolicySnapshot, job => job, {
+    preserveCurrentNegativePrompt: true,
+  }),
+  /array.*(?:property|index)/i,
+);
+
+const accessorCurrent = jobFixture() as any;
+let unsafeAccessorReads = 0;
+Object.defineProperty(accessorCurrent.config.process[0].train, 'changing_value', {
+  enumerable: true,
+  configurable: true,
+  get: () => {
+    unsafeAccessorReads += 1;
+    return unsafeAccessorReads === 1 ? undefined : 1n;
+  },
+});
+assert.throws(
+  () => applyTrainingPresetWithPolicy(accessorCurrent, builtInPolicySnapshot, job => job, {
+    preserveCurrentNegativePrompt: true,
+  }),
+  /accessor/i,
+);
+assert.equal(unsafeAccessorReads, 0, 'descriptor-aware copy must not invoke rejected accessors');
+
+const protoKeyCurrent = jobFixture() as any;
+Object.defineProperty(protoKeyCurrent.config.process[0].train, '__proto__', {
+  value: undefined,
+  enumerable: true,
+  writable: true,
+  configurable: true,
+});
+let protoKeyMigrationCall = 0;
+applyTrainingPresetWithPolicy(protoKeyCurrent, builtInPolicySnapshot, job => {
+  protoKeyMigrationCall += 1;
+  if (protoKeyMigrationCall === 1) {
+    const train = (job.config.process[0] as any).train;
+    assert.equal(Object.prototype.hasOwnProperty.call(train, '__proto__'), true);
+    assert.equal(train.__proto__, undefined);
+  }
+  return job;
+}, { preserveCurrentNegativePrompt: true });
+assert.equal(protoKeyMigrationCall, 2);
+
 const userRecordContract: UserTrainingPresetRecord = {
   id: 'user-preset',
   name: 'User preset',
