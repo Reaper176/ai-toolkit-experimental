@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse
 import ast
+import importlib.machinery
 import json
 import os
 import tempfile
@@ -66,12 +67,58 @@ def normalize_architecture(value: str, overrides: dict[str, str] | None = None) 
     return target if normalized == alias else normalized
 
 def _literal_name_list(module: ast.Module, variable: str) -> list[str]:
+    assignments: list[ast.Assign | ast.AnnAssign] = []
+
+    class UnsupportedBindingVisitor(ast.NodeVisitor):
+        found = False
+
+        def visit_Name(self, node: ast.Name) -> None:
+            if node.id == variable and isinstance(node.ctx, (ast.Store, ast.Del)):
+                self.found = True
+
+        def visit_Call(self, node: ast.Call) -> None:
+            if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and node.func.value.id == variable:
+                self.found = True
+            self.generic_visit(node)
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            if node.name == variable:
+                self.found = True
+            self.generic_visit(node)
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            if node.name == variable:
+                self.found = True
+            self.generic_visit(node)
+
+        def visit_Import(self, node: ast.Import) -> None:
+            if any((alias.asname or alias.name.split(".")[0]) == variable for alias in node.names):
+                self.found = True
+
+        def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+            if any((alias.asname or alias.name) == variable for alias in node.names):
+                self.found = True
+
     for node in module.body:
-        if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == variable for target in node.targets):
-            if not isinstance(node.value, (ast.List, ast.Tuple)) or not all(isinstance(item, ast.Name) for item in node.value.elts):
-                raise AssertionError(f"{variable} must be a literal source-visible name list")
-            return [item.id for item in node.value.elts]
-    return []
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and node.targets[0].id == variable:
+            assignments.append(node)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == variable:
+            assignments.append(node)
+        else:
+            visitor = UnsupportedBindingVisitor()
+            visitor.visit(node)
+            if visitor.found:
+                raise AssertionError(f"{variable} dynamic binding or augmentation is unsupported")
+    if not assignments:
+        return []
+    if len(assignments) != 1:
+        raise AssertionError(f"{variable} has multiple bindings")
+    value = assignments[0].value
+    if not isinstance(value, (ast.List, ast.Tuple)) or not all(isinstance(item, ast.Name) for item in value.elts):
+        raise AssertionError(f"{variable} must be a literal source-visible name list")
+    return [item.id for item in value.elts]
 
 def resolver_contract(overrides: dict[str, str] | None = None) -> tuple[list[str], list[str], str]:
     module = tree("toolkit/util/get_model.py", overrides)
@@ -174,37 +221,55 @@ def registered_model_definitions(overrides: dict[str, str] | None = None) -> tup
         absolute = ROOT / folder
         if not absolute.is_dir():
             continue
-        eligible: dict[str, str] = {}
-        for child in absolute.iterdir():
-            relative = None
-            if child.is_dir() and (child / "__init__.py").is_file():
-                relative = f"{folder}/{child.name}/__init__.py"
-            elif child.is_file() and child.suffix == ".py" and child.name != "__init__.py":
-                relative = f"{folder}/{child.name}"
-            if relative is not None:
-                module_name = child.stem if child.is_file() else child.name
-                if module_name in eligible:
+        eligible: dict[str, str | None] = {}
+        import_suffixes = tuple(sorted(set(importlib.machinery.all_suffixes()), key=len, reverse=True))
+
+        def suffix_for(filename: str) -> str | None:
+            return next((suffix for suffix in import_suffixes if filename.endswith(suffix)), None)
+
+        def register(module_name: str, relative: str, parseable: bool) -> None:
+            existing = eligible.get(module_name)
+            if module_name in eligible and existing != relative:
+                if existing is None or not parseable:
+                    eligible[module_name] = None
+                else:
                     raise AssertionError(f"ambiguous eligible extension module {folder}/{module_name}")
-                eligible[module_name] = relative
+            else:
+                eligible[module_name] = relative if parseable else None
+
+        for child in absolute.iterdir():
+            if child.is_dir():
+                initializers = [
+                    entry for entry in child.iterdir()
+                    if (suffix := suffix_for(entry.name)) is not None and entry.name[:-len(suffix)] == "__init__"
+                ]
+                if initializers:
+                    source_initializer = next((entry for entry in initializers if entry.name == "__init__.py"), None)
+                    register(child.name, f"{folder}/{child.name}/__init__.py", source_initializer is not None)
+            elif child.is_file():
+                suffix = suffix_for(child.name)
+                if suffix is not None:
+                    module_name = child.name[:-len(suffix)]
+                    if module_name != "__init__":
+                        register(module_name, f"{folder}/{child.name}", suffix == ".py")
         for relative in (overrides or {}):
             prefix = f"{folder}/"
             if not relative.startswith(prefix):
                 continue
             remainder = relative[len(prefix):]
-            if remainder.endswith(".py") and "/" not in remainder and remainder != "__init__.py":
-                module_name = remainder[:-3]
-                existing = eligible.get(module_name)
-                if existing is not None and existing != relative:
-                    raise AssertionError(f"ambiguous eligible extension module {folder}/{module_name}")
-                eligible[module_name] = relative
-            elif remainder.endswith("/__init__.py") and remainder.count("/") == 1:
-                module_name = remainder.split("/", 1)[0]
-                existing = eligible.get(module_name)
-                if existing is not None and existing != relative:
-                    raise AssertionError(f"ambiguous eligible extension module {folder}/{module_name}")
-                eligible[module_name] = relative
+            if "/" not in remainder:
+                suffix = suffix_for(remainder)
+                if suffix is not None and remainder[:-len(suffix)] != "__init__":
+                    register(remainder[:-len(suffix)], relative, suffix == ".py")
+            elif remainder.count("/") == 1:
+                module_name, initializer = remainder.split("/", 1)
+                suffix = suffix_for(initializer)
+                if suffix is not None and initializer[:-len(suffix)] == "__init__":
+                    register(module_name, relative, suffix == ".py")
         for module_name in sorted(eligible):
             relative = eligible[module_name]
+            if relative is None:
+                raise AssertionError(f"eligible extension module {folder}/{module_name} lacks parseable .py source")
             definitions.extend(resolve_symbol(relative, symbol, overrides) for symbol in _literal_name_list(tree(relative, overrides), "AI_TOOLKIT_MODELS"))
     return definitions, resolve_symbol(resolver_path, fallback_symbol, overrides)
 
@@ -306,6 +371,26 @@ class BackendMappingTests(unittest.TestCase):
         self.assertEqual(flux["model_class"], "FluxInterceptor")
         with self.assertRaisesRegex(AssertionError, "backend mapping report drift"):
             validate_expected_report(actual)
+
+    def test_annotated_registry_assignment_is_discovered(self) -> None:
+        path = "extensions_built_in/annotated_interceptor.py"
+        actual = build_report({path: "class FluxInterceptor:\n    arch = 'flux'\n\nAI_TOOLKIT_MODELS: list[type] = [FluxInterceptor]\n"})
+        flux = next(row for row in actual["bindings"] if row["ui_architecture"] == "flux")
+        self.assertEqual(flux["model_class"], "FluxInterceptor")
+
+    def test_registry_dynamic_augmentation_fails_closed(self) -> None:
+        path = "extensions_built_in/augmented_registry.py"
+        with self.assertRaisesRegex(AssertionError, "AI_TOOLKIT_MODELS.*dynamic|multiple|unsupported"):
+            build_report({path: "class FluxInterceptor:\n    arch = 'flux'\nAI_TOOLKIT_MODELS = [FluxInterceptor]\nAI_TOOLKIT_MODELS.append(FluxInterceptor)\n"})
+
+    def test_conditional_registry_rebinding_fails_closed(self) -> None:
+        path = "extensions_built_in/conditional_registry.py"
+        with self.assertRaisesRegex(AssertionError, "AI_TOOLKIT_MODELS.*unsupported"):
+            build_report({path: "AI_TOOLKIT_MODELS = []\nif __debug__:\n    AI_TOOLKIT_MODELS = []\n"})
+
+    def test_eligible_native_module_without_python_source_fails_closed(self) -> None:
+        with self.assertRaisesRegex(AssertionError, r"eligible extension module.*parseable.*\.py"):
+            build_report({"extensions_built_in/native_interceptor.so": "binary fixture"})
 
     def test_unsupported_eligible_top_level_registry_fails_closed(self) -> None:
         path = "extensions_built_in/dynamic_registry.py"

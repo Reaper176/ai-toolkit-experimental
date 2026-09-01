@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -16,6 +16,7 @@ import { BUILT_IN_PRESET_ROWS, materializeBuiltInTrainingPresetRow } from '../sr
 import { canonicalizePresetJson } from '../src/helpers/builtInTrainingPresets';
 import type { BuiltInTrainingPresetRecord } from '../src/helpers/trainingPresets';
 import {
+  main as validationCliMain,
   writeJsonExclusive,
   writeTrainingPresetRecipesAtomically,
   type ExclusiveJsonFileOperations,
@@ -209,6 +210,11 @@ function recipeContents(root: string): string[] {
   return BUILT_IN_RECIPE_PATHS.map(path => readFileSync(join(root, path), 'utf8'));
 }
 
+function recipeTemporaryFiles(root: string): string[] {
+  return [...new Set(BUILT_IN_RECIPE_PATHS.map(path => resolve(root, path, '..')))]
+    .flatMap(directory => readdirSync(directory).filter(name => /^\..+\.preset-\d+-\d+\.tmp$/u.test(name)));
+}
+
 test('recipe publication preflight rejects an external symlink without changing any recipe', () => {
   const root = copiedBook();
   const before = recipeContents(root);
@@ -232,6 +238,7 @@ test('late malformed recipe markers leave every earlier recipe unchanged', () =>
     assert.throws(() => writeTrainingPresetRecipesAtomically(root, records), /invalid built-in preset markers/i);
     assert.deepEqual(recipeContents(root), expected);
     assert.deepEqual(recipeContents(root).slice(0, -1), before.slice(0, -1));
+    assert.deepEqual(recipeTemporaryFiles(root), []);
   } finally { rmSync(root, { recursive: true }); }
 });
 
@@ -248,10 +255,76 @@ test('injected late rename failure rolls back all recipes and cleans temporary f
   try {
     assert.throws(() => writeTrainingPresetRecipesAtomically(root, records, operations), /injected rename failure/i);
     assert.deepEqual(recipeContents(root), before);
-    for (const recipe of BUILT_IN_RECIPE_PATHS) {
-      assert.deepEqual(readdirSync(resolve(root, recipe, '..')).filter(name => name.includes('.training-preset-tmp-')), []);
-    }
+    assert.deepEqual(recipeTemporaryFiles(root), []);
   } finally { rmSync(root, { recursive: true }); }
+});
+
+test('successful recipe publication cleans every owned temporary file', () => {
+  const root = copiedBook();
+  try {
+    writeTrainingPresetRecipesAtomically(root, records);
+    assert.deepEqual(recipeTemporaryFiles(root), []);
+  } finally { rmSync(root, { recursive: true }); }
+});
+
+test('post-publication validation failure rolls back every recipe byte-for-byte', () => {
+  const root = copiedBook();
+  const before = recipeContents(root);
+  try {
+    assert.throws(
+      () => writeTrainingPresetRecipesAtomically(root, records, undefined, () => { throw new Error('forced backend validation failure'); }),
+      /forced backend validation failure/i,
+    );
+    assert.deepEqual(recipeContents(root), before);
+    assert.deepEqual(recipeTemporaryFiles(root), []);
+  } finally { rmSync(root, { recursive: true }); }
+});
+
+test('--write-recipes rolls back published recipes when backend validation fails', () => {
+  const root = copiedBook();
+  const before = recipeContents(root);
+  const backendPath = join(root, 'bad-backend.json');
+  const uiPath = join(root, 'ui-facts.json');
+  const badBackend = structuredClone(backendReport);
+  badBackend.bindings[0].model_class = 'WrongBackend';
+  const rawUiFacts = {
+    model_architectures: uiFacts.architectures.map(row => ({
+      name: row.name,
+      model_path: { present: true, value: { kind: 'string', value: row.model_path } },
+      gate_url: row.gate_url === null ? { present: false } : { present: true, value: { kind: 'string', value: row.gate_url } },
+      controls: row.controls,
+    })),
+  };
+  try {
+    writeFileSync(backendPath, JSON.stringify(badBackend));
+    writeFileSync(uiPath, JSON.stringify(rawUiFacts));
+    assert.throws(() => validationCliMain([
+      '--write-recipes', '--repository-root', root, '--backend-report', backendPath, '--ui-facts', uiPath,
+    ]), /backend class drift|backend mapping report drift/i);
+    assert.deepEqual(recipeContents(root), before);
+    assert.deepEqual(recipeTemporaryFiles(root), []);
+  } finally { rmSync(root, { recursive: true }); }
+});
+
+test('recipe temporary replacement race neither overwrites nor removes the attacker target', () => {
+  const root = copiedBook();
+  const external = `${root}-external-owner`;
+  let replacement = '';
+  const operations: TrainingPresetRecipeFileOperations = {
+    rename: renameSync,
+    afterTemporaryCreated(path) {
+      if (replacement) return;
+      replacement = path;
+      rmSync(path);
+      symlinkSync(external, path);
+    },
+  };
+  try {
+    writeFileSync(external, 'owner');
+    assert.throws(() => writeTrainingPresetRecipesAtomically(root, records, operations), /temporary.*ownership|replaced/i);
+    assert.equal(readFileSync(external, 'utf8'), 'owner');
+    assert.equal(lstatSync(replacement).isSymbolicLink(), true);
+  } finally { rmSync(root, { recursive: true }); rmSync(external, { force: true }); }
 });
 
 test('exclusive JSON publication never overwrites a preexisting file', () => {
@@ -285,6 +358,28 @@ test('exclusive JSON publication loses a simulated target race without overwriti
     assert.throws(() => writeJsonExclusive(target, { schema_version: 1 }, operations), /exist|exclusive/i);
     assert.equal(readFileSync(target, 'utf8'), 'racer');
     assert.deepEqual(readdirSync(directory), ['facts.json']);
+  } finally { rmSync(directory, { recursive: true }); }
+});
+
+test('exclusive JSON temporary replacement race does not overwrite or clean the replacement', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'training-preset-exclusive-'));
+  const external = join(directory, 'external.json');
+  const target = join(directory, 'facts.json');
+  let replacement = '';
+  const operations: ExclusiveJsonFileOperations = {
+    link: linkSync,
+    afterTemporaryCreated(path) {
+      replacement = path;
+      rmSync(path);
+      symlinkSync(external, path);
+    },
+  };
+  try {
+    writeFileSync(external, 'owner');
+    assert.throws(() => writeJsonExclusive(target, { schema_version: 1 }, operations), /temporary.*ownership|replaced/i);
+    assert.equal(readFileSync(external, 'utf8'), 'owner');
+    assert.equal(lstatSync(replacement).isSymbolicLink(), true);
+    assert.equal(existsSync(target), false);
   } finally { rmSync(directory, { recursive: true }); }
 });
 

@@ -1,7 +1,8 @@
 import {
   closeSync,
-  chmodSync,
   existsSync,
+  fchmodSync,
+  fstatSync,
   fsyncSync,
   linkSync,
   lstatSync,
@@ -25,10 +26,12 @@ import {
 
 export interface TrainingPresetRecipeFileOperations {
   rename(source: string, target: string): void;
+  afterTemporaryCreated?(path: string): void;
 }
 
 export interface ExclusiveJsonFileOperations {
   link(source: string, target: string): void;
+  afterTemporaryCreated?(path: string): void;
 }
 
 const recipeFileOperations: TrainingPresetRecipeFileOperations = { rename: renameSync };
@@ -67,15 +70,44 @@ function confinedRecipeFile(repositoryRoot: string, relativePath: string): strin
   return realTarget;
 }
 
-function temporaryPath(destination: string): string {
+interface OwnedTemporaryFile {
+  path: string;
+  descriptor: number;
+  device: number;
+  inode: number;
+}
+
+function ownsTemporaryPath(temporary: OwnedTemporaryFile): boolean {
+  try {
+    const stat = lstatSync(temporary.path);
+    return !stat.isSymbolicLink() && stat.dev === temporary.device && stat.ino === temporary.inode;
+  } catch { return false; }
+}
+
+function cleanupTemporary(temporary: OwnedTemporaryFile): void {
+  if (temporary.descriptor >= 0) {
+    closeSync(temporary.descriptor);
+    temporary.descriptor = -1;
+  }
+  if (ownsTemporaryPath(temporary)) rmSync(temporary.path);
+}
+
+function verifyTemporaryOwnership(temporary: OwnedTemporaryFile): void {
+  if (!ownsTemporaryPath(temporary)) throw new Error(`temporary file ownership was replaced: ${temporary.path}`);
+}
+
+function temporaryFile(destination: string, afterCreated?: (path: string) => void): OwnedTemporaryFile {
   const directory = dirname(destination);
   const base = destination.slice(directory.length + 1);
   for (let index = 0; index < 1000; index += 1) {
     const candidate = resolve(directory, `.${base}.preset-${process.pid}-${index}.tmp`);
     try {
       const descriptor = openSync(candidate, 'wx', 0o600);
-      closeSync(descriptor);
-      return candidate;
+      const stat = fstatSync(descriptor);
+      const temporary = { path: candidate, descriptor, device: stat.dev, inode: stat.ino };
+      try { afterCreated?.(candidate); }
+      catch (error) { cleanupTemporary(temporary); throw error; }
+      return temporary;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
     }
@@ -83,14 +115,16 @@ function temporaryPath(destination: string): string {
   throw new Error(`could not allocate an exclusive temporary file beside ${destination}`);
 }
 
-function writeAndSync(path: string, contents: string): void {
-  const descriptor = openSync(path, 'w');
+function writeAndSync(temporary: OwnedTemporaryFile, contents: string, mode?: number): void {
   try {
-    writeFileSync(descriptor, contents, 'utf8');
-    fsyncSync(descriptor);
+    if (mode !== undefined) fchmodSync(temporary.descriptor, mode);
+    writeFileSync(temporary.descriptor, contents, 'utf8');
+    fsyncSync(temporary.descriptor);
   } finally {
-    closeSync(descriptor);
+    closeSync(temporary.descriptor);
+    temporary.descriptor = -1;
   }
+  verifyTemporaryOwnership(temporary);
 }
 
 function syncDirectory(path: string): void {
@@ -109,45 +143,47 @@ export function writeTrainingPresetRecipesAtomically(
   repositoryRoot: string,
   records: ReturnType<typeof materializeBuiltInTrainingPresetRow>[],
   operations: TrainingPresetRecipeFileOperations = recipeFileOperations,
+  validatePublished?: () => void,
 ): void {
   const plans = BUILT_IN_RECIPE_PATHS.map(recipe => {
     const path = confinedRecipeFile(repositoryRoot, recipe);
     const original = readFileSync(path, 'utf8');
     const replacement = replaceBlock(original, renderBuiltInTrainingPresetRecipeBlock(records, recipe), recipe);
-    return { path, original, replacement, mode: statSync(path).mode & 0o777, temporary: '' };
+    return { path, original, replacement, mode: statSync(path).mode & 0o777, temporary: undefined as OwnedTemporaryFile | undefined };
   });
   const published: typeof plans = [];
   try {
     for (const plan of plans) {
-      plan.temporary = temporaryPath(plan.path);
-      chmodSync(plan.temporary, plan.mode);
-      writeAndSync(plan.temporary, plan.replacement);
+      plan.temporary = temporaryFile(plan.path, operations.afterTemporaryCreated);
+      writeAndSync(plan.temporary, plan.replacement, plan.mode);
     }
     for (const plan of plans) {
-      operations.rename(plan.temporary, plan.path);
-      plan.temporary = '';
+      verifyTemporaryOwnership(plan.temporary!);
+      operations.rename(plan.temporary!.path, plan.path);
+      plan.temporary = undefined;
       published.push(plan);
       syncDirectory(dirname(plan.path));
     }
+    validatePublished?.();
   } catch (error) {
     let rollbackError: unknown;
     for (const plan of [...published].reverse()) {
       try {
-        const rollback = temporaryPath(plan.path);
+        const rollback = temporaryFile(plan.path, operations.afterTemporaryCreated);
         try {
-          chmodSync(rollback, plan.mode);
-          writeAndSync(rollback, plan.original);
-          operations.rename(rollback, plan.path);
+          writeAndSync(rollback, plan.original, plan.mode);
+          verifyTemporaryOwnership(rollback);
+          operations.rename(rollback.path, plan.path);
           syncDirectory(dirname(plan.path));
         } finally {
-          if (existsSync(rollback)) rmSync(rollback);
+          cleanupTemporary(rollback);
         }
       } catch (candidate) { rollbackError ??= candidate; }
     }
     if (rollbackError) throw new Error(`recipe publication failed and rollback failed: ${String(error)}; ${String(rollbackError)}`);
     throw error;
   } finally {
-    for (const plan of plans) if (plan.temporary && existsSync(plan.temporary)) rmSync(plan.temporary);
+    for (const plan of plans) if (plan.temporary) cleanupTemporary(plan.temporary);
   }
 }
 
@@ -159,16 +195,17 @@ export function writeJsonExclusive(
   const target = resolve(targetPath);
   const parent = dirname(target);
   if (!existsSync(parent) || lstatSync(parent).isSymbolicLink() || !lstatSync(parent).isDirectory()) throw new Error(`output parent must be an existing owned directory: ${targetPath}`);
-  const temporary = temporaryPath(target);
+  const temporary = temporaryFile(target, operations.afterTemporaryCreated);
   try {
     writeAndSync(temporary, `${JSON.stringify(value, null, 2)}\n`);
-    operations.link(temporary, target);
+    verifyTemporaryOwnership(temporary);
+    operations.link(temporary.path, target);
     syncDirectory(parent);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`exclusive output already exists: ${targetPath}`);
     throw error;
   } finally {
-    if (existsSync(temporary)) rmSync(temporary);
+    cleanupTemporary(temporary);
   }
 }
 
@@ -213,13 +250,13 @@ export function main(args = process.argv.slice(2)): void {
     writeJsonExclusive(args[1], { schema_version: 1, presets: records.map(record => ({ id: record.id, name: record.name, model_arch: record.model_arch, recipe_path: record.recipe_path })) });
   } else if (operation === '--write-recipes' || operation === '--check') {
     if (repositoryIndex < 0 || backendIndex < 0 || uiIndex < 0 || args.length !== 7) throw new Error(`usage: ${operation} --repository-root <root> --backend-report <json> --ui-facts <json>`);
-    if (operation === '--write-recipes') writeTrainingPresetRecipesAtomically(repositoryRoot, records);
-    validateBuiltInTrainingPresetRelease({
-      repositoryRoot,
-      records,
+    const report = {
       backendReport: parseJson(args[backendIndex + 1]) as TrainingPresetBackendMappingReport,
       uiFacts: projectUiFacts(parseJson(args[uiIndex + 1])),
-    });
+    };
+    const validate = () => validateBuiltInTrainingPresetRelease({ repositoryRoot, records, ...report });
+    if (operation === '--write-recipes') writeTrainingPresetRecipesAtomically(repositoryRoot, records, undefined, validate);
+    else validate();
   } else {
     throw new Error('expected exactly one of --write-recipes, --check, or --emit-book-facts <owned-path>');
   }
