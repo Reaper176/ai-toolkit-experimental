@@ -47,7 +47,7 @@ export interface BuiltInTrainingPresetRecord extends TrainingPresetRecordBase {
   category: BuiltInTrainingPresetCategory;
   intent_slug: string;
   model_arch: string;
-  catalog_revision: string;
+  catalog_revision: number;
   summary: string;
   recipe_path: string;
   prerequisites: string[];

@@ -151,7 +151,7 @@ const builtInRecordContract: BuiltInTrainingPresetRecord = {
   category: 'style',
   intent_slug: 'style-balanced',
   model_arch: 'flux',
-  catalog_revision: '2026-09-01',
+  catalog_revision: 1,
   summary: 'Balanced style training.',
   recipe_path: 'recipes/style-balanced.yaml',
   prerequisites: ['captioned images'],
