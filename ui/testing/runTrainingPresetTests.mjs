@@ -12,6 +12,7 @@ const testFiles = [
   'maskTrainingValidation.test.js',
   'maskTrainingControls.test.js',
   'trainingPresets.test.js',
+  'trainingPresetCatalog.test.js',
   'trainingPresetService.test.js',
   'trainingPresetRouteHandlers.test.js',
   'trainingPresetPrismaIntegration.test.js',
