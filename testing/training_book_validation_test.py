@@ -15636,6 +15636,44 @@ class ModelNarrativePageTests(unittest.TestCase):
             self.assertIn(phrase.lower(), page.lower())
         self.assertEqual(payload["deferred_settings"], [])
 
+    def test_model_pages_page_model_qwen_covers_generation_and_edit_variants(self):
+        page, payload = self.assert_model_page_contract(
+            "models/qwen-image-and-edit.md",
+            (
+                "qwen_image", "qwen_image:2512", "qwen_image_edit",
+                "qwen_image_edit_plus", "qwen_image_edit_plus:2511",
+            ),
+        )
+        for phrase in (
+            "Qwen/Qwen-Image",
+            "Qwen/Qwen-Image-2512",
+            "Qwen/Qwen-Image-Edit",
+            "Qwen/Qwen-Image-Edit-2509",
+            "Qwen/Qwen-Image-Edit-2511",
+            "not interchangeable",
+            "control_path",
+            "ctrl_img",
+            "multi_control_paths",
+            "multi_ctrl_imgs",
+            "match_target_res",
+            "false",
+            "qfloat8",
+            "low_vram",
+            "flowmatch",
+            "weighted",
+            "paired",
+            "fixed seed",
+            "../datasets/controls-video-audio.md",
+            "../recipes/object-concept.md",
+            "../recipes/focused-refinement.md",
+            "../workflow/sampling-and-evaluation.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+        self.assertEqual(
+            tuple(item["id"] for item in payload["deferred_settings"]),
+            ("model.qwen_image_edit_plus.model_kwargs.match_target_res",),
+        )
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
