@@ -7,8 +7,16 @@ import {
   sanitizeTrainingPreset,
   validateTrainingPresetSnapshot,
   type TrainingPresetSnapshotV1,
+  type BuiltInTrainingPresetRecord,
+  type TrainingPresetRecord,
   type UserTrainingPresetRecord,
 } from '../helpers/trainingPresets';
+import { copyBuiltInPreset } from '../helpers/builtInTrainingPresets';
+import { trainingPresetCatalogIdLogDigest } from './trainingPresetCatalogDigest';
+import type {
+  TrainingPresetCatalogEntryEvent,
+  TrainingPresetCatalogProviderEvent,
+} from './trainingPresetCatalogRuntime';
 
 export const MAX_PRESET_REQUEST_BYTES = 1024 * 1024;
 
@@ -214,17 +222,57 @@ export async function readPresetRequestText(request: Pick<Request, 'body' | 'hea
 }
 
 export interface TrainingPresetService {
-  list(): Promise<UserTrainingPresetRecord[]>;
+  list(): Promise<TrainingPresetRecord[]>;
   create(nameInput: unknown, currentJobConfig: JobConfig): Promise<UserTrainingPresetRecord>;
   update(idInput: unknown, currentJobConfig: JobConfig): Promise<UserTrainingPresetRecord>;
   remove(idInput: unknown): Promise<void>;
 }
 
-export function createTrainingPresetService(store: TrainingPresetStore): TrainingPresetService {
+export interface TrainingPresetServiceDependencies {
+  listBuiltIns: (logger: (event: TrainingPresetCatalogEntryEvent) => void) => BuiltInTrainingPresetRecord[];
+  logCatalogEvent: (event: TrainingPresetCatalogEntryEvent) => void;
+  logCatalogProviderFailure: (event: TrainingPresetCatalogProviderEvent) => void;
+  logCorruptUserPreset: (idDigest: string) => void;
+}
+
+const defaultTrainingPresetServiceDependencies: TrainingPresetServiceDependencies = {
+  listBuiltIns: _logger => [],
+  logCatalogEvent: () => undefined,
+  logCatalogProviderFailure: () => undefined,
+  logCorruptUserPreset: () => undefined,
+};
+
+function logBestEffort<T>(logger: (entry: T) => void, entry: T): void {
+  try {
+    logger(entry);
+  } catch {
+    // Observability callbacks must not change preset availability.
+  }
+}
+
+export function createTrainingPresetService(
+  store: TrainingPresetStore,
+  dependencies?: Partial<TrainingPresetServiceDependencies>,
+): TrainingPresetService {
+  const resolvedDependencies = { ...defaultTrainingPresetServiceDependencies, ...dependencies };
   return {
-    async list(): Promise<UserTrainingPresetRecord[]> {
-      const records = (await store.findMany()).map(deserializeRow);
-      return records.sort(compareTrainingPresetRecords);
+    async list(): Promise<TrainingPresetRecord[]> {
+      let builtIns: BuiltInTrainingPresetRecord[] = [];
+      try {
+        builtIns = resolvedDependencies.listBuiltIns(resolvedDependencies.logCatalogEvent).map(copyBuiltInPreset);
+      } catch {
+        logBestEffort(resolvedDependencies.logCatalogProviderFailure, {
+          code: 'BUILTIN_PRESET_PROVIDER_FAILED',
+        });
+      }
+
+      const userRows = (await store.findMany()).filter(row => {
+        if (!row.id.toLowerCase().startsWith('builtin:')) return true;
+        logBestEffort(resolvedDependencies.logCorruptUserPreset, trainingPresetCatalogIdLogDigest(row.id));
+        return false;
+      });
+      const users = userRows.map(deserializeRow).sort(compareTrainingPresetRecords);
+      return [...builtIns, ...users];
     },
 
     async create(nameInput: unknown, currentJobConfig: JobConfig): Promise<UserTrainingPresetRecord> {

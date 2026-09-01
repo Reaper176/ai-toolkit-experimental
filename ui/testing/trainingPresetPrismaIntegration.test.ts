@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import type { JobConfig } from '../src/types';
+import { getBuiltInTrainingPresetCatalog } from '../src/server/trainingPresetCatalogRuntime';
 import {
   TrainingPresetConflictError,
   TrainingPresetNotFoundError,
@@ -68,6 +69,12 @@ async function main(): Promise<void> {
     `);
     await client.$executeRawUnsafe('CREATE UNIQUE INDEX "TrainingPreset_name_key_key" ON "TrainingPreset"("name_key")');
     await client.$executeRawUnsafe('CREATE INDEX "TrainingPreset_name_idx" ON "TrainingPreset"("name")');
+
+    const injectedCatalogService = createTrainingPresetService(client.trainingPreset, {
+      listBuiltIns: getBuiltInTrainingPresetCatalog,
+    });
+    assert.equal((await injectedCatalogService.list()).length, 14);
+    assert.equal(await client.trainingPreset.count(), 0, 'listing built-ins must not create database rows');
 
     const service = createTrainingPresetService(client.trainingPreset);
     const created = await service.create('  Portrait  ', jobFixture('first/model'));

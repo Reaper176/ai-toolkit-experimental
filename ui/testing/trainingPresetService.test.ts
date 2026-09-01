@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import type { JobConfig } from '../src/types';
+import { getBuiltInTrainingPresetCatalog } from '../src/server/trainingPresetCatalogRuntime';
+import { trainingPresetCatalogIdLogDigest } from '../src/server/trainingPresetCatalogDigest';
 import {
   MAX_PRESET_REQUEST_BYTES,
   TrainingPresetConflictError,
@@ -169,6 +171,115 @@ async function main(): Promise<void> {
   }
   assert.ok(localeCompareCalls > 0, 'service preset sorting must use localeCompare');
 
+  const catalogEvents: unknown[] = [];
+  const corruptUserDigests: string[] = [];
+  const providerOwnedCatalog = getBuiltInTrainingPresetCatalog(event => catalogEvents.push(event));
+  const reservedImpostor = row('BuIlTiN:stored-user', 'Reserved impostor');
+  reservedImpostor.preset_config = '{broken';
+  const mergeStore = new FakeStore([
+    row('z-user', 'Zulu'),
+    row('a-user', 'Anima — Character / Identity'),
+    reservedImpostor,
+  ]);
+  const mergedService = createTrainingPresetService(mergeStore, {
+    listBuiltIns: () => providerOwnedCatalog,
+    logCatalogEvent: event => catalogEvents.push(event),
+    logCorruptUserPreset: digest => corruptUserDigests.push(digest),
+  });
+  const merged = await mergedService.list();
+  assert.deepEqual(
+    merged
+      .slice(0, 14)
+      .map(preset => [
+        'model_arch' in preset ? preset.model_arch : undefined,
+        'category' in preset ? preset.category : undefined,
+        preset.name,
+        preset.id,
+      ]),
+    [
+      ['anima', 'character', 'Anima — Character / Identity', 'builtin:anima:character-identity@1'],
+      ['anima', 'refinement', 'Anima — Focused Refinement', 'builtin:anima:focused-refinement@1'],
+      ['anima', 'low-vram', 'Anima — Low-VRAM Starting Point', 'builtin:anima:low-vram-starting-point@1'],
+      ['anima', 'diagnostic', 'Anima — Short Diagnostic Run', 'builtin:anima:short-diagnostic-run@1'],
+      ['flux', 'character', 'FLUX.1 — Character / General Concept', 'builtin:flux:character-general-concept@1'],
+      ['flux', 'style', 'FLUX.1 — Style / Aesthetic', 'builtin:flux:style-aesthetic@1'],
+      ['flex1', 'object', 'Flex.1 — Object / General Concept', 'builtin:flex1:object-general-concept@1'],
+      ['qwen_image', 'object', 'Qwen Image — Object / General Concept', 'builtin:qwen_image:object-general-concept@1'],
+      [
+        'qwen_image_edit_plus',
+        'refinement',
+        'Qwen Image Edit 2509 — Focused Refinement',
+        'builtin:qwen_image_edit_plus:focused-refinement@1',
+      ],
+      ['sdxl', 'character', 'SDXL — Character / Identity', 'builtin:sdxl:character-identity@1'],
+      ['sdxl', 'style', 'SDXL — Style / Aesthetic', 'builtin:sdxl:style-aesthetic@1'],
+      ['sd15', 'character', 'SD 1.5 — Character / Identity', 'builtin:sd15:character-identity@1'],
+      [
+        'wan21:1b',
+        'diagnostic',
+        'Wan 2.1 1.3B T2V — Subject / Motion Diagnostic',
+        'builtin:wan21:1b:subject-motion-diagnostic@1',
+      ],
+      [
+        'wan22_14b:t2v',
+        'character',
+        'Wan 2.2 14B T2V — Subject / Motion Starting Point',
+        'builtin:wan22_14b:t2v:subject-motion-starting-point@1',
+      ],
+    ],
+  );
+  assert.deepEqual(
+    merged.slice(14).map(preset => `${preset.name}:${preset.id}`),
+    ['Anima — Character / Identity:a-user', 'Zulu:z-user'],
+    'built-ins stay first while user records retain their existing comparator',
+  );
+  assert.equal(merged[0].source, 'builtin');
+  assert.equal(merged[0].read_only, true);
+  assert.equal(merged[14].source, 'user');
+  assert.equal(merged[14].read_only, false);
+  assert.deepEqual(catalogEvents, []);
+  assert.deepEqual(corruptUserDigests, [trainingPresetCatalogIdLogDigest('BuIlTiN:stored-user')]);
+
+  (merged[0] as any).warnings[0] = 'mutated service result';
+  (merged[0].snapshot.config.process[0] as any).model.name_or_path = 'mutated service result';
+  assert.notEqual((providerOwnedCatalog[0] as any).warnings[0], 'mutated service result');
+  assert.notEqual(
+    (providerOwnedCatalog[0].snapshot.config.process[0] as any).model.name_or_path,
+    'mutated service result',
+    'service does not hand the provider-owned record to callers',
+  );
+  const mergedAgain = await mergedService.list();
+  assert.notEqual((mergedAgain[0] as any).warnings[0], 'mutated service result');
+  assert.notEqual(
+    (mergedAgain[0].snapshot.config.process[0] as any).model.name_or_path,
+    'mutated service result',
+    'service list handoffs are independent copies',
+  );
+
+  const providerEvents: unknown[] = [];
+  const entryEvents: unknown[] = [];
+  const entryLogger = (event: unknown) => entryEvents.push(event);
+  const providerFailureList = await createTrainingPresetService(new FakeStore([row('user', 'User')]), {
+    listBuiltIns(logger) {
+      assert.equal(logger, entryLogger, 'service passes the injected entry logger to the provider');
+      throw new Error('private provider detail');
+    },
+    logCatalogEvent: entryLogger,
+    logCatalogProviderFailure: event => providerEvents.push(event),
+  }).list();
+  assert.deepEqual(
+    providerFailureList.map(preset => preset.id),
+    ['user'],
+  );
+  assert.deepEqual(entryEvents, [], 'provider failure does not fabricate an entry event');
+  assert.deepEqual(providerEvents, [{ code: 'BUILTIN_PRESET_PROVIDER_FAILED' }]);
+
+  const defaultOnlyUsers = await createTrainingPresetService(new FakeStore([row('default-user', 'Default')])).list();
+  assert.deepEqual(
+    defaultOnlyUsers.map(preset => preset.id),
+    ['default-user'],
+  );
+
   const createStore = new FakeStore();
   const created = await createTrainingPresetService(createStore).create('  Useful Preset  ', jobFixture());
   assert.equal(created.name, 'Useful Preset');
@@ -225,8 +336,24 @@ async function main(): Promise<void> {
   assert.equal(JSON.parse(invalidUpdateStore.rows[0].preset_config).config.process[0].model.name_or_path, 'old/model');
 
   const deleteStore = new FakeStore([row('remove-me', 'Remove Me')]);
-  await createTrainingPresetService(deleteStore).remove('remove-me');
+  const mutationProviderCalls: string[] = [];
+  const mutationDependencies = {
+    listBuiltIns: () => {
+      mutationProviderCalls.push('list');
+      return getBuiltInTrainingPresetCatalog(() => undefined);
+    },
+  };
+  await createTrainingPresetService(deleteStore, mutationDependencies).remove('remove-me');
   assert.equal(deleteStore.rows.length, 0);
+  assert.deepEqual(mutationProviderCalls, [], 'delete does not consult or mutate the built-in provider');
+
+  const injectedCreateStore = new FakeStore();
+  const injectedMutationService = createTrainingPresetService(injectedCreateStore, mutationDependencies);
+  const injectedCreated = await injectedMutationService.create('User Only', jobFixture());
+  await injectedMutationService.update(injectedCreated.id, jobFixture('updated/user'));
+  assert.equal(injectedCreateStore.rows.length, 1);
+  assert.equal(injectedCreateStore.rows[0].id, injectedCreated.id);
+  assert.deepEqual(mutationProviderCalls, [], 'create and update touch user storage only');
 
   await assert.rejects(
     createTrainingPresetService(new FakeStore([row('existing', 'Existing')])).create(' existing ', jobFixture()),

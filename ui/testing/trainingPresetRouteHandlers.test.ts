@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import type { JobConfig } from '../src/types';
 import type { UserTrainingPresetRecord } from '../src/helpers/trainingPresets';
+import { getBuiltInTrainingPresetCatalog } from '../src/server/trainingPresetCatalogRuntime';
 import {
   MAX_PRESET_REQUEST_BYTES,
   TrainingPresetPayloadTooLargeError,
@@ -164,6 +165,25 @@ async function main(): Promise<void> {
     error: 'Preset request must not exceed 1 MiB',
     shouldLog: false,
   });
+
+  const routeStore = new RecordingStore();
+  await createTrainingPresetService(routeStore).create('Route User', jobFixture());
+  const injectedGet = createTrainingPresetCollectionHandlers(
+    createTrainingPresetService(routeStore, { listBuiltIns: getBuiltInTrainingPresetCatalog }),
+    () => undefined,
+  );
+  const getResponse = await injectedGet.GET();
+  assert.equal(getResponse.status, 200);
+  const getPresets = ((await getResponse.json()) as { presets: Array<{ source: string; read_only: boolean }> }).presets;
+  assert.equal(getPresets.length, 15);
+  assert.deepEqual(
+    getPresets.slice(0, 14).map(preset => [preset.source, preset.read_only]),
+    Array(14).fill(['builtin', true]),
+  );
+  assert.deepEqual(
+    getPresets.slice(14).map(preset => [preset.source, preset.read_only]),
+    [['user', false]],
+  );
 
   const chunk = new Uint8Array(256 * 1024);
   const postBody = trackedBody([chunk, chunk, chunk, chunk, chunk, chunk]);
