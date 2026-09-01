@@ -72,6 +72,21 @@ def _literal_name_list(module: ast.Module, variable: str) -> list[str]:
     class UnsupportedBindingVisitor(ast.NodeVisitor):
         found = False
 
+        def visit_all(self, nodes: object) -> None:
+            for node in nodes if isinstance(nodes, list) else []:
+                if node is not None:
+                    self.visit(node)
+
+        def visit_arguments_evaluated_at_definition(self, arguments: ast.arguments) -> None:
+            self.visit_all(arguments.defaults)
+            self.visit_all(arguments.kw_defaults)
+            for argument in [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs]:
+                if argument.annotation is not None:
+                    self.visit(argument.annotation)
+            for argument in (arguments.vararg, arguments.kwarg):
+                if argument is not None and argument.annotation is not None:
+                    self.visit(argument.annotation)
+
         def visit_Name(self, node: ast.Name) -> None:
             if node.id == variable and isinstance(node.ctx, (ast.Store, ast.Del)):
                 self.found = True
@@ -84,22 +99,64 @@ def _literal_name_list(module: ast.Module, variable: str) -> list[str]:
         def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
             if node.name == variable:
                 self.found = True
+            self.visit_all(node.decorator_list)
+            self.visit_arguments_evaluated_at_definition(node.args)
+            if node.returns is not None:
+                self.visit(node.returns)
+            self.visit_all(getattr(node, "type_params", []))
 
         visit_AsyncFunctionDef = visit_FunctionDef
 
         def visit_ClassDef(self, node: ast.ClassDef) -> None:
             if node.name == variable:
                 self.found = True
+            self.visit_all(node.decorator_list)
+            self.visit_all(node.bases)
+            self.visit_all([keyword.value for keyword in node.keywords])
+            self.visit_all(getattr(node, "type_params", []))
+
+            class ClassGlobalVisitor(ast.NodeVisitor):
+                found = False
+
+                def visit_Global(self, candidate: ast.Global) -> None:
+                    if variable in candidate.names:
+                        self.found = True
+
+                def visit_FunctionDef(self, candidate: ast.FunctionDef) -> None:
+                    pass
+
+                visit_AsyncFunctionDef = visit_FunctionDef
+                visit_ClassDef = visit_FunctionDef
+                visit_Lambda = visit_FunctionDef
+                visit_ListComp = visit_FunctionDef
+                visit_SetComp = visit_FunctionDef
+                visit_DictComp = visit_FunctionDef
+                visit_GeneratorExp = visit_FunctionDef
+
+            global_visitor = ClassGlobalVisitor()
+            for statement in node.body:
+                global_visitor.visit(statement)
+            if global_visitor.found:
+                self.visit_all(node.body)
 
         def visit_Lambda(self, node: ast.Lambda) -> None:
-            pass
+            self.visit_arguments_evaluated_at_definition(node.args)
 
         def visit_ListComp(self, node: ast.ListComp) -> None:
-            pass
+            for generator in node.generators:
+                self.visit(generator.iter)
+                self.visit_all(generator.ifs)
+            self.visit(node.elt)
 
         visit_SetComp = visit_ListComp
-        visit_DictComp = visit_ListComp
         visit_GeneratorExp = visit_ListComp
+
+        def visit_DictComp(self, node: ast.DictComp) -> None:
+            for generator in node.generators:
+                self.visit(generator.iter)
+                self.visit_all(generator.ifs)
+            self.visit(node.key)
+            self.visit(node.value)
 
         def visit_Import(self, node: ast.Import) -> None:
             if any((alias.asname or alias.name.split(".")[0]) == variable for alias in node.names):
@@ -424,6 +481,44 @@ local_comprehension = [AI_TOOLKIT_MODELS for AI_TOOLKIT_MODELS in []]
 AI_TOOLKIT_MODELS = []
 """})
         self.assertEqual(actual, report())
+
+    def test_function_default_registry_walrus_fails_closed_before_interception(self) -> None:
+        path = "extensions_built_in/default_interceptor.py"
+        with self.assertRaisesRegex(AssertionError, "AI_TOOLKIT_MODELS.*unsupported"):
+            build_report({path: "class FluxInterceptor:\n    arch = 'flux'\nAI_TOOLKIT_MODELS = []\ndef install(value=(AI_TOOLKIT_MODELS := [FluxInterceptor])):\n    pass\n"})
+
+    def test_definition_decorators_annotations_and_class_bases_are_module_scope(self) -> None:
+        variants = (
+            "AI_TOOLKIT_MODELS = []\n@(AI_TOOLKIT_MODELS := (lambda value: value))\ndef decorated():\n    pass\n",
+            "AI_TOOLKIT_MODELS = []\ndef annotated(value: (AI_TOOLKIT_MODELS := object)) -> object:\n    pass\n",
+            "AI_TOOLKIT_MODELS = []\ndef returned() -> (AI_TOOLKIT_MODELS := object):\n    pass\n",
+            "AI_TOOLKIT_MODELS = []\nasync def configured(*, value=(AI_TOOLKIT_MODELS := [])):\n    pass\n",
+            "AI_TOOLKIT_MODELS = []\nclass Based((AI_TOOLKIT_MODELS := object)):\n    pass\n",
+            "AI_TOOLKIT_MODELS = []\n@(AI_TOOLKIT_MODELS := (lambda value: value))\nclass Decorated:\n    pass\n",
+            "AI_TOOLKIT_MODELS = []\nclass Meta(metaclass=(AI_TOOLKIT_MODELS := type)):\n    pass\n",
+            "AI_TOOLKIT_MODELS = []\nfactory = lambda value=(AI_TOOLKIT_MODELS := []): value\n",
+            "AI_TOOLKIT_MODELS = []\ndef generic[T: (AI_TOOLKIT_MODELS := object)]():\n    pass\n",
+        )
+        for index, variant in enumerate(variants):
+            with self.subTest(index=index), self.assertRaisesRegex(AssertionError, "AI_TOOLKIT_MODELS.*unsupported"):
+                build_report({f"extensions_built_in/definition_scope_{index}.py": variant})
+
+    def test_class_global_registry_rebinding_fails_closed_but_class_local_does_not(self) -> None:
+        global_path = "extensions_built_in/class_global_registry.py"
+        global_variants = (
+            "AI_TOOLKIT_MODELS = []\nclass RegistryMutation:\n    global AI_TOOLKIT_MODELS\n    AI_TOOLKIT_MODELS = [object]\n",
+            "AI_TOOLKIT_MODELS = []\nclass RegistryMutation:\n    global AI_TOOLKIT_MODELS\n    AI_TOOLKIT_MODELS.append(object)\n",
+        )
+        for index, variant in enumerate(global_variants):
+            with self.subTest(global_index=index), self.assertRaisesRegex(AssertionError, "AI_TOOLKIT_MODELS.*unsupported"):
+                build_report({global_path: variant})
+        local_path = "extensions_built_in/class_local_registry.py"
+        self.assertEqual(build_report({local_path: "class RegistryLocal:\n    AI_TOOLKIT_MODELS = [object]\n    AI_TOOLKIT_MODELS.append(object)\nAI_TOOLKIT_MODELS = []\n"}), report())
+
+    def test_module_comprehension_walrus_registry_binding_fails_closed(self) -> None:
+        path = "extensions_built_in/comprehension_registry.py"
+        with self.assertRaisesRegex(AssertionError, "AI_TOOLKIT_MODELS.*unsupported"):
+            build_report({path: "AI_TOOLKIT_MODELS = []\nvalues = [(AI_TOOLKIT_MODELS := []) for item in [0]]\n"})
 
     def test_module_loop_registry_binding_fails_closed(self) -> None:
         path = "extensions_built_in/loop_registry.py"
