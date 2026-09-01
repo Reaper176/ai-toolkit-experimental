@@ -14943,10 +14943,13 @@ class TrainingBookExamplesContractTests(unittest.TestCase):
         ("resume-from-checkpoint.yaml", "flex1", "resume-image-lora"),
     )
 
-    def write_resume_source_fixture(self, directory, sd_source, base_source=None):
+    def write_resume_source_fixture(
+        self, directory, sd_source, base_source=None, process_source=None
+    ):
         repository = Path(directory)
         sd_target = repository / "jobs/process/BaseSDTrainProcess.py"
         base_target = repository / "jobs/process/BaseTrainProcess.py"
+        process_target = repository / "jobs/process/BaseProcess.py"
         sd_target.parent.mkdir(parents=True)
         sd_target.write_text(sd_source)
         if base_source is None:
@@ -14954,6 +14957,11 @@ class TrainingBookExamplesContractTests(unittest.TestCase):
                 REPOSITORY_ROOT / "jobs/process/BaseTrainProcess.py"
             ).read_text()
         base_target.write_text(base_source)
+        if process_source is None:
+            process_source = (
+                REPOSITORY_ROOT / "jobs/process/BaseProcess.py"
+            ).read_text()
+        process_target.write_text(process_source)
         return repository
 
     def test_examples_manifest_and_exact_file_set(self):
@@ -15244,6 +15252,23 @@ for i, group in enumerate(optimizer.param_groups):
                 "        if os.path.exists(optimizer_state_file_path):\n"
                 "            optimizer_state_file_path = '/tmp/wrong-root/optimizer.pt'\n", 1,
             ),
+            "configured lr mutated before discovery": live.replace(
+                "        optimizer_state_filename = f'optimizer.pt'",
+                "        for forced_group in optimizer.param_groups:\n"
+                "            forced_group['lr'] = 9e-3\n"
+                "        optimizer_state_filename = f'optimizer.pt'", 1,
+            ),
+            "configured lr mutated before capture": live.replace(
+                "        if os.path.exists(optimizer_state_file_path):\n",
+                "        if os.path.exists(optimizer_state_file_path):\n"
+                "            for forced_group in optimizer.param_groups:\n"
+                "                forced_group['lr'] = 9e-3\n", 1,
+            ),
+            "statically terminal before discovery": live.replace(
+                "        optimizer_state_filename = f'optimizer.pt'",
+                "        if True:\n            return\n"
+                "        optimizer_state_filename = f'optimizer.pt'", 1,
+            ),
         }
         for label, source in mutations.items():
             with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
@@ -15273,6 +15298,11 @@ for i, group in enumerate(optimizer.param_groups):
                 "        self.step = 0",
                 "        self.save_root = '/tmp/wrong-root'\n        self.step = 0", 1,
             ),
+            "job name rebound": base_source.replace(
+                "        self.save_root = os.path.join(self.training_folder, self.name)",
+                "        self.name = 'other-job'\n"
+                "        self.save_root = os.path.join(self.training_folder, self.name)", 1,
+            ),
         }
         for label, mutation in mutations.items():
             with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
@@ -15281,6 +15311,18 @@ for i, group in enumerate(optimizer.param_groups):
                 )
                 with self.assertRaises(ExampleError):
                     _validate_resume_source_contract(repository)
+        process_source = (
+            REPOSITORY_ROOT / "jobs/process/BaseProcess.py"
+        ).read_text().replace(
+            "self.get_conf('name', self.job.name)",
+            "self.get_conf('other_name', self.job.name)", 1,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            repository = self.write_resume_source_fixture(
+                directory, sd_source, base_source, process_source
+            )
+            with self.assertRaises(ExampleError):
+                _validate_resume_source_contract(repository)
 
     def test_examples_resume_source_contract_rejects_incompatible_control_flow_and_rebinding(self):
         from scripts.training_book.examples import ExampleError, _validate_resume_source_contract
@@ -15332,8 +15374,16 @@ for i, group in enumerate(optimizer.param_groups):
             "optimizer rebound": capture + "            optimizer = object()\n" + load + restore,
             "captured rates cleared": capture + "            previous_lrs.clear()\n" + load + restore,
             "captured rates corrupted": capture + "            previous_lrs.append(999)\n" + load + restore,
+            "captured rate subscript overwritten": capture +
+                "            previous_lrs[0] = 999\n" + load + restore,
+            "captured rates aliased and cleared": capture +
+                "            alias = previous_lrs\n            alias.clear()\n" + load + restore,
             "load guard forced false": capture + load.replace(
                 "load_optimizer = True", "load_optimizer = False"
+            ) + restore,
+            "load guard overwritten false": capture + load.replace(
+                "            if load_optimizer:",
+                "            load_optimizer = False\n            if load_optimizer:"
             ) + restore,
         }
         for label, body in cases.items():

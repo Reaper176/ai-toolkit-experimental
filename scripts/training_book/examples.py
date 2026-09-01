@@ -1034,6 +1034,30 @@ def _contains_terminal(node: ast.AST) -> bool:
     return False
 
 
+def _block_definitely_terminates(statements: list[ast.stmt]) -> bool:
+    for statement in statements:
+        if isinstance(statement, (ast.Return, ast.Raise)):
+            return True
+        if isinstance(statement, ast.If):
+            if isinstance(statement.test, ast.Constant):
+                selected = statement.body if bool(statement.test.value) else statement.orelse
+                if _block_definitely_terminates(selected):
+                    return True
+            elif (statement.orelse and _block_definitely_terminates(statement.body)
+                  and _block_definitely_terminates(statement.orelse)):
+                return True
+    return False
+
+
+def _unconditional_name_store(statement: ast.stmt, name: str) -> bool:
+    if _assigned_name(statement, name) is not None:
+        return True
+    if isinstance(statement, ast.If) and isinstance(statement.test, ast.Constant):
+        selected = statement.body if bool(statement.test.value) else statement.orelse
+        return any(_unconditional_name_store(child, name) for child in selected)
+    return False
+
+
 def _name_store_count(node: ast.AST, name: str) -> int:
     return sum(
         isinstance(child, ast.Name) and child.id == name
@@ -1060,6 +1084,37 @@ def _captured_list_calls(node: ast.AST, captured: str) -> list[ast.Call]:
     ]
 
 
+def _contains_name(node: ast.AST, name: str) -> bool:
+    return any(isinstance(child, ast.Name) and child.id == name
+               for child in ast.walk(node))
+
+
+def _pre_capture_optimizer_mutation(statements: list[ast.stmt]) -> bool:
+    """Reject any unproven optimizer/LR mutation before configured rates are captured."""
+    for statement in statements:
+        for node in ast.walk(statement):
+            if isinstance(node, ast.For) and _optimizer_group_loop(node) is not None:
+                return True
+            if (isinstance(node, ast.Subscript)
+                    and isinstance(node.ctx, (ast.Store, ast.Del))
+                    and isinstance(node.slice, ast.Constant)
+                    and node.slice.value in {"lr", "initial_lr"}):
+                return True
+            if (isinstance(node, ast.Attribute)
+                    and isinstance(node.ctx, (ast.Store, ast.Del))
+                    and _contains_name(node, "optimizer")):
+                return True
+            if isinstance(node, ast.Call):
+                if _contains_name(node.func, "optimizer"):
+                    return True
+                if any(_contains_name(argument, "optimizer") for argument in node.args):
+                    return True
+                if any(_contains_name(keyword.value, "optimizer")
+                       for keyword in node.keywords):
+                    return True
+    return False
+
+
 def _direct_load_restore(guard: ast.If) -> tuple[int, int] | None:
     if guard.orelse or not isinstance(guard.test, ast.Name) or guard.test.id != "load_optimizer":
         return None
@@ -1079,6 +1134,34 @@ def _direct_lr_restore(guard: ast.If, captured: str) -> tuple[int, int] | None:
 
 
 def _validate_save_root_source_contract(repository_root: Path) -> None:
+    process_path = repository_root / "jobs/process/BaseProcess.py"
+    try:
+        process_tree = ast.parse(
+            process_path.read_text(encoding="utf-8"), filename=str(process_path)
+        )
+    except (OSError, UnicodeDecodeError, SyntaxError) as error:
+        raise ExampleError(f"cannot inspect process-name source: {error}") from error
+    process_classes = [node for node in process_tree.body
+                       if isinstance(node, ast.ClassDef) and node.name == "BaseProcess"]
+    process_methods = ([node for node in process_classes[0].body
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and node.name == "__init__"] if len(process_classes) == 1 else [])
+    name_assignments = []
+    if len(process_methods) == 1:
+        for statement in process_methods[0].body:
+            value = _assigned_self_attribute(statement, "name")
+            if (isinstance(value, ast.Call) and isinstance(value.func, ast.Attribute)
+                    and value.func.attr == "get_conf"
+                    and isinstance(value.func.value, ast.Name)
+                    and value.func.value.id == "self" and len(value.args) == 2
+                    and isinstance(value.args[0], ast.Constant)
+                    and value.args[0].value == "name"
+                    and _self_attribute_chain(value.args[1], "job", "name")):
+                name_assignments.append(statement)
+    if (len(process_classes) != 1 or len(name_assignments) != 1
+            or _self_attribute_store_count(process_classes[0], "name") != 1):
+        raise ExampleError("process name is no longer derived from configured job identity")
+
     path = repository_root / "jobs/process/BaseTrainProcess.py"
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -1099,7 +1182,8 @@ def _validate_save_root_source_contract(repository_root: Path) -> None:
     valid = any(training_index < save_index
                 for training_index in training_indices for save_index in save_indices)
     if (not valid or _self_attribute_store_count(classes[0], "training_folder") != 1
-            or _self_attribute_store_count(classes[0], "save_root") != 1):
+            or _self_attribute_store_count(classes[0], "save_root") != 1
+            or _self_attribute_store_count(classes[0], "name") != 0):
         raise ExampleError("training save root is no longer derived from output/name identity")
 
 
@@ -1134,8 +1218,9 @@ def _validate_resume_source_contract(repository_root: Path) -> None:
                 for outer_index in outer_indices:
                     if not optimizer_index < filename_index < path_index < outer_index:
                         continue
-                    if any(isinstance(statement, (ast.Return, ast.Raise))
-                           for statement in statements[optimizer_index + 1:outer_index]):
+                    if _block_definitely_terminates(
+                        statements[optimizer_index + 1:outer_index]
+                    ):
                         continue
                     if sum(
                         _name_store_count(statement, "optimizer")
@@ -1150,6 +1235,10 @@ def _validate_resume_source_contract(repository_root: Path) -> None:
                     if sum(
                         _name_store_count(statement, "optimizer_state_file_path")
                         for statement in statements[path_index + 1:outer_index + 1]
+                    ):
+                        continue
+                    if _pre_capture_optimizer_mutation(
+                        statements[optimizer_index + 1:outer_index]
                     ):
                         continue
                     outer = statements[outer_index]
@@ -1171,6 +1260,12 @@ def _validate_resume_source_contract(repository_root: Path) -> None:
                         if isinstance(statement, ast.For)
                         if (candidate := _capture_candidate(statement)) is not None
                     ]
+                    if sum(
+                        isinstance(node, ast.For)
+                        and _optimizer_group_loop(node) is not None
+                        for node in ast.walk(outer)
+                    ) != 1:
+                        continue
                     load_guards = [
                         (index, candidate)
                         for index, statement in enumerate(outer.body)
@@ -1180,6 +1275,10 @@ def _validate_resume_source_contract(repository_root: Path) -> None:
                     for init_index, captured in initializers:
                         for capture_index, (capture_name, capture_line) in captures:
                             if capture_name != captured or init_index >= capture_index:
+                                continue
+                            if _pre_capture_optimizer_mutation(
+                                outer.body[:capture_index]
+                            ):
                                 continue
                             restore_guards = [
                                 (index, candidate)
@@ -1198,10 +1297,22 @@ def _validate_resume_source_contract(repository_root: Path) -> None:
                                         and isinstance(statement.value, ast.Constant)
                                         and statement.value.value is True)
                                 ]
-                                if not any(index < load_index for index in load_initializers):
+                                valid_load_initializer = any(
+                                    index < load_index and not any(
+                                        _unconditional_name_store(statement, "load_optimizer")
+                                        for statement in outer.body[index + 1:load_index]
+                                    )
+                                    for index in load_initializers
+                                )
+                                if not valid_load_initializer:
                                     continue
                                 for restore_index, (lr_line, initial_lr_line) in restore_guards:
                                     if not capture_index < load_index < restore_index:
+                                        continue
+                                    if any(
+                                        _contains_name(statement, captured)
+                                        for statement in outer.body[capture_index + 1:restore_index]
+                                    ):
                                         continue
                                     if _name_store_count(outer, "optimizer") != 0:
                                         continue
