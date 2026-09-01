@@ -14632,6 +14632,15 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
 
         self.validate(self.page(fenced_example))
 
+    def test_narrative_contract_ignores_html_comment_structure(self):
+        self.validate("<!-- metadata -->\n" + self.page())
+        self.validate("<!--\n# Hidden heading\n-->\n" + self.page())
+        self.validate(
+            self.page(
+                "<!-- The lowest loss checkpoint is always the best checkpoint. -->"
+            )
+        )
+
     def test_narrative_link_extractor_distinguishes_rendered_and_hidden_links(self):
         target = "../models/anima.md"
         rendered = (

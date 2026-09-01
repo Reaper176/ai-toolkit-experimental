@@ -442,27 +442,29 @@ def validate_narrative_page(
 ) -> None:
     """Validate one staged book page without requiring future manifest pages."""
 
-    visible = _outside_fences(document)
-    headings = [line for line in visible.splitlines() if line.startswith("# ")]
+    structural = _outside_fences(document)
+    rendered = rendered_markdown(document)
+    claim_text = _outside_html_comments(structural)
+    headings = [line for line in rendered.splitlines() if line.startswith("# ")]
     if len(headings) != 1:
         raise MarkdownContractError(f"{page}: expected exactly one H1")
-    if next((line for line in visible.splitlines() if line.strip()), None) != headings[0]:
+    if next((line for line in rendered.splitlines() if line.strip()), None) != headings[0]:
         raise MarkdownContractError(f"{page}: H1 must be the first content line")
     anchors = _page_anchors(document, page)
 
     positions: list[int] = []
     for marker in _PAGE_MARKERS:
-        if visible.count(marker) != 1:
+        if structural.count(marker) != 1:
             raise MarkdownContractError(f"{page}: expected exactly one {marker}")
-        if marker not in visible.splitlines():
+        if marker not in structural.splitlines():
             raise MarkdownContractError(f"{page}: marker must occupy its own line: {marker}")
-        positions.append(visible.index(marker))
+        positions.append(structural.index(marker))
     if positions != sorted(positions):
         raise MarkdownContractError(f"{page}: navigation/verification markers are out of order")
-    if visible.rstrip().endswith(_PAGE_MARKERS[-1]) is False:
+    if structural.rstrip().endswith(_PAGE_MARKERS[-1]) is False:
         raise MarkdownContractError(f"{page}: verification footer must end the page")
 
-    links = extract_rendered_links(visible)
+    links = extract_rendered_links(rendered)
     toc_links = []
     manifest_set = set(manifest_paths)
     def check_target(raw_target: str) -> str:
@@ -494,7 +496,7 @@ def validate_narrative_page(
     if len(toc_links) != 1:
         raise MarkdownContractError(f"{page}: expected one table-of-contents link")
 
-    if _has_prohibited_claim(visible):
+    if _has_prohibited_claim(claim_text):
         raise MarkdownContractError(f"{page}: prohibited training claim")
 
 
