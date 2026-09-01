@@ -15999,6 +15999,53 @@ class TroubleshootingNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), page.lower())
 
+    def test_advanced_troubleshooting_page_failures_maps_symptoms_to_evidence(self):
+        page = (
+            REPOSITORY_ROOT
+            / "docs/book/troubleshooting/common-failure-patterns.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Job will not queue or run",
+            "## Model will not load",
+            "## Dataset scan or caching fails",
+            "## Run is out of memory or unexpectedly slow",
+            "## Loss spikes or becomes non-finite",
+            "## LoRA appears not to learn",
+            "## LoRA overfits or loses prompt control",
+            "## Checkpoint save or resume fails",
+            "## Samples fail or comparisons disagree",
+            "## Stop changing settings when evidence is incomplete",
+            "## Further reading",
+        ):
+            self.assertEqual(page.count(heading), 1, heading)
+        for phrase in (
+            "likely boundaries",
+            "evidence to collect",
+            "first experiment",
+            "queue entry",
+            "gpu",
+            "architecture",
+            "access",
+            "offending item",
+            "stale cache",
+            "failing phase",
+            "peak vram",
+            "non-finite",
+            "same batch",
+            "trigger",
+            "adapter",
+            "overfitting",
+            "optimizer state",
+            "fixed seed",
+            "one variable",
+            "diagnosis-guide.md",
+            "../workflow/saving-resuming-and-optimizer-state.md",
+            "../workflow/sampling-and-evaluation.md",
+            "../advanced/performance-and-caching.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
