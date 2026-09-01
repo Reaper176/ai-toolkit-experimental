@@ -24,6 +24,8 @@
     "../src/helpers/builtInTrainingPresetBindings.ts",
     "../src/helpers/builtInTrainingPresets.ts",
     "../src/helpers/maskTrainingValidation.ts",
+    "../src/server/trainingPresetCatalogDigest.ts",
+    "../src/server/trainingPresetCatalogRuntime.ts",
     "../src/server/trainingPresetService.ts",
     "../src/server/trainingPresetRouteHandlers.ts",
     "trainingPresetPageIntegration.test.ts",
