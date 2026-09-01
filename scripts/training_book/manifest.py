@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -45,6 +46,25 @@ _SMOKE_WORKFLOW_FIELDS = {
 _SMOKE_OBSERVATION_FIELDS = {
     "checkpoint_step", "configured_learning_rate", "resumed_step", "notes",
 }
+_GIT_REPOSITORY_ENVIRONMENT = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_INDEX_FILE",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    "GIT_NAMESPACE",
+    "GIT_SHALLOW_FILE",
+    "GIT_CONFIG",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_NOSYSTEM",
+)
+_GIT_CONFIG_PARAMETER_PATTERN = re.compile(
+    r"GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)\Z"
+)
 
 
 @dataclass(frozen=True)
@@ -323,9 +343,16 @@ def _reject_sensitive_smoke_text(value: str, field: str) -> None:
 
 
 def _run_git(repository_root: Path, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    environment = os.environ.copy()
+    for variable in _GIT_REPOSITORY_ENVIRONMENT:
+        environment.pop(variable, None)
+    for variable in tuple(environment):
+        if _GIT_CONFIG_PARAMETER_PATTERN.fullmatch(variable):
+            del environment[variable]
     result = subprocess.run(
         ["git", *arguments],
         cwd=repository_root,
+        env=environment,
         capture_output=True,
         text=True,
         check=False,

@@ -621,6 +621,46 @@ class SmokeRecordContractTests(unittest.TestCase):
         self.write_record(self.valid_record())
         validate_smoke_record(self.root, self.manifest)
 
+    def test_smoke_record_git_checks_ignore_ambient_repository_redirect(self):
+        decoy_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(decoy_directory.cleanup)
+        decoy_root = Path(decoy_directory.name)
+        (decoy_root / "docs/book").mkdir(parents=True)
+        (decoy_root / "docs/book/book-manifest.json").write_text(
+            json.dumps(self.manifest_data, indent=2) + "\n", encoding="utf-8"
+        )
+        (decoy_root / "docs/book/README.md").write_text(
+            "# Decoy edition\n", encoding="utf-8"
+        )
+        for arguments in (
+            ("init", "-q"),
+            ("config", "user.name", "Training Book Tests"),
+            ("config", "user.email", "training-book@example.invalid"),
+            ("add", "docs/book"),
+            ("commit", "-q", "-m", "decoy edition"),
+        ):
+            subprocess.run(
+                ["git", *arguments], cwd=decoy_root, check=True,
+                capture_output=True, text=True,
+            )
+        decoy_commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=decoy_root, check=True,
+            capture_output=True, text=True,
+        ).stdout.strip()
+        record = self.valid_record()
+        record["tested_commit"] = decoy_commit
+        self.write_record(record)
+
+        with mock.patch.dict(os.environ, {
+            "GIT_DIR": str(decoy_root / ".git"),
+            "GIT_WORK_TREE": str(decoy_root),
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "core.worktree",
+            "GIT_CONFIG_VALUE_0": str(decoy_root),
+        }):
+            with self.assertRaisesRegex(ValueError, "tested_commit.*ancestor"):
+                validate_smoke_record(self.root, self.manifest)
+
     def test_smoke_record_allows_remote_urls_and_repository_model_identifiers(self):
         for field, value in (
             ("model_identifier", "https://example.invalid/models/fixture"),
