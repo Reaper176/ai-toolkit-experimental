@@ -622,13 +622,19 @@ class SmokeRecordContractTests(unittest.TestCase):
         validate_smoke_record(self.root, self.manifest)
 
     def test_smoke_record_allows_remote_urls_and_repository_model_identifiers(self):
-        for identifier in (
-            "https://example.invalid/models/fixture",
-            "organization/model-v1",
+        for field, value in (
+            ("model_identifier", "https://example.invalid/models/fixture"),
+            ("model_identifier", "organization/model-v1"),
+            ("model_identifier", "acme/sk-learning-model"),
+            ("software", "Basic authentication succeeded"),
+            ("software", "Bearer authentication succeeded"),
         ):
-            with self.subTest(identifier=identifier):
+            with self.subTest(field=field, value=value):
                 record = self.valid_record()
-                record["model_identifier"] = identifier
+                if field == "software":
+                    record["hardware"]["software"] = value
+                else:
+                    record[field] = value
                 self.write_record(record)
                 validate_smoke_record(self.root, self.manifest)
 
@@ -705,6 +711,8 @@ class SmokeRecordContractTests(unittest.TestCase):
             (lambda value: value["hardware"].update(software="Authorization: Bearer ghp_0123456789"), "secret"),
             (lambda value: value["hardware"].update(software="Authorization: Basic dXNlcjpwYXNz"), "secret"),
             (lambda value: value["observations"].update(notes="Provider credential ghp_0123456789"), "secret"),
+            (lambda value: value["observations"].update(notes="Provider credential hf_0123456789abcdef"), "secret"),
+            (lambda value: value["observations"].update(notes="Provider credential sk-proj-0123456789abcdef01234567"), "secret"),
             (lambda value: value.update(model_identifier="ftp://user:password@example.invalid/model"), "secret"),
             (lambda value: value["hardware"].update(software="//server/Users/alice/private"), "path"),
             (lambda value: value["hardware"].update(software="Linux path:/home/alice/private"), "path"),
