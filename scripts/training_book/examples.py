@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import struct
@@ -102,6 +103,9 @@ _QFLOAT8 = {
     "motion-wan22-14b-t2v.yaml", "resume-from-checkpoint.yaml",
 }
 _MAX_SAFETENSORS_HEADER_BYTES = 1024 * 1024
+_MAX_EXAMPLE_YAML_BYTES = 1024 * 1024
+_MAX_EXAMPLE_YAML_NODES = 10_000
+_MAX_EXAMPLE_YAML_DEPTH = 64
 _SAFETENSORS_DTYPE_BYTES = {
     "BOOL": 1, "U8": 1, "I8": 1,
     "I16": 2, "U16": 2, "F16": 2, "BF16": 2,
@@ -325,6 +329,66 @@ def _strict_json_object(raw: bytes | str, label: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ExampleError(f"{label} must be a JSON object")
     return value
+
+
+class _BoundedUniqueSafeLoader(yaml.SafeLoader):
+    """Safe YAML loader with finite structure and unambiguous mappings."""
+
+    def __init__(self, stream: str) -> None:
+        super().__init__(stream)
+        self._node_count = 0
+        self._node_depth = 0
+
+    def compose_node(self, parent: Any, index: Any) -> Any:
+        if self.check_event(yaml.events.AliasEvent):
+            raise ExampleError("YAML aliases and merge ambiguity are forbidden")
+        self._node_count += 1
+        self._node_depth += 1
+        if self._node_count > _MAX_EXAMPLE_YAML_NODES:
+            raise ExampleError("example YAML exceeds the node limit")
+        if self._node_depth > _MAX_EXAMPLE_YAML_DEPTH:
+            raise ExampleError("example YAML exceeds the nesting limit")
+        try:
+            return super().compose_node(parent, index)
+        finally:
+            self._node_depth -= 1
+
+
+def _construct_unique_mapping(
+    loader: _BoundedUniqueSafeLoader, node: yaml.nodes.MappingNode, deep: bool = False
+) -> dict[Any, Any]:
+    if not isinstance(node, yaml.nodes.MappingNode):
+        raise ExampleError("YAML mapping node is malformed")
+    result: dict[Any, Any] = {}
+    for key_node, value_node in node.value:
+        if key_node.tag == "tag:yaml.org,2002:merge":
+            raise ExampleError("YAML merge keys are forbidden")
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            hash(key)
+        except TypeError as error:
+            raise ExampleError("YAML mapping keys must be hashable scalars") from error
+        if key in result:
+            raise ExampleError(f"duplicate YAML mapping key: {key!r}")
+        result[key] = loader.construct_object(value_node, deep=deep)
+    return result
+
+
+_BoundedUniqueSafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping
+)
+
+
+def _load_example_yaml(path: Path) -> Any:
+    try:
+        if path.stat().st_size > _MAX_EXAMPLE_YAML_BYTES:
+            raise ExampleError("example YAML exceeds the byte limit")
+        text = path.read_text(encoding="utf-8")
+        return yaml.load(text, Loader=_BoundedUniqueSafeLoader)
+    except ExampleError:
+        raise
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as error:
+        raise ExampleError(f"cannot parse {path.name}: {error}") from error
 
 
 def _validate_resume_safetensors(
@@ -738,15 +802,189 @@ def configured_learning_rates_after_restore(
                  for rate, group in zip(configured, restored, strict=True))
 
 
+def _live_statement_blocks(statements: list[ast.stmt]) -> list[list[ast.stmt]]:
+    blocks = [statements]
+    for statement in statements:
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if isinstance(statement, ast.If) and isinstance(statement.test, ast.Constant):
+            selected = statement.body if bool(statement.test.value) else statement.orelse
+            blocks.extend(_live_statement_blocks(selected))
+            continue
+        if isinstance(statement, ast.While) and isinstance(statement.test, ast.Constant) and not statement.test.value:
+            blocks.extend(_live_statement_blocks(statement.orelse))
+            continue
+        for field in ("body", "orelse", "finalbody"):
+            children = getattr(statement, field, None)
+            if isinstance(children, list) and all(isinstance(child, ast.stmt) for child in children):
+                blocks.extend(_live_statement_blocks(children))
+        for handler in getattr(statement, "handlers", ()):
+            blocks.extend(_live_statement_blocks(handler.body))
+        for case in getattr(statement, "cases", ()):
+            blocks.extend(_live_statement_blocks(case.body))
+    return blocks
+
+
+def _attribute(node: ast.AST, owner: str, attribute: str) -> bool:
+    return (isinstance(node, ast.Attribute) and node.attr == attribute
+            and isinstance(node.value, ast.Name) and node.value.id == owner)
+
+
+def _string_subscript(node: ast.AST, owner: str, key: str) -> bool:
+    return (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
+            and node.value.id == owner and isinstance(node.slice, ast.Constant)
+            and node.slice.value == key)
+
+
+def _indexed_value(node: ast.AST, owner: str, index: str) -> bool:
+    return (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
+            and node.value.id == owner and isinstance(node.slice, ast.Name)
+            and node.slice.id == index)
+
+
+def _optimizer_group_loop(node: ast.For) -> str | None:
+    if (isinstance(node.target, ast.Name)
+            and _attribute(node.iter, "optimizer", "param_groups")):
+        return node.target.id
+    return None
+
+
+def _capture_candidate(node: ast.For) -> tuple[str, int] | None:
+    group = _optimizer_group_loop(node)
+    if group is None:
+        return None
+    for block in _live_statement_blocks(node.body):
+        for statement in block:
+            if not isinstance(statement, ast.Expr) or not isinstance(statement.value, ast.Call):
+                continue
+            call = statement.value
+            if (isinstance(call.func, ast.Attribute) and call.func.attr == "append"
+                    and isinstance(call.func.value, ast.Name) and len(call.args) == 1
+                    and not call.keywords and _string_subscript(call.args[0], group, "lr")):
+                return call.func.value.id, statement.lineno
+    return None
+
+
+def _load_and_restore_call(block: list[ast.stmt]) -> tuple[str, int, int] | None:
+    for index, statement in enumerate(block[:-1]):
+        if (not isinstance(statement, ast.Assign) or len(statement.targets) != 1
+                or not isinstance(statement.targets[0], ast.Name)
+                or not isinstance(statement.value, ast.Call)):
+            continue
+        call = statement.value
+        if (not _attribute(call.func, "torch", "load") or len(call.args) != 1
+                or not isinstance(call.args[0], ast.Name)
+                or call.args[0].id != "optimizer_state_file_path"
+                or len(call.keywords) != 1 or call.keywords[0].arg != "weights_only"
+                or not isinstance(call.keywords[0].value, ast.Constant)
+                or call.keywords[0].value.value is not True):
+            continue
+        result_name = statement.targets[0].id
+        following = block[index + 1]
+        if not isinstance(following, ast.Expr) or not isinstance(following.value, ast.Call):
+            continue
+        restore = following.value
+        if (_attribute(restore.func, "optimizer", "load_state_dict")
+                and len(restore.args) == 1 and isinstance(restore.args[0], ast.Name)
+                and restore.args[0].id == result_name and not restore.keywords):
+            return result_name, statement.lineno, following.lineno
+    return None
+
+
+def _lr_restore_candidate(node: ast.For, captured: str) -> tuple[int, int] | None:
+    if (not isinstance(node.target, (ast.Tuple, ast.List)) or len(node.target.elts) != 2
+            or not all(isinstance(item, ast.Name) for item in node.target.elts)
+            or not isinstance(node.iter, ast.Call) or not isinstance(node.iter.func, ast.Name)
+            or node.iter.func.id != "enumerate" or len(node.iter.args) != 1
+            or node.iter.keywords or not _attribute(node.iter.args[0], "optimizer", "param_groups")):
+        return None
+    index_name = node.target.elts[0].id
+    group_name = node.target.elts[1].id
+    assignments: dict[str, int] = {}
+    for statement in node.body:
+        if (isinstance(statement, ast.Assign) and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Subscript)
+                and _indexed_value(statement.value, captured, index_name)):
+            target = statement.targets[0]
+            for key in ("lr", "initial_lr"):
+                if _string_subscript(target, group_name, key):
+                    assignments[key] = statement.lineno
+    if set(assignments) == {"lr", "initial_lr"} and assignments["lr"] < assignments["initial_lr"]:
+        return assignments["lr"], assignments["initial_lr"]
+    return None
+
+
+def _optimizer_state_exists_test(node: ast.AST) -> bool:
+    return (isinstance(node, ast.Call) and len(node.args) == 1 and not node.keywords
+            and isinstance(node.func, ast.Attribute) and node.func.attr == "exists"
+            and isinstance(node.func.value, ast.Attribute) and node.func.value.attr == "path"
+            and isinstance(node.func.value.value, ast.Name) and node.func.value.value.id == "os"
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "optimizer_state_file_path")
+
+
+def _has_captured_rates_test(node: ast.AST, captured: str) -> bool:
+    return (isinstance(node, ast.Compare) and len(node.ops) == 1
+            and isinstance(node.ops[0], ast.Gt) and len(node.comparators) == 1
+            and isinstance(node.comparators[0], ast.Constant)
+            and node.comparators[0].value == 0 and isinstance(node.left, ast.Call)
+            and isinstance(node.left.func, ast.Name) and node.left.func.id == "len"
+            and len(node.left.args) == 1 and not node.left.keywords
+            and isinstance(node.left.args[0], ast.Name)
+            and node.left.args[0].id == captured)
+
+
 def _validate_resume_source_contract(repository_root: Path) -> None:
-    source = (repository_root / "jobs/process/BaseSDTrainProcess.py").read_text(encoding="utf-8")
-    required = (
-        "previous_lrs.append(group['lr'])", "torch.load(optimizer_state_file_path, weights_only=True)",
-        "optimizer.load_state_dict(optimizer_state_dict)", "group['lr'] = previous_lrs[i]",
-        "group['initial_lr'] = previous_lrs[i]",
-    )
-    positions = [source.find(fragment) for fragment in required]
-    if -1 in positions or positions != sorted(positions):
+    path = repository_root / "jobs/process/BaseSDTrainProcess.py"
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError) as error:
+        raise ExampleError(f"cannot inspect optimizer resume source: {error}") from error
+    classes = [node for node in tree.body
+               if isinstance(node, ast.ClassDef) and node.name == "BaseSDTrainProcess"]
+    methods = ([node for node in classes[0].body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "run"]
+               if len(classes) == 1 else [])
+    if len(methods) != 1:
+        raise ExampleError("optimizer resume source no longer preserves configured learning rates")
+    valid = False
+    method_statements = [statement for block in _live_statement_blocks(methods[0].body)
+                         for statement in block]
+    outer_blocks = [statement for statement in method_statements
+                    if isinstance(statement, ast.If)
+                    and _optimizer_state_exists_test(statement.test)]
+    for outer in outer_blocks:
+        initializers = {
+            statement.targets[0].id: statement.lineno
+            for statement in outer.body
+            if (isinstance(statement, ast.Assign) and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Name)
+                and isinstance(statement.value, ast.List) and not statement.value.elts)
+        }
+        captures = [candidate for statement in outer.body if isinstance(statement, ast.For)
+                    if (candidate := _capture_candidate(statement)) is not None]
+        outer_statements = [statement for block in _live_statement_blocks(outer.body)
+                            for statement in block]
+        load_guards = [statement for statement in outer_statements
+                       if isinstance(statement, ast.If) and isinstance(statement.test, ast.Name)
+                       and statement.test.id == "load_optimizer"]
+        loads = [candidate for guard in load_guards
+                 for block in _live_statement_blocks(guard.body)
+                 if (candidate := _load_and_restore_call(block)) is not None]
+        for captured, capture_line in captures:
+            restore_guards = [statement for statement in outer_statements
+                              if isinstance(statement, ast.If)
+                              and _has_captured_rates_test(statement.test, captured)]
+            restores = [candidate for guard in restore_guards
+                        for block in _live_statement_blocks(guard.body)
+                        for statement in block if isinstance(statement, ast.For)
+                        if (candidate := _lr_restore_candidate(statement, captured)) is not None]
+            for _, load_line, load_state_line in loads:
+                for lr_line, initial_lr_line in restores:
+                    if (captured in initializers and initializers[captured] < capture_line < load_line
+                            < load_state_line < lr_line < initial_lr_line):
+                        valid = True
+    if not valid:
         raise ExampleError("optimizer resume source no longer preserves configured learning rates")
     result = configured_learning_rates_after_restore((1e-4,), ({"lr": 9e-3},))
     if result[0]["lr"] != 1e-4 or result[0]["initial_lr"] != 1e-4:
@@ -755,10 +993,7 @@ def _validate_resume_source_contract(repository_root: Path) -> None:
 
 def validate_example(repository_root: Path, entry: ExampleEntry, catalog: Any) -> None:
     example_path = repository_root / "docs/book/examples" / entry.path
-    try:
-        raw = yaml.safe_load(example_path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as error:
-        raise ExampleError(f"cannot parse {entry.path}: {error}") from error
+    raw = _load_example_yaml(example_path)
     if not isinstance(raw, dict):
         raise ExampleError("example YAML root must be an object")
     with tempfile.TemporaryDirectory(prefix="training-book-example-") as directory:
