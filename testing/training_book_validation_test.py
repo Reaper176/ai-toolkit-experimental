@@ -15332,6 +15332,28 @@ class RecipeNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), page.lower())
 
+    def test_recipes_page_recipe_refinement_covers_mask_semantics(self):
+        relative_path = "recipes/focused-refinement.md"
+        page = (REPOSITORY_ROOT / "docs/book" / relative_path).read_text(
+            encoding="utf-8"
+        )
+        self.assert_recipe_contract(relative_path, page, pre_catalog=True)
+        for phrase in (
+            "focused refinement",
+            "grayscale",
+            "mask_min_value",
+            "inversion",
+            "inverted-mask prior",
+            "all-white mask",
+            "equivalent to no mask",
+            "neither masks nor the inverted-mask prior are enabled automatically",
+            "fixed seed",
+            "overfitting",
+            "../datasets/masks.md",
+            "../workflow/sampling-and-evaluation.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
