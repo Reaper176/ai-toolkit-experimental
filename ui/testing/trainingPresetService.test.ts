@@ -4,6 +4,8 @@ import { getBuiltInTrainingPresetCatalog } from '../src/server/trainingPresetCat
 import { trainingPresetCatalogIdLogDigest } from '../src/server/trainingPresetCatalogDigest';
 import {
   MAX_PRESET_REQUEST_BYTES,
+  TrainingPresetProvenanceError,
+  TrainingPresetReadOnlyError,
   TrainingPresetConflictError,
   TrainingPresetCorruptError,
   TrainingPresetNotFoundError,
@@ -77,6 +79,9 @@ function row(id: string, name: string, model = `${id}/model`): TrainingPresetRow
 
 class FakeStore implements TrainingPresetStore {
   rows: TrainingPresetRow[];
+  findUniqueCalls = 0;
+  updateCalls = 0;
+  deleteCalls = 0;
   createError: unknown;
   updateError: unknown;
   deleteError: unknown;
@@ -91,6 +96,7 @@ class FakeStore implements TrainingPresetStore {
   }
 
   async findUnique(args: { where: { id?: string; name_key?: string } }): Promise<TrainingPresetRow | null> {
+    this.findUniqueCalls += 1;
     const found = this.rows.find(candidate =>
       args.where.id !== undefined ? candidate.id === args.where.id : candidate.name_key === args.where.name_key,
     );
@@ -111,6 +117,7 @@ class FakeStore implements TrainingPresetStore {
   }
 
   async update(args: { where: { id: string }; data: TrainingPresetUpdateData }): Promise<TrainingPresetRow> {
+    this.updateCalls += 1;
     if (this.updateError !== undefined) throw this.updateError;
     const index = this.rows.findIndex(candidate => candidate.id === args.where.id);
     if (index < 0) throw { code: 'P2025' };
@@ -124,6 +131,7 @@ class FakeStore implements TrainingPresetStore {
   }
 
   async delete(args: { where: { id: string } }): Promise<TrainingPresetRow> {
+    this.deleteCalls += 1;
     if (this.deleteError !== undefined) throw this.deleteError;
     const index = this.rows.findIndex(candidate => candidate.id === args.where.id);
     if (index < 0) throw { code: 'P2025' };
@@ -374,6 +382,24 @@ async function main(): Promise<void> {
   assert.equal(deleteStore.rows.length, 0);
   assert.deepEqual(mutationProviderCalls, [], 'delete does not consult or mutate the built-in provider');
 
+  for (const reservedId of ['builtin:flux:test@1', '  BuIlTiN:flux:test@1  ']) {
+    const reservedUpdateStore = new FakeStore([row(reservedId.trim(), 'Reserved')]);
+    await assert.rejects(
+      createTrainingPresetService(reservedUpdateStore).update(reservedId, jobFixture()),
+      TrainingPresetReadOnlyError,
+    );
+    assert.equal(reservedUpdateStore.findUniqueCalls, 0, 'reserved update must be rejected before lookup');
+    assert.equal(reservedUpdateStore.updateCalls, 0, 'reserved update must not reach storage');
+
+    const reservedDeleteStore = new FakeStore([row(reservedId.trim(), 'Reserved')]);
+    await assert.rejects(
+      createTrainingPresetService(reservedDeleteStore).remove(reservedId),
+      TrainingPresetReadOnlyError,
+    );
+    assert.equal(reservedDeleteStore.findUniqueCalls, 0, 'reserved delete must be rejected before lookup');
+    assert.equal(reservedDeleteStore.deleteCalls, 0, 'reserved delete must not reach storage');
+  }
+
   const injectedCreateStore = new FakeStore();
   const injectedMutationService = createTrainingPresetService(injectedCreateStore, mutationDependencies);
   const injectedCreated = await injectedMutationService.create('User Only', jobFixture());
@@ -444,6 +470,29 @@ async function main(): Promise<void> {
   const parsed = parsePresetRequestText(JSON.stringify({ name: 42, job_config: jobFixture() }));
   assert.equal(parsed.name, 42);
   assert.equal(parsed.job_config.config.process.length, 1);
+  for (const provenanceField of [
+    'source',
+    'read_only',
+    'category',
+    'intent_slug',
+    'model_arch',
+    'catalog_revision',
+    'recipe_path',
+    'evidence',
+  ]) {
+    assert.throws(
+      () =>
+        parsePresetRequestText(
+          JSON.stringify({ name: 'Owned', job_config: jobFixture(), [provenanceField]: 'client-owned' }),
+        ),
+      TrainingPresetProvenanceError,
+      `${provenanceField} must be rejected as top-level provenance`,
+    );
+    const nestedJobConfig = { ...jobFixture(), [provenanceField]: 'nested-value' } as unknown as JobConfig;
+    assert.doesNotThrow(() =>
+      parsePresetRequestText(JSON.stringify({ name: 'Nested', job_config: nestedJobConfig })),
+    );
+  }
   const exactAscii = JSON.stringify({ job_config: 'x'.repeat(MAX_PRESET_REQUEST_BYTES - 17) });
   assert.equal(Buffer.byteLength(exactAscii), MAX_PRESET_REQUEST_BYTES);
   parsePresetRequestText(exactAscii);
@@ -461,6 +510,18 @@ async function main(): Promise<void> {
   assert.deepEqual(validationMapping, { status: 400, error: 'bad input', shouldLog: false });
   assert.equal(mapTrainingPresetError(new TrainingPresetConflictError('duplicate')).status, 409);
   assert.equal(mapTrainingPresetError(new TrainingPresetNotFoundError('missing')).status, 404);
+  assert.deepEqual(mapTrainingPresetError(new TrainingPresetReadOnlyError()), {
+    status: 409,
+    error: 'Built-in training presets are read-only',
+    code: 'BUILTIN_PRESET_READ_ONLY',
+    shouldLog: false,
+  });
+  assert.deepEqual(mapTrainingPresetError(new TrainingPresetProvenanceError()), {
+    status: 400,
+    error: 'Preset catalog provenance is server-owned',
+    code: 'PRESET_PROVENANCE_NOT_ALLOWED',
+    shouldLog: false,
+  });
   assert.deepEqual(mapTrainingPresetError(new TrainingPresetCorruptError('secret detail')), {
     status: 500,
     error: 'Training preset storage is unavailable',

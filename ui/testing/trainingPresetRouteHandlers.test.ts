@@ -5,6 +5,8 @@ import { getBuiltInTrainingPresetCatalog } from '../src/server/trainingPresetCat
 import {
   MAX_PRESET_REQUEST_BYTES,
   TrainingPresetPayloadTooLargeError,
+  TrainingPresetProvenanceError,
+  TrainingPresetReadOnlyError,
   createTrainingPresetService,
   mapTrainingPresetError,
   type TrainingPresetCreateData,
@@ -53,6 +55,10 @@ const recordFixture = {
 class FakeService implements TrainingPresetServiceApi {
   createCalls = 0;
   updateCalls = 0;
+  removeCalls = 0;
+  createError?: unknown;
+  updateError?: unknown;
+  removeError?: unknown;
 
   async list(): Promise<UserTrainingPresetRecord[]> {
     return [];
@@ -60,15 +66,20 @@ class FakeService implements TrainingPresetServiceApi {
 
   async create(): Promise<UserTrainingPresetRecord> {
     this.createCalls += 1;
+    if (this.createError !== undefined) throw this.createError;
     return structuredClone(recordFixture);
   }
 
   async update(): Promise<UserTrainingPresetRecord> {
     this.updateCalls += 1;
+    if (this.updateError !== undefined) throw this.updateError;
     return structuredClone(recordFixture);
   }
 
-  async remove(): Promise<void> {}
+  async remove(): Promise<void> {
+    this.removeCalls += 1;
+    if (this.removeError !== undefined) throw this.removeError;
+  }
 }
 
 class RecordingStore implements TrainingPresetStore {
@@ -265,6 +276,101 @@ async function main(): Promise<void> {
   assert.match(String(((await invalidCreateResponse.json()) as { error: string }).error), /job.*extension/i);
   assert.equal(invalidCreateStore.createCalls, 0);
   assert.equal(invalidCreateStore.rows.length, 0);
+
+  for (const provenanceField of [
+    'source',
+    'read_only',
+    'category',
+    'intent_slug',
+    'model_arch',
+    'catalog_revision',
+    'recipe_path',
+    'evidence',
+  ]) {
+    const provenanceService = new FakeService();
+    const provenanceResponse = await createTrainingPresetCollectionHandlers(
+      provenanceService,
+      () => undefined,
+    ).POST(
+      new Request('http://localhost/api/training-presets', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'Owned', job_config: jobFixture(), [provenanceField]: true }),
+      }),
+    );
+    assert.equal(provenanceResponse.status, 400);
+    assert.deepEqual(await provenanceResponse.json(), {
+      error: 'Preset catalog provenance is server-owned',
+      code: 'PRESET_PROVENANCE_NOT_ALLOWED',
+    });
+    assert.equal(provenanceService.createCalls, 0);
+  }
+
+  const nestedProvenanceService = new FakeService();
+  const nestedProvenanceResponse = await createTrainingPresetCollectionHandlers(
+    nestedProvenanceService,
+    () => undefined,
+  ).POST(
+    new Request('http://localhost/api/training-presets', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Nested provenance',
+        job_config: { ...jobFixture(), source: 'nested', evidence: ['nested'] },
+      }),
+    }),
+  );
+  assert.equal(nestedProvenanceResponse.status, 201);
+  assert.equal(nestedProvenanceService.createCalls, 1);
+
+  const readOnlyUpdateService = new FakeService();
+  readOnlyUpdateService.updateError = new TrainingPresetReadOnlyError();
+  const readOnlyUpdateResponse = await createTrainingPresetDetailHandlers(
+    readOnlyUpdateService,
+    () => undefined,
+  ).PUT(
+    new Request('http://localhost/api/training-presets', {
+      method: 'PUT',
+      body: JSON.stringify({ job_config: jobFixture() }),
+    }),
+    { params: Promise.resolve({ presetId: 'builtin:test' }) },
+  );
+  assert.equal(readOnlyUpdateResponse.status, 409);
+  assert.deepEqual(await readOnlyUpdateResponse.json(), {
+    error: 'Built-in training presets are read-only',
+    code: 'BUILTIN_PRESET_READ_ONLY',
+  });
+
+  const readOnlyDeleteService = new FakeService();
+  readOnlyDeleteService.removeError = new TrainingPresetReadOnlyError();
+  const readOnlyDeleteResponse = await createTrainingPresetDetailHandlers(
+    readOnlyDeleteService,
+    () => undefined,
+  ).DELETE(new Request('http://localhost/api/training-presets', { method: 'DELETE' }), {
+    params: Promise.resolve({ presetId: 'builtin:test' }),
+  });
+  assert.equal(readOnlyDeleteResponse.status, 409);
+  assert.deepEqual(await readOnlyDeleteResponse.json(), {
+    error: 'Built-in training presets are read-only',
+    code: 'BUILTIN_PRESET_READ_ONLY',
+  });
+
+  const ordinaryErrorService = new FakeService();
+  ordinaryErrorService.createError = new TrainingPresetPayloadTooLargeError();
+  const ordinaryErrorResponse = await createTrainingPresetCollectionHandlers(
+    ordinaryErrorService,
+    () => undefined,
+  ).POST(
+    new Request('http://localhost/api/training-presets', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Ordinary', job_config: jobFixture() }),
+    }),
+  );
+  assert.deepEqual(await ordinaryErrorResponse.json(), { error: 'Preset request must not exceed 1 MiB' });
+
+  assert.deepEqual(mapTrainingPresetError(new TrainingPresetReadOnlyError()).code, 'BUILTIN_PRESET_READ_ONLY');
+  assert.deepEqual(
+    mapTrainingPresetError(new TrainingPresetProvenanceError()).code,
+    'PRESET_PROVENANCE_NOT_ALLOWED',
+  );
 
   console.log('Training preset route handler tests passed');
 }

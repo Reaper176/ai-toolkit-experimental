@@ -15,7 +15,10 @@ const defaultLogger: TrainingPresetRouteLogger = (operation, error) => {
 function errorResponse(error: unknown, operation: string, logError: TrainingPresetRouteLogger): Response {
   const mapped = mapTrainingPresetError(error);
   if (mapped.shouldLog) logError(operation, error);
-  return Response.json({ error: mapped.error }, { status: mapped.status });
+  return Response.json(
+    mapped.code === undefined ? { error: mapped.error } : { error: mapped.error, code: mapped.code },
+    { status: mapped.status },
+  );
 }
 
 export function createTrainingPresetCollectionHandlers(

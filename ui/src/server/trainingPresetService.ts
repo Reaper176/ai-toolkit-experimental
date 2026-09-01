@@ -66,16 +66,33 @@ export class TrainingPresetPayloadTooLargeError extends TrainingPresetServiceErr
 export class TrainingPresetConflictError extends TrainingPresetServiceError {}
 export class TrainingPresetNotFoundError extends TrainingPresetServiceError {}
 export class TrainingPresetCorruptError extends TrainingPresetServiceError {}
+export class TrainingPresetReadOnlyError extends TrainingPresetServiceError {
+  constructor() {
+    super('Built-in training presets are read-only');
+  }
+}
+export class TrainingPresetProvenanceError extends TrainingPresetServiceError {
+  constructor() {
+    super('Preset catalog provenance is server-owned');
+  }
+}
 
 export interface TrainingPresetErrorResponse {
   status: 400 | 404 | 409 | 413 | 500;
   error: string;
+  code?: 'BUILTIN_PRESET_READ_ONLY' | 'PRESET_PROVENANCE_NOT_ALLOWED';
   shouldLog: boolean;
 }
 
 export function mapTrainingPresetError(error: unknown): TrainingPresetErrorResponse {
   if (error instanceof TrainingPresetPayloadTooLargeError) {
     return { status: 413, error: error.message, shouldLog: false };
+  }
+  if (error instanceof TrainingPresetProvenanceError) {
+    return { status: 400, error: error.message, code: 'PRESET_PROVENANCE_NOT_ALLOWED', shouldLog: false };
+  }
+  if (error instanceof TrainingPresetReadOnlyError) {
+    return { status: 409, error: error.message, code: 'BUILTIN_PRESET_READ_ONLY', shouldLog: false };
   }
   if (error instanceof TrainingPresetValidationError) {
     return { status: 400, error: error.message, shouldLog: false };
@@ -109,6 +126,12 @@ function validateId(id: unknown): string {
     throw new TrainingPresetValidationError('Preset id must be a nonblank string');
   }
   return id.trim();
+}
+
+function rejectBuiltInPresetId(id: string): void {
+  if (id.toLowerCase().startsWith('builtin:')) {
+    throw new TrainingPresetReadOnlyError();
+  }
 }
 
 function sanitizeJobConfig(jobConfig: JobConfig): TrainingPresetSnapshotV1 {
@@ -172,6 +195,20 @@ export function parsePresetRequestText(text: string): { name: unknown; job_confi
 
   if (!isPlainObject(body)) {
     throw new TrainingPresetValidationError('Preset request body must be a plain object');
+  }
+  for (const field of [
+    'source',
+    'read_only',
+    'category',
+    'intent_slug',
+    'model_arch',
+    'catalog_revision',
+    'recipe_path',
+    'evidence',
+  ]) {
+    if (Object.prototype.hasOwnProperty.call(body, field)) {
+      throw new TrainingPresetProvenanceError();
+    }
   }
   if (!Object.prototype.hasOwnProperty.call(body, 'job_config')) {
     throw new TrainingPresetValidationError('Preset request body must contain job_config');
@@ -310,6 +347,7 @@ export function createTrainingPresetService(
 
     async update(idInput: unknown, currentJobConfig: JobConfig): Promise<UserTrainingPresetRecord> {
       const id = validateId(idInput);
+      rejectBuiltInPresetId(id);
       if (!(await store.findUnique({ where: { id } }))) {
         throw new TrainingPresetNotFoundError(`Training preset "${id}" was not found`);
       }
@@ -332,6 +370,7 @@ export function createTrainingPresetService(
 
     async remove(idInput: unknown): Promise<void> {
       const id = validateId(idInput);
+      rejectBuiltInPresetId(id);
       if (!(await store.findUnique({ where: { id } }))) {
         throw new TrainingPresetNotFoundError(`Training preset "${id}" was not found`);
       }
