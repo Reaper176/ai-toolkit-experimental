@@ -14943,6 +14943,19 @@ class TrainingBookExamplesContractTests(unittest.TestCase):
         ("resume-from-checkpoint.yaml", "flex1", "resume-image-lora"),
     )
 
+    def write_resume_source_fixture(self, directory, sd_source, base_source=None):
+        repository = Path(directory)
+        sd_target = repository / "jobs/process/BaseSDTrainProcess.py"
+        base_target = repository / "jobs/process/BaseTrainProcess.py"
+        sd_target.parent.mkdir(parents=True)
+        sd_target.write_text(sd_source)
+        if base_source is None:
+            base_source = (
+                REPOSITORY_ROOT / "jobs/process/BaseTrainProcess.py"
+            ).read_text()
+        base_target.write_text(base_source)
+        return repository
+
     def test_examples_manifest_and_exact_file_set(self):
         from scripts.training_book.examples import load_example_manifest
 
@@ -15187,10 +15200,7 @@ for i, group in enumerate(optimizer.param_groups):
         }
         for label, source in cases.items():
             with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
-                repository = Path(directory)
-                target = repository / "jobs/process/BaseSDTrainProcess.py"
-                target.parent.mkdir(parents=True)
-                target.write_text(source)
+                repository = self.write_resume_source_fixture(directory, source)
                 with self.assertRaises(ExampleError):
                     _validate_resume_source_contract(repository)
 
@@ -15215,13 +15225,60 @@ for i, group in enumerate(optimizer.param_groups):
                 "os.path.join(self.save_root, optimizer_state_filename)",
                 "os.path.join('/tmp/wrong-root', optimizer_state_filename)", 1,
             ),
+            "optimizer rebound before discovery": live.replace(
+                "        self.optimizer = optimizer",
+                "        optimizer = object()\n        self.optimizer = optimizer", 1,
+            ),
+            "filename rebound before join": live.replace(
+                "        optimizer_state_file_path = os.path.join(",
+                "        optimizer_state_filename = 'other.pt'\n"
+                "        optimizer_state_file_path = os.path.join(", 1,
+            ),
+            "path rebound before exists guard": live.replace(
+                "        if os.path.exists(optimizer_state_file_path):",
+                "        optimizer_state_file_path = '/tmp/wrong-root/optimizer.pt'\n"
+                "        if os.path.exists(optimizer_state_file_path):", 1,
+            ),
+            "path rebound inside exists guard": live.replace(
+                "        if os.path.exists(optimizer_state_file_path):\n",
+                "        if os.path.exists(optimizer_state_file_path):\n"
+                "            optimizer_state_file_path = '/tmp/wrong-root/optimizer.pt'\n", 1,
+            ),
         }
         for label, source in mutations.items():
             with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
-                repository = Path(directory)
-                target = repository / "jobs/process/BaseSDTrainProcess.py"
-                target.parent.mkdir(parents=True)
-                target.write_text(source)
+                repository = self.write_resume_source_fixture(directory, source)
+                with self.assertRaises(ExampleError):
+                    _validate_resume_source_contract(repository)
+
+    def test_examples_resume_source_contract_rejects_save_root_mutations(self):
+        from scripts.training_book.examples import ExampleError, _validate_resume_source_contract
+
+        sd_source = (
+            REPOSITORY_ROOT / "jobs/process/BaseSDTrainProcess.py"
+        ).read_text()
+        base_source = (
+            REPOSITORY_ROOT / "jobs/process/BaseTrainProcess.py"
+        ).read_text()
+        mutations = {
+            "wrong save root": base_source.replace(
+                "os.path.join(self.training_folder, self.name)",
+                "os.path.join('/tmp/wrong-root', self.name)", 1,
+            ),
+            "wrong training-folder key": base_source.replace(
+                "self.get_conf('training_folder'",
+                "self.get_conf('other_folder'", 1,
+            ),
+            "save root rebound": base_source.replace(
+                "        self.step = 0",
+                "        self.save_root = '/tmp/wrong-root'\n        self.step = 0", 1,
+            ),
+        }
+        for label, mutation in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                repository = self.write_resume_source_fixture(
+                    directory, sd_source, mutation
+                )
                 with self.assertRaises(ExampleError):
                     _validate_resume_source_contract(repository)
 
@@ -15234,9 +15291,13 @@ for i, group in enumerate(optimizer.param_groups):
                 previous_lrs.append(group['lr'])
 """
         load = """
+            load_optimizer = True
             if load_optimizer:
-                optimizer_state_dict = torch.load(optimizer_state_file_path, weights_only=True)
-                optimizer.load_state_dict(optimizer_state_dict)
+                try:
+                    optimizer_state_dict = torch.load(optimizer_state_file_path, weights_only=True)
+                    optimizer.load_state_dict(optimizer_state_dict)
+                except Exception:
+                    pass
 """
         restore = """
             if len(previous_lrs) > 0:
@@ -15244,8 +15305,26 @@ for i, group in enumerate(optimizer.param_groups):
                     group['lr'] = previous_lrs[i]
                     group['initial_lr'] = previous_lrs[i]
 """
+        def source_with(body):
+            return (
+                "class BaseSDTrainProcess:\n"
+                "    def run(self):\n"
+                "        optimizer = get_optimizer(self.params, optimizer_type, "
+                "learning_rate=self.train_config.lr)\n"
+                "        optimizer_state_filename = 'optimizer.pt'\n"
+                "        optimizer_state_file_path = os.path.join("
+                "self.save_root, optimizer_state_filename)\n"
+                "        if os.path.exists(optimizer_state_file_path):\n"
+                f"{body}"
+            )
+
+        baseline = source_with(capture + load + restore)
+        with tempfile.TemporaryDirectory() as directory:
+            repository = self.write_resume_source_fixture(directory, baseline)
+            _validate_resume_source_contract(repository)
+
         cases = {
-            "unreachable after return": capture + "            return\n" + load + restore,
+            "unreachable after return": "            return\n" + capture + load + restore,
             "mutually exclusive branches": capture + "            if choose_load:\n" +
                 "".join(f"    {line}\n" for line in load.strip().splitlines()) +
                 "            else:\n" +
@@ -15253,19 +15332,14 @@ for i, group in enumerate(optimizer.param_groups):
             "optimizer rebound": capture + "            optimizer = object()\n" + load + restore,
             "captured rates cleared": capture + "            previous_lrs.clear()\n" + load + restore,
             "captured rates corrupted": capture + "            previous_lrs.append(999)\n" + load + restore,
+            "load guard forced false": capture + load.replace(
+                "load_optimizer = True", "load_optimizer = False"
+            ) + restore,
         }
         for label, body in cases.items():
-            source = (
-                "class BaseSDTrainProcess:\n"
-                "    def run(self):\n"
-                "        if os.path.exists(optimizer_state_file_path):\n"
-                f"{body}"
-            )
+            source = source_with(body)
             with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
-                repository = Path(directory)
-                target = repository / "jobs/process/BaseSDTrainProcess.py"
-                target.parent.mkdir(parents=True)
-                target.write_text(source)
+                repository = self.write_resume_source_fixture(directory, source)
                 with self.assertRaises(ExampleError):
                     _validate_resume_source_contract(repository)
 

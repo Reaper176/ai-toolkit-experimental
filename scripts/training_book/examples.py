@@ -961,6 +961,16 @@ def _assigned_name(statement: ast.stmt, name: str) -> ast.AST | None:
     return None
 
 
+def _assigned_self_attribute(statement: ast.stmt, attribute: str) -> ast.AST | None:
+    if (isinstance(statement, ast.Assign) and len(statement.targets) == 1
+            and isinstance(statement.targets[0], ast.Attribute)
+            and statement.targets[0].attr == attribute
+            and isinstance(statement.targets[0].value, ast.Name)
+            and statement.targets[0].value.id == "self"):
+        return statement.value
+    return None
+
+
 def _optimizer_creation(statement: ast.stmt) -> bool:
     value = _assigned_name(statement, "optimizer")
     if not isinstance(value, ast.Call) or not isinstance(value.func, ast.Name):
@@ -992,6 +1002,27 @@ def _state_path_assignment(statement: ast.stmt) -> bool:
             and value.args[1].id == "optimizer_state_filename")
 
 
+def _training_folder_assignment(statement: ast.stmt) -> bool:
+    value = _assigned_self_attribute(statement, "training_folder")
+    return (isinstance(value, ast.Call) and isinstance(value.func, ast.Attribute)
+            and value.func.attr == "get_conf"
+            and isinstance(value.func.value, ast.Name) and value.func.value.id == "self"
+            and len(value.args) >= 1 and isinstance(value.args[0], ast.Constant)
+            and value.args[0].value == "training_folder")
+
+
+def _save_root_assignment(statement: ast.stmt) -> bool:
+    value = _assigned_self_attribute(statement, "save_root")
+    return (isinstance(value, ast.Call) and not value.keywords
+            and isinstance(value.func, ast.Attribute) and value.func.attr == "join"
+            and isinstance(value.func.value, ast.Attribute)
+            and value.func.value.attr == "path"
+            and isinstance(value.func.value.value, ast.Name)
+            and value.func.value.value.id == "os" and len(value.args) == 2
+            and _self_attribute_chain(value.args[0], "training_folder")
+            and _self_attribute_chain(value.args[1], "name"))
+
+
 def _contains_terminal(node: ast.AST) -> bool:
     for child in ast.walk(node):
         if child is node:
@@ -1006,6 +1037,15 @@ def _contains_terminal(node: ast.AST) -> bool:
 def _name_store_count(node: ast.AST, name: str) -> int:
     return sum(
         isinstance(child, ast.Name) and child.id == name
+        and isinstance(child.ctx, (ast.Store, ast.Del))
+        for child in ast.walk(node)
+    )
+
+
+def _self_attribute_store_count(node: ast.AST, attribute: str) -> int:
+    return sum(
+        isinstance(child, ast.Attribute) and child.attr == attribute
+        and isinstance(child.value, ast.Name) and child.value.id == "self"
         and isinstance(child.ctx, (ast.Store, ast.Del))
         for child in ast.walk(node)
     )
@@ -1038,7 +1078,33 @@ def _direct_lr_restore(guard: ast.If, captured: str) -> tuple[int, int] | None:
     return _lr_restore_candidate(loops[0], captured)
 
 
+def _validate_save_root_source_contract(repository_root: Path) -> None:
+    path = repository_root / "jobs/process/BaseTrainProcess.py"
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError) as error:
+        raise ExampleError(f"cannot inspect training save-root source: {error}") from error
+    classes = [node for node in tree.body
+               if isinstance(node, ast.ClassDef) and node.name == "BaseTrainProcess"]
+    methods = ([node for node in classes[0].body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == "__init__"] if len(classes) == 1 else [])
+    if len(methods) != 1:
+        raise ExampleError("training save root is no longer derived from output/name identity")
+    method = methods[0]
+    training_indices = [index for index, statement in enumerate(method.body)
+                        if _training_folder_assignment(statement)]
+    save_indices = [index for index, statement in enumerate(method.body)
+                    if _save_root_assignment(statement)]
+    valid = any(training_index < save_index
+                for training_index in training_indices for save_index in save_indices)
+    if (not valid or _self_attribute_store_count(classes[0], "training_folder") != 1
+            or _self_attribute_store_count(classes[0], "save_root") != 1):
+        raise ExampleError("training save root is no longer derived from output/name identity")
+
+
 def _validate_resume_source_contract(repository_root: Path) -> None:
+    _validate_save_root_source_contract(repository_root)
     path = repository_root / "jobs/process/BaseSDTrainProcess.py"
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -1070,6 +1136,21 @@ def _validate_resume_source_contract(repository_root: Path) -> None:
                         continue
                     if any(isinstance(statement, (ast.Return, ast.Raise))
                            for statement in statements[optimizer_index + 1:outer_index]):
+                        continue
+                    if sum(
+                        _name_store_count(statement, "optimizer")
+                        for statement in statements[optimizer_index + 1:outer_index + 1]
+                    ):
+                        continue
+                    if sum(
+                        _name_store_count(statement, "optimizer_state_filename")
+                        for statement in statements[filename_index + 1:path_index]
+                    ):
+                        continue
+                    if sum(
+                        _name_store_count(statement, "optimizer_state_file_path")
+                        for statement in statements[path_index + 1:outer_index + 1]
+                    ):
                         continue
                     outer = statements[outer_index]
                     assert isinstance(outer, ast.If)
@@ -1108,6 +1189,17 @@ def _validate_resume_source_contract(repository_root: Path) -> None:
                                 is not None
                             ]
                             for load_index, (_, load_line, load_state_line) in load_guards:
+                                load_initializers = [
+                                    index for index, statement in enumerate(outer.body)
+                                    if (isinstance(statement, ast.Assign)
+                                        and len(statement.targets) == 1
+                                        and isinstance(statement.targets[0], ast.Name)
+                                        and statement.targets[0].id == "load_optimizer"
+                                        and isinstance(statement.value, ast.Constant)
+                                        and statement.value.value is True)
+                                ]
+                                if not any(index < load_index for index in load_initializers):
+                                    continue
                                 for restore_index, (lr_line, initial_lr_line) in restore_guards:
                                     if not capture_index < load_index < restore_index:
                                         continue
