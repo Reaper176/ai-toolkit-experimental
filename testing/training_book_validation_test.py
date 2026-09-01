@@ -16993,6 +16993,32 @@ class BookArtifactTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("preset", result.stderr.lower())
 
+    def test_validation_cli_rejects_noninteger_preset_facts_schema_versions(self):
+        presets = load_production_training_book_preset_facts()
+        for schema_version in (True, 1.0):
+            with self.subTest(schema_version=schema_version), tempfile.TemporaryDirectory() as directory:
+                facts_path = Path(directory) / "preset-facts.json"
+                facts_path.write_text(
+                    json.dumps({"schema_version": schema_version, "presets": presets}),
+                    encoding="utf-8",
+                )
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "scripts/validate_training_book.py",
+                        "--skip-smoke",
+                        "--preset-facts",
+                        facts_path,
+                    ],
+                    cwd=REPOSITORY_ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("preset facts have an invalid envelope", result.stderr)
+
     def test_runner_rejects_missing_training_book_package_initializer(self):
         with tempfile.TemporaryDirectory() as directory:
             repository_root = Path(directory)

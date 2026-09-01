@@ -366,7 +366,10 @@ def _load_preset_facts(path: Path) -> tuple[dict[str, str], ...]:
     if (
         not isinstance(payload, dict)
         or set(payload) != {"schema_version", "presets"}
-        or payload["schema_version"] != 1
+        or not (
+            type(payload["schema_version"]) is int
+            and payload["schema_version"] == 1
+        )
         or not isinstance(payload["presets"], list)
     ):
         raise MarkdownContractError("preset facts have an invalid envelope")
