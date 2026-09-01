@@ -15062,6 +15062,39 @@ class DatasetChaptersNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), page.lower())
 
+    def test_dataset_chapters_page_dataset_safety_covers_rights_and_consent(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/datasets/rights-privacy-and-safety.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Establish rights and license compatibility",
+            "## Obtain informed consent",
+            "## Protect privacy and personal data",
+            "## Handle sensitive content and minors",
+            "## Preserve provenance and honor removal",
+            "## Run a preflight review",
+        ):
+            self.assertIn(heading, page)
+        for phrase in (
+            "license",
+            "commercial use",
+            "derivative",
+            "consent",
+            "privacy",
+            "personal data",
+            "biometric",
+            "sensitive",
+            "minor",
+            "removal",
+            "dataset version",
+            "manifest",
+            "../getting-started/prerequisites.md",
+            "curation.md",
+            "captions-and-triggers.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
