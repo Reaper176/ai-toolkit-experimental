@@ -79,18 +79,23 @@ const currentForBuiltIn = {
   },
   meta: { name: '[name]', custom: 'keep' },
 } as any;
-(currentForBuiltIn.config.process[0].train as any).optional_current_setting = undefined;
 const builtInFlux = materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[4]);
 const builtInSourceBefore = structuredClone(builtInFlux);
 const currentForBuiltInBefore = structuredClone(currentForBuiltIn);
-(currentForBuiltInBefore.config.process[0].train as any).optional_current_setting = undefined;
 let builtInUndoInput: unknown;
+let candidateNegativeBeforeMigration: { present: boolean; value: unknown } | undefined;
 const builtInApplied = applyBuiltInTrainingPreset(currentForBuiltIn, builtInFlux, job => {
   builtInUndoInput ??= structuredClone(job);
   const process = job.config.process[0] as any;
   if (Array.isArray(process.sample.prompts)) {
     process.sample.samples = process.sample.prompts.map((prompt: string) => ({ prompt }));
     delete process.sample.prompts;
+  }
+  if (process.model.name_or_path !== 'current/model') {
+    candidateNegativeBeforeMigration = {
+      present: Object.prototype.hasOwnProperty.call(process.sample, 'neg'),
+      value: process.sample.neg,
+    };
   }
   process.sample.neg = process.model.name_or_path === 'current/model'
     ? 'migrated current negative'
@@ -120,7 +125,8 @@ assert.equal(builtInApplied.config.name, 'current identity');
 assert.deepEqual(builtInApplied.meta, { name: '[name]', custom: 'keep' });
 assert.deepEqual(builtInFlux, builtInSourceBefore);
 assert.deepEqual(currentForBuiltIn, currentForBuiltInBefore);
-assert.notEqual(builtInApplied, builtInUndoInput);
+assert.deepEqual(builtInUndoInput, currentForBuiltInBefore, 'undo input is the complete pre-application current job');
+assert.deepEqual(candidateNegativeBeforeMigration, { present: true, value: 'migrated current negative' });
 assert.equal('category' in builtInApplied, false);
 builtInApplied.config.process[0].datasets[0].controls[0] = 'mutated-result-control';
 assert.equal(currentForBuiltIn.config.process[0].datasets[0].controls[0], 'current-control');
@@ -133,6 +139,25 @@ const absentNegativeApplied = applyBuiltInTrainingPreset(absentNegativeCurrent, 
   return job;
 }) as any;
 assert.equal('neg' in absentNegativeApplied.config.process[0].sample, false);
+
+const undefinedNegativeCurrent = structuredClone(currentForBuiltIn);
+(undefinedNegativeCurrent.config.process[0] as any).sample.neg = undefined;
+let undefinedMigrationCall = 0;
+const undefinedNegativeApplied = applyBuiltInTrainingPreset(undefinedNegativeCurrent, builtInFlux, job => {
+  undefinedMigrationCall += 1;
+  const sample = (job.config.process[0] as any).sample;
+  assert.equal(Object.prototype.hasOwnProperty.call(sample, 'neg'), true, `migration ${undefinedMigrationCall}: neg presence`);
+  assert.equal(sample.neg, undefined, `migration ${undefinedMigrationCall}: neg value`);
+  if (undefinedMigrationCall === 2) sample.neg = 'candidate mutation';
+  return job;
+}) as any;
+assert.equal(undefinedMigrationCall, 2);
+assert.equal(Object.prototype.hasOwnProperty.call(undefinedNegativeApplied.config.process[0].sample, 'neg'), true);
+assert.equal(undefinedNegativeApplied.config.process[0].sample.neg, undefined);
+
+const currentWithOptionalUndefined = structuredClone(currentForBuiltIn);
+(currentWithOptionalUndefined.config.process[0] as any).train.optional_current_setting = undefined;
+assert.doesNotThrow(() => applyBuiltInTrainingPreset(currentWithOptionalUndefined, builtInFlux, job => job));
 
 const wrongArchitecture = structuredClone(currentForBuiltIn);
 wrongArchitecture.config.process[0].model.arch = 'sdxl';

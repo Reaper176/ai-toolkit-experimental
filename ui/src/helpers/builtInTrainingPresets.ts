@@ -420,5 +420,5 @@ export function applyBuiltInTrainingPreset(
     preserveCurrentNegativePrompt: true,
   });
   sanitizeTrainingPreset(result);
-  return copyBuiltInPreset(result);
+  return result;
 }
