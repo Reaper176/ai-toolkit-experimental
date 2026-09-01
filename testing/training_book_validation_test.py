@@ -14959,6 +14959,39 @@ class DatasetChaptersNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), page.lower())
 
+    def test_dataset_chapters_page_resolution_bucketing_covers_geometry(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/datasets/resolution-and-bucketing.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Choose a resolution the source can support",
+            "## Preserve aspect ratios with buckets",
+            "## Understand resizing and cropping",
+            "## Use geometric augmentation cautiously",
+            "## Inspect the bucket distribution",
+            "## Diagnose composition failures",
+        ):
+            self.assertIn(heading, page)
+        for phrase in (
+            "resolution",
+            "buckets",
+            "bucket_tolerance",
+            "random_crop",
+            "random_scale",
+            "square_crop",
+            "flip_x",
+            "flip_y",
+            "cannot restore detail",
+            "aspect ratio",
+            "../reference/dataset.md#dataset-resolution",
+            "../reference/dataset.md#dataset-buckets",
+            "../reference/dataset.md#dataset-bucket-tolerance",
+            "toolkit/config_modules.py",
+            "toolkit/data_loader.py",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
