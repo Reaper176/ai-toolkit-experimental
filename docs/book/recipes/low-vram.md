@@ -9,6 +9,7 @@
 Use this recipe to establish whether a representative LoRA training step and sample pass fit within limited accelerator memory. It prioritizes a measurable, reproducible baseline over maximum throughput.
 
 <!-- built-in-presets:start -->
+- `builtin:anima:low-vram-starting-point@1` — Anima — Low-VRAM Starting Point
 <!-- built-in-presets:end -->
 
 ## Objective

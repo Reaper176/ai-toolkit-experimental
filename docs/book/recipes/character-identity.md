@@ -9,6 +9,11 @@
 Use this recipe to establish a conservative identity baseline: the same person or character should remain recognizable while prompts still control pose, expression, clothing, setting, lighting, and composition. The ranges are experiment boundaries, not guarantees; begin with the family preset when available and change one axis after evaluating checkpoints.
 
 <!-- built-in-presets:start -->
+- `builtin:anima:character-identity@1` — Anima — Character / Identity
+- `builtin:flux:character-general-concept@1` — FLUX.1 — Character / General Concept
+- `builtin:sdxl:character-identity@1` — SDXL — Character / Identity
+- `builtin:sd15:character-identity@1` — SD 1.5 — Character / Identity
+- `builtin:wan22_14b:t2v:subject-motion-starting-point@1` — Wan 2.2 14B T2V — Subject / Motion Starting Point
 <!-- built-in-presets:end -->
 
 ## Objective

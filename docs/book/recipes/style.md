@@ -9,6 +9,8 @@
 Use this recipe to teach a repeatable visual treatment while keeping subjects, layouts, and prompts controllable. Its ranges are starting boundaries for a measured experiment, not universal optimums.
 
 <!-- built-in-presets:start -->
+- `builtin:flux:style-aesthetic@1` — FLUX.1 — Style / Aesthetic
+- `builtin:sdxl:style-aesthetic@1` — SDXL — Style / Aesthetic
 <!-- built-in-presets:end -->
 
 ## Objective

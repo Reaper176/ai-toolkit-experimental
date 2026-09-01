@@ -9,6 +9,8 @@
 Use this recipe only after an unmasked baseline shows a measurable spatial-confounding problem. Mask-focused refinement changes where loss is weighted; it does not repair weak captions, missing viewpoints, poor alignment, or an unsuitable base model.
 
 <!-- built-in-presets:start -->
+- `builtin:anima:focused-refinement@1` — Anima — Focused Refinement
+- `builtin:qwen_image_edit_plus:focused-refinement@1` — Qwen Image Edit 2509 — Focused Refinement
 <!-- built-in-presets:end -->
 
 ## Objective

@@ -9,6 +9,8 @@
 Use this short run before committing hours to a new model, dataset, cache, or configuration. It tests the pipeline rather than LoRA quality: successful completion proves that major stages connect, not that 250 steps are enough to learn the concept.
 
 <!-- built-in-presets:start -->
+- `builtin:anima:short-diagnostic-run@1` — Anima — Short Diagnostic Run
+- `builtin:wan21:1b:subject-motion-diagnostic@1` — Wan 2.1 1.3B T2V — Subject / Motion Diagnostic
 <!-- built-in-presets:end -->
 
 ## Objective

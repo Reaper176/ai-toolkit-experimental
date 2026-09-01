@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const TEMP_PREFIX = 'ai-toolkit-training-presets-';
 const testingDirectory = dirname(fileURLToPath(import.meta.url));
 const uiRoot = resolve(testingDirectory, '..');
+const repositoryRoot = resolve(uiRoot, '..');
 const tsc = join(uiRoot, 'node_modules', 'typescript', 'bin', 'tsc');
 const testFiles = [
   'maskTrainingValidation.test.js',
@@ -24,6 +25,7 @@ const testFiles = [
   'trainingPresetPageIntegration.test.js',
   'trainingPresetAdvancedSync.test.js',
   'trainingPresetPageState.test.js',
+  'trainingPresetCatalogBuildValidation.test.js',
 ];
 const catalogSliceArguments = process.argv.filter(argument => argument === '--catalog-slice' || argument.startsWith('--catalog-slice='));
 if (catalogSliceArguments.length > 1) throw new Error('--catalog-slice may be supplied only once');
@@ -45,7 +47,7 @@ let outputDirectory;
 function run(command, args) {
   const result = spawnSync(command, args, {
     cwd: uiRoot,
-    env: { ...process.env, NODE_PATH: join(uiRoot, 'node_modules'), ...(catalogSlice ? { TRAINING_PRESET_CATALOG_SLICE: catalogSlice } : {}) },
+    env: { ...process.env, NODE_PATH: join(uiRoot, 'node_modules'), TRAINING_PRESET_REPOSITORY_ROOT: repositoryRoot, ...(catalogSlice ? { TRAINING_PRESET_CATALOG_SLICE: catalogSlice } : {}) },
     stdio: 'inherit',
   });
   if (result.error) throw result.error;
@@ -89,6 +91,7 @@ try {
     }
     run(process.execPath, [compiledTest]);
   }
+  run('python', [join(testingDirectory, 'trainingPresetBackendMapping.test.py')]);
 } finally {
   if (outputDirectory !== undefined && existsSync(outputDirectory)) {
     assertSafe(outputDirectory);

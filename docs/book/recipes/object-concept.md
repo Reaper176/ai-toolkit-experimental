@@ -9,6 +9,8 @@
 Use this recipe to teach a specific object, product, prop, or designed concept while preserving control over scene, viewpoint, lighting, and presentation. Treat every range as an experiment boundary and verify the result with held-out prompts.
 
 <!-- built-in-presets:start -->
+- `builtin:flex1:object-general-concept@1` — Flex.1 — Object / General Concept
+- `builtin:qwen_image:object-general-concept@1` — Qwen Image — Object / General Concept
 <!-- built-in-presets:end -->
 
 ## Objective
