@@ -15558,6 +15558,21 @@ class ModelNarrativePageTests(unittest.TestCase):
         self.assertEqual(page.count(MODEL_FACTS_END), 1)
         start = page.index(MODEL_FACTS_START)
         end = page.index(MODEL_FACTS_END) + len(MODEL_FACTS_END)
+        details_start = page.rfind("<details>", 0, start)
+        self.assertNotEqual(details_start, -1, "model facts must be collapsible")
+        self.assertIn(
+            "<summary>Catalog-verified facts (generated)</summary>",
+            page[details_start:start],
+        )
+        details_end = page.find("</details>", end)
+        self.assertNotEqual(details_end, -1, "model facts disclosure must close")
+        self.assertFalse(
+            any(
+                details_start < page.index(f"## {section}") < details_end
+                for section in self.REQUIRED_SECTIONS
+            ),
+            "human guidance must remain outside generated facts",
+        )
 
         catalog = load_settings_catalog(
             REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
@@ -15577,7 +15592,8 @@ class ModelNarrativePageTests(unittest.TestCase):
             all(item["facts"] for item in payload["architectures"]),
             "every focused architecture must own generated catalog facts",
         )
-        return page, payload
+        prose = page[:details_start] + page[details_end + len("</details>"):]
+        return prose, payload
 
     def test_model_pages_page_model_anima_covers_anima_training(self):
         page, payload = self.assert_model_page_contract(

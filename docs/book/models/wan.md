@@ -9,6 +9,9 @@ This chapter gives focused starting guidance for the `wan21:1b` and `wan22_14b:t
 
 ## Catalog-verified facts
 
+<details>
+<summary>Catalog-verified facts (generated)</summary>
+
 <!-- model-facts:start -->
 <!-- generated; edit settings-catalog.json instead -->
 ```json
@@ -1772,6 +1775,7 @@ This chapter gives focused starting guidance for the `wan21:1b` and `wan22_14b:t
 }
 ```
 <!-- model-facts:end -->
+</details>
 
 ## What this family covers
 

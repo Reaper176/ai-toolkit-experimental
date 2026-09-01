@@ -9,6 +9,9 @@ This chapter narrows the general LoRA workflow to ai-toolkit's `anima` architect
 
 ## Catalog-verified facts
 
+<details>
+<summary>Catalog-verified facts (generated)</summary>
+
 <!-- model-facts:start -->
 <!-- generated; edit settings-catalog.json instead -->
 ```json
@@ -781,6 +784,7 @@ This chapter narrows the general LoRA workflow to ai-toolkit's `anima` architect
 }
 ```
 <!-- model-facts:end -->
+</details>
 
 ## What this family covers
 

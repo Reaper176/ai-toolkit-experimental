@@ -9,6 +9,9 @@ This chapter covers five focused Qwen selectors: two text-to-image variants and 
 
 ## Catalog-verified facts
 
+<details>
+<summary>Catalog-verified facts (generated)</summary>
+
 <!-- model-facts:start -->
 <!-- generated; edit settings-catalog.json instead -->
 ```json
@@ -3282,6 +3285,7 @@ This chapter covers five focused Qwen selectors: two text-to-image variants and 
 }
 ```
 <!-- model-facts:end -->
+</details>
 
 ## What this family covers
 

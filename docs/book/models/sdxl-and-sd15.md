@@ -9,6 +9,9 @@ This chapter covers the focused `sdxl` and `sd15` selectors. Both use a DDPM tra
 
 ## Catalog-verified facts
 
+<details>
+<summary>Catalog-verified facts (generated)</summary>
+
 <!-- model-facts:start -->
 <!-- generated; edit settings-catalog.json instead -->
 ```json
@@ -970,6 +973,7 @@ This chapter covers the focused `sdxl` and `sd15` selectors. Both use a DDPM tra
 }
 ```
 <!-- model-facts:end -->
+</details>
 
 ## What this family covers
 

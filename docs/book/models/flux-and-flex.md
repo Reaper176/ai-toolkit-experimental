@@ -9,6 +9,9 @@ This chapter covers the focused `flux`, `flux_kontext`, and `flex1` selectors. T
 
 ## Catalog-verified facts
 
+<details>
+<summary>Catalog-verified facts (generated)</summary>
+
 <!-- model-facts:start -->
 <!-- generated; edit settings-catalog.json instead -->
 ```json
@@ -1405,6 +1408,7 @@ This chapter covers the focused `flux`, `flux_kontext`, and `flex1` selectors. T
 }
 ```
 <!-- model-facts:end -->
+</details>
 
 ## What this family covers
 
