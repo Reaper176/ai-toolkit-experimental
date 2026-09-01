@@ -523,6 +523,57 @@ async function main(): Promise<void> {
     code: 'PRESET_PROVENANCE_NOT_ALLOWED',
     shouldLog: false,
   });
+  const mutatedReadOnlyError = new TrainingPresetReadOnlyError();
+  mutatedReadOnlyError.message = 'private mutable detail';
+  assert.deepEqual(mapTrainingPresetError(mutatedReadOnlyError), {
+    status: 409,
+    error: 'Built-in training presets are read-only',
+    code: 'BUILTIN_PRESET_READ_ONLY',
+    shouldLog: false,
+  });
+  const mutatedProvenanceError = new TrainingPresetProvenanceError();
+  mutatedProvenanceError.message = 'private mutable detail';
+  assert.deepEqual(mapTrainingPresetError(mutatedProvenanceError), {
+    status: 400,
+    error: 'Preset catalog provenance is server-owned',
+    code: 'PRESET_PROVENANCE_NOT_ALLOWED',
+    shouldLog: false,
+  });
+  const throwingPrototypeProxy = new Proxy(
+    {},
+    {
+      getPrototypeOf() {
+        throw new Error('private prototype detail');
+      },
+    },
+  );
+  assert.deepEqual(mapTrainingPresetError(throwingPrototypeProxy), {
+    status: 500,
+    error: 'Training preset storage is unavailable',
+    shouldLog: true,
+  });
+  const spoofedReadOnlyError = new Proxy(Object.create(TrainingPresetReadOnlyError.prototype), {
+    get(target, property, receiver) {
+      if (property === 'message') throw new Error('private message detail');
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  assert.deepEqual(mapTrainingPresetError(spoofedReadOnlyError), {
+    status: 500,
+    error: 'Training preset storage is unavailable',
+    shouldLog: true,
+  });
+  const spoofedProvenanceError = new Proxy(Object.create(TrainingPresetProvenanceError.prototype), {
+    get(target, property, receiver) {
+      if (property === 'message') throw new Error('private message detail');
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  assert.deepEqual(mapTrainingPresetError(spoofedProvenanceError), {
+    status: 500,
+    error: 'Training preset storage is unavailable',
+    shouldLog: true,
+  });
   assert.deepEqual(mapTrainingPresetError(new TrainingPresetCorruptError('secret detail')), {
     status: 500,
     error: 'Training preset storage is unavailable',

@@ -57,23 +57,48 @@ class TrainingPresetServiceError extends Error {
   }
 }
 
-export class TrainingPresetValidationError extends TrainingPresetServiceError {}
+const trainingPresetValidationErrors = new WeakSet<object>();
+const trainingPresetPayloadTooLargeErrors = new WeakSet<object>();
+const trainingPresetConflictErrors = new WeakSet<object>();
+const trainingPresetNotFoundErrors = new WeakSet<object>();
+const trainingPresetReadOnlyErrors = new WeakSet<object>();
+const trainingPresetProvenanceErrors = new WeakSet<object>();
+
+export class TrainingPresetValidationError extends TrainingPresetServiceError {
+  constructor(message: string) {
+    super(message);
+    trainingPresetValidationErrors.add(this);
+  }
+}
 export class TrainingPresetPayloadTooLargeError extends TrainingPresetServiceError {
   constructor() {
     super('Preset request must not exceed 1 MiB');
+    trainingPresetPayloadTooLargeErrors.add(this);
   }
 }
-export class TrainingPresetConflictError extends TrainingPresetServiceError {}
-export class TrainingPresetNotFoundError extends TrainingPresetServiceError {}
+export class TrainingPresetConflictError extends TrainingPresetServiceError {
+  constructor(message: string) {
+    super(message);
+    trainingPresetConflictErrors.add(this);
+  }
+}
+export class TrainingPresetNotFoundError extends TrainingPresetServiceError {
+  constructor(message: string) {
+    super(message);
+    trainingPresetNotFoundErrors.add(this);
+  }
+}
 export class TrainingPresetCorruptError extends TrainingPresetServiceError {}
 export class TrainingPresetReadOnlyError extends TrainingPresetServiceError {
   constructor() {
     super('Built-in training presets are read-only');
+    trainingPresetReadOnlyErrors.add(this);
   }
 }
 export class TrainingPresetProvenanceError extends TrainingPresetServiceError {
   constructor() {
     super('Preset catalog provenance is server-owned');
+    trainingPresetProvenanceErrors.add(this);
   }
 }
 
@@ -85,23 +110,37 @@ export interface TrainingPresetErrorResponse {
 }
 
 export function mapTrainingPresetError(error: unknown): TrainingPresetErrorResponse {
-  if (error instanceof TrainingPresetPayloadTooLargeError) {
-    return { status: 413, error: error.message, shouldLog: false };
-  }
-  if (error instanceof TrainingPresetProvenanceError) {
-    return { status: 400, error: error.message, code: 'PRESET_PROVENANCE_NOT_ALLOWED', shouldLog: false };
-  }
-  if (error instanceof TrainingPresetReadOnlyError) {
-    return { status: 409, error: error.message, code: 'BUILTIN_PRESET_READ_ONLY', shouldLog: false };
-  }
-  if (error instanceof TrainingPresetValidationError) {
-    return { status: 400, error: error.message, shouldLog: false };
-  }
-  if (error instanceof TrainingPresetConflictError) {
-    return { status: 409, error: error.message, shouldLog: false };
-  }
-  if (error instanceof TrainingPresetNotFoundError) {
-    return { status: 404, error: error.message, shouldLog: false };
+  try {
+    if (trainingPresetPayloadTooLargeErrors.has(error as object)) {
+      return { status: 413, error: (error as Error).message, shouldLog: false };
+    }
+    if (trainingPresetProvenanceErrors.has(error as object)) {
+      return {
+        status: 400,
+        error: 'Preset catalog provenance is server-owned',
+        code: 'PRESET_PROVENANCE_NOT_ALLOWED',
+        shouldLog: false,
+      };
+    }
+    if (trainingPresetReadOnlyErrors.has(error as object)) {
+      return {
+        status: 409,
+        error: 'Built-in training presets are read-only',
+        code: 'BUILTIN_PRESET_READ_ONLY',
+        shouldLog: false,
+      };
+    }
+    if (trainingPresetValidationErrors.has(error as object)) {
+      return { status: 400, error: (error as Error).message, shouldLog: false };
+    }
+    if (trainingPresetConflictErrors.has(error as object)) {
+      return { status: 409, error: (error as Error).message, shouldLog: false };
+    }
+    if (trainingPresetNotFoundErrors.has(error as object)) {
+      return { status: 404, error: (error as Error).message, shouldLog: false };
+    }
+  } catch {
+    // Error classification and message access must fail closed for arbitrary thrown values.
   }
   return { status: 500, error: 'Training preset storage is unavailable', shouldLog: true };
 }

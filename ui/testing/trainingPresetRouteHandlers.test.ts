@@ -53,14 +53,18 @@ const recordFixture = {
 } as UserTrainingPresetRecord;
 
 class FakeService implements TrainingPresetServiceApi {
+  listCalls = 0;
   createCalls = 0;
   updateCalls = 0;
   removeCalls = 0;
   createError?: unknown;
   updateError?: unknown;
   removeError?: unknown;
+  lastUpdateId?: unknown;
+  lastRemoveId?: unknown;
 
   async list(): Promise<UserTrainingPresetRecord[]> {
+    this.listCalls += 1;
     return [];
   }
 
@@ -70,14 +74,16 @@ class FakeService implements TrainingPresetServiceApi {
     return structuredClone(recordFixture);
   }
 
-  async update(): Promise<UserTrainingPresetRecord> {
+  async update(idInput: unknown): Promise<UserTrainingPresetRecord> {
     this.updateCalls += 1;
+    this.lastUpdateId = idInput;
     if (this.updateError !== undefined) throw this.updateError;
     return structuredClone(recordFixture);
   }
 
-  async remove(): Promise<void> {
+  async remove(idInput: unknown): Promise<void> {
     this.removeCalls += 1;
+    this.lastRemoveId = idInput;
     if (this.removeError !== undefined) throw this.removeError;
   }
 }
@@ -363,6 +369,11 @@ async function main(): Promise<void> {
     error: 'Built-in training presets are read-only',
     code: 'BUILTIN_PRESET_READ_ONLY',
   });
+  assert.equal(readOnlyUpdateService.updateCalls, 1);
+  assert.equal(readOnlyUpdateService.lastUpdateId, 'builtin:test');
+  assert.equal(readOnlyUpdateService.createCalls, 0);
+  assert.equal(readOnlyUpdateService.listCalls, 0);
+  assert.equal(readOnlyUpdateService.removeCalls, 0);
 
   const readOnlyDeleteService = new FakeService();
   readOnlyDeleteService.removeError = new TrainingPresetReadOnlyError();
@@ -377,6 +388,26 @@ async function main(): Promise<void> {
     error: 'Built-in training presets are read-only',
     code: 'BUILTIN_PRESET_READ_ONLY',
   });
+  assert.equal(readOnlyDeleteService.removeCalls, 1);
+  assert.equal(readOnlyDeleteService.lastRemoveId, 'builtin:test');
+  assert.equal(readOnlyDeleteService.createCalls, 0);
+  assert.equal(readOnlyDeleteService.listCalls, 0);
+  assert.equal(readOnlyDeleteService.updateCalls, 0);
+
+  const ordinaryDeleteService = new FakeService();
+  const ordinaryDeleteResponse = await createTrainingPresetDetailHandlers(
+    ordinaryDeleteService,
+    () => undefined,
+  ).DELETE(new Request('http://localhost/api/training-presets', { method: 'DELETE' }), {
+    params: Promise.resolve({ presetId: 'user-preset' }),
+  });
+  assert.equal(ordinaryDeleteResponse.status, 200);
+  assert.deepEqual(await ordinaryDeleteResponse.json(), { ok: true });
+  assert.equal(ordinaryDeleteService.removeCalls, 1);
+  assert.equal(ordinaryDeleteService.lastRemoveId, 'user-preset');
+  assert.equal(ordinaryDeleteService.createCalls, 0);
+  assert.equal(ordinaryDeleteService.listCalls, 0);
+  assert.equal(ordinaryDeleteService.updateCalls, 0);
 
   const ordinaryErrorService = new FakeService();
   ordinaryErrorService.createError = new TrainingPresetPayloadTooLargeError();
@@ -390,6 +421,30 @@ async function main(): Promise<void> {
     }),
   );
   assert.deepEqual(await ordinaryErrorResponse.json(), { error: 'Preset request must not exceed 1 MiB' });
+
+  const hostileErrorService = new FakeService();
+  hostileErrorService.createError = new Proxy(
+    {},
+    {
+      getPrototypeOf() {
+        throw new Error('private prototype detail');
+      },
+    },
+  );
+  const hostileLogs: Array<{ operation: string; error: unknown }> = [];
+  const hostileErrorResponse = await createTrainingPresetCollectionHandlers(
+    hostileErrorService,
+    (operation, error) => hostileLogs.push({ operation, error }),
+  ).POST(
+    new Request('http://localhost/api/training-presets', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Hostile error', job_config: jobFixture() }),
+    }),
+  );
+  assert.equal(hostileErrorResponse.status, 500);
+  assert.deepEqual(await hostileErrorResponse.json(), { error: 'Training preset storage is unavailable' });
+  assert.equal(hostileLogs.length, 1);
+  assert.equal(hostileLogs[0].operation, 'create');
 
   assert.deepEqual(mapTrainingPresetError(new TrainingPresetReadOnlyError()).code, 'BUILTIN_PRESET_READ_ONLY');
   assert.deepEqual(
