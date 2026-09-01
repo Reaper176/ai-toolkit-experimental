@@ -14928,6 +14928,37 @@ class DatasetChaptersNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), page.lower())
 
+    def test_dataset_chapters_page_captions_triggers_covers_caption_controls(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/datasets/captions-and-triggers.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Choose what the caption should explain",
+            "## Pair caption files and fallbacks correctly",
+            "## Place and test a trigger",
+            "## Use dropout deliberately",
+            "## Shuffle only interchangeable tokens",
+            "## Audit captions before training",
+        ):
+            self.assertIn(heading, page)
+        for phrase in (
+            "caption_ext",
+            "default_caption",
+            "trigger_word",
+            "caption_dropout_rate",
+            "token_dropout_rate",
+            "shuffle_tokens",
+            "keep_tokens",
+            "random_triggers",
+            "../reference/dataset.md#dataset-caption-ext",
+            "../reference/dataset.md#dataset-default-caption",
+            "../reference/dataset.md#dataset-trigger-word",
+            "toolkit/config_modules.py",
+            "toolkit/dataloader_mixins.py",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
