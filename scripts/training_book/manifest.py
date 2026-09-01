@@ -302,7 +302,7 @@ def _reject_sensitive_smoke_text(value: str, field: str) -> None:
         r"(?:password|passwd|token|api[_-]?key|secret)\s*[:=]",
         r"[a-z][a-z0-9+.-]*://[^\s/@:]+:[^\s/@]+@",
         r"\bauthorization\s*:\s*(?:bearer|basic)\s+\S+",
-        r"(?<![a-z0-9._/-])(?:gh[pousr]_[a-z0-9]{10,}|github_pat_[a-z0-9_]{20,}|hf_[a-z0-9]{16,}|sk-(?:proj-|svcacct-)?[a-z0-9_-]{20,}|xox[baprs]-[a-z0-9-]{20,})(?![a-z0-9._/-])",
+        r"(?<![a-z0-9._/-])(?:gh[pousr]_[a-z0-9]{10,}|github_pat_[a-z0-9_]{20,}|hf_[a-z0-9]{16,}|sk-(?:proj-|svcacct-)?[a-z0-9_-]{20,}|xox[baprs]-[a-z0-9-]{20,})(?![a-z0-9_/-])",
         r"-----begin [a-z ]*private key-----",
     )
     if any(re.search(pattern, lowered) for pattern in secret_patterns):
