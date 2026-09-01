@@ -405,15 +405,35 @@ export function builtInsForArchitecture(
     .map(record => copyBuiltInPreset(record));
 }
 
+function requireOwnEnumerableDataProperty(value: unknown, key: string, path: string): unknown {
+  if (value === null || typeof value !== 'object') {
+    throw new Error(`${path} must be an object with own enumerable data properties`);
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  if (descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) {
+    throw new Error(`${path}.${key} must be an own enumerable data property, not an accessor`);
+  }
+  return descriptor.value;
+}
+
+function safelyReadCurrentModelArchitecture(currentJob: unknown): unknown {
+  const config = requireOwnEnumerableDataProperty(currentJob, 'config', 'Current job config');
+  const processes = requireOwnEnumerableDataProperty(config, 'process', 'Current job config.config');
+  if (!Array.isArray(processes)) {
+    throw new Error('Current job config.config.process must be an array');
+  }
+  const process = requireOwnEnumerableDataProperty(processes, '0', 'Current job config.config.process');
+  const model = requireOwnEnumerableDataProperty(process, 'model', 'Current job config.config.process[0]');
+  return requireOwnEnumerableDataProperty(model, 'arch', 'Current job config.config.process[0].model');
+}
+
 export function applyBuiltInTrainingPreset(
   currentJob: JobConfig,
   preset: unknown,
   migrate: (jobConfig: JobConfig) => JobConfig,
 ): JobConfig {
   const acceptedPreset = validateBuiltInTrainingPresetRecord(preset);
-  const currentProcess = currentJob?.config?.process?.[0] as unknown as Record<string, unknown> | undefined;
-  const currentModel = currentProcess?.model as Record<string, unknown> | undefined;
-  if (currentModel?.arch !== acceptedPreset.model_arch) {
+  if (safelyReadCurrentModelArchitecture(currentJob) !== acceptedPreset.model_arch) {
     throw new Error(`Current config.process[0].model.arch must be exactly ${acceptedPreset.model_arch}`);
   }
   const result = applyTrainingPresetWithPolicy(currentJob, acceptedPreset.snapshot, migrate, {

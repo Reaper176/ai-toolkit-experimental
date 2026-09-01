@@ -236,12 +236,15 @@ function requireSingleProcess(value: unknown, context: string): PlainProcess {
 }
 
 function captureProperty(object: Record<string, unknown>, key: string, copyValue: CopyValue = deepCopy): PropertyCapture {
-  return Object.prototype.hasOwnProperty.call(object, key)
-    ? {
-        present: true,
-        value: object[key] === undefined ? undefined : copyValue(object[key], `Protected field ${key}`),
-      }
-    : { present: false };
+  const descriptor = Object.getOwnPropertyDescriptor(object, key);
+  if (descriptor === undefined) return { present: false };
+  if (!descriptor.enumerable || !('value' in descriptor)) {
+    throw new Error(`Protected field ${key} must be an own enumerable data property, not an accessor`);
+  }
+  return {
+    present: true,
+    value: descriptor.value === undefined ? undefined : copyValue(descriptor.value, `Protected field ${key}`),
+  };
 }
 
 function restoreProperty(
@@ -366,20 +369,14 @@ export function applyTrainingPresetWithPolicy(
     Object.prototype.hasOwnProperty.call(originalSample, 'samples') ||
     Object.prototype.hasOwnProperty.call(originalSample, 'prompts');
 
-  const migratedCurrent = migrate(currentCopy);
-  const migratedCurrentParts = getJobParts(migratedCurrent, 'Migrated current job config');
-  validateTrainingProcess(migratedCurrentParts.process, 'config.process[0]');
-  const migratedCurrentSample = isPlainObject(migratedCurrentParts.process.sample)
-    ? migratedCurrentParts.process.sample
-    : {};
-  const negativePrompt = policy.preserveCurrentNegativePrompt
-    ? captureProperty(migratedCurrentSample, 'neg', copyForApplication)
-    : undefined;
-  const normalizedCurrent = copyForApplication(migratedCurrent, 'Migrated current job config');
+  const normalizedCurrent = copyForApplication(migrate(currentCopy), 'Migrated current job config');
   const current = getJobParts(normalizedCurrent, 'Migrated current job config');
   validateTrainingProcess(current.process, 'config.process[0]');
 
   const currentSample = isPlainObject(current.process.sample) ? current.process.sample : {};
+  const negativePrompt = policy.preserveCurrentNegativePrompt
+    ? captureProperty(currentSample, 'neg', copyForApplication)
+    : undefined;
   const samples = preserveSamples
     ? captureProperty(currentSample, 'samples', copyForApplication)
     : { present: false };
@@ -414,7 +411,6 @@ export function applyTrainingPresetWithPolicy(
     }
   };
 
-  restoreProtected(candidate);
   const candidateForMigration = copyForApplication(candidate, 'Preset candidate') as unknown as Record<string, unknown>;
   restoreProtected(candidateForMigration);
   const migratedCandidate = copyForApplication(

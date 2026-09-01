@@ -194,6 +194,29 @@ applyTrainingPresetWithPolicy(protoKeyCurrent, builtInPolicySnapshot, job => {
 }, { preserveCurrentNegativePrompt: true });
 assert.equal(protoKeyMigrationCall, 2);
 
+const migratedNegativeAccessorCurrent = jobFixture() as any;
+let migratedNegativeGetterReads = 0;
+let migratedNegativeAccessorCalls = 0;
+assert.throws(
+  () => applyTrainingPresetWithPolicy(migratedNegativeAccessorCurrent, builtInPolicySnapshot, job => {
+    migratedNegativeAccessorCalls += 1;
+    if (migratedNegativeAccessorCalls === 1) {
+      Object.defineProperty((job.config.process[0] as any).sample, 'neg', {
+        enumerable: true,
+        configurable: true,
+        get: () => {
+          migratedNegativeGetterReads += 1;
+          return 'unsafe migrated negative';
+        },
+      });
+    }
+    return job;
+  }, { preserveCurrentNegativePrompt: true }),
+  /sample\.neg.*accessor/i,
+);
+assert.equal(migratedNegativeGetterReads, 0, 'migrated negative getter must never execute');
+assert.equal(migratedNegativeAccessorCalls, 1);
+
 const userRecordContract: UserTrainingPresetRecord = {
   id: 'user-preset',
   name: 'User preset',

@@ -174,6 +174,43 @@ assert.equal(undefinedNegativeApplied.config.process[0].sample.neg, undefined);
 const wrongArchitecture = structuredClone(currentForBuiltIn);
 wrongArchitecture.config.process[0].model.arch = 'sdxl';
 assert.throws(() => applyBuiltInTrainingPreset(wrongArchitecture, builtInFlux, job => job), /model\.arch.*flux/i);
+
+const accessorArchitecture = structuredClone(currentForBuiltIn);
+let architectureGetterReads = 0;
+Object.defineProperty(accessorArchitecture.config.process[0].model, 'arch', {
+  enumerable: true,
+  configurable: true,
+  get: () => {
+    architectureGetterReads += 1;
+    return 'flux';
+  },
+});
+assert.throws(
+  () => applyBuiltInTrainingPreset(accessorArchitecture, builtInFlux, job => job),
+  /model\.arch.*(?:own enumerable data|accessor)/i,
+);
+assert.equal(architectureGetterReads, 0, 'architecture getter must never execute');
+
+let architectureProxyReads = 0;
+const proxiedArchitecture = structuredClone(currentForBuiltIn);
+proxiedArchitecture.config = new Proxy(proxiedArchitecture.config, {
+  get: (target, key, receiver) => {
+    architectureProxyReads += 1;
+    return Reflect.get(target, key, receiver);
+  },
+});
+assert.doesNotThrow(() => applyBuiltInTrainingPreset(proxiedArchitecture, builtInFlux, job => job));
+assert.equal(architectureProxyReads, 0, 'architecture gate and copier must not execute proxy get traps');
+
+const inheritedArchitecture = structuredClone(currentForBuiltIn);
+inheritedArchitecture.config.process[0].model = Object.assign(Object.create({ arch: 'flux' }), {
+  name_or_path: 'current/model',
+});
+assert.throws(
+  () => applyBuiltInTrainingPreset(inheritedArchitecture, builtInFlux, job => job),
+  /model\.arch.*own enumerable data/i,
+);
+
 const malformedBuiltIn = structuredClone(builtInFlux) as any;
 malformedBuiltIn.snapshot.config.process[0].sample.neg = 'forbidden';
 assert.throws(() => applyBuiltInTrainingPreset(currentForBuiltIn, malformedBuiltIn, job => job), /sample\.neg/i);
