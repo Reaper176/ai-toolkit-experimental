@@ -15759,6 +15759,61 @@ class ModelNarrativePageTests(unittest.TestCase):
         )
 
 
+class AdvancedNarrativePageTests(unittest.TestCase):
+    def test_advanced_page_advanced_yaml_cli_covers_precedence_and_presence(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/advanced/yaml-and-cli.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Understand configuration ownership",
+            "## Preserve YAML types and presence",
+            "## Run one or more config files",
+            "## Understand CLI precedence",
+            "## Use templates and environment substitution",
+            "## Validate before a long run",
+            "## Further reading",
+        ):
+            self.assertEqual(page.count(heading), 1, heading)
+        for anchor in (
+            '<a id="cli-config-file-list"></a>',
+            '<a id="cli-recover"></a>',
+            '<a id="cli-name"></a>',
+            '<a id="cli-log"></a>',
+        ):
+            self.assertEqual(page.count(anchor), 1, anchor)
+        for phrase in (
+            "python run.py config/my-job.yaml",
+            "python run.py config/first.yaml config/second.yaml",
+            ".yaml",
+            ".yml",
+            ".json",
+            ".jsonc",
+            "sequentially",
+            "--recover",
+            "--name",
+            "--log",
+            "config.name",
+            "[name]",
+            "global textual replacement",
+            "does not override arbitrary yaml settings",
+            "absent",
+            "null",
+            "false",
+            "0",
+            "empty string",
+            "not interchangeable",
+            "engine fallback",
+            "${DATASET_DIR}",
+            "missing environment variable",
+            "../reference/job-and-model.md",
+            "../reference/advanced-only-settings.md",
+            "../examples/README.md",
+            "../workflow/simple-ui.md",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
+
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
         "reference/job-and-model.md",
