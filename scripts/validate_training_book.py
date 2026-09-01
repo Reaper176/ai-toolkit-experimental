@@ -32,7 +32,11 @@ from training_book.catalog import (
     load_ui_exclusions,
     validate_ui_fact_ownership,
 )
-from training_book.manifest import load_book_manifest, validate_book_manifest
+from training_book.manifest import (
+    load_book_manifest,
+    validate_book_manifest,
+    validate_smoke_record,
+)
 from training_book.markdown import MarkdownContractError, validate_book_pages
 from training_book.examples import load_example_manifest, validate_examples
 from generate_training_book_reference import generate_reference_pages
@@ -787,6 +791,8 @@ def main() -> None:
         validate_book_pages(
             repository_root / "docs/book", manifest, skip_smoke=arguments.skip_smoke
         )
+        if not arguments.skip_smoke:
+            validate_smoke_record(repository_root, manifest)
         if arguments.preset_facts is None:
             raise MarkdownContractError("preset links require --preset-facts")
         _validate_preset_links(repository_root, arguments.preset_facts)

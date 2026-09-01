@@ -17242,6 +17242,51 @@ class BookArtifactTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_validation_cli_rejects_failed_smoke_unless_explicitly_skipped(self):
+        smoke_path = REPOSITORY_ROOT / "docs/book/verification/first-run-smoke.md"
+        original_smoke = smoke_path.read_text(encoding="utf-8")
+        failed_smoke = original_smoke.replace(
+            '"status": "passed"', '"status": "failed"', 1
+        )
+        self.assertNotEqual(failed_smoke, original_smoke)
+        with tempfile.TemporaryDirectory() as directory:
+            facts_path = Path(directory) / "preset-facts.json"
+            facts_path.write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "presets": load_production_training_book_preset_facts(),
+                }),
+                encoding="utf-8",
+            )
+            base = [
+                sys.executable,
+                "scripts/validate_training_book.py",
+                "--preset-facts",
+                facts_path,
+            ]
+            try:
+                smoke_path.write_text(failed_smoke, encoding="utf-8")
+                required = subprocess.run(
+                    base,
+                    cwd=REPOSITORY_ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                skipped = subprocess.run(
+                    [*base, "--skip-smoke"],
+                    cwd=REPOSITORY_ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                smoke_path.write_text(original_smoke, encoding="utf-8")
+
+        self.assertNotEqual(required.returncode, 0)
+        self.assertIn("status", required.stderr)
+        self.assertEqual(skipped.returncode, 0, skipped.stdout + skipped.stderr)
+
     def test_validation_cli_rejects_preset_facts_recipe_membership_drift(self):
         presets = [dict(row) for row in load_production_training_book_preset_facts()]
         presets[0]["name"] = "Drifted preset name"
