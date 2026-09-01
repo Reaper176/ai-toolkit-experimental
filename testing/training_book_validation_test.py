@@ -17282,67 +17282,138 @@ class BookArtifactTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("scripts/training_book/__init__.py", result.stderr)
 
-    def test_runner_contract_requires_every_training_book_test_and_live_ownership(self):
-        runner = (
-            REPOSITORY_ROOT / "ui/testing/runTrainingBookTests.mjs"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn("readdirSync(testingDirectory)", runner)
-        self.assertIn("trainingBook*.test.tsx?", runner)
-        self.assertIn("No ${testContract} artifacts were found", runner)
-        self.assertIn("trainingBookUiFacts.test.ts", runner)
-        self.assertIn("Required compiled test artifact is missing", runner)
-        self.assertIn("mkdtempSync(join(tmpdir(), TEMP_PREFIX))", runner)
-        self.assertIn("const reactStub", runner)
-        self.assertIn("const lucideStub", runner)
-        self.assertIn("writeTrainingBookUiFacts", runner)
-        self.assertIn("generate_training_book_reference.py", runner)
-        self.assertIn("generate_training_book_navigation.py", runner)
-        self.assertIn("'--check-discovery', '--ui-facts', factsPath", runner)
-        self.assertIn("'--skip-smoke'", runner)
-        self.assertIn("runTrainingPresetCatalogBuildValidation.mjs", runner)
-        self.assertIn("--emit-book-facts", runner)
-        self.assertIn("'--preset-facts', presetFactsPath", runner)
-        self.assertIn("Training-book preset facts were not emitted", runner)
-        self.assertIn("TRAINING_BOOK_PRESET_FACTS_PATH: presetFactsPath", runner)
-        self.assertNotIn("'--allow-empty-preset-links'", runner)
-        self.assertNotIn("existsSync(presetCatalogRunner)", runner)
-        self.assertIn("assertSafe(outputDirectory)", runner)
-
-    def test_package_runner_is_the_complete_smoke_required_release_gate(self):
-        runner = (
-            REPOSITORY_ROOT / "ui/testing/runTrainingBookTests.mjs"
-        ).read_text(encoding="utf-8")
+    def test_package_runner_exposes_the_complete_smoke_required_execution_plan(self):
+        runner = REPOSITORY_ROOT / "ui/testing/runTrainingBookTests.mjs"
         package = json.loads(
             (REPOSITORY_ROOT / "ui/package.json").read_text(encoding="utf-8")
         )
-
-        # Task 14's temporary default is the behavior this release-gate test removes.
-        self.assertIn("['--skip-smoke']", runner)
         self.assertEqual(
             package["scripts"]["test:training-book"],
             "node testing/runTrainingBookTests.mjs --require-smoke",
         )
-        for command in (
-            "run('python', [testFile]",
-            "run(process.execPath, [artifact]",
-            "run('python', [referenceGenerator, '--check']",
-            "run('python', [navigationGenerator, '--check']",
-            "[presetCatalogRunner, '--emit-book-facts', presetFactsPath]",
-            "[validator, '--check-discovery', '--ui-facts', factsPath, "
-            "...smokeArgs, ...presetArgs]",
-        ):
-            with self.subTest(command=command):
-                self.assertIn(command, runner)
-        self.assertIn(
-            "const smokeArgs = args[0] === '--require-smoke' ? [] : "
-            "['--skip-smoke'];",
-            runner,
+
+        result = subprocess.run(
+            ["node", runner, "--require-smoke", "--describe-plan"],
+            cwd=REPOSITORY_ROOT / "ui",
+            capture_output=True,
+            text=True,
+            check=False,
         )
-        self.assertIn("const presetArgs = ['--preset-facts', presetFactsPath]", runner)
-        self.assertIn("readdirSync(testingDirectory)", runner)
-        self.assertIn("trainingBook*.test.tsx?", runner)
-        self.assertIn("Required compiled test artifact is missing", runner)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        plan = json.loads(result.stdout)
+
+        cleanup_target = Path(plan["cleanup_target"])
+        temporary_root = Path(tempfile.gettempdir()).resolve()
+        self.assertEqual(cleanup_target.parent.resolve(), temporary_root)
+        self.assertTrue(cleanup_target.name.startswith("ai-toolkit-training-book-"))
+        self.assertFalse(cleanup_target.exists())
+        ui_facts = Path(plan["ui_facts"])
+        preset_facts = Path(plan["preset_facts"])
+        self.assertNotEqual(ui_facts, preset_facts)
+        self.assertEqual(ui_facts.parent, cleanup_target)
+        self.assertEqual(preset_facts.parent, cleanup_target)
+
+        commands = plan["commands"]
+        by_phase = {}
+        for command in commands:
+            by_phase.setdefault(command["phase"], []).append(command)
+
+        testing_root = REPOSITORY_ROOT / "ui/testing"
+        expected_sources = sorted({
+            path.name
+            for pattern in (
+                "trainingBook*.test.ts",
+                "trainingBook*.test.tsx",
+                "trainingGuideLink.test.ts",
+                "trainingGuideLink.test.tsx",
+            )
+            for path in testing_root.glob(pattern)
+        })
+        self.assertEqual(
+            [command["phase"] for command in commands],
+            [
+                "compile-typescript",
+                *["compiled-test"] * len(expected_sources),
+                "emit-ui-facts",
+                "emit-preset-facts",
+                "reference-check",
+                "navigation-check",
+                "full-validation",
+                "python-units",
+            ],
+        )
+        self.assertEqual(
+            by_phase["compile-typescript"][0]["args"],
+            [
+                str(REPOSITORY_ROOT / "ui/node_modules/typescript/bin/tsc"),
+                "--project",
+                "testing/tsconfig.trainingBook.json",
+                "--outDir",
+                str(cleanup_target),
+            ],
+        )
+        compiled_tests = by_phase["compiled-test"]
+        self.assertEqual(
+            [command["source"] for command in compiled_tests], expected_sources
+        )
+        for command in compiled_tests:
+            self.assertIn(Path(command["command"]).name, ("node", "node.exe"))
+            self.assertEqual(
+                Path(command["args"][0]),
+                cleanup_target / "testing" / re.sub(r"\.tsx?$", ".js", command["source"]),
+            )
+            self.assertEqual(
+                command["env"],
+                {"TRAINING_BOOK_REPOSITORY_ROOT": str(REPOSITORY_ROOT)},
+            )
+
+        ui_emitter = by_phase["emit-ui-facts"][0]
+        self.assertIn(Path(ui_emitter["command"]).name, ("node", "node.exe"))
+        self.assertEqual(ui_emitter["args"][0], "-e")
+        self.assertIn(str(ui_facts), ui_emitter["args"][1])
+        self.assertIn("writeTrainingBookUiFacts", ui_emitter["args"][1])
+        self.assertEqual(
+            by_phase["reference-check"][0]["args"],
+            [str(REPOSITORY_ROOT / "scripts/generate_training_book_reference.py"), "--check"],
+        )
+        self.assertEqual(
+            by_phase["navigation-check"][0]["args"],
+            [str(REPOSITORY_ROOT / "scripts/generate_training_book_navigation.py"), "--check"],
+        )
+        self.assertEqual(
+            by_phase["emit-preset-facts"][0]["args"],
+            [
+                str(REPOSITORY_ROOT / "ui/testing/runTrainingPresetCatalogBuildValidation.mjs"),
+                "--emit-book-facts",
+                str(preset_facts),
+            ],
+        )
+        validator = by_phase["full-validation"][0]
+        self.assertEqual(
+            validator["args"],
+            [
+                str(REPOSITORY_ROOT / "scripts/validate_training_book.py"),
+                "--check-discovery",
+                "--ui-facts",
+                str(ui_facts),
+                "--preset-facts",
+                str(preset_facts),
+            ],
+        )
+        self.assertNotIn("--skip-smoke", validator["args"])
+        python_units = by_phase["python-units"][0]
+        self.assertEqual(python_units["command"], "python")
+        self.assertEqual(
+            python_units["args"],
+            [str(REPOSITORY_ROOT / "testing/training_book_validation_test.py")],
+        )
+        self.assertEqual(
+            python_units["env"],
+            {
+                "TRAINING_BOOK_UI_FACTS_PATH": str(ui_facts),
+                "TRAINING_BOOK_PRESET_FACTS_PATH": str(preset_facts),
+            },
+        )
 
     def test_runner_rejects_unknown_duplicate_and_incompatible_smoke_flags(self):
         runner = REPOSITORY_ROOT / "ui/testing/runTrainingBookTests.mjs"
