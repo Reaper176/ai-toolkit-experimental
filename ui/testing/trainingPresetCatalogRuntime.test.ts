@@ -34,7 +34,8 @@ assert.equal(trainingPresetCatalogIdLogDigest('builtin:anima:character-identity@
 
 {
   const { events, logger } = collectEvents();
-  const actual = loadBuiltInTrainingPresetCatalog([BUILT_IN_PRESET_ROWS[0]], logger);
+  const readonlyRows = [BUILT_IN_PRESET_ROWS[0]] as const;
+  const actual = loadBuiltInTrainingPresetCatalog(readonlyRows, logger);
   const expected = materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[0]);
   assert.deepEqual(actual, [expected]);
   assert.notEqual(actual[0], expected, 'the loader returns a copy of its accepted value');
@@ -93,6 +94,18 @@ assert.equal(trainingPresetCatalogIdLogDigest('builtin:anima:character-identity@
   assert.deepEqual(loadBuiltInTrainingPresetCatalog([missingId, nonstringId], logger), []);
   assert.deepEqual(events, [
     { code: 'BUILTIN_PRESET_INVALID', id_digest: 'af3f74e95d77' },
+    { code: 'BUILTIN_PRESET_INVALID', id_digest: 'd195b43dc9ba' },
+  ]);
+}
+
+{
+  const sparseRows: unknown[] = [BUILT_IN_PRESET_ROWS[0], , BUILT_IN_PRESET_ROWS[1]];
+  const { events, logger } = collectEvents();
+  assert.deepEqual(loadBuiltInTrainingPresetCatalog(sparseRows, logger), [
+    materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[0]),
+    materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[1]),
+  ]);
+  assert.deepEqual(events, [
     { code: 'BUILTIN_PRESET_INVALID', id_digest: 'd195b43dc9ba' },
   ]);
 }

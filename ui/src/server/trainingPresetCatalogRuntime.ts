@@ -36,10 +36,13 @@ function rawCatalogIdentity(row: unknown, index: number): RawCatalogIdentity {
 }
 
 export function loadBuiltInTrainingPresetCatalog(
-  rows: unknown[],
+  rows: readonly unknown[],
   logger: (event: TrainingPresetCatalogEntryEvent) => void,
 ): BuiltInTrainingPresetRecord[] {
-  const identities = rows.map(rawCatalogIdentity);
+  const identities = Array.from(
+    { length: rows.length },
+    (_, index) => rawCatalogIdentity(rows[index], index),
+  );
   const counts = new Map<string, number>();
   for (const identity of identities) {
     if (identity.id !== undefined) counts.set(identity.id, (counts.get(identity.id) ?? 0) + 1);
@@ -69,5 +72,5 @@ export function loadBuiltInTrainingPresetCatalog(
 export function getBuiltInTrainingPresetCatalog(
   logger: (event: TrainingPresetCatalogEntryEvent) => void,
 ): BuiltInTrainingPresetRecord[] {
-  return loadBuiltInTrainingPresetCatalog([...BUILT_IN_PRESET_ROWS], logger);
+  return loadBuiltInTrainingPresetCatalog(BUILT_IN_PRESET_ROWS, logger);
 }
