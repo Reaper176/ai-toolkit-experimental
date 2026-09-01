@@ -317,11 +317,23 @@ export interface TrainingPresetServiceDependencies {
   logCorruptUserPreset: (idDigest: string) => void;
 }
 
+function logCatalogEvent(event: TrainingPresetCatalogEntryEvent): void {
+  console.error(event.code, event.id_digest);
+}
+
+function logCatalogProviderFailure(event: TrainingPresetCatalogProviderEvent): void {
+  console.error(event.code);
+}
+
+function logCorruptUserPreset(idDigest: string): void {
+  console.error('TRAINING_PRESET_CORRUPT', idDigest);
+}
+
 const defaultTrainingPresetServiceDependencies: TrainingPresetServiceDependencies = {
   listBuiltIns: getBuiltInTrainingPresetCatalog,
-  logCatalogEvent: () => undefined,
-  logCatalogProviderFailure: () => undefined,
-  logCorruptUserPreset: () => undefined,
+  logCatalogEvent,
+  logCatalogProviderFailure,
+  logCorruptUserPreset,
 };
 
 function logBestEffort<T>(logger: (entry: T) => void, entry: T): void {

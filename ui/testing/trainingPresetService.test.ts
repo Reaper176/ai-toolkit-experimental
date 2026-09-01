@@ -311,6 +311,48 @@ async function main(): Promise<void> {
   );
   assert.equal(entryObserverCalls, 1, 'the best-effort wrapper still invokes the entry observer');
 
+  const defaultLogs: unknown[][] = [];
+  const originalConsoleError = console.error;
+  const privateCorruptId = 'BuIlTiN:private/path?token=secret';
+  console.error = (...values: unknown[]) => defaultLogs.push(values);
+  try {
+    await createTrainingPresetService(new FakeStore(), {
+      listBuiltIns(logger) {
+        logger({
+          code: 'BUILTIN_PRESET_INVALID',
+          id_digest: '0123456789ab',
+          preset_name: 'private preset name',
+          snapshot_path: '/private/preset.json',
+        } as Parameters<typeof logger>[0] & {
+          preset_name: string;
+          snapshot_path: string;
+        });
+        return [];
+      },
+    }).list();
+    await createTrainingPresetService(new FakeStore(), {
+      listBuiltIns() {
+        throw new Error('private provider token=secret');
+      },
+    }).list();
+    await createTrainingPresetService(
+      new FakeStore([row(privateCorruptId, 'Private corrupt preset')]),
+      { listBuiltIns: () => [] },
+    ).list();
+  } finally {
+    console.error = originalConsoleError;
+  }
+  assert.deepEqual(defaultLogs, [
+    ['BUILTIN_PRESET_INVALID', '0123456789ab'],
+    ['BUILTIN_PRESET_PROVIDER_FAILED'],
+    ['TRAINING_PRESET_CORRUPT', trainingPresetCatalogIdLogDigest(privateCorruptId)],
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(defaultLogs),
+    /private|path|token|secret|snapshot|preset name/i,
+    'default logs contain only redacted event codes and deterministic ID digests',
+  );
+
   const defaultOnlyUsers = await createTrainingPresetService(new FakeStore([row('default-user', 'Default')])).list();
   assert.deepEqual(
     defaultOnlyUsers.map(preset => preset.id),
