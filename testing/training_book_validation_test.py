@@ -14992,6 +14992,42 @@ class DatasetChaptersNarrativePageTests(unittest.TestCase):
         ):
             self.assertIn(phrase.lower(), page.lower())
 
+    def test_dataset_chapters_page_dataset_masks_states_exact_weight_semantics(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/datasets/masks.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Understand what an ordinary mask changes",
+            "## Read white black and gray exactly",
+            "## Choose mask_min_value",
+            "## Invert before weighting",
+            "## Know what the mask editor stores",
+            "## Add an inverted-mask prior only when compatible",
+            "## Diagnose mask training",
+        ):
+            self.assertIn(heading, page)
+        for phrase in (
+            "white pixels map to 1.0",
+            "black pixels map toward `mask_min_value`",
+            "grayscale",
+            "invert_mask",
+            "inversion occurs before",
+            "all-white mask",
+            "equivalent to no mask",
+            "inverted_mask_prior",
+            "inverted_mask_prior_multiplier",
+            "turbo",
+            "prior prediction",
+            "../reference/dataset.md#dataset-mask-path",
+            "../reference/dataset.md#dataset-mask-min-value",
+            "../reference/dataset.md#dataset-invert-mask",
+            "../reference/training.md#train-inverted-mask-prior",
+            "toolkit/config_modules.py",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+        self.assertNotIn("white learns more", page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
