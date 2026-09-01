@@ -14551,8 +14551,6 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
             '<a href="undeclared.md">Unsafe</a>',
             '<a href=../../outside.md>Unsafe</a>',
             '<a HREF=undeclared.md>Unsafe</a>',
-            "<../../outside.md>",
-            "<undeclared.md>",
         )
         for link in alternate_links:
             with self.subTest(link=link), self.assertRaises(MarkdownContractError):
@@ -14639,14 +14637,12 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
         rendered = (
             f"[Inline](<{target}> \"guide\")\n"
             f"[Reference][model]\n\n[model]: <{target}>\n"
-            f'<a href="{target}">HTML</a>\n'
-            f"<{target}>"
+            f'<a href="{target}">HTML</a>'
         )
         self.assertEqual(
             markdown_module.extract_rendered_links(rendered),
             [
                 ("Inline", target),
-                (None, target),
                 (None, target),
                 ("Reference", target),
             ],
@@ -14655,9 +14651,32 @@ class NarrativeMarkdownContractTests(unittest.TestCase):
             f"`[Code]({target})`",
             f"<!-- [Comment]({target}) -->",
             rf"\[Escaped]({target})",
+            f"<{target}>",
         ):
             with self.subTest(hidden=hidden):
                 self.assertEqual(markdown_module.extract_rendered_links(hidden), [])
+
+        self.assertEqual(
+            markdown_module.extract_rendered_links(
+                rf"\`[Escaped ticks]({target})\`"
+            ),
+            [("Escaped ticks", target)],
+        )
+        self.assertEqual(
+            markdown_module.extract_rendered_links(
+                "[Duplicate][model]\n\n"
+                "[model]: ../models/qwen-image-and-edit.md\n"
+                "[model]: ../models/anima.md"
+            ),
+            [("Duplicate", "../models/qwen-image-and-edit.md")],
+        )
+
+        self.validate(
+            self.page(
+                "## Hidden definition\n\n"
+                "<!-- hidden across\n[unused]: ../../outside.md\nlines -->"
+            )
+        )
 
     def test_staged_pages_validate_only_current_manifest_declared_markdown(self):
         from scripts.training_book.markdown import validate_staged_book_pages
@@ -15258,6 +15277,15 @@ class RecipeNarrativePageTests(unittest.TestCase):
         relative_path = "recipes/character-identity.md"
         document = self.recipe_fixture(relative_path)
         self.assert_recipe_contract(relative_path, document, pre_catalog=True)
+        self.assert_recipe_contract(
+            relative_path,
+            document.replace(
+                "[Model guide](../models/anima.md)",
+                r"\`[Model guide](../models/anima.md)\`",
+                1,
+            ),
+            pre_catalog=True,
+        )
 
         with self.assertRaises(AssertionError):
             self.assert_recipe_contract(relative_path, document)
@@ -15309,6 +15337,18 @@ class RecipeNarrativePageTests(unittest.TestCase):
             document.replace(
                 "[Model guide](../models/anima.md)",
                 r"\[Model guide](../models/anima.md)",
+                1,
+            ),
+            document.replace(
+                "[Model guide](../models/anima.md)",
+                "[Model guide][family]\n\n"
+                "[family]: ../models/qwen-image-and-edit.md\n"
+                "[family]: ../models/anima.md",
+                1,
+            ),
+            document.replace(
+                "[Model guide](../models/anima.md)",
+                "<../models/anima.md>",
                 1,
             ),
         )

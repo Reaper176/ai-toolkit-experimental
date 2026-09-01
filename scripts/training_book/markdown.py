@@ -33,7 +33,7 @@ _HTML_HREF = re.compile(
     re.IGNORECASE,
 )
 _AUTOLINK = re.compile(
-    r"<((?:https?://|mailto:|(?:\.\.?/|/)?[^<>\s]+\.md(?:#[^<>\s]+)?|#[^<>\s]+))>",
+    r"<((?:https?://|mailto:)[^<>\s]+)>",
     re.IGNORECASE,
 )
 _EXTERNAL_LINK = re.compile(r"(?:https?|mailto):", re.IGNORECASE)
@@ -154,8 +154,8 @@ def rendered_markdown(document: str) -> str:
 
     visible = _outside_fences(document)
     visible = _outside_html_comments(visible)
-    visible = _outside_inline_code(visible)
-    return _without_escaped_punctuation(visible)
+    visible = _without_escaped_punctuation(visible)
+    return _outside_inline_code(visible)
 
 
 def _link_destination(raw_target: str) -> str:
@@ -167,14 +167,21 @@ def _link_destination(raw_target: str) -> str:
     return target.split(maxsplit=1)[0]
 
 
+def _reference_key(label: str) -> str:
+    return " ".join(label.split()).casefold()
+
+
 def markdown_reference_definitions(document: str) -> dict[str, str]:
     """Return case-insensitive reference-link destinations from rendered Markdown."""
 
     visible = rendered_markdown(document)
-    return {
-        match.group(1).casefold(): _link_destination(match.group(2))
-        for match in _REFERENCE_DEFINITION.finditer(visible)
-    }
+    definitions: dict[str, str] = {}
+    for match in _REFERENCE_DEFINITION.finditer(visible):
+        definitions.setdefault(
+            _reference_key(match.group(1)),
+            _link_destination(match.group(2)),
+        )
+    return definitions
 
 
 def extract_rendered_links(
@@ -214,14 +221,14 @@ def extract_rendered_links(
         if any(start <= match.start() < end for start, end in occupied):
             continue
         reference_id = match.group(2) or match.group(1)
-        target = definitions.get(reference_id.casefold())
+        target = definitions.get(_reference_key(reference_id))
         if target is not None:
             links.append((match.group(1), target))
         occupied.append(match.span())
     for match in re.finditer(r"(?<![!\]])\[([^\]]+)\](?![\[(])", visible):
         if any(start <= match.start() < end for start, end in occupied):
             continue
-        target = definitions.get(match.group(1).casefold())
+        target = definitions.get(_reference_key(match.group(1)))
         if target is not None:
             links.append((match.group(1), target))
     return links
@@ -484,8 +491,6 @@ def validate_narrative_page(
         normalized = check_target(raw_target)
         if label is not None and "table of contents" in label.lower() and normalized == "README.md":
             toc_links.append((label, raw_target))
-    for match in _REFERENCE_DEFINITION.finditer(visible):
-        check_target(match.group(2))
     if len(toc_links) != 1:
         raise MarkdownContractError(f"{page}: expected one table-of-contents link")
 
