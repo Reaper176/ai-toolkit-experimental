@@ -15028,6 +15028,40 @@ class DatasetChaptersNarrativePageTests(unittest.TestCase):
             self.assertIn(phrase.lower(), page.lower())
         self.assertNotIn("white learns more", page.lower())
 
+    def test_dataset_chapters_page_dataset_modalities_covers_paired_inputs(self):
+        page = (
+            REPOSITORY_ROOT / "docs/book/datasets/controls-video-audio.md"
+        ).read_text(encoding="utf-8")
+
+        for heading in (
+            "## Keep control inputs matched",
+            "## Preserve paired geometry",
+            "## Select video frames deliberately",
+            "## Build image-to-video examples",
+            "## Prepare audio consistently",
+            "## Validate a multimodal batch",
+        ):
+            self.assertIn(heading, page)
+        for phrase in (
+            "control_path",
+            "control_from_same_folder",
+            "replay_transforms",
+            "num_frames",
+            "shrink_video_to_frames",
+            "fps",
+            "do_i2v",
+            "do_audio",
+            "audio_normalize",
+            "audio_preserve_pitch",
+            "../reference/dataset.md#dataset-control-path",
+            "../reference/dataset.md#dataset-num-frames",
+            "../reference/dataset.md#dataset-do-i2v",
+            "../reference/dataset.md#dataset-audio-normalize",
+            "toolkit/config_modules.py",
+            "toolkit/dataloader_mixins.py",
+        ):
+            self.assertIn(phrase.lower(), page.lower())
+
 
 class GeneratedReferenceTests(unittest.TestCase):
     REFERENCE_PAGES = (
