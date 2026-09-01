@@ -17342,6 +17342,24 @@ class BookArtifactTests(unittest.TestCase):
                 "python-units",
             ],
         )
+        for phase in (
+            "compile-typescript",
+            "emit-ui-facts",
+            "emit-preset-facts",
+        ):
+            with self.subTest(phase=phase):
+                self.assertIn(
+                    Path(by_phase[phase][0]["command"]).name,
+                    ("node", "node.exe"),
+                )
+        for phase in (
+            "reference-check",
+            "navigation-check",
+            "full-validation",
+            "python-units",
+        ):
+            with self.subTest(phase=phase):
+                self.assertEqual(by_phase[phase][0]["command"], "python")
         self.assertEqual(
             by_phase["compile-typescript"][0]["args"],
             [
@@ -17368,7 +17386,6 @@ class BookArtifactTests(unittest.TestCase):
             )
 
         ui_emitter = by_phase["emit-ui-facts"][0]
-        self.assertIn(Path(ui_emitter["command"]).name, ("node", "node.exe"))
         self.assertEqual(ui_emitter["args"][0], "-e")
         self.assertIn(str(ui_facts), ui_emitter["args"][1])
         self.assertIn("writeTrainingBookUiFacts", ui_emitter["args"][1])
@@ -17402,7 +17419,6 @@ class BookArtifactTests(unittest.TestCase):
         )
         self.assertNotIn("--skip-smoke", validator["args"])
         python_units = by_phase["python-units"][0]
-        self.assertEqual(python_units["command"], "python")
         self.assertEqual(
             python_units["args"],
             [str(REPOSITORY_ROOT / "testing/training_book_validation_test.py")],
