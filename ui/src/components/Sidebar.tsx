@@ -3,14 +3,13 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Settings, BrainCircuit, Images, Plus, X } from 'lucide-react';
+import { Home, Settings, BrainCircuit, Images, Plus, X, BookOpen } from 'lucide-react';
 import { FaXTwitter, FaDiscord, FaYoutube } from 'react-icons/fa6';
 import { createGlobalState } from 'react-global-hooks';
 import ThemeToggle from './ThemeToggle';
 import ThemeLogo from './ThemeLogo';
 import ActiveJobWidget from './ActiveJobWidget';
 import OstrisCloudBalance from './OstrisCloudBalance';
-import TrainingGuideLink from './TrainingGuideLink';
 
 export const mobileSidebarState = createGlobalState<boolean>(false);
 
@@ -40,8 +39,12 @@ const Sidebar = () => {
     { name: 'New Job', href: '/jobs/new', icon: Plus },
     { name: 'Queue', href: '/jobs', icon: BrainCircuit },
     { name: 'Datasets', href: '/datasets', icon: Images },
+    { name: 'Training Guide', href: '/book', icon: BookOpen },
     { name: 'Settings', href: '/settings', icon: Settings },
   ];
+  const activeHref = navigation
+    .filter(item => pathname === item.href || pathname.startsWith(`${item.href}/`))
+    .sort((left, right) => right.href.length - left.href.length)[0]?.href;
 
   const socialsBoxClass =
     'flex flex-col items-center justify-center p-1 hover:bg-gray-800 rounded-lg transition-colors';
@@ -66,21 +69,26 @@ const Sidebar = () => {
       <OstrisCloudBalance />
       <nav className="flex-1">
         <ul className="px-2 py-4 space-y-2">
-          {navigation.map(item => (
-            <li key={item.name}>
-              <Link
-                href={item.href}
-                className="flex items-center px-4 py-2 text-gray-300 hover:bg-gray-800 rounded-lg transition-colors"
-              >
-                <item.icon className="w-5 h-5 mr-3" />
-                {item.name}
-              </Link>
-            </li>
-          ))}
+          {navigation.map(item => {
+            const active = item.href === activeHref;
+            return (
+              <li key={item.name}>
+                <Link
+                  href={item.href}
+                  aria-current={active ? 'page' : undefined}
+                  className={`flex items-center px-4 py-2 text-gray-300 hover:bg-gray-800 rounded-lg transition-colors ${
+                    active ? 'bg-gray-800 text-white' : ''
+                  }`}
+                >
+                  <item.icon className="w-5 h-5 mr-3" />
+                  {item.name}
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       </nav>
       <ActiveJobWidget />
-      <TrainingGuideLink />
       <a
         href="https://ostris.com/support"
         target="_blank"

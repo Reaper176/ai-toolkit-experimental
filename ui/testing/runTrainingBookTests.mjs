@@ -23,8 +23,8 @@ const validator = join(repositoryRoot, 'scripts', 'validate_training_book.py');
 const referenceGenerator = join(repositoryRoot, 'scripts', 'generate_training_book_reference.py');
 const navigationGenerator = join(repositoryRoot, 'scripts', 'generate_training_book_navigation.py');
 const presetCatalogRunner = join(testingDirectory, 'runTrainingPresetCatalogBuildValidation.mjs');
-const testSourcePattern = /^(?:trainingBook.*|trainingGuideLink)\.test\.tsx?$/u;
-const testContract = 'trainingBook*.test.tsx? or trainingGuideLink.test.tsx';
+const testSourcePattern = /^(?:trainingBook.*|trainingGuide.*)\.test\.tsx?$/u;
+const testContract = 'trainingBook*.test.tsx? or trainingGuide*.test.tsx?';
 const testSources = readdirSync(testingDirectory)
   .filter(name => testSourcePattern.test(name))
   .sort();
@@ -38,7 +38,13 @@ const requiredArtifacts = [
   presetCatalogRunner,
   join(repositoryRoot, 'docs', 'book', 'book-manifest.json'),
   join(repositoryRoot, 'docs', 'book', 'README.md'),
-  join(repositoryRoot, 'ui', 'src', 'components', 'TrainingGuideLink.tsx'),
+  join(repositoryRoot, 'ui', 'src', 'app', 'book', '[[...slug]]', 'page.tsx'),
+  join(repositoryRoot, 'ui', 'src', 'app', 'book', '[[...slug]]', 'error.tsx'),
+  join(repositoryRoot, 'ui', 'src', 'components', 'Sidebar.tsx'),
+  join(repositoryRoot, 'ui', 'src', 'components', 'TrainingGuideMarkdown.tsx'),
+  join(repositoryRoot, 'ui', 'src', 'components', 'TrainingGuideNavigation.tsx'),
+  join(repositoryRoot, 'ui', 'src', 'helpers', 'trainingGuideMarkdown.ts'),
+  join(repositoryRoot, 'ui', 'src', 'server', 'trainingGuideReader.ts'),
   join(testingDirectory, 'trainingBookFacts.ts'),
   join(testingDirectory, 'trainingBookUiFacts.test.ts'),
   join(testingDirectory, 'tsconfig.trainingBook.json'),

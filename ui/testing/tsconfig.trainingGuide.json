@@ -14,13 +14,15 @@
     "target": "es2022"
   },
   "include": [
-    "trainingGuideLink.test.tsx",
     "trainingGuideMarkdownPaths.test.ts",
     "trainingGuideNavigation.test.tsx",
+    "trainingGuidePageIntegration.test.ts",
     "trainingGuideReader.test.ts",
-    "../src/components/TrainingGuideLink.tsx",
+    "../src/app/book/[[...slug]]/error.tsx",
+    "../src/app/book/[[...slug]]/page.tsx",
     "../src/components/TrainingGuideMarkdown.tsx",
     "../src/components/TrainingGuideNavigation.tsx",
+    "../src/components/Sidebar.tsx",
     "../src/helpers/trainingGuideMarkdown.ts",
     "../src/server/trainingGuideReader.ts"
   ],

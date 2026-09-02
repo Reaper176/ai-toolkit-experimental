@@ -17,8 +17,13 @@
     "trainingBookFacts.ts",
     "trainingBook*.test.ts",
     "trainingBook*.test.tsx",
-    "trainingGuideLink.test.tsx",
-    "../src/components/TrainingGuideLink.tsx"
+    "trainingGuide*.test.ts",
+    "trainingGuide*.test.tsx",
+    "../src/components/Sidebar.tsx",
+    "../src/components/TrainingGuideMarkdown.tsx",
+    "../src/components/TrainingGuideNavigation.tsx",
+    "../src/helpers/trainingGuideMarkdown.ts",
+    "../src/server/trainingGuideReader.ts"
   ],
   "exclude": ["../.next", "../node_modules"]
 }
