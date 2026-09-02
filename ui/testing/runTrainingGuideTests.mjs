@@ -43,17 +43,17 @@ function run(command, args, options = {}) {
   if (result.status !== 0) throw new Error(`${basename(command)} exited with status ${result.status}`);
 }
 
-function findCommittedTestSources() {
-  const result = spawnSync('git', ['cat-file', '-p', 'HEAD:ui/testing'], {
+function findTrackedTestSources() {
+  const result = spawnSync('git', ['ls-files', '--cached', '--', 'ui/testing'], {
     cwd: repositoryRoot,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`git cat-file exited with status ${result.status}`);
+  if (result.status !== 0) throw new Error(`git ls-files exited with status ${result.status}`);
   return result.stdout
     .split('\n')
-    .map(treeEntry => treeEntry.match(/^\d+ blob [0-9a-f]+\t(trainingGuide.*\.test\.tsx?)$/u)?.[1])
+    .map(repositoryPath => repositoryPath.match(/^ui\/testing\/(trainingGuide.*\.test\.tsx?)$/u)?.[1])
     .filter(source => source !== undefined)
     .sort();
 }
@@ -62,7 +62,7 @@ function findCurrentTestSources() {
   return readdirSync(testingDirectory).filter(source => testSourcePattern.test(source)).sort();
 }
 
-function assertTestSourceInventory(currentTestSources, committedTestSources) {
+function assertTestSourceInventory(currentTestSources, trackedTestSources) {
   if (currentTestSources.length === 0) {
     throw new Error('No trainingGuide*.test.ts or trainingGuide*.test.tsx sources are configured');
   }
@@ -70,17 +70,18 @@ function assertTestSourceInventory(currentTestSources, committedTestSources) {
     source => !configuredTestSources.includes(source),
   );
   const extraInConfig = configuredTestSources.filter(source => !currentTestSources.includes(source));
-  const silentlyOmittedCommitted = committedTestSources.filter(
-    source => existsSync(join(testingDirectory, source)) && !configuredTestSources.includes(source),
+  const missingTrackedSources = trackedTestSources.filter(
+    source =>
+      !currentTestSources.includes(source) || !configuredTestSources.includes(source),
   );
   if (
     currentTestSources.length !== configuredTestSources.length ||
     missingFromConfig.length !== 0 ||
     extraInConfig.length !== 0 ||
-    silentlyOmittedCommitted.length !== 0
+    missingTrackedSources.length !== 0
   ) {
     throw new Error(
-      `Training-guide test inventory mismatch: missing=${missingFromConfig.join(', ')}; extra=${extraInConfig.join(', ')}; committed-omissions=${silentlyOmittedCommitted.join(', ')}`,
+      `Training-guide test inventory mismatch: missing=${missingFromConfig.join(', ')}; extra=${extraInConfig.join(', ')}; missing-tracked=${missingTrackedSources.join(', ')}`,
     );
   }
 }
@@ -111,7 +112,7 @@ function findCompiledTests(directory) {
 }
 
 const testSources = findCurrentTestSources();
-assertTestSourceInventory(testSources, findCommittedTestSources());
+assertTestSourceInventory(testSources, findTrackedTestSources());
 
 try {
   outputDirectory = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
