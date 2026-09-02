@@ -68,6 +68,7 @@ export function TrainingPresetControl({
   const [dialog, dispatchDialog] = useReducer(trainingPresetDialogReducer, CLOSED_TRAINING_PRESET_DIALOG);
   const detailsId = useId();
   const dialogRef = useRef(dialog);
+  const controlRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(false);
   const pendingRef = useRef(false);
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -137,6 +138,26 @@ export function TrainingPresetControl({
   useEffect(() => {
     if (selectedBuiltIn === undefined) setDetailsOpen(false);
   }, [selectedBuiltIn]);
+
+  useEffect(() => {
+    if (!detailsOpen || typeof document === 'undefined') return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target !== null && !controlRef.current?.contains(event.target as Node)) {
+        setDetailsOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDetailsOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [detailsOpen]);
 
   const beginPending = (): boolean => {
     if (!mountedRef.current || pendingRef.current || disabledRef.current) return false;
@@ -283,7 +304,7 @@ export function TrainingPresetControl({
   };
 
   return (
-    <div className="relative flex flex-wrap items-center gap-2">
+    <div ref={controlRef} data-training-preset-control className="relative flex flex-wrap items-center gap-2">
       <TrainingPresetSelect
         presets={presets}
         selectedPresetId={selectedPresetId}

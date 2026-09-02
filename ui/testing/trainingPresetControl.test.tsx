@@ -100,6 +100,27 @@ function chooseSave(root: ReactTestInstance): void {
 async function run(): Promise<void> {
   const originalConsoleError = console.error;
   const rendererWarnings: unknown[][] = [];
+  type CapturedListener = EventListenerOrEventListenerObject;
+  const documentListeners = new Map<string, CapturedListener>();
+  const browserGlobal = globalThis as unknown as { document?: Document };
+  const originalDocument = browserGlobal.document;
+  const insideTarget = {};
+  const outsideTarget = {};
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: {
+      addEventListener: (type: string, listener: CapturedListener) => documentListeners.set(type, listener),
+      removeEventListener: (type: string, listener: CapturedListener) => {
+        if (documentListeners.get(type) === listener) documentListeners.delete(type);
+      },
+    },
+  });
+  const dispatchDocumentEvent = (type: string, event: object) => {
+    const listener = documentListeners.get(type);
+    assert.ok(listener, `${type} listener is registered while details are open`);
+    if (typeof listener === 'function') listener(event as Event);
+    else listener.handleEvent(event as Event);
+  };
   console.error = (...args: unknown[]) => {
     rendererWarnings.push(args);
   };
@@ -663,11 +684,24 @@ async function run(): Promise<void> {
     );
     let popoverRenderer!: TestRenderer.ReactTestRenderer;
     await act(async () => {
-      popoverRenderer = TestRenderer.create(popoverElement(jobFixture(100, 'flux')));
+      popoverRenderer = TestRenderer.create(popoverElement(jobFixture(100, 'flux')), {
+        createNodeMock: element =>
+          (element.props as Record<string, unknown>)['data-training-preset-control']
+            ? { contains: (target: unknown) => target === insideTarget }
+            : {},
+      });
     });
     const popoverRoot = popoverRenderer.root;
     act(() => select(popoverRoot).props.onChange({ currentTarget: { value: presetValue(builtinFlux.id) } }));
     await act(async () => popoverRenderer.update(popoverElement(popoverChanges.at(-1)!)));
+    act(() => popoverRoot.findByProps({ 'aria-label': 'Show preset details' }).props.onClick());
+    act(() => dispatchDocumentEvent('pointerdown', { target: insideTarget }));
+    assert.equal(popoverRoot.findAllByProps({ 'data-preset-details-region': true }).length, 1);
+    act(() => dispatchDocumentEvent('pointerdown', { target: outsideTarget }));
+    assert.equal(popoverRoot.findAllByProps({ 'data-preset-details-region': true }).length, 0);
+    act(() => popoverRoot.findByProps({ 'aria-label': 'Show preset details' }).props.onClick());
+    act(() => dispatchDocumentEvent('keydown', { key: 'Escape' }));
+    assert.equal(popoverRoot.findAllByProps({ 'data-preset-details-region': true }).length, 0);
     act(() => popoverRoot.findByProps({ 'aria-label': 'Show preset details' }).props.onClick());
     act(() =>
       select(popoverRoot).props.onChange({ currentTarget: { value: presetValue(builtinFluxStyle.id) } }),
@@ -682,6 +716,7 @@ async function run(): Promise<void> {
     assert.equal(popoverRoot.findAllByProps({ 'aria-label': 'Show preset details' }).length, 0);
     assert.equal(popoverRoot.findAllByProps({ 'data-preset-details-region': true }).length, 0);
     await act(async () => popoverRenderer.unmount());
+    assert.equal(documentListeners.size, 0);
 
     const rejectedChanges: JobConfig[] = [];
     let rejectedRenderer!: TestRenderer.ReactTestRenderer;
@@ -741,6 +776,13 @@ async function run(): Promise<void> {
     assert.deepEqual(unexpectedWarnings, []);
   } finally {
     console.error = originalConsoleError;
+    if (originalDocument === undefined) delete browserGlobal.document;
+    else {
+      Object.defineProperty(globalThis, 'document', {
+        configurable: true,
+        value: originalDocument,
+      });
+    }
     delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
   }
   console.log('training preset controller lifecycle tests passed');
