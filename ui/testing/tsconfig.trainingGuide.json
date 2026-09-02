@@ -1,0 +1,17 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "allowJs": false,
+    "baseUrl": "..",
+    "incremental": false,
+    "isolatedModules": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "paths": { "@/*": ["src/*"] },
+    "rootDir": "..",
+    "target": "es2022"
+  },
+  "include": ["trainingGuideReader.test.ts", "../src/helpers/trainingGuideMarkdown.ts"],
+  "exclude": ["../.next", "../node_modules"]
+}
