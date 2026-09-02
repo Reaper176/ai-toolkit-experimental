@@ -1,6 +1,16 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -12,7 +22,7 @@ const tsc = join(uiRoot, 'node_modules', 'typescript', 'bin', 'tsc');
 const tsconfigPath = join(testingDirectory, 'tsconfig.trainingGuide.json');
 const testSourcePattern = /^trainingGuide.*\.test\.tsx?$/u;
 const tsconfig = JSON.parse(readFileSync(tsconfigPath, 'utf8'));
-const testSources = (tsconfig.include ?? [])
+const configuredTestSources = (tsconfig.include ?? [])
   .filter(source => dirname(source) === '.' && testSourcePattern.test(source))
   .sort();
 let outputDirectory;
@@ -22,25 +32,43 @@ function run(command, args, options = {}) {
     cwd: uiRoot,
     stdio: 'inherit',
     ...options,
+    env: {
+      ...process.env,
+      NODE_PATH: [join(uiRoot, 'node_modules'), process.env.NODE_PATH].filter(Boolean).join(delimiter),
+      TRAINING_BOOK_REPOSITORY_ROOT: repositoryRoot,
+      ...options.env,
+    },
   });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${basename(command)} exited with status ${result.status}`);
 }
 
-function assertCommittedTestSources() {
+function findCommittedTestSources() {
+  const result = spawnSync('git', ['cat-file', '-p', 'HEAD:ui/testing'], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`git cat-file exited with status ${result.status}`);
+  return result.stdout
+    .split('\n')
+    .map(treeEntry => treeEntry.match(/^\d+ blob [0-9a-f]+\t(trainingGuide.*\.test\.tsx?)$/u)?.[1])
+    .filter(source => source !== undefined)
+    .sort();
+}
+
+function assertConfiguredCommittedTestSources(testSources) {
   if (testSources.length === 0) {
     throw new Error('No trainingGuide*.test.ts or trainingGuide*.test.tsx sources are configured');
   }
-  for (const source of testSources) {
-    const repositoryPath = `ui/testing/${source}`;
-    const result = spawnSync('git', ['cat-file', '-e', `HEAD:${repositoryPath}`], {
-      cwd: repositoryRoot,
-      stdio: 'ignore',
-    });
-    if (result.error) throw result.error;
-    if (result.status !== 0) {
-      throw new Error(`Required committed training-guide test source is missing: ${repositoryPath}`);
-    }
+  if (
+    testSources.length !== configuredTestSources.length ||
+    testSources.some((source, index) => source !== configuredTestSources[index])
+  ) {
+    throw new Error(
+      `Configured training-guide tests do not match committed sources: ${configuredTestSources.join(', ')}`,
+    );
   }
 }
 
@@ -69,7 +97,8 @@ function findCompiledTests(directory) {
     .map(name => join(compiledTestingDirectory, name));
 }
 
-assertCommittedTestSources();
+const testSources = findCommittedTestSources();
+assertConfiguredCommittedTestSources(testSources);
 
 try {
   outputDirectory = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
@@ -82,6 +111,22 @@ try {
     '--outDir',
     outputDirectory,
   ]);
+
+  const aliasScope = join(outputDirectory, 'node_modules', '@');
+  mkdirSync(dirname(aliasScope), { recursive: true });
+  symlinkSync(join(outputDirectory, 'src'), aliasScope, process.platform === 'win32' ? 'junction' : 'dir');
+  symlinkSync(
+    join(uiRoot, 'node_modules', 'react'),
+    join(outputDirectory, 'node_modules', 'react'),
+    process.platform === 'win32' ? 'junction' : 'dir',
+  );
+  const lucideStub = join(outputDirectory, 'node_modules', 'lucide-react');
+  mkdirSync(lucideStub, { recursive: true });
+  writeFileSync(join(lucideStub, 'package.json'), JSON.stringify({ type: 'commonjs', main: 'index.js' }));
+  writeFileSync(
+    join(lucideStub, 'index.js'),
+    "const React = require('react'); module.exports = new Proxy({}, { get: (_, name) => props => React.createElement('svg', { ...props, 'data-icon': String(name) }) });\n",
+  );
 
   const compiledTests = findCompiledTests(outputDirectory);
   const expectedTests = testSources.map(source =>

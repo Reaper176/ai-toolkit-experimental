@@ -5,6 +5,7 @@
     "baseUrl": "..",
     "incremental": false,
     "isolatedModules": false,
+    "jsx": "react-jsx",
     "module": "commonjs",
     "moduleResolution": "node",
     "noEmit": false,
@@ -12,6 +13,11 @@
     "rootDir": "..",
     "target": "es2022"
   },
-  "include": ["trainingGuideReader.test.ts", "../src/helpers/trainingGuideMarkdown.ts"],
+  "include": [
+    "trainingGuideLink.test.tsx",
+    "trainingGuideReader.test.ts",
+    "../src/components/TrainingGuideLink.tsx",
+    "../src/helpers/trainingGuideMarkdown.ts"
+  ],
   "exclude": ["../.next", "../node_modules"]
 }

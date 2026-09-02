@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -7,6 +8,14 @@ import {
   trainingGuidePathFromSlug,
   trainingGuideSlugFromPath,
 } from '../src/helpers/trainingGuideMarkdown';
+
+test('focused gate config includes the committed training guide link test', () => {
+  const tsconfig = JSON.parse(readFileSync('testing/tsconfig.trainingGuide.json', 'utf8')) as {
+    include?: string[];
+  };
+
+  assert.ok(tsconfig.include?.includes('trainingGuideLink.test.tsx'));
+});
 
 test('converts guide paths and URL segments', () => {
   assert.equal(trainingGuideSlugFromPath('README.md'), '');
