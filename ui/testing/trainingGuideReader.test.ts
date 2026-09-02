@@ -4,6 +4,10 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import ts from 'typescript';
 
 import {
   extractTrainingGuideHeadings,
@@ -14,6 +18,15 @@ import {
 import { loadTrainingGuidePage, trainingGuideRepositoryRoot } from '../src/server/trainingGuideReader';
 
 const FIXTURE_PREFIX = 'training-guide-reader-';
+const dynamicImport = new Function('specifier', 'return import(specifier)') as (
+  specifier: string,
+) => Promise<{ default: React.ComponentType<TrainingGuideMarkdownFixtureProps> }>;
+
+interface TrainingGuideMarkdownFixtureProps {
+  markdown: string;
+  currentPath: string;
+  allowedPaths: readonly string[];
+}
 
 interface ManifestPageFixture {
   path: string;
@@ -95,6 +108,66 @@ function withTrainingGuideFixture(run: (fixture: TrainingGuideFixture) => void):
 
   try {
     run({ root, bookDirectory, manifest, writeManifest });
+  } finally {
+    assertSafeFixtureRoot(root);
+    rmSync(root, { recursive: true });
+  }
+}
+
+function replaceModuleSpecifier(source: string, specifier: string, replacement: string): string {
+  return source.replaceAll(`'${specifier}'`, `'${replacement}'`).replaceAll(`"${specifier}"`, `"${replacement}"`);
+}
+
+function transpileEsm(source: string, fileName: string): string {
+  const result = ts.transpileModule(source, {
+    fileName,
+    reportDiagnostics: true,
+    compilerOptions: {
+      esModuleInterop: true,
+      jsx: ts.JsxEmit.ReactJSX,
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
+  });
+  const errors = result.diagnostics?.filter(diagnostic => diagnostic.category === ts.DiagnosticCategory.Error) ?? [];
+  assert.deepEqual(errors, [], `temporary ESM transpilation succeeds for ${fileName}`);
+  return result.outputText;
+}
+
+async function renderTrainingGuideMarkdown(props: TrainingGuideMarkdownFixtureProps): Promise<string> {
+  const root = mkdtempSync(join(tmpdir(), FIXTURE_PREFIX));
+  const helperPath = join(root, 'trainingGuideMarkdown.mjs');
+  const componentPath = join(root, 'TrainingGuideMarkdown.mjs');
+  try {
+    const helperSource = fs.readFileSync(join(process.cwd(), 'src', 'helpers', 'trainingGuideMarkdown.ts'), 'utf8');
+    let componentSource = fs.readFileSync(
+      join(process.cwd(), 'src', 'components', 'TrainingGuideMarkdown.tsx'),
+      'utf8',
+    );
+    componentSource = replaceModuleSpecifier(
+      componentSource,
+      '@/helpers/trainingGuideMarkdown',
+      './trainingGuideMarkdown.mjs',
+    );
+    for (const specifier of ['react', 'react-markdown', 'remark-gfm']) {
+      componentSource = replaceModuleSpecifier(
+        componentSource,
+        specifier,
+        pathToFileURL(require.resolve(specifier)).href,
+      );
+    }
+
+    writeFileSync(helperPath, transpileEsm(helperSource, 'trainingGuideMarkdown.ts'));
+    let componentModule = transpileEsm(componentSource, 'TrainingGuideMarkdown.tsx');
+    componentModule = replaceModuleSpecifier(
+      componentModule,
+      'react/jsx-runtime',
+      pathToFileURL(require.resolve('react/jsx-runtime')).href,
+    );
+    writeFileSync(componentPath, componentModule);
+
+    const component = (await dynamicImport(pathToFileURL(componentPath).href)).default;
+    return renderToStaticMarkup(React.createElement(component, props));
   } finally {
     assertSafeFixtureRoot(root);
     rmSync(root, { recursive: true });
@@ -525,4 +598,56 @@ test('keeps the Markdown renderer deterministic, safe, and horizontally scrollab
   );
   assert.doesNotMatch(source, /rehypeRaw/u);
   assert.doesNotMatch(source, /dangerouslySetInnerHTML/u);
+});
+
+test('renders links safely without emitting image request sources', async () => {
+  const html = await renderTrainingGuideMarkdown({
+    markdown: [
+      '# Media policy',
+      '',
+      '![External image](https://images.example/remote.png)',
+      '',
+      '![Relative image](images/local.png)',
+      '',
+      '![Unsafe image](javascript:alert(1))',
+      '',
+      '[External link](https://example.com/guide)',
+      '',
+      '[Guide link](../datasets/curation.md#masks)',
+      '',
+      '[Unsafe link](javascript:alert(1))',
+    ].join('\n'),
+    currentPath: 'getting-started/first-lora.md',
+    allowedPaths: ['README.md', 'getting-started/first-lora.md', 'datasets/curation.md'],
+  });
+
+  assert.doesNotMatch(html, /<img\b/iu);
+  assert.doesNotMatch(html, /\bsrc=/iu);
+  assert.doesNotMatch(html, /<link\b[^>]*\bas="image"/iu, 'React SSR does not preload Markdown images');
+  assert.doesNotMatch(html, /images\.example|images\/local\.png|javascript:/iu);
+  assert.match(
+    html,
+    /<a href="https:\/\/example\.com\/guide" target="_blank" rel="noopener noreferrer"[^>]*>External link<\/a>/u,
+  );
+  assert.match(html, /<a href="\/book\/datasets\/curation#masks"[^>]*>Guide link<\/a>/u);
+});
+
+test('setext headings do not consume deterministic ATX heading IDs', async () => {
+  const markdown = 'Repeat\n------\n\n# Repeat';
+  assert.deepEqual(extractTrainingGuideHeadings(markdown), [{ depth: 1, text: 'Repeat', id: 'repeat' }]);
+
+  const html = await renderTrainingGuideMarkdown({
+    markdown,
+    currentPath: 'README.md',
+    allowedPaths: ['README.md'],
+  });
+  const renderedHeadings = [...html.matchAll(/<h([12])(?: id="([^"]+)")?[^>]*>Repeat<\/h\1>/gu)].map(match => ({
+    depth: Number(match[1]),
+    id: match[2],
+  }));
+
+  assert.deepEqual(renderedHeadings, [
+    { depth: 2, id: undefined },
+    { depth: 1, id: 'repeat' },
+  ]);
 });

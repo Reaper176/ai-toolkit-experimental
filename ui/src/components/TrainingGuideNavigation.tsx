@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { TrainingGuideHeading } from '@/helpers/trainingGuideMarkdown';
 import type { TrainingGuideNavigationGroup, TrainingGuideNavigationItem } from '@/server/trainingGuideReader';
@@ -64,9 +64,31 @@ export function TrainingGuideChapterNavigation({ groups, currentPath }: Training
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
+  const restoreFocusRef = useRef(false);
+
+  const closeDrawer = useCallback((restoreFocus: boolean) => {
+    restoreFocusRef.current = restoreFocus;
+    setDrawerOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!drawerOpen && restoreFocusRef.current) {
+      restoreFocusRef.current = false;
+      toggleRef.current?.focus();
+    }
+  }, [drawerOpen]);
 
   useEffect(() => {
     if (!drawerOpen || typeof document === 'undefined') return;
+
+    const desktopMedia =
+      typeof window === 'undefined' || typeof window.matchMedia !== 'function'
+        ? undefined
+        : window.matchMedia('(min-width: 1024px)');
+    if (desktopMedia?.matches) {
+      closeDrawer(false);
+      return;
+    }
 
     const handlePointerDown = (event: PointerEvent) => {
       if (
@@ -74,20 +96,50 @@ export function TrainingGuideChapterNavigation({ groups, currentPath }: Training
         !drawerRef.current?.contains(event.target as Node) &&
         !toggleRef.current?.contains(event.target as Node)
       ) {
-        setDrawerOpen(false);
+        closeDrawer(true);
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setDrawerOpen(false);
+      if (event.key === 'Escape') {
+        closeDrawer(true);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const controls = Array.from(
+        drawerRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+      if (controls.length === 0) {
+        event.preventDefault();
+        drawerRef.current?.focus();
+        return;
+      }
+
+      const activeIndex = controls.indexOf(document.activeElement as HTMLElement);
+      if (event.shiftKey && activeIndex <= 0) {
+        event.preventDefault();
+        controls.at(-1)?.focus();
+      } else if (!event.shiftKey && (activeIndex === -1 || activeIndex === controls.length - 1)) {
+        event.preventDefault();
+        controls[0].focus();
+      }
+    };
+    const handleBreakpointChange = (event: MediaQueryListEvent) => {
+      if (event.matches) closeDrawer(false);
     };
 
+    drawerRef.current?.focus();
     document.addEventListener('pointerdown', handlePointerDown);
     document.addEventListener('keydown', handleKeyDown);
+    desktopMedia?.addEventListener('change', handleBreakpointChange);
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
+      desktopMedia?.removeEventListener('change', handleBreakpointChange);
     };
-  }, [drawerOpen]);
+  }, [closeDrawer, drawerOpen]);
 
   return (
     <>
@@ -96,7 +148,7 @@ export function TrainingGuideChapterNavigation({ groups, currentPath }: Training
         type="button"
         aria-controls="training-guide-chapter-drawer"
         aria-expanded={drawerOpen}
-        onClick={() => setDrawerOpen(open => !open)}
+        onClick={() => (drawerOpen ? closeDrawer(true) : setDrawerOpen(true))}
         className="relative z-[60] m-4 inline-flex items-center rounded-md border border-gray-700 bg-gray-800 px-4 py-2 text-sm font-medium text-gray-100 hover:bg-gray-700 lg:hidden"
       >
         Chapters
@@ -115,10 +167,23 @@ export function TrainingGuideChapterNavigation({ groups, currentPath }: Training
             ref={drawerRef}
             id="training-guide-chapter-drawer"
             data-training-guide-drawer
-            className="h-full w-72 max-w-[85vw] overflow-y-auto border-r border-gray-700 bg-gray-950 px-4 pb-8 pt-20 shadow-xl"
+            role="dialog"
+            aria-modal={true}
+            aria-label="Chapter navigation drawer"
+            tabIndex={-1}
+            className="h-full w-72 max-w-[85vw] overflow-y-auto border-r border-gray-700 bg-gray-950 px-4 pb-8 pt-20 shadow-xl outline-none"
           >
+            <div className="mb-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => closeDrawer(true)}
+                className="rounded-md border border-gray-700 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-800 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
             <nav aria-label="Mobile training guide chapters">
-              <ChapterGroups groups={groups} currentPath={currentPath} onNavigate={() => setDrawerOpen(false)} />
+              <ChapterGroups groups={groups} currentPath={currentPath} onNavigate={() => closeDrawer(false)} />
             </nav>
           </div>
         </div>

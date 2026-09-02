@@ -1,4 +1,3 @@
-import { isValidElement, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -11,13 +10,6 @@ interface TrainingGuideMarkdownProps {
   allowedPaths: readonly string[];
 }
 
-function headingText(children: ReactNode): string {
-  if (typeof children === 'string' || typeof children === 'number') return String(children);
-  if (Array.isArray(children)) return children.map(headingText).join('');
-  if (isValidElement<{ children?: ReactNode }>(children)) return headingText(children.props.children);
-  return '';
-}
-
 interface MarkdownNodePosition {
   position?: {
     start: { offset?: number };
@@ -25,7 +17,7 @@ interface MarkdownNodePosition {
   };
 }
 
-function headingTextFromSource(markdown: string, node: MarkdownNodePosition | undefined, children: ReactNode): string {
+function headingTextFromSource(markdown: string, node: MarkdownNodePosition | undefined): string | undefined {
   const startOffset = node?.position?.start.offset;
   const endOffset = node?.position?.end.offset;
   if (startOffset !== undefined && endOffset !== undefined) {
@@ -33,17 +25,21 @@ function headingTextFromSource(markdown: string, node: MarkdownNodePosition | un
     const match = sourceHeading.match(/^ {0,3}(#{1,6})(?:[ \t]+|$)(.*)$/u);
     if (match !== null) return match[2].replace(/[ \t]+#+[ \t]*$/u, '').trim();
   }
-  return headingText(children);
+  return undefined;
 }
 
 export default function TrainingGuideMarkdown({ markdown, currentPath, allowedPaths }: TrainingGuideMarkdownProps) {
   const slugHeading = createTrainingGuideHeadingSlugger();
+  const headingId = (node: MarkdownNodePosition | undefined): string | undefined => {
+    const text = headingTextFromSource(markdown, node);
+    return text === undefined ? undefined : slugHeading(text);
+  };
   const allowedPathSet = new Set(allowedPaths);
   const components: Components = {
     h1: ({ node, children, ...props }) => (
       <h1
         {...props}
-        id={slugHeading(headingTextFromSource(markdown, node, children))}
+        id={headingId(node)}
         className="mb-6 scroll-mt-6 text-3xl font-bold tracking-tight text-white sm:text-4xl"
       >
         {children}
@@ -52,43 +48,31 @@ export default function TrainingGuideMarkdown({ markdown, currentPath, allowedPa
     h2: ({ node, children, ...props }) => (
       <h2
         {...props}
-        id={slugHeading(headingTextFromSource(markdown, node, children))}
+        id={headingId(node)}
         className="mb-4 mt-10 scroll-mt-6 border-b border-gray-700 pb-2 text-2xl font-semibold text-white"
       >
         {children}
       </h2>
     ),
     h3: ({ node, children, ...props }) => (
-      <h3
-        {...props}
-        id={slugHeading(headingTextFromSource(markdown, node, children))}
-        className="mb-3 mt-8 scroll-mt-6 text-xl font-semibold text-gray-100"
-      >
+      <h3 {...props} id={headingId(node)} className="mb-3 mt-8 scroll-mt-6 text-xl font-semibold text-gray-100">
         {children}
       </h3>
     ),
     h4: ({ node, children, ...props }) => (
-      <h4
-        {...props}
-        id={slugHeading(headingTextFromSource(markdown, node, children))}
-        className="mb-2 mt-6 scroll-mt-6 text-lg font-semibold text-gray-100"
-      >
+      <h4 {...props} id={headingId(node)} className="mb-2 mt-6 scroll-mt-6 text-lg font-semibold text-gray-100">
         {children}
       </h4>
     ),
     h5: ({ node, children, ...props }) => (
-      <h5
-        {...props}
-        id={slugHeading(headingTextFromSource(markdown, node, children))}
-        className="mb-2 mt-5 scroll-mt-6 font-semibold text-gray-100"
-      >
+      <h5 {...props} id={headingId(node)} className="mb-2 mt-5 scroll-mt-6 font-semibold text-gray-100">
         {children}
       </h5>
     ),
     h6: ({ node, children, ...props }) => (
       <h6
         {...props}
-        id={slugHeading(headingTextFromSource(markdown, node, children))}
+        id={headingId(node)}
         className="mb-2 mt-5 scroll-mt-6 text-sm font-semibold uppercase tracking-wide text-gray-200"
       >
         {children}
@@ -114,6 +98,7 @@ export default function TrainingGuideMarkdown({ markdown, currentPath, allowedPa
         </a>
       );
     },
+    img: () => null,
     ul: ({ node: _node, children, ...props }) => (
       <ul {...props} className="my-4 list-disc space-y-2 pl-6 text-gray-200">
         {children}
