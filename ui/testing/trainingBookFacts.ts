@@ -4450,7 +4450,16 @@ function getValueCases(node: ts.Expression, repo: AstRepository): CustomModelSel
     }
     if (ts.isReturnStatement(statement) && statement.expression !== undefined) {
       if (index !== behaviorStatements.length - 1) fail(statement, 'getValue final unconditional return must be the last statement');
-      result.push({ condition: { kind: 'always' }, return_value: repo.value(statement.expression) });
+      const expression = unwrap(statement.expression);
+      if (ts.isConditionalExpression(expression)) {
+        result.push({
+          condition: parsePredicate(expression.condition, aliases.paths, aliases.predicates),
+          return_value: repo.value(expression.whenTrue),
+        });
+        result.push({ condition: { kind: 'always' }, return_value: repo.value(expression.whenFalse) });
+      } else {
+        result.push({ condition: { kind: 'always' }, return_value: repo.value(expression) });
+      }
       continue;
     }
     fail(statement, 'unsupported getValue control flow');

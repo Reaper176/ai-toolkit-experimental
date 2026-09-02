@@ -5373,8 +5373,7 @@ export const modelArchs = [{
     label: 'Mode', options: [{ value: 'a', label: 'Mode A' }, { value: 'b', label: 'Mode B' }],
     getValue: config => {
       const path = config?.config?.process?.[0]?.model?.assistant_lora_path;
-      if (path && path.trim() !== '') return 'b';
-      return 'a';
+      return path && path.trim() !== '' ? 'b' : 'a';
     },
     onChange: (value, config, setJobConfig) => {
       if (value === 'a') setJobConfig(undefined, 'config.process[0].model.assistant_lora_path');

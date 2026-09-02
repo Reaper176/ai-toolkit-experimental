@@ -1002,14 +1002,12 @@ export const modelArchs: ModelArch[] = [
           return config?.config?.process?.[0]?.model?.model_kwargs?.image_refs_as_video ? 'video' : 'picture';
         },
         onChange: (value: string, config: JobConfig, setJobConfig: (value: any, key: string) => void) => {
-          const kwargs = { ...(config?.config?.process?.[0]?.model?.model_kwargs ?? {}) };
           if (value === 'video') {
-            kwargs.image_refs_as_video = true;
-          } else {
-            delete kwargs.image_refs_as_video;
-            delete kwargs.image_ref_video_frames;
+            setJobConfig(true, 'config.process[0].model.model_kwargs.image_refs_as_video');
+          } else if (value === 'picture') {
+            setJobConfig(undefined, 'config.process[0].model.model_kwargs.image_refs_as_video');
+            setJobConfig(undefined, 'config.process[0].model.model_kwargs.image_ref_video_frames');
           }
-          setJobConfig(kwargs, 'config.process[0].model.model_kwargs');
         },
         doc: {
           title: 'MiniMax-H3 Image Reference Presentation',
