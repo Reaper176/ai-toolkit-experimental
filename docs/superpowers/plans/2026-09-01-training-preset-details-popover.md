@@ -4,7 +4,7 @@
 
 **Goal:** Keep the training-preset selector usable after applying a built-in preset by moving its long guidance into a responsive, explicitly toggled popover.
 
-**Architecture:** `TrainingPresetControl` remains the owner of the selected preset and adds only popover visibility, identity, and dismissal state. `TrainingPresetSelect` and `TrainingPresetDetails` keep their existing responsibilities; the details component is rendered inside an absolutely positioned, viewport-bounded region instead of inline toolbar flow.
+**Architecture:** `TrainingPresetControl` remains the owner of the selected preset and adds only popover visibility, identity, and dismissal state. `TrainingPresetSelect` and `TrainingPresetDetails` keep their existing responsibilities; the details component is rendered inside a viewport-fixed, bounded region below the toolbar instead of inline toolbar flow. Fixed positioning avoids the `TopBar` overflow clipping boundary while preserving its horizontal scrolling.
 
 **Tech Stack:** React 19, TypeScript, Tailwind CSS, `react-test-renderer`, Node test assertions, existing training-preset test runner.
 
@@ -165,7 +165,7 @@ Replace the inline details render with a relatively positioned wrapper, toggle, 
       role="region"
       aria-label="Selected preset details"
       data-preset-details-region
-      className="absolute right-0 top-full z-50 mt-2 max-h-[calc(100vh-6rem)] w-[min(24rem,calc(100vw-1rem))] overflow-y-auto rounded shadow-xl"
+      className="fixed right-2 top-12 z-50 mt-2 max-h-[calc(100vh-6rem)] w-[min(24rem,calc(100vw-1rem))] overflow-y-auto whitespace-normal rounded shadow-xl"
     >
       <TrainingPresetDetails preset={selectedBuiltIn} />
     </div>

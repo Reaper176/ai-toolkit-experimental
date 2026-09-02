@@ -25,9 +25,9 @@ The toolbar renders three sibling elements inside a relatively positioned wrappe
 
 1. The existing `TrainingPresetSelect`.
 2. A compact `Details` toggle, present only when a compatible built-in preset is selected.
-3. An absolutely positioned details card below the controls, containing the existing `TrainingPresetDetails` component.
+3. A viewport-fixed details card below the toolbar, containing the existing `TrainingPresetDetails` component.
 
-The details card does not participate in toolbar layout, so its content cannot resize or cover the preset selector. It aligns to the toolbar edge and uses a bounded responsive width, maximum viewport-relative height, and vertical scrolling for long content.
+The details card does not participate in toolbar layout, so its content cannot resize or cover the preset selector. Viewport-fixed positioning also keeps it outside the fixed-height `TopBar`'s overflow clipping geometry while retaining horizontal toolbar scrolling. It aligns to the toolbar edge, resets the toolbar's inherited non-wrapping text style, and uses a bounded responsive width, maximum viewport-relative height, and vertical scrolling for long content.
 
 ## Interaction behavior
 

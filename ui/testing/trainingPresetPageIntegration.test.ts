@@ -4,6 +4,8 @@ import { resolve } from 'node:path';
 import ts from 'typescript';
 
 const pageSource = readFileSync(resolve(process.cwd(), 'src/app/jobs/new/page.tsx'), 'utf8');
+const presetControlSource = readFileSync(resolve(process.cwd(), 'src/components/TrainingPresetControl.tsx'), 'utf8');
+const layoutSource = readFileSync(resolve(process.cwd(), 'src/components/layout.tsx'), 'utf8');
 const sourceFile = ts.createSourceFile('page.tsx', pageSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const advancedSource = readFileSync(resolve(process.cwd(), 'src/components/AdvancedConfigEditor.tsx'), 'utf8');
 const advancedSourceFile = ts.createSourceFile(
@@ -150,6 +152,23 @@ const presetControls = visitDescendants(returns[0].expression, node =>
 ) as Array<ts.JsxElement | ts.JsxSelfClosingElement>;
 assert.equal(presetControls.length, 1, 'TrainingForm must render exactly one TrainingPresetControl');
 const presetControl = presetControls[0];
+
+assert.match(layoutSource, /overflow-x-auto/, 'TopBar must retain horizontal scrolling for narrow toolbars');
+assert.match(
+  presetControlSource,
+  /data-preset-details-region[\s\S]*?className="[^"]*\bfixed\b[^"]*\btop-12\b[^"]*"/,
+  'preset details must use viewport-fixed positioning below the clipping TopBar',
+);
+assert.match(
+  presetControlSource,
+  /data-preset-details-region[\s\S]*?className="[^"]*\bwhitespace-normal\b[^"]*"/,
+  'preset details must restore text wrapping inherited from the non-wrapping TopBar',
+);
+assert.doesNotMatch(
+  presetControlSource,
+  /data-preset-details-region[\s\S]*?className="[^"]*\b(?:absolute|top-full)\b[^"]*"/,
+  'preset details must not use positioning that is clipped by TopBar overflow',
+);
 
 let presetWrapper: ts.Node = presetControl;
 while (presetWrapper.parent !== topBar && !ts.isSourceFile(presetWrapper)) presetWrapper = presetWrapper.parent;

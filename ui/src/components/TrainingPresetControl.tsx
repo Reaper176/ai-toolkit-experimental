@@ -332,7 +332,7 @@ export function TrainingPresetControl({
           role="region"
           aria-label="Selected preset details"
           data-preset-details-region
-          className="absolute right-0 top-full z-50 mt-2 max-h-[calc(100vh-6rem)] w-[min(24rem,calc(100vw-1rem))] overflow-y-auto rounded shadow-xl"
+          className="fixed right-2 top-12 z-50 mt-2 max-h-[calc(100vh-6rem)] w-[min(24rem,calc(100vw-1rem))] overflow-y-auto whitespace-normal rounded shadow-xl"
         >
           <TrainingPresetDetails preset={selectedBuiltIn} />
         </div>
