@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import TestRenderer, { act, type ReactTestInstance } from 'react-test-renderer';
 import type { JobConfig } from '../src/types';
-import { sanitizeTrainingPreset, type TrainingPresetRecord } from '../src/helpers/trainingPresets';
+import { sanitizeTrainingPreset, type UserTrainingPresetRecord } from '../src/helpers/trainingPresets';
+import {
+  BUILT_IN_PRESET_ROWS,
+  materializeBuiltInTrainingPresetRow,
+} from '../src/helpers/builtInTrainingPresetDefinitions';
 import { TrainingPresetControl } from '../src/components/TrainingPresetControl';
 import type { TrainingPresetDialogViewProps } from '../src/components/TrainingPresetDialog';
 import {
@@ -18,7 +22,7 @@ import {
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
 
-function jobFixture(steps = 100): JobConfig {
+function jobFixture(steps = 100, arch = 'flux'): JobConfig {
   return {
     job: 'extension',
     config: {
@@ -32,7 +36,7 @@ function jobFixture(steps = 100): JobConfig {
           datasets: [],
           train: { steps },
           save: {},
-          model: { name_or_path: 'model' },
+          model: { name_or_path: 'model', arch },
           sample: { samples: [] },
         },
       ],
@@ -41,10 +45,12 @@ function jobFixture(steps = 100): JobConfig {
   } as unknown as JobConfig;
 }
 
-function record(id: string, name: string): TrainingPresetRecord {
+function record(id: string, name: string): UserTrainingPresetRecord {
   return {
     id,
     name,
+    source: 'user',
+    read_only: false,
     schema_version: 1,
     snapshot: sanitizeTrainingPreset(jobFixture(200)),
     created_at: '2026-01-01T00:00:00.000Z',
@@ -94,6 +100,27 @@ function chooseSave(root: ReactTestInstance): void {
 async function run(): Promise<void> {
   const originalConsoleError = console.error;
   const rendererWarnings: unknown[][] = [];
+  type CapturedListener = EventListenerOrEventListenerObject;
+  const documentListeners = new Map<string, CapturedListener>();
+  const browserGlobal = globalThis as unknown as { document?: Document };
+  const originalDocument = browserGlobal.document;
+  const insideTarget = {};
+  const outsideTarget = {};
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: {
+      addEventListener: (type: string, listener: CapturedListener) => documentListeners.set(type, listener),
+      removeEventListener: (type: string, listener: CapturedListener) => {
+        if (documentListeners.get(type) === listener) documentListeners.delete(type);
+      },
+    },
+  });
+  const dispatchDocumentEvent = (type: string, event: object) => {
+    const listener = documentListeners.get(type);
+    assert.ok(listener, `${type} listener is registered while details are open`);
+    if (typeof listener === 'function') listener(event as Event);
+    else listener.handleEvent(event as Event);
+  };
   console.error = (...args: unknown[]) => {
     rendererWarnings.push(args);
   };
@@ -514,12 +541,248 @@ async function run(): Promise<void> {
     await act(async () => actionRenderer.unmount());
     assert.equal(actionCalls[3].signal.aborted, true, 'unmount aborts the current delete controller');
 
+    const builtinFlux = materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[4]);
+    const builtinFluxStyle = materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[5]);
+    const builtinWan = materializeBuiltInTrainingPresetRow(BUILT_IN_PRESET_ROWS[12]);
+    const personal = record('personal', 'Personal');
+    let savedFromBuiltin: UserTrainingPresetRecord | undefined;
+    let builtinPostBody: unknown;
+    const builtinApi: TrainingPresetApi = {
+      get: async () => ({
+        data: {
+          presets: [
+            personal,
+            builtinWan,
+            builtinFlux,
+            builtinFluxStyle,
+            ...(savedFromBuiltin ? [savedFromBuiltin] : []),
+          ],
+        },
+      }),
+      post: async (_url, body) => {
+        builtinPostBody = body;
+        savedFromBuiltin = record('saved-from-builtin', 'Saved from built-in');
+        return { data: savedFromBuiltin };
+      },
+      put: async () => {
+        throw new Error('built-ins must not PUT');
+      },
+      delete: async () => {
+        throw new Error('built-ins must not DELETE');
+      },
+    };
+    const builtinChanges: JobConfig[] = [];
+    const builtinElement = (config: JobConfig) => (
+      <TrainingPresetControl
+        jobConfig={config}
+        onJobConfigChange={value => builtinChanges.push(value)}
+        migrateJobConfig={value => value}
+        dependencies={{ api: builtinApi, Dialog: TestDialog }}
+      />
+    );
+    let builtinRenderer!: TestRenderer.ReactTestRenderer;
+    const builtinInitial = jobFixture(100, 'flux');
+    (builtinInitial.config.process[0].sample as any).neg = 'retain-current-negative';
+    builtinInitial.config.process[0].datasets = [{ folder_path: '/distinctive-dataset' } as any];
+    await act(async () => {
+      builtinRenderer = TestRenderer.create(builtinElement(builtinInitial));
+    });
+    const builtinRoot = builtinRenderer.root;
+    assert.equal(
+      builtinRoot.findAll(node => node.type === 'option' && node.props.value === presetValue(builtinWan.id)).length,
+      0,
+      'incompatible built-ins are not options',
+    );
+    act(() => select(builtinRoot).props.onChange({ currentTarget: { value: presetValue(builtinFlux.id) } }));
+    const builtinApplied = builtinChanges[0];
+    assert.equal(builtinApplied.config.process[0].train.steps, (builtinFlux.snapshot.config.process[0].train as any).steps);
+    assert.equal((builtinApplied.config.process[0].sample as any).neg, 'retain-current-negative');
+    assert.deepEqual(builtinApplied.config.process[0].datasets, builtinInitial.config.process[0].datasets);
+    assert.notEqual(builtinApplied.config.process[0].datasets, builtinInitial.config.process[0].datasets);
+    assert.equal(
+      builtinRoot.findAllByProps({ 'data-preset-summary': true }).length,
+      0,
+      'selected preset guidance is not rendered inline by default',
+    );
+    const detailsButton = builtinRoot.findByProps({ 'aria-label': 'Show preset details' });
+    assert.equal(detailsButton.props['aria-expanded'], false);
+    assert.equal(select(builtinRoot).props.disabled, false);
+    act(() => detailsButton.props.onClick());
+    const detailsRegion = builtinRoot.findByProps({ 'data-preset-details-region': true });
+    assert.equal(detailsButton.props['aria-expanded'], true);
+    assert.equal(detailsButton.props['aria-controls'], detailsRegion.props.id);
+    assert.equal(detailsRegion.props.role, 'region');
+    assert.equal(builtinRoot.findByProps({ 'data-preset-summary': true }).children.join(''), builtinFlux.summary);
+    assert.equal(select(builtinRoot).props.disabled, false, 'open guidance never disables the preset selector');
+    act(() => detailsButton.props.onClick());
+    assert.equal(builtinRoot.findAllByProps({ 'data-preset-details-region': true }).length, 0);
+    assert.equal(detailsButton.props['aria-expanded'], false);
+    assert.equal(select(builtinRoot).props.value, presetValue(builtinFlux.id));
+    assert.equal(builtinRoot.findByProps({ value: PRESET_ACTION_UPDATE }).props.disabled, true);
+    assert.equal(builtinRoot.findByProps({ value: PRESET_ACTION_DELETE }).props.disabled, true);
+    assert.equal(builtinRoot.findByProps({ value: PRESET_ACTION_SAVE }).props.disabled, undefined);
+    assert.equal(builtinRoot.findByProps({ value: PRESET_ACTION_UNDO }).props.disabled, undefined);
+    act(() => select(builtinRoot).props.onChange({ currentTarget: { value: PRESET_ACTION_UPDATE } }));
+    act(() => select(builtinRoot).props.onChange({ currentTarget: { value: PRESET_ACTION_DELETE } }));
+    assert.equal(builtinRoot.findAllByProps({ 'data-dialog': 'update' }).length, 0);
+    assert.equal(builtinRoot.findAllByProps({ 'data-dialog': 'delete' }).length, 0);
+
+    await act(async () => builtinRenderer.update(builtinElement(builtinApplied)));
+    act(() => select(builtinRoot).props.onChange({ currentTarget: { value: PRESET_ACTION_UNDO } }));
+    assert.deepEqual(builtinChanges[1], builtinInitial, 'built-in apply has a full one-level undo snapshot');
+    await act(async () => builtinRenderer.update(builtinElement(builtinApplied)));
+
+    await act(async () => {
+      builtinRenderer.update(builtinElement(jobFixture(100, 'sdxl')));
+    });
+    assert.equal(select(builtinRoot).props.value, '', 'architecture change clears a selected incompatible built-in');
+    act(() => select(builtinRoot).props.onChange({ currentTarget: { value: presetValue(personal.id) } }));
+    assert.equal(select(builtinRoot).props.value, presetValue(personal.id));
+    await act(async () => {
+      builtinRenderer.update(builtinElement(jobFixture(100, 'wan21:1b')));
+    });
+    assert.equal(
+      select(builtinRoot).props.value,
+      presetValue(personal.id),
+      'architecture change retains a user preset',
+    );
+    assert.equal(
+      builtinRoot.findAll(node => node.type === 'option' && node.props.value === presetValue(builtinWan.id)).length,
+      1,
+      'colon-bearing Wan architecture IDs are matched as opaque strings',
+    );
+
+    await act(async () => builtinRenderer.update(builtinElement(builtinApplied)));
+    act(() => select(builtinRoot).props.onChange({ currentTarget: { value: presetValue(builtinFlux.id) } }));
+    await act(async () => builtinRenderer.update(builtinElement(builtinChanges.at(-1)!)));
+    act(() => chooseSave(builtinRoot));
+    act(() => builtinRoot.findByProps({ 'aria-label': 'Test preset name' }).props.onChange({ currentTarget: { value: 'Saved from built-in' } }));
+    await act(async () => {
+      builtinRoot.findByProps({ 'data-confirm': true }).props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    assert.ok(builtinPostBody, 'Save as New remains functional after built-in application');
+    assert.equal(JSON.stringify(builtinPostBody).includes('catalog_revision'), false, 'catalog metadata is never posted');
+    assert.ok(builtinRoot.findAll(node => node.type === 'optgroup' && node.props.label === 'Built-in recipes').length === 1);
+    await act(async () => builtinRenderer.unmount());
+
+    const popoverChanges: JobConfig[] = [];
+    const popoverElement = (config: JobConfig) => (
+      <TrainingPresetControl
+        jobConfig={config}
+        onJobConfigChange={value => popoverChanges.push(value)}
+        migrateJobConfig={value => value}
+        dependencies={{
+          api: {
+            ...builtinApi,
+            get: async () => ({ data: { presets: [personal, builtinFlux, builtinFluxStyle] } }),
+          },
+          Dialog: TestDialog,
+        }}
+      />
+    );
+    let popoverRenderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      popoverRenderer = TestRenderer.create(popoverElement(jobFixture(100, 'flux')), {
+        createNodeMock: element =>
+          (element.props as Record<string, unknown>)['data-training-preset-control']
+            ? { contains: (target: unknown) => target === insideTarget }
+            : {},
+      });
+    });
+    const popoverRoot = popoverRenderer.root;
+    act(() => select(popoverRoot).props.onChange({ currentTarget: { value: presetValue(builtinFlux.id) } }));
+    await act(async () => popoverRenderer.update(popoverElement(popoverChanges.at(-1)!)));
+    act(() => popoverRoot.findByProps({ 'aria-label': 'Show preset details' }).props.onClick());
+    act(() => dispatchDocumentEvent('pointerdown', { target: insideTarget }));
+    assert.equal(popoverRoot.findAllByProps({ 'data-preset-details-region': true }).length, 1);
+    act(() => dispatchDocumentEvent('pointerdown', { target: outsideTarget }));
+    assert.equal(popoverRoot.findAllByProps({ 'data-preset-details-region': true }).length, 0);
+    act(() => popoverRoot.findByProps({ 'aria-label': 'Show preset details' }).props.onClick());
+    act(() => dispatchDocumentEvent('keydown', { key: 'Escape' }));
+    assert.equal(popoverRoot.findAllByProps({ 'data-preset-details-region': true }).length, 0);
+    act(() => popoverRoot.findByProps({ 'aria-label': 'Show preset details' }).props.onClick());
+    act(() =>
+      select(popoverRoot).props.onChange({ currentTarget: { value: presetValue(builtinFluxStyle.id) } }),
+    );
+    await act(async () => popoverRenderer.update(popoverElement(popoverChanges.at(-1)!)));
+    assert.equal(
+      popoverRoot.findByProps({ 'data-preset-summary': true }).children.join(''),
+      builtinFluxStyle.summary,
+      'an open card follows a newly selected compatible built-in',
+    );
+    act(() => select(popoverRoot).props.onChange({ currentTarget: { value: presetValue(personal.id) } }));
+    assert.equal(popoverRoot.findAllByProps({ 'aria-label': 'Show preset details' }).length, 0);
+    assert.equal(popoverRoot.findAllByProps({ 'data-preset-details-region': true }).length, 0);
+    await act(async () => popoverRenderer.unmount());
+    assert.equal(documentListeners.size, 0);
+
+    const rejectedChanges: JobConfig[] = [];
+    let rejectedRenderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      rejectedRenderer = TestRenderer.create(
+        <TrainingPresetControl
+          jobConfig={jobFixture()}
+          onJobConfigChange={value => rejectedChanges.push(value)}
+          migrateJobConfig={value => {
+            (value.config.process[0].model as any).name_or_path = '';
+            return value;
+          }}
+          dependencies={{ api: { ...builtinApi, get: async () => ({ data: { presets: [personal] } }) }, Dialog: TestDialog }}
+        />,
+      );
+    });
+    act(() => select(rejectedRenderer.root).props.onChange({ currentTarget: { value: presetValue(personal.id) } }));
+    assert.equal(rejectedChanges.length, 0, 'invalid post-application validation blocks the mounted state commit');
+    assert.match(rejectedRenderer.root.findByProps({ role: 'alert' }).findByType('span').children.join(''), /could not apply/i);
+    await act(async () => rejectedRenderer.unmount());
+
+    const catalog = BUILT_IN_PRESET_ROWS.map(materializeBuiltInTrainingPresetRow);
+    for (const catalogPreset of catalog) {
+      const catalogChanges: JobConfig[] = [];
+      const catalogApi: TrainingPresetApi = {
+        get: async () => ({ data: { presets: [personal, ...catalog] } }),
+        post: async () => { throw new Error('unexpected POST'); },
+        put: async () => { throw new Error('unexpected PUT'); },
+        delete: async () => { throw new Error('unexpected DELETE'); },
+      };
+      let catalogRenderer!: TestRenderer.ReactTestRenderer;
+      await act(async () => {
+        catalogRenderer = TestRenderer.create(
+          <TrainingPresetControl
+            jobConfig={jobFixture(100, catalogPreset.model_arch)}
+            onJobConfigChange={value => catalogChanges.push(value)}
+            migrateJobConfig={value => value}
+            dependencies={{ api: catalogApi, Dialog: TestDialog }}
+          />,
+        );
+      });
+      assert.equal(catalogRenderer.root.findAll(node => node.type === 'optgroup' && node.props.label === 'Built-in recipes').length, 1);
+      assert.equal(catalogRenderer.root.findAll(node => node.type === 'optgroup' && node.props.label === 'My presets').length, 1);
+      assert.equal(
+        catalogRenderer.root.findAll(node => node.type === 'option' && node.props.value === presetValue(personal.id)).length,
+        1,
+        'mixed mounted response retains user presets alongside the complete catalog',
+      );
+      act(() => select(catalogRenderer.root).props.onChange({ currentTarget: { value: presetValue(catalogPreset.id) } }));
+      assert.equal(catalogChanges.length, 1, `${catalogPreset.id} is consumed by the mounted mixed-record control`);
+      await act(async () => catalogRenderer.unmount());
+    }
+
     const unexpectedWarnings = rendererWarnings.filter(
       args => !String(args[0]).includes('react-test-renderer is deprecated'),
     );
     assert.deepEqual(unexpectedWarnings, []);
   } finally {
     console.error = originalConsoleError;
+    if (originalDocument === undefined) delete browserGlobal.document;
+    else {
+      Object.defineProperty(globalThis, 'document', {
+        configurable: true,
+        value: originalDocument,
+      });
+    }
     delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
   }
   console.log('training preset controller lifecycle tests passed');

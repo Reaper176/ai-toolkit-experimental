@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import type { JobConfig } from '../src/types';
+import { getBuiltInTrainingPresetCatalog } from '../src/server/trainingPresetCatalogRuntime';
 import {
   TrainingPresetConflictError,
   TrainingPresetNotFoundError,
@@ -70,19 +71,25 @@ async function main(): Promise<void> {
     await client.$executeRawUnsafe('CREATE INDEX "TrainingPreset_name_idx" ON "TrainingPreset"("name")');
 
     const service = createTrainingPresetService(client.trainingPreset);
+    assert.equal((await service.list()).length, 14);
+    assert.equal(await client.trainingPreset.count(), 0, 'listing built-ins must not create database rows');
+
     const created = await service.create('  Portrait  ', jobFixture('first/model'));
     assert.match(created.id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
     assert.equal(created.name, 'Portrait');
     assert.equal(Number.isNaN(Date.parse(created.created_at)), false);
     assert.deepEqual(
       (await service.list()).map(item => item.id),
-      [created.id],
+      [...getBuiltInTrainingPresetCatalog(() => undefined).map(item => item.id), created.id],
     );
 
     const updated = await service.update(created.id, jobFixture('second/model'));
     assert.equal((updated.snapshot.config.process[0] as any).model.name_or_path, 'second/model');
     await service.remove(created.id);
-    assert.deepEqual(await service.list(), []);
+    assert.deepEqual(
+      (await service.list()).map(item => item.id),
+      getBuiltInTrainingPresetCatalog(() => undefined).map(item => item.id),
+    );
 
     const raceSeed = await service.create('Race', jobFixture('race/model'));
     const raceStore: TrainingPresetStore = {

@@ -1,0 +1,6553 @@
+"""Fail-closed, import-free discovery of Python configuration surfaces."""
+
+from __future__ import annotations
+
+import ast
+import json
+from dataclasses import dataclass
+from functools import cache
+from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import Iterable, Iterator, Sequence
+
+
+class DiscoveryError(ValueError):
+    """Raised when source discovery cannot prove a finite configuration surface."""
+
+
+@dataclass(frozen=True, order=True)
+class DiscoveredSetting:
+    source: str
+    symbol: str
+    line: int
+    key: str
+    read_kind: str
+    scope: str
+    default_expression: str | None
+
+
+@dataclass(frozen=True, order=True)
+class SourceClaim:
+    source: str
+    symbol: str
+    key: str
+    read_kind: str
+
+
+@dataclass(frozen=True, order=True)
+class Exclusion:
+    source: str
+    symbol: str
+    key: str
+    read_kind: str
+    reason: str
+
+
+@dataclass(frozen=True, order=True)
+class SourceGroup:
+    owner: str
+    globs: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SourceCatalog:
+    schema_version: int
+    source_groups: tuple[SourceGroup, ...]
+    claims: tuple[SourceClaim, ...]
+
+
+@dataclass
+class _SettingState:
+    aliases: dict[str, str]
+    values: dict[str, tuple[str, ...]]
+    iterables: dict[str, tuple[str, ...]]
+    bindings: set[str]
+
+
+@dataclass(frozen=True)
+class _AssignmentResolution:
+    kind: str | None
+    literals: tuple[str, ...] | None
+    iterable: tuple[str, ...] | None
+
+
+@dataclass
+class _StatementFlow:
+    falls_through: bool
+    terminals: tuple[tuple[str, _SettingState], ...] = ()
+    prefixes: tuple[_SettingState, ...] = ()
+
+
+_APPROVED_EXCLUSION_REASONS = {
+    "slider-only",
+    "extraction-only",
+    "generation-only",
+    "reference-dataset-only",
+    "arbitrary third-party constructor surface",
+    "runtime-forced duplicate-key boundary",
+    "external extension",
+    "model-developer API",
+}
+_SOURCE_OWNERS = {"python-ast", "typescript-test"}
+_INVENTORY_BASELINE_TOTAL = 965
+_INVENTORY_BASELINE_GROUPS = {
+    "toolkit/config_modules.py": 436,
+    "TrainConfig": 126,
+    "ModelConfig": 60,
+    "DatasetConfig": 78,
+    "AdapterConfig": 49,
+}
+_APPROVED_ACCESSOR_SYMBOLS = {
+    ("jobs/BaseJob.py", "BaseJob.get_conf"),
+    ("jobs/process/BaseProcess.py", "BaseProcess.get_conf"),
+    ("toolkit/config.py", "get_config"),
+    ("toolkit/data_loader.py", "ImageDataset.get_config"),
+    ("toolkit/data_loader.py", "PairedImageDataset.get_config"),
+}
+
+
+_Identity = tuple[str, str, str, str]
+
+
+def validate_inventory_baseline(counts: dict[str, int], total: int) -> None:
+    """Reject any reduction from the immutable Task 2 production inventory."""
+
+    if total < _INVENTORY_BASELINE_TOTAL:
+        raise DiscoveryError(
+            f"discovery inventory abruptly reduced to {total} total Python facts "
+            f"(minimum {_INVENTORY_BASELINE_TOTAL})"
+        )
+    for group, minimum in _INVENTORY_BASELINE_GROUPS.items():
+        count = counts.get(group, 0)
+        if count < minimum:
+            raise DiscoveryError(
+                f"discovery inventory group {group} abruptly reduced to "
+                f"{count} facts (minimum {minimum})"
+            )
+
+
+def _identity(value: DiscoveredSetting | SourceClaim | Exclusion) -> _Identity:
+    return (value.source, value.symbol, value.key, value.read_kind)
+
+
+def _reject_duplicate_object_keys(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise DiscoveryError(f"duplicate JSON object key: {key!r}")
+        result[key] = value
+    return result
+
+
+def _load_json_object(path: Path, label: str) -> dict[str, object]:
+    try:
+        value = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_object_keys,
+        )
+    except json.JSONDecodeError as error:
+        raise DiscoveryError(
+            f"{label} has invalid JSON at line {error.lineno}, column {error.colno}"
+        ) from error
+    except (OSError, UnicodeError) as error:
+        raise DiscoveryError(f"cannot read {label}: {error}") from error
+    if type(value) is not dict:
+        raise DiscoveryError(f"{label} must be a JSON object")
+    return value
+
+
+def _require_fields(
+    value: dict[str, object], expected: set[str], label: str
+) -> None:
+    missing = sorted(expected.difference(value))
+    if missing:
+        raise DiscoveryError(f"{label} missing required fields: {missing!r}")
+    extra = sorted(set(value).difference(expected))
+    if extra:
+        raise DiscoveryError(f"{label} has unexpected fields: {extra!r}")
+
+
+def _string(value: object, label: str) -> str:
+    if type(value) is not str or not value:
+        raise DiscoveryError(f"{label} must be a non-empty string")
+    return value
+
+
+def _portable_declaration(value: object, label: str, *, glob: bool) -> str:
+    path = _string(value, label)
+    parsed = PurePosixPath(path)
+    windows = PureWindowsPath(path)
+    if (
+        "\\" in path
+        or parsed.is_absolute()
+        or windows.is_absolute()
+        or windows.drive
+        or ".." in parsed.parts
+        or path == "."
+        or "//" in path
+    ):
+        raise DiscoveryError(f"{label} must be a portable relative path")
+    if not glob and any(character in path for character in "*?["):
+        raise DiscoveryError(f"{label} must be an exact portable source path")
+    return path
+
+
+def _contains_identity_glob(value: str, *, read_kind: bool = False) -> bool:
+    candidate = value[:-2] if read_kind and value.endswith("[]") else value
+    return any(character in candidate for character in "*?[")
+
+
+def _claim_from_json(value: object, label: str) -> SourceClaim:
+    if type(value) is not dict:
+        raise DiscoveryError(f"{label} must be an object")
+    _require_fields(value, {"source", "symbol", "key", "read_kind"}, label)
+    symbol = _string(value["symbol"], f"{label}.symbol")
+    key = _string(value["key"], f"{label}.key")
+    read_kind = _string(value["read_kind"], f"{label}.read_kind")
+    if (
+        _contains_identity_glob(symbol)
+        or _contains_identity_glob(key)
+        or _contains_identity_glob(read_kind, read_kind=True)
+    ):
+        raise DiscoveryError(f"{label} requires an exact identity")
+    return SourceClaim(
+        _portable_declaration(value["source"], f"{label}.source", glob=False),
+        symbol,
+        key,
+        read_kind,
+    )
+
+
+def load_source_catalog(path: Path) -> SourceCatalog:
+    """Load strict source groups and exact ownership claims."""
+
+    data = _load_json_object(path, "settings source catalog")
+    _require_fields(data, {"schema_version", "source_groups", "claims"}, "settings source catalog")
+    if type(data["schema_version"]) is not int or data["schema_version"] != 1:
+        raise DiscoveryError("settings source catalog schema_version must equal 1")
+    groups_value = data["source_groups"]
+    if type(groups_value) is not list or not groups_value:
+        raise DiscoveryError("source_groups must be a non-empty array")
+    groups: list[SourceGroup] = []
+    owners: set[str] = set()
+    for index, item in enumerate(groups_value):
+        label = f"source_groups[{index}]"
+        if type(item) is not dict:
+            raise DiscoveryError(f"{label} must be an object")
+        _require_fields(item, {"owner", "globs"}, label)
+        owner = _string(item["owner"], f"{label}.owner")
+        if owner not in _SOURCE_OWNERS:
+            raise DiscoveryError(f"{label}.owner is not supported: {owner!r}")
+        if owner in owners:
+            raise DiscoveryError(f"source_groups has duplicate owner: {owner!r}")
+        owners.add(owner)
+        globs_value = item["globs"]
+        if type(globs_value) is not list or not globs_value:
+            raise DiscoveryError(f"{label}.globs must be a non-empty array")
+        globs = tuple(
+            _portable_declaration(item, f"{label}.globs[{glob_index}]", glob=True)
+            for glob_index, item in enumerate(globs_value)
+        )
+        if len(globs) != len(set(globs)):
+            raise DiscoveryError(f"{label}.globs contains duplicate patterns")
+        groups.append(SourceGroup(owner, globs))
+    claims_value = data["claims"]
+    if type(claims_value) is not list:
+        raise DiscoveryError("claims must be an array")
+    claims = tuple(
+        _claim_from_json(item, f"claims[{index}]")
+        for index, item in enumerate(claims_value)
+    )
+    if len(claims) != len({_identity(claim) for claim in claims}):
+        raise DiscoveryError("claims contains duplicate ownership identities")
+    return SourceCatalog(1, tuple(groups), claims)
+
+
+def load_exclusions(path: Path) -> tuple[Exclusion, ...]:
+    """Load exact exclusions with reasons from the approved taxonomy."""
+
+    data = _load_json_object(path, "settings exclusions")
+    data.setdefault("ui_exclusions", [])
+    _require_fields(
+        data,
+        {"schema_version", "exclusions", "ui_exclusions"},
+        "settings exclusions",
+    )
+    if type(data["schema_version"]) is not int or data["schema_version"] != 2:
+        raise DiscoveryError("settings exclusions schema_version must equal 2")
+    values = data["exclusions"]
+    if type(values) is not list:
+        raise DiscoveryError("exclusions must be an array")
+    if type(data["ui_exclusions"]) is not list:
+        raise DiscoveryError("ui_exclusions must be an array")
+    exclusions: list[Exclusion] = []
+    for index, item in enumerate(values):
+        label = f"exclusions[{index}]"
+        if type(item) is not dict:
+            raise DiscoveryError(f"{label} must be an object")
+        _require_fields(
+            item, {"source", "symbol", "key", "read_kind", "reason"}, label
+        )
+        claim = _claim_from_json(
+            {field: item[field] for field in ("source", "symbol", "key", "read_kind")},
+            label,
+        )
+        reason = _string(item["reason"], f"{label}.reason")
+        if reason not in _APPROVED_EXCLUSION_REASONS:
+            raise DiscoveryError(
+                f"{label}.reason must be an approved category, got {reason!r}"
+            )
+        exclusions.append(Exclusion(*_identity(claim), reason))
+    if len(exclusions) != len({_identity(item) for item in exclusions}):
+        raise DiscoveryError("exclusions contains duplicate ownership identities")
+    return tuple(exclusions)
+
+
+def _portable_path(repository_root: Path, source_path: Path) -> str:
+    try:
+        relative = source_path.resolve().relative_to(repository_root.resolve())
+    except ValueError as error:
+        raise DiscoveryError(f"source escapes repository root: {source_path}") from error
+    portable = relative.as_posix()
+    if portable == "." or str(PurePosixPath(portable)) != portable:
+        raise DiscoveryError(f"source is not a portable relative path: {portable!r}")
+    return portable
+
+
+def _source_expression(node: ast.AST | None) -> str | None:
+    return None if node is None else ast.unparse(node)
+
+
+def _literal_strings(node: ast.AST, values: dict[str, tuple[str, ...]]) -> tuple[str, ...] | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return (node.value,)
+    if isinstance(node, ast.Name):
+        return values.get(node.id)
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        result: list[str] = []
+        for element in node.elts:
+            element_values = _literal_strings(element, values)
+            if element_values is None:
+                return None
+            result.extend(element_values)
+        return tuple(result)
+    if isinstance(node, ast.JoinedStr):
+        candidates = ("",)
+        for part in node.values:
+            if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                replacements = (part.value,)
+            elif isinstance(part, ast.FormattedValue):
+                if part.conversion != -1 or part.format_spec is not None:
+                    return None
+                replacements = _literal_strings(part.value, values)
+                if replacements is None:
+                    return None
+            else:
+                return None
+            candidates = tuple(
+                prefix + replacement
+                for prefix in candidates
+                for replacement in replacements
+            )
+        return candidates
+    return None
+
+
+def _attribute_path(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        owner = _attribute_path(node.value)
+        return None if owner is None else f"{owner}.{node.attr}"
+    return None
+
+
+def _reflective_method_lookup(
+    node: ast.AST,
+    aliases: frozenset[str] = frozenset(),
+) -> tuple[ast.AST, str | None, bool] | None:
+    if not isinstance(node, ast.Call) or node.keywords:
+        return None
+    path = _attribute_path(node.func)
+    if path in {"getattr", "builtins.getattr"} and len(node.args) in {2, 3}:
+        receiver, name = node.args[:2]
+        ambiguous = path.split(".", maxsplit=1)[0] in aliases
+    elif (
+        isinstance(node.func, ast.Name)
+        and node.func.id in aliases
+        and len(node.args) >= 2
+    ):
+        receiver, name = node.args[:2]
+        ambiguous = True
+    elif (
+        isinstance(node.func, ast.Attribute)
+        and node.func.attr == "__getattribute__"
+        and len(node.args) == 1
+    ):
+        receiver, name = node.func.value, node.args[0]
+        ambiguous = False
+    elif (
+        _attribute_path(node.func) == "object.__getattribute__" and len(node.args) == 2
+    ):
+        receiver, name = node.args
+        ambiguous = "object" in aliases
+    else:
+        return None
+    method_name = (
+        name.value
+        if isinstance(name, ast.Constant) and isinstance(name.value, str)
+        else None
+    )
+    return receiver, method_name, ambiguous
+
+
+def _class_method_symbol(class_name: str, method_name: str) -> str:
+    return f"{class_name}.{method_name}"
+
+
+@dataclass(frozen=True)
+class _ClassInfo:
+    source: str
+    node: ast.ClassDef
+
+
+_MethodOwner = tuple[str, str]
+_FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda
+
+
+@dataclass(frozen=True)
+class _CallerInfo:
+    source: str
+    class_name: str | None
+    function: _FunctionNode | None
+    direct_method: bool
+
+
+_MethodCall = tuple[ast.Call, _CallerInfo]
+_MethodReference = tuple[ast.Attribute, _CallerInfo]
+
+
+def _class_info(
+    classes: dict[str, list[_ClassInfo]], owner: _MethodOwner
+) -> _ClassInfo | None:
+    source, class_name = owner
+    candidates = [
+        info for info in classes.get(class_name, ()) if info.source == source
+    ]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _base_infos(
+    classes: dict[str, list[_ClassInfo]], info: _ClassInfo
+) -> tuple[list[_ClassInfo], bool]:
+    resolved: list[_ClassInfo] = []
+    uncertain = False
+    for base in info.node.bases:
+        if not isinstance(base, ast.Name):
+            uncertain = True
+            continue
+        candidates = [
+            candidate
+            for candidate in classes.get(base.id, ())
+            if candidate.source == info.source
+        ]
+        if not candidates:
+            candidates = list(classes.get(base.id, ()))
+        if len(candidates) != 1:
+            uncertain = True
+            continue
+        resolved.append(candidates[0])
+    return resolved, uncertain
+
+
+def _resolve_method_owners(
+    *,
+    classes: dict[str, list[_ClassInfo]],
+    caller_source: str,
+    caller_class: str | None,
+    method_name: str,
+    super_only: bool,
+) -> tuple[frozenset[_MethodOwner], bool]:
+    """Return finite candidate owners and whether inheritance is ambiguous."""
+
+    if caller_class is None:
+        return frozenset(), True
+    callers = [
+        info
+        for info in classes.get(caller_class, ())
+        if info.source == caller_source
+    ]
+    if len(callers) != 1:
+        return frozenset(), True
+
+    def search(
+        info: _ClassInfo,
+        *,
+        include_self: bool,
+        seen: frozenset[_MethodOwner],
+    ) -> tuple[set[_MethodOwner], bool]:
+        owner = (info.source, info.node.name)
+        if owner in seen:
+            return set(), True
+        seen = seen | {owner}
+        if include_self and any(
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == method_name
+            for node in info.node.body
+        ):
+            return {owner}, False
+        bases, uncertain = _base_infos(classes, info)
+        owners: set[_MethodOwner] = set()
+        for base in bases:
+            base_owners, base_uncertain = search(
+                base, include_self=True, seen=seen
+            )
+            owners.update(base_owners)
+            uncertain = uncertain or base_uncertain
+        if len(owners) > 1:
+            uncertain = True
+        return owners, uncertain
+
+    owners, uncertain = search(
+        callers[0], include_self=not super_only, seen=frozenset()
+    )
+    return frozenset(owners), uncertain
+
+
+@cache
+def _bound_receiver(
+    caller: _CallerInfo,
+) -> tuple[str | None, bool]:
+    function = caller.function
+    if not caller.direct_method or function is None:
+        return None, True
+    if function.decorator_list and not (
+        len(function.decorator_list) == 1
+        and isinstance(function.decorator_list[0], ast.Name)
+        and function.decorator_list[0].id == "classmethod"
+    ):
+        return None, True
+    positional = list(function.args.posonlyargs) + list(function.args.args)
+    if not positional:
+        return None, True
+    receiver = positional[0].arg
+
+    def binds_receiver(node: ast.AST) -> bool:
+        if (
+            isinstance(node, ast.Name)
+            and node.id == receiver
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+        ):
+            return True
+        if (
+            isinstance(node, (ast.Global, ast.Nonlocal))
+            and receiver in node.names
+        ):
+            return True
+        if isinstance(node, ast.ExceptHandler) and node.name == receiver:
+            return True
+        if isinstance(node, (ast.MatchAs, ast.MatchStar)):
+            return node.name == receiver
+        if isinstance(node, ast.MatchMapping):
+            return node.rest == receiver
+        if isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        ):
+            return node.name == receiver
+        if isinstance(node, ast.alias):
+            bound_name = node.asname or node.name.split(".", maxsplit=1)[0]
+            return node.name != "*" and bound_name == receiver
+        return False
+
+    rebound = any(
+        binds_receiver(node)
+        for statement in function.body
+        for node in ast.walk(statement)
+    )
+    return receiver, rebound
+
+
+def _receiver_method_owners(
+    *,
+    receiver: ast.AST,
+    caller: _CallerInfo,
+    method_name: str,
+    classes: dict[str, list[_ClassInfo]],
+) -> tuple[frozenset[_MethodOwner], bool, bool]:
+    bound_receiver, rebound = _bound_receiver(caller)
+    if (
+        isinstance(receiver, ast.Name)
+        and bound_receiver is not None
+        and receiver.id == bound_receiver
+    ):
+        if rebound:
+            return frozenset(), True, True
+        owners, uncertain = _resolve_method_owners(
+            classes=classes,
+            caller_source=caller.source,
+            caller_class=caller.class_name,
+            method_name=method_name,
+            super_only=False,
+        )
+        return owners, uncertain, True
+    if (
+        isinstance(receiver, ast.Call)
+        and isinstance(receiver.func, ast.Name)
+        and receiver.func.id == "super"
+    ):
+        if receiver.args or receiver.keywords or bound_receiver is None or rebound:
+            return frozenset(), True, False
+        owners, uncertain = _resolve_method_owners(
+            classes=classes,
+            caller_source=caller.source,
+            caller_class=caller.class_name,
+            method_name=method_name,
+            super_only=True,
+        )
+        return owners, uncertain, False
+    return frozenset(), True, False
+
+
+def _method_use_applies(
+    *,
+    receiver: ast.AST,
+    caller: _CallerInfo,
+    target_owner: _MethodOwner,
+    method_name: str,
+    classes: dict[str, list[_ClassInfo]],
+) -> tuple[bool, bool]:
+    owners, uncertain, _ = _receiver_method_owners(
+        receiver=receiver,
+        caller=caller,
+        method_name=method_name,
+        classes=classes,
+    )
+    return uncertain or target_owner in owners, uncertain
+
+
+def _inherits_from(
+    *,
+    classes: dict[str, list[_ClassInfo]],
+    candidate: _ClassInfo,
+    ancestor: _MethodOwner,
+    seen: frozenset[_MethodOwner] = frozenset(),
+) -> bool:
+    owner = (candidate.source, candidate.node.name)
+    if owner in seen:
+        return False
+    seen = seen | {owner}
+    for base in _base_infos(classes, candidate)[0]:
+        base_owner = (base.source, base.node.name)
+        if base_owner == ancestor or _inherits_from(
+            classes=classes,
+            candidate=base,
+            ancestor=ancestor,
+            seen=seen,
+        ):
+            return True
+    return False
+
+
+def _inherited_caller_has_producer_override(
+    *,
+    classes: dict[str, list[_ClassInfo]],
+    caller: _CallerInfo,
+    producer_name: str,
+    producer_owner: _MethodOwner,
+) -> bool:
+    if caller.class_name is None or caller.function is None:
+        return True
+    caller_owner = (caller.source, caller.class_name)
+    for candidates in classes.values():
+        for candidate in candidates:
+            candidate_owner = (candidate.source, candidate.node.name)
+            if candidate_owner == caller_owner or not _inherits_from(
+                classes=classes,
+                candidate=candidate,
+                ancestor=caller_owner,
+            ):
+                continue
+            caller_owners, caller_uncertain = _resolve_method_owners(
+                classes=classes,
+                caller_source=candidate.source,
+                caller_class=candidate.node.name,
+                method_name=caller.function.name,
+                super_only=False,
+            )
+            if caller_uncertain:
+                return True
+            if caller_owners != {caller_owner}:
+                continue
+            producer_owners, producer_uncertain = _resolve_method_owners(
+                classes=classes,
+                caller_source=candidate.source,
+                caller_class=candidate.node.name,
+                method_name=producer_name,
+                super_only=False,
+            )
+            if producer_uncertain or producer_owners != {producer_owner}:
+                return True
+    return False
+
+
+def _parameter_domains(
+    source: str,
+    tree: ast.Module,
+    classes: dict[str, list[_ClassInfo]],
+    call_sites: dict[str, tuple[_MethodCall, ...]],
+    method_references: dict[str, tuple[_MethodReference, ...]],
+    inherited_override_cache: dict[
+        tuple[str, str, str, str, _MethodOwner], bool
+    ],
+) -> tuple[
+    dict[tuple[str, str, str], tuple[str, ...]],
+    frozenset[tuple[str, str, str]],
+]:
+    """Infer finite method-parameter values from every parsed call site."""
+
+    result: dict[tuple[str, str, str], set[str]] = {}
+    unresolved: set[tuple[str, str, str]] = set()
+    local_classes = {
+        node.name: node for node in tree.body if isinstance(node, ast.ClassDef)
+    }
+    for class_name, class_node in local_classes.items():
+        methods = {
+            node.name: node
+            for node in class_node.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        def finite_method_return(
+            call: ast.Call,
+            caller: _CallerInfo,
+        ) -> tuple[str, ...] | None:
+            if (
+                call.args
+                or call.keywords
+                or not isinstance(call.func, ast.Attribute)
+            ):
+                return None
+            owners, uncertain, virtual = _receiver_method_owners(
+                receiver=call.func.value,
+                caller=caller,
+                method_name=call.func.attr,
+                classes=classes,
+            )
+            if uncertain or len(owners) != 1:
+                return None
+            producer_source, producer_class = next(iter(owners))
+            producer_owner = (producer_source, producer_class)
+            if virtual:
+                assert caller.class_name is not None
+                assert caller.function is not None
+                cache_key = (
+                    caller.source,
+                    caller.class_name,
+                    caller.function.name,
+                    call.func.attr,
+                    producer_owner,
+                )
+                if cache_key not in inherited_override_cache:
+                    inherited_override_cache[cache_key] = (
+                        _inherited_caller_has_producer_override(
+                            classes=classes,
+                            caller=caller,
+                            producer_name=call.func.attr,
+                            producer_owner=producer_owner,
+                        )
+                    )
+                if inherited_override_cache[cache_key]:
+                    return None
+            producer_class_info = _class_info(classes, producer_owner)
+            if producer_class_info is None:
+                return None
+            producer = next(
+                (
+                    node
+                    for node in producer_class_info.node.body
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name == call.func.attr
+                ),
+                None,
+            )
+            if (
+                not isinstance(producer, ast.FunctionDef)
+                or producer.decorator_list
+                or any(
+                    isinstance(inner, (ast.Yield, ast.YieldFrom))
+                    for inner in ast.walk(producer)
+                )
+            ):
+                return None
+            local_values: dict[str, tuple[str, ...]] = {}
+            guard_positions: dict[str, int] = {}
+            for position, inner in enumerate(producer.body):
+                if (
+                    isinstance(inner, ast.If)
+                    and not inner.orelse
+                    and inner.body
+                    and isinstance(inner.body[-1], ast.Raise)
+                    and isinstance(inner.test, ast.Compare)
+                    and len(inner.test.ops) == 1
+                    and isinstance(inner.test.ops[0], ast.NotIn)
+                    and isinstance(inner.test.left, ast.Name)
+                    and len(inner.test.comparators) == 1
+                ):
+                    values = _literal_strings(inner.test.comparators[0], {})
+                    if values:
+                        name = inner.test.left.id
+                        local_values[name] = values
+                        guard_positions[name] = position
+            returns = [
+                (position, statement)
+                for position, statement in enumerate(producer.body)
+                if isinstance(statement, ast.Return)
+            ]
+            if not returns or len(returns) != sum(
+                isinstance(inner, ast.Return) for inner in ast.walk(producer)
+            ):
+                return None
+            resolved: set[str] = set()
+            for return_position, statement in returns:
+                if statement.value is None:
+                    return None
+                referenced_names = {
+                    inner.id
+                    for inner in ast.walk(statement.value)
+                    if isinstance(inner, ast.Name)
+                }
+                for name in referenced_names.intersection(local_values):
+                    guard_position = guard_positions[name]
+                    if guard_position >= return_position:
+                        return None
+                    if any(
+                        isinstance(inner, ast.Name)
+                        and inner.id == name
+                        and isinstance(inner.ctx, ast.Store)
+                        for intervening in producer.body[
+                            guard_position + 1 : return_position
+                        ]
+                        for inner in ast.walk(intervening)
+                    ):
+                        return None
+                values = _literal_strings(statement.value, local_values)
+                if values is None:
+                    return None
+                resolved.update(values)
+            return tuple(sorted(resolved)) or None
+
+        def call_values(
+            argument: ast.AST,
+            caller: _CallerInfo,
+        ) -> tuple[str, ...] | None:
+            values = _literal_strings(argument, {})
+            if values is not None:
+                return values
+            if isinstance(argument, ast.Call):
+                return finite_method_return(argument, caller)
+            return None
+
+        for target_name, target in methods.items():
+            positional_nodes = list(target.args.posonlyargs) + list(target.args.args)
+            positional_parameters = [argument.arg for argument in positional_nodes]
+            defaults: dict[str, ast.AST] = {}
+            positional_offset = len(positional_nodes) - len(target.args.defaults)
+            for argument, default in zip(
+                positional_nodes[positional_offset:], target.args.defaults
+            ):
+                defaults[argument.arg] = default
+            for argument, default in zip(
+                target.args.kwonlyargs, target.args.kw_defaults
+            ):
+                if default is not None:
+                    defaults[argument.arg] = default
+            if positional_parameters and positional_parameters[0] in {"self", "cls"}:
+                positional_parameters = positional_parameters[1:]
+            target_parameters = positional_parameters + [
+                argument.arg for argument in target.args.kwonlyargs
+            ]
+            target_owner = (source, class_name)
+            if (
+                not isinstance(target, ast.FunctionDef)
+                or target.decorator_list
+                or any(
+                    isinstance(inner, (ast.Yield, ast.YieldFrom))
+                    for inner in ast.walk(target)
+                )
+            ):
+                unresolved.update(
+                    (class_name, target_name, parameter)
+                    for parameter in target_parameters
+                )
+            for reference, caller in method_references.get(
+                target_name, ()
+            ):
+                applies, _ = _method_use_applies(
+                    receiver=reference.value,
+                    caller=caller,
+                    target_owner=target_owner,
+                    method_name=target_name,
+                    classes=classes,
+                )
+                if applies:
+                    unresolved.update(
+                        (class_name, target_name, parameter)
+                        for parameter in target_parameters
+                    )
+            for call, caller in call_sites.get(target_name, ()):
+                applies, uncertain_receiver = _method_use_applies(
+                    receiver=call.func.value,
+                    caller=caller,
+                    target_owner=target_owner,
+                    method_name=target_name,
+                    classes=classes,
+                )
+                if not applies:
+                    continue
+                if uncertain_receiver or getattr(
+                    call.func, "_dynamic_reflective_name", False
+                ):
+                    unresolved.update(
+                        (class_name, target_name, parameter)
+                        for parameter in target_parameters
+                    )
+                    continue
+                supplied: set[str] = set()
+                if any(isinstance(argument, ast.Starred) for argument in call.args):
+                    unresolved.update(
+                        (class_name, target_name, parameter)
+                        for parameter in target_parameters
+                    )
+                for index, argument in enumerate(call.args):
+                    if index >= len(positional_parameters):
+                        break
+                    parameter = positional_parameters[index]
+                    supplied.add(parameter)
+                    key = (class_name, target_name, parameter)
+                    values = call_values(argument, caller)
+                    if values is not None:
+                        result.setdefault(key, set()).update(values)
+                    else:
+                        unresolved.add(key)
+                for keyword in call.keywords:
+                    if keyword.arg in target_parameters:
+                        if keyword.arg in supplied:
+                            unresolved.update(
+                                (class_name, target_name, parameter)
+                                for parameter in target_parameters
+                            )
+                        supplied.add(keyword.arg)
+                        key = (class_name, target_name, keyword.arg)
+                        values = call_values(keyword.value, caller)
+                        if values is not None:
+                            result.setdefault(key, set()).update(values)
+                        else:
+                            unresolved.add(key)
+                    elif keyword.arg is None:
+                        mapping = keyword.value
+                        if not isinstance(mapping, ast.Dict) or any(
+                            key_node is None
+                            or not isinstance(key_node, ast.Constant)
+                            or not isinstance(key_node.value, str)
+                            for key_node in mapping.keys
+                        ):
+                            unresolved.update(
+                                (class_name, target_name, parameter)
+                                for parameter in target_parameters
+                            )
+                            continue
+                        for key_node, value_node in zip(
+                            mapping.keys, mapping.values
+                        ):
+                            assert isinstance(key_node, ast.Constant)
+                            parameter = key_node.value
+                            if parameter not in target_parameters:
+                                unresolved.update(
+                                    (class_name, target_name, name)
+                                    for name in target_parameters
+                                )
+                                continue
+                            if parameter in supplied:
+                                unresolved.update(
+                                    (class_name, target_name, name)
+                                    for name in target_parameters
+                                )
+                            supplied.add(parameter)
+                            key = (class_name, target_name, parameter)
+                            values = call_values(value_node, caller)
+                            if values is None:
+                                unresolved.add(key)
+                            else:
+                                result.setdefault(key, set()).update(values)
+                    else:
+                        unresolved.update(
+                            (class_name, target_name, parameter)
+                            for parameter in target_parameters
+                        )
+                for parameter in target_parameters:
+                    if parameter in supplied:
+                        continue
+                    key = (class_name, target_name, parameter)
+                    default = defaults.get(parameter)
+                    if default is None:
+                        unresolved.add(key)
+                        continue
+                    values = call_values(
+                        default,
+                        _CallerInfo(source, class_name, target, False),
+                    )
+                    if values is None:
+                        unresolved.add(key)
+                    else:
+                        result.setdefault(key, set()).update(values)
+    return (
+        {key: tuple(sorted(values)) for key, values in result.items()},
+        frozenset(unresolved),
+    )
+
+
+class _SettingVisitor(ast.NodeVisitor):
+    def __init__(
+        self,
+        *,
+        source: str,
+        tree: ast.Module,
+        classes: dict[str, list[_ClassInfo]],
+        call_sites: dict[str, tuple[_MethodCall, ...]],
+        method_references: dict[str, tuple[_MethodReference, ...]],
+        inherited_override_cache: dict[
+            tuple[str, str, str, str, _MethodOwner], bool
+        ],
+    ) -> None:
+        self.source = source
+        self.tree = tree
+        self.classes = classes
+        self.postponed_annotations = any(
+            isinstance(node, ast.ImportFrom)
+            and node.module == "__future__"
+            and any(alias.name == "annotations" for alias in node.names)
+            for node in tree.body
+        )
+        self.parameter_domains, self.unresolved_parameter_calls = _parameter_domains(
+            source,
+            tree,
+            classes,
+            call_sites,
+            method_references,
+            inherited_override_cache,
+        )
+        self.os_aliases = {"os"}
+        self.os_aliases.update(
+            alias.asname
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+            if alias.name == "os" and alias.asname is not None
+        )
+        self.class_stack: list[str] = []
+        self.function_stack: list[str] = []
+        self.function_nodes: list[ast.FunctionDef | ast.AsyncFunctionDef] = []
+        self.aliases: list[dict[str, str]] = [{}]
+        self.values: list[dict[str, tuple[str, ...]]] = [{}]
+        self.iterables: list[dict[str, tuple[str, ...]]] = [{}]
+        self.value_bindings: list[set[str]] = [set()]
+        self.scope_frames: list[str] = ["module"]
+        self.lexical_locals: list[set[str]] = [set()]
+        self.volatile_bindings: list[set[str]] = [set()]
+        self.pending_class_bindings: list[tuple[int, str]] = []
+        self.binding_declarations: list[dict[str, int]] = []
+        self.expression_prefix_frames: list[tuple[int, list[_SettingState]]] = []
+        self.accessor_suppression_cache: dict[int, bool] = {}
+        self.facts: list[DiscoveredSetting] = []
+
+    def visit(self, node: ast.AST) -> object:
+        result = super().visit(node)
+        if isinstance(node, ast.expr) and self.expression_prefix_frames:
+            frame_index, prefixes = self.expression_prefix_frames[-1]
+            prefixes.append(self._capture_state(frame_index))
+        return result
+
+    @property
+    def symbol(self) -> str:
+        parts = self.class_stack + self.function_stack
+        return ".".join(parts) if parts else "<module>"
+
+    @property
+    def current_aliases(self) -> dict[str, str]:
+        return self.aliases[-1] if self.aliases else {}
+
+    @property
+    def current_values(self) -> dict[str, tuple[str, ...]]:
+        return self.values[-1]
+
+    @property
+    def current_iterables(self) -> dict[str, tuple[str, ...]]:
+        return self.iterables[-1]
+
+    def _visible_frame_indices(self) -> tuple[int, ...]:
+        """Return lexical frames visible to the current expression.
+
+        A class body can read an enclosing module or function, but not an
+        enclosing class namespace. Its own namespace is likewise not a closure
+        for functions, lambdas, or comprehensions defined inside it.
+        """
+
+        namespace_barriers = {"class", "function", "lambda", "comprehension"}
+        return tuple(
+            index
+            for index, frame in enumerate(self.scope_frames)
+            if frame != "class"
+            or not any(
+                inner in namespace_barriers
+                for inner in self.scope_frames[index + 1 :]
+            )
+        )
+
+    @property
+    def visible_values(self) -> dict[str, tuple[str, ...]]:
+        visible: dict[str, tuple[str, ...]] = {}
+        for index in self._visible_frame_indices():
+            for name in self.value_bindings[index]:
+                visible.pop(name, None)
+            visible.update(self.values[index])
+        for class_index, name in self.pending_class_bindings:
+            if any(
+                frame in {"function", "lambda"}
+                for frame in self.scope_frames[class_index + 1 :]
+            ):
+                visible.pop(name, None)
+        return visible
+
+    @property
+    def visible_iterables(self) -> dict[str, tuple[str, ...]]:
+        visible: dict[str, tuple[str, ...]] = {}
+        for index in self._visible_frame_indices():
+            for name in self.value_bindings[index]:
+                visible.pop(name, None)
+            visible.update(self.iterables[index])
+        for class_index, name in self.pending_class_bindings:
+            if any(
+                frame in {"function", "lambda"}
+                for frame in self.scope_frames[class_index + 1 :]
+            ):
+                visible.pop(name, None)
+        return visible
+
+    def _iterable_strings(self, node: ast.AST) -> tuple[str, ...] | None:
+        if isinstance(node, ast.Name):
+            return self.visible_iterables.get(node.id)
+        if not isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            return None
+        values: list[str] = []
+        for element in node.elts:
+            if isinstance(element, (ast.Tuple, ast.List, ast.Set)):
+                return None
+            element_values = _literal_strings(element, self.visible_values)
+            if element_values is None:
+                return None
+            values.extend(element_values)
+        return tuple(values)
+
+    def _visible_alias_state(self, path: str) -> str | None:
+        if any(
+            (path == name or path.startswith(f"{name}."))
+            and any(
+                frame in {"function", "lambda"}
+                for frame in self.scope_frames[class_index + 1 :]
+            )
+            for class_index, name in self.pending_class_bindings
+        ):
+            return "shadowed"
+        for index in reversed(self._visible_frame_indices()):
+            if path not in self.aliases[index]:
+                continue
+            return self.aliases[index][path]
+        return None
+
+    def _visible_alias(self, path: str) -> str | None:
+        kind = self._visible_alias_state(path)
+        return None if kind == "shadowed" else kind
+
+    def _push_scope(
+        self, frame: str, lexical_locals: Iterable[str] = ()
+    ) -> None:
+        self.aliases.append({})
+        self.values.append({})
+        self.iterables.append({})
+        self.value_bindings.append(set())
+        self.scope_frames.append(frame)
+        self.lexical_locals.append(set(lexical_locals))
+        self.volatile_bindings.append(set())
+
+    def _pop_scope(self) -> None:
+        self.volatile_bindings.pop()
+        self.lexical_locals.pop()
+        self.scope_frames.pop()
+        self.value_bindings.pop()
+        self.iterables.pop()
+        self.values.pop()
+        self.aliases.pop()
+
+    def _binding_frame(self, name: str, fallback: int = -1) -> int:
+        if self.binding_declarations and name in self.binding_declarations[-1]:
+            return self.binding_declarations[-1][name]
+        return fallback
+
+    def _bind_unknown(self, name: str, frame_index: int | None = None) -> None:
+        if frame_index is None:
+            frame_index = self._binding_frame(name)
+        self.values[frame_index].pop(name, None)
+        self.iterables[frame_index].pop(name, None)
+        self.value_bindings[frame_index].add(name)
+
+    def _bind_literal(
+        self,
+        name: str,
+        values: tuple[str, ...],
+        frame_index: int | None = None,
+        iterable_values: tuple[str, ...] | None = None,
+    ) -> None:
+        if frame_index is None:
+            frame_index = self._binding_frame(name)
+        if name in self.volatile_bindings[frame_index]:
+            self._bind_unknown(name, frame_index)
+            return
+        self.values[frame_index][name] = values
+        if iterable_values is None:
+            self.iterables[frame_index].pop(name, None)
+        else:
+            self.iterables[frame_index][name] = iterable_values
+        self.value_bindings[frame_index].add(name)
+
+    def _bind_target_unknown(
+        self, target: ast.AST, frame_index: int | None = None
+    ) -> None:
+        if isinstance(target, ast.Name):
+            if frame_index is None:
+                frame_index = self._binding_frame(target.id)
+            if self._visible_alias_state(target.id) is not None:
+                self.aliases[frame_index][target.id] = "shadowed"
+            self._bind_unknown(target.id, frame_index)
+            return
+        if isinstance(target, ast.Attribute):
+            if frame_index is None:
+                path = _attribute_path(target)
+                head = None if path is None else path.split(".", maxsplit=1)[0]
+                frame_index = -1 if head is None else self._binding_frame(head)
+            path = _attribute_path(target)
+            if path is not None and self._container_kind(target) is not None:
+                self.aliases[frame_index][path] = "shadowed"
+            return
+        if isinstance(target, (ast.Tuple, ast.List)):
+            for element in target.elts:
+                self._bind_target_unknown(element, frame_index)
+        elif isinstance(target, ast.Starred):
+            self._bind_target_unknown(target.value, frame_index)
+
+    def _bind_name_unknown(self, name: str, frame_index: int | None = None) -> None:
+        self._bind_target_unknown(ast.Name(id=name, ctx=ast.Store()), frame_index)
+
+    def _capture_state(self, frame_index: int = -1) -> _SettingState:
+        return _SettingState(
+            dict(self.aliases[frame_index]),
+            dict(self.values[frame_index]),
+            dict(self.iterables[frame_index]),
+            set(self.value_bindings[frame_index]),
+        )
+
+    def _restore_state(
+        self, state: _SettingState, frame_index: int = -1
+    ) -> None:
+        self.aliases[frame_index] = dict(state.aliases)
+        self.values[frame_index] = dict(state.values)
+        self.iterables[frame_index] = dict(state.iterables)
+        self.value_bindings[frame_index] = set(state.bindings)
+
+    def _merge_states(
+        self, states: Sequence[_SettingState], frame_index: int = -1
+    ) -> _SettingState:
+        if not states:
+            raise ValueError("cannot merge an empty setting-state sequence")
+        self._merge_may_alias_states(
+            tuple(state.aliases for state in states),
+            tuple(state.values for state in states),
+            tuple(state.iterables for state in states),
+            tuple(state.bindings for state in states),
+            frame_index,
+        )
+        return self._capture_state(frame_index)
+
+    def _capture_scope_state(self) -> tuple[_SettingState, ...]:
+        return tuple(
+            self._capture_state(index) for index in range(len(self.aliases))
+        )
+
+    def _restore_scope_state(
+        self, states: Sequence[_SettingState]
+    ) -> None:
+        if len(states) != len(self.aliases):
+            raise ValueError("setting scope depth changed across expression paths")
+        for index, state in enumerate(states):
+            self._restore_state(state, index)
+
+    def _merge_scope_states(
+        self, paths: Sequence[Sequence[_SettingState]]
+    ) -> tuple[_SettingState, ...]:
+        if not paths or any(len(path) != len(self.aliases) for path in paths):
+            raise ValueError("setting scope paths have inconsistent depths")
+        return tuple(
+            self._merge_states(
+                tuple(path[index] for path in paths), index
+            )
+            for index in range(len(self.aliases))
+        )
+
+    def _visit_statements(
+        self, statements: Sequence[ast.stmt]
+    ) -> _StatementFlow:
+        prefixes = [self._capture_state()]
+        terminals: list[tuple[str, _SettingState]] = []
+        for statement in statements:
+            expression_prefixes: list[_SettingState] = []
+            self.expression_prefix_frames.append(
+                (len(self.scope_frames) - 1, expression_prefixes)
+            )
+            try:
+                result = self.visit(statement)
+            finally:
+                self.expression_prefix_frames.pop()
+            prefixes.extend(expression_prefixes)
+            if isinstance(result, _StatementFlow):
+                prefixes.extend(result.prefixes)
+            prefixes.append(self._capture_state())
+            if isinstance(result, _StatementFlow):
+                terminals.extend(result.terminals)
+                if not result.falls_through:
+                    return _StatementFlow(
+                        False, tuple(terminals), tuple(prefixes)
+                    )
+        return _StatementFlow(True, tuple(terminals), tuple(prefixes))
+
+    def visit_Module(self, node: ast.Module) -> None:
+        self._visit_statements(node.body)
+
+    def visit_Break(self, node: ast.Break) -> _StatementFlow:
+        return _StatementFlow(False, (("break", self._capture_state()),))
+
+    def visit_Continue(self, node: ast.Continue) -> _StatementFlow:
+        return _StatementFlow(False, (("continue", self._capture_state()),))
+
+    def visit_Return(self, node: ast.Return) -> _StatementFlow:
+        if node.value is not None:
+            self.visit(node.value)
+        return _StatementFlow(False, (("return", self._capture_state()),))
+
+    def visit_Raise(self, node: ast.Raise) -> _StatementFlow:
+        if node.exc is not None:
+            self.visit(node.exc)
+        if node.cause is not None:
+            self.visit(node.cause)
+        return _StatementFlow(False, (("raise", self._capture_state()),))
+
+    def _error(self, node: ast.AST, message: str) -> DiscoveryError:
+        return DiscoveryError(
+            f"{self.source}::{self.symbol} line {getattr(node, 'lineno', '?')}: {message}"
+        )
+
+    def _suppress_accessor_body_reads(self) -> bool:
+        if not self.function_nodes or (
+            self.source, self.symbol
+        ) not in _APPROVED_ACCESSOR_SYMBOLS:
+            return False
+        function = self.function_nodes[-1]
+        cache_key = id(function)
+        cached = self.accessor_suppression_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        approved = self._prove_accessor_body(function)
+        self.accessor_suppression_cache[cache_key] = approved
+        return approved
+
+    def _prove_accessor_body(
+        self, function: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> bool:
+        if not isinstance(function, ast.FunctionDef) or function.decorator_list:
+            return False
+        parameters = {
+            argument.arg
+            for argument in (
+                *function.args.posonlyargs,
+                *function.args.args,
+                *function.args.kwonlyargs,
+            )
+        }
+        if "key" not in parameters or not self.class_stack:
+            return False
+        if any(
+            isinstance(inner, ast.Name)
+            and inner.id == "key"
+            and isinstance(inner.ctx, (ast.Store, ast.Del))
+            for statement in function.body
+            for inner in ast.walk(statement)
+        ):
+            return False
+        domain_key = (self.class_stack[-1], function.name, "key")
+        if (
+            not self.parameter_domains.get(domain_key)
+            or domain_key in self.unresolved_parameter_calls
+        ):
+            return False
+
+        derived_keys = {"key"}
+        derived_collections: set[str] = set()
+        allowed_derived_key_nodes: set[int] = set()
+        containers = {"config", "self.config"}
+        allow_value_alias = (
+            self.source,
+            self.symbol,
+        ) == ("jobs/process/BaseProcess.py", "BaseProcess.get_conf")
+
+        def safe_collection_reference(
+            reference: ast.Name, statement: ast.stmt
+        ) -> bool:
+            if isinstance(statement, (ast.If, ast.While, ast.Assert)) and (
+                statement.test is reference
+            ):
+                return True
+            return any(
+                isinstance(inner, ast.Call)
+                and isinstance(inner.func, ast.Name)
+                and inner.func.id == "len"
+                and len(inner.args) == 1
+                and inner.args[0] is reference
+                and not inner.keywords
+                for inner in ast.walk(statement)
+            )
+
+        for statement in function.body:
+            assigned_name: str | None = None
+            assigned_value: ast.AST | None = None
+            if (
+                isinstance(statement, ast.Assign)
+                and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Name)
+            ):
+                assigned_name = statement.targets[0].id
+                assigned_value = statement.value
+            elif (
+                isinstance(statement, ast.AnnAssign)
+                and isinstance(statement.target, ast.Name)
+                and statement.value is not None
+            ):
+                assigned_name = statement.target.id
+                assigned_value = statement.value
+
+            if assigned_name is not None and assigned_value is not None:
+                loaded_collections = {
+                    inner.id
+                    for inner in ast.walk(assigned_value)
+                    if isinstance(inner, ast.Name)
+                    and isinstance(inner.ctx, ast.Load)
+                    and inner.id in derived_collections
+                    and not safe_collection_reference(inner, statement)
+                }
+                derived_collections.difference_update(loaded_collections)
+                value_path = _attribute_path(assigned_value)
+                if (
+                    allow_value_alias
+                    and assigned_name == "value"
+                    and value_path in containers
+                ):
+                    containers.add(assigned_name)
+                if (
+                    isinstance(assigned_value, ast.Call)
+                    and isinstance(assigned_value.func, ast.Attribute)
+                    and assigned_value.func.attr == "split"
+                    and isinstance(assigned_value.func.value, ast.Name)
+                    and assigned_value.func.value.id in derived_keys
+                ):
+                    derived_collections.add(assigned_name)
+                else:
+                    derived_collections.discard(assigned_name)
+                continue
+
+            if (
+                isinstance(statement, (ast.For, ast.AsyncFor))
+                and isinstance(statement.target, ast.Name)
+                and isinstance(statement.iter, ast.Name)
+                and statement.iter.id in derived_collections
+            ):
+                collection = statement.iter.id
+                if any(
+                    isinstance(inner, ast.Name)
+                    and inner.id == collection
+                    for body_statement in statement.body
+                    for inner in ast.walk(body_statement)
+                ):
+                    derived_collections.discard(collection)
+                    continue
+                target = statement.target.id
+                rebound_target = any(
+                    isinstance(inner, ast.Name)
+                    and inner.id == target
+                    and isinstance(inner.ctx, (ast.Store, ast.Del))
+                    for body_statement in statement.body
+                    for inner in ast.walk(body_statement)
+                )
+                if not rebound_target:
+                    derived_keys.add(target)
+                    allowed_derived_key_nodes.update(
+                        id(inner)
+                        for body_statement in statement.body
+                        for inner in ast.walk(body_statement)
+                        if isinstance(inner, ast.Name)
+                        and inner.id == target
+                        and isinstance(inner.ctx, ast.Load)
+                    )
+                continue
+
+            escaped_collections = {
+                inner.id
+                for inner in ast.walk(statement)
+                if isinstance(inner, ast.Name)
+                and isinstance(inner.ctx, ast.Load)
+                and inner.id in derived_collections
+                and not safe_collection_reference(inner, statement)
+            }
+            derived_collections.difference_update(escaped_collections)
+            rebound = {
+                inner.id
+                for inner in ast.walk(statement)
+                if isinstance(inner, ast.Name)
+                and isinstance(inner.ctx, (ast.Store, ast.Del))
+            }
+            derived_collections.difference_update(rebound)
+
+        found_read = False
+        for inner in ast.walk(function):
+            key_node: ast.AST | None = None
+            if (
+                isinstance(inner, ast.Subscript)
+                and isinstance(inner.ctx, ast.Load)
+                and _attribute_path(inner.value) in containers
+            ):
+                key_node = inner.slice
+            elif (
+                isinstance(inner, ast.Compare)
+                and len(inner.ops) == 1
+                and isinstance(inner.ops[0], (ast.In, ast.NotIn))
+                and len(inner.comparators) == 1
+                and _attribute_path(inner.comparators[0]) in containers
+            ):
+                key_node = inner.left
+            elif (
+                isinstance(inner, ast.Call)
+                and isinstance(inner.func, ast.Attribute)
+                and inner.func.attr == "get"
+                and _attribute_path(inner.func.value) in containers
+            ):
+                if not inner.args:
+                    return False
+                key_node = inner.args[0]
+            if key_node is None:
+                continue
+            found_read = True
+            if not (
+                isinstance(key_node, ast.Name)
+                and (
+                    key_node.id == "key"
+                    or id(key_node) in allowed_derived_key_nodes
+                )
+            ):
+                return False
+        return found_read
+
+    def _add(
+        self,
+        node: ast.AST,
+        key: str,
+        read_kind: str,
+        scope: str,
+        default: ast.AST | None,
+    ) -> None:
+        self.facts.append(
+            DiscoveredSetting(
+                self.source,
+                self.symbol,
+                node.lineno,
+                key,
+                read_kind,
+                scope,
+                _source_expression(default),
+            )
+        )
+
+    def _container_kind(self, node: ast.AST) -> str | None:
+        if isinstance(node, ast.Subscript):
+            return self._container_kind(node.value)
+        path = _attribute_path(node)
+        if path is None:
+            return None
+        alias_kind = self._visible_alias_state(path)
+        if alias_kind == "shadowed":
+            return None
+        if alias_kind is not None:
+            return alias_kind
+        if path.endswith(".model_kwargs"):
+            return "model_kwargs"
+        if path == "kwargs":
+            return "kwargs"
+        if path in {"config", "self.config"}:
+            return "attribute"
+        return None
+
+    def _resolved_keys(self, node: ast.AST, owner: ast.AST) -> tuple[str, ...]:
+        if self.class_stack and self.function_stack:
+            unresolved_names = {
+                parameter
+                for class_name, method_name, parameter in self.unresolved_parameter_calls
+                if class_name == self.class_stack[-1]
+                and method_name == self.function_stack[-1]
+            }
+            if any(
+                isinstance(inner, ast.Name) and inner.id in unresolved_names
+                for inner in ast.walk(node)
+            ):
+                raise self._error(owner, "dynamic parameter call site is not finite")
+        keys = _literal_strings(node, self.visible_values)
+        if keys is None:
+            raise self._error(owner, "dynamic configuration key is not finite")
+        if not keys or any(not key for key in keys):
+            raise self._error(owner, "configuration key must be a non-empty string")
+        return tuple(sorted(set(keys)))
+
+    def _normalized_os_path(self, node: ast.AST) -> str | None:
+        path = _attribute_path(node)
+        if path is None:
+            return None
+        head, separator, tail = path.partition(".")
+        if head not in self.os_aliases:
+            return path
+        return "os" + (separator + tail if separator else "")
+
+    def _dynamic_environment_read(self, node: ast.AST, read_kind: str) -> None:
+        # The interpolation helper intentionally expands an environment name
+        # captured from source text. This exact source/symbol is the sole
+        # repository exception; it remains visible as a deterministic fact.
+        if (
+            self.source == "toolkit/config.py"
+            and self.symbol == "replace_env_vars_in_string.replacer"
+            and read_kind == "os.environ.get"
+        ):
+            self._add(
+                node,
+                "<dynamic-environment-name>",
+                "os.environ.get.dynamic",
+                "environment",
+                None,
+            )
+            return
+        raise self._error(node, "dynamic environment key is not finite")
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        for expression in (
+            *node.decorator_list,
+            *node.bases,
+            *(keyword.value for keyword in node.keywords),
+            *getattr(node, "type_params", ()),
+        ):
+            self.visit(expression)
+        declarations = self._class_binding_declarations(node)
+        self.class_stack.append(node.name)
+        self._push_scope("class")
+        self.binding_declarations.append(declarations)
+        self.pending_class_bindings.append(
+            (len(self.scope_frames) - 1, node.name)
+        )
+        self._visit_statements(node.body)
+        self.pending_class_bindings.pop()
+        self.binding_declarations.pop()
+        self._pop_scope()
+        self.class_stack.pop()
+        self._bind_name_unknown(node.name)
+
+    def _class_binding_declarations(
+        self, node: ast.ClassDef
+    ) -> dict[str, int]:
+        global_names: set[str] = set()
+        nonlocal_names: set[str] = set()
+
+        class DeclarationVisitor(ast.NodeVisitor):
+            def visit_Global(self, declaration: ast.Global) -> None:
+                global_names.update(declaration.names)
+
+            def visit_Nonlocal(self, declaration: ast.Nonlocal) -> None:
+                nonlocal_names.update(declaration.names)
+
+            def visit_FunctionDef(self, inner: ast.FunctionDef) -> None:
+                return
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_Lambda(self, inner: ast.Lambda) -> None:
+                return
+
+            def visit_ClassDef(self, inner: ast.ClassDef) -> None:
+                return
+
+        scanner = DeclarationVisitor()
+        for statement in node.body:
+            scanner.visit(statement)
+
+        declarations = {name: 0 for name in global_names}
+        candidates = [
+            index
+            for index in range(len(self.scope_frames) - 1, -1, -1)
+            if self.scope_frames[index] in {"function", "lambda"}
+        ]
+        for name in nonlocal_names:
+            if not candidates:
+                continue
+            declarations[name] = next(
+                (
+                    index
+                    for index in candidates
+                    if name in self.lexical_locals[index]
+                ),
+                candidates[0],
+            )
+        return declarations
+
+    def _visit_function(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> None:
+        definition_expressions: list[ast.AST] = [
+            *node.decorator_list,
+            *node.args.defaults,
+            *(default for default in node.args.kw_defaults if default is not None),
+            *getattr(node, "type_params", ()),
+        ]
+        if not self.postponed_annotations:
+            definition_expressions.extend(
+                annotation
+                for argument in (
+                    *node.args.posonlyargs,
+                    *node.args.args,
+                    *node.args.kwonlyargs,
+                    node.args.vararg,
+                    node.args.kwarg,
+                )
+                if argument is not None
+                if (annotation := argument.annotation) is not None
+            )
+            if node.returns is not None:
+                definition_expressions.append(node.returns)
+        for expression in definition_expressions:
+            self.visit(expression)
+        self._bind_name_unknown(node.name)
+        lexical_locals, declarations = self._function_binding_declarations(node)
+        self.function_stack.append(node.name)
+        self.function_nodes.append(node)
+        self._push_scope("function", lexical_locals)
+        self.binding_declarations.append(declarations)
+        if node.args.kwarg is not None and node.args.kwarg.arg == "kwargs":
+            self.current_aliases["kwargs"] = "kwargs"
+        arguments = (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+            *(() if node.args.vararg is None else (node.args.vararg,)),
+            *(() if node.args.kwarg is None else (node.args.kwarg,)),
+        )
+        for argument in arguments:
+            if self._visible_alias(argument.arg) is not None:
+                self.current_aliases.setdefault(argument.arg, "shadowed")
+            self._bind_unknown(argument.arg, -1)
+        if self.class_stack:
+            for argument in arguments:
+                domain = self.parameter_domains.get(
+                    (self.class_stack[-1], node.name, argument.arg)
+                )
+                if domain:
+                    self._bind_literal(argument.arg, domain, -1)
+        self._visit_statements(node.body)
+        self.binding_declarations.pop()
+        self._pop_scope()
+        self.function_nodes.pop()
+        self.function_stack.pop()
+
+    def _function_binding_declarations(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> tuple[set[str], dict[str, int]]:
+        global_names: set[str] = set()
+        nonlocal_names: set[str] = set()
+        bound_names: set[str] = {
+            argument.arg
+            for argument in (
+                *node.args.posonlyargs,
+                *node.args.args,
+                *node.args.kwonlyargs,
+                *(() if node.args.vararg is None else (node.args.vararg,)),
+                *(() if node.args.kwarg is None else (node.args.kwarg,)),
+            )
+        }
+        written_names: set[str] = set()
+
+        class DeclarationVisitor(ast.NodeVisitor):
+            def visit_Global(self, declaration: ast.Global) -> None:
+                global_names.update(declaration.names)
+
+            def visit_Nonlocal(self, declaration: ast.Nonlocal) -> None:
+                nonlocal_names.update(declaration.names)
+
+            def visit_FunctionDef(self, inner: ast.FunctionDef) -> None:
+                bound_names.add(inner.name)
+                written_names.add(inner.name)
+                return
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_Lambda(self, inner: ast.Lambda) -> None:
+                return
+
+            def visit_ClassDef(self, inner: ast.ClassDef) -> None:
+                bound_names.add(inner.name)
+                written_names.add(inner.name)
+                return
+
+            def visit_Name(self, inner: ast.Name) -> None:
+                if isinstance(inner.ctx, (ast.Store, ast.Del)):
+                    bound_names.add(inner.id)
+                    written_names.add(inner.id)
+
+            def visit_ExceptHandler(self, inner: ast.ExceptHandler) -> None:
+                if inner.type is not None:
+                    self.visit(inner.type)
+                if inner.name is not None:
+                    bound_names.add(inner.name)
+                    written_names.add(inner.name)
+                for statement in inner.body:
+                    self.visit(statement)
+
+            def visit_Import(self, inner: ast.Import) -> None:
+                for imported in inner.names:
+                    name = imported.asname or imported.name.split(".", maxsplit=1)[0]
+                    bound_names.add(name)
+                    written_names.add(name)
+
+            def visit_ImportFrom(self, inner: ast.ImportFrom) -> None:
+                for imported in inner.names:
+                    if imported.name == "*":
+                        continue
+                    name = imported.asname or imported.name
+                    bound_names.add(name)
+                    written_names.add(name)
+
+            def visit_MatchAs(self, inner: ast.MatchAs) -> None:
+                if inner.pattern is not None:
+                    self.visit(inner.pattern)
+                if inner.name is not None:
+                    bound_names.add(inner.name)
+                    written_names.add(inner.name)
+
+            def visit_MatchStar(self, inner: ast.MatchStar) -> None:
+                if inner.name is not None:
+                    bound_names.add(inner.name)
+                    written_names.add(inner.name)
+
+            def visit_MatchMapping(self, inner: ast.MatchMapping) -> None:
+                for key in inner.keys:
+                    self.visit(key)
+                for pattern in inner.patterns:
+                    self.visit(pattern)
+                if inner.rest is not None:
+                    bound_names.add(inner.rest)
+                    written_names.add(inner.rest)
+
+            def _visit_comprehension(
+                self,
+                inner: ast.ListComp
+                | ast.SetComp
+                | ast.GeneratorExp
+                | ast.DictComp,
+            ) -> None:
+                for generator in inner.generators:
+                    self.visit(generator.iter)
+                    for condition in generator.ifs:
+                        self.visit(condition)
+                if isinstance(inner, ast.DictComp):
+                    self.visit(inner.key)
+                    self.visit(inner.value)
+                else:
+                    self.visit(inner.elt)
+
+            visit_ListComp = _visit_comprehension
+            visit_SetComp = _visit_comprehension
+            visit_GeneratorExp = _visit_comprehension
+            visit_DictComp = _visit_comprehension
+
+        scanner = DeclarationVisitor()
+        for statement in node.body:
+            scanner.visit(statement)
+
+        lexical_locals = bound_names.difference(global_names, nonlocal_names)
+        declarations = {name: 0 for name in global_names}
+        for name in nonlocal_names:
+            candidates = [
+                index
+                for index in range(len(self.scope_frames) - 1, -1, -1)
+                if self.scope_frames[index] in {"function", "lambda"}
+            ]
+            if not candidates:
+                continue
+            bound = next(
+                (
+                    index
+                    for index in candidates
+                    if name in self.lexical_locals[index]
+                ),
+                candidates[0],
+            )
+            declarations[name] = bound
+            if name in written_names:
+                self.volatile_bindings[bound].add(name)
+        return lexical_locals, declarations
+
+    visit_FunctionDef = _visit_function
+    visit_AsyncFunctionDef = _visit_function
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        for expression in (
+            *node.args.defaults,
+            *(default for default in node.args.kw_defaults if default is not None),
+        ):
+            self.visit(expression)
+        self._push_scope("lambda")
+        self.binding_declarations.append({})
+        arguments = (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+            *(() if node.args.vararg is None else (node.args.vararg,)),
+            *(() if node.args.kwarg is None else (node.args.kwarg,)),
+        )
+        for argument in arguments:
+            if self._visible_alias(argument.arg) is not None:
+                self.current_aliases[argument.arg] = "shadowed"
+            self._bind_unknown(argument.arg, -1)
+        self.visit(node.body)
+        self.binding_declarations.pop()
+        self._pop_scope()
+
+    def _visit_comprehension(
+        self,
+        node: ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp,
+    ) -> None:
+        first, *remaining = node.generators
+        self.visit(first.iter)
+        outer_depth = len(self.scope_frames)
+        outer_paths = [self._capture_scope_state()]
+        first_values = self._iterable_strings(first.iter)
+        if (
+            first_values is None
+            and _literal_strings(first.iter, self.visible_values) is not None
+        ):
+            raise self._error(first.iter, "iterable value shape is scalar")
+        self._push_scope("comprehension")
+
+        def bind_generator(
+            generator: ast.comprehension,
+            values: tuple[str, ...] | None,
+        ) -> None:
+            self._bind_target_unknown(generator.target, -1)
+            if isinstance(generator.target, ast.Name) and values is not None:
+                self._bind_literal(generator.target.id, values, -1)
+            for condition in generator.ifs:
+                self.visit(condition)
+                outer_paths.append(self._capture_scope_state()[:outer_depth])
+
+        bind_generator(first, first_values)
+        for generator in remaining:
+            self.visit(generator.iter)
+            outer_paths.append(self._capture_scope_state()[:outer_depth])
+            generator_values = self._iterable_strings(generator.iter)
+            if (
+                generator_values is None
+                and _literal_strings(generator.iter, self.visible_values) is not None
+            ):
+                raise self._error(
+                    generator.iter, "iterable value shape is scalar"
+                )
+            bind_generator(generator, generator_values)
+        if isinstance(node, ast.DictComp):
+            self.visit(node.key)
+            self.visit(node.value)
+        else:
+            self.visit(node.elt)
+        outer_paths.append(self._capture_scope_state()[:outer_depth])
+        self._pop_scope()
+        self._restore_scope_state(self._merge_scope_states(outer_paths))
+
+    visit_ListComp = _visit_comprehension
+    visit_SetComp = _visit_comprehension
+    visit_GeneratorExp = _visit_comprehension
+    visit_DictComp = _visit_comprehension
+
+    def visit_BoolOp(self, node: ast.BoolOp) -> None:
+        paths: list[tuple[_SettingState, ...]] = []
+        for value in node.values:
+            self.visit(value)
+            paths.append(self._capture_scope_state())
+        self._restore_scope_state(self._merge_scope_states(paths))
+
+    def visit_IfExp(self, node: ast.IfExp) -> None:
+        self.visit(node.test)
+        baseline = self._capture_scope_state()
+
+        self.visit(node.body)
+        body_state = self._capture_scope_state()
+
+        self._restore_scope_state(baseline)
+        self.visit(node.orelse)
+        else_state = self._capture_scope_state()
+
+        self._restore_scope_state(
+            self._merge_scope_states((body_state, else_state))
+        )
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        resolutions: dict[int, _AssignmentResolution] = {}
+        self._visit_assignment_value(node.value, resolutions)
+        for target in node.targets:
+            self._assign_target(target, node.value, resolutions)
+
+    def _visit_assignment_target(self, target: ast.AST) -> None:
+        if isinstance(target, ast.Attribute):
+            self.visit(target.value)
+            return
+        if isinstance(target, ast.Subscript):
+            self.visit(target.value)
+            self.visit(target.slice)
+            return
+        if isinstance(target, (ast.Tuple, ast.List)):
+            for element in target.elts:
+                self._visit_assignment_target(element)
+            return
+        if isinstance(target, ast.Starred):
+            self._visit_assignment_target(target.value)
+
+    def _visit_and_bind_target_unknown(self, target: ast.AST) -> None:
+        if isinstance(target, (ast.Tuple, ast.List)):
+            for element in target.elts:
+                self._visit_and_bind_target_unknown(element)
+            return
+        if isinstance(target, ast.Starred):
+            self._visit_and_bind_target_unknown(target.value)
+            return
+        self._visit_assignment_target(target)
+        self._bind_target_unknown(target)
+
+    def _visit_assignment_value(
+        self,
+        value: ast.AST,
+        resolutions: dict[int, _AssignmentResolution],
+    ) -> None:
+        if isinstance(value, (ast.Tuple, ast.List, ast.Set)):
+            for element in value.elts:
+                resolved_element = (
+                    element.value if isinstance(element, ast.Starred) else element
+                )
+                self._visit_assignment_value(resolved_element, resolutions)
+                if isinstance(element, ast.Starred):
+                    resolutions[id(element)] = resolutions[id(resolved_element)]
+            element_resolutions = [resolutions[id(element)] for element in value.elts]
+            literals = (
+                tuple(
+                    literal
+                    for resolution in element_resolutions
+                    for literal in resolution.literals or ()
+                )
+                if all(resolution.literals is not None for resolution in element_resolutions)
+                else None
+            )
+            iterable = literals if not any(
+                isinstance(element, (ast.Tuple, ast.List, ast.Set))
+                for element in value.elts
+            ) else None
+            resolutions[id(value)] = _AssignmentResolution(None, literals, iterable)
+            return
+        self.visit(value)
+        resolved_value = value.value if isinstance(value, ast.NamedExpr) else value
+        resolutions[id(value)] = _AssignmentResolution(
+            self._container_kind(resolved_value),
+            _literal_strings(resolved_value, self.visible_values),
+            self._iterable_strings(resolved_value),
+        )
+
+    def _assign_target(
+        self,
+        target: ast.AST,
+        value: ast.AST,
+        resolutions: dict[int, _AssignmentResolution],
+    ) -> None:
+        if isinstance(target, (ast.Tuple, ast.List)):
+            if not isinstance(value, (ast.Tuple, ast.List)):
+                self._visit_and_bind_target_unknown(target)
+                return
+            starred = [
+                index
+                for index, element in enumerate(target.elts)
+                if isinstance(element, ast.Starred)
+            ]
+            if not starred:
+                if len(target.elts) != len(value.elts):
+                    self._bind_target_unknown(target)
+                    return
+                for element, element_value in zip(target.elts, value.elts):
+                    self._assign_target(element, element_value, resolutions)
+                return
+            if len(starred) != 1:
+                self._bind_target_unknown(target)
+                return
+            star_index = starred[0]
+            suffix_count = len(target.elts) - star_index - 1
+            if len(value.elts) < star_index + suffix_count:
+                self._bind_target_unknown(target)
+                return
+            for element, element_value in zip(
+                target.elts[:star_index], value.elts[:star_index]
+            ):
+                self._assign_target(element, element_value, resolutions)
+            starred_target = target.elts[star_index]
+            assert isinstance(starred_target, ast.Starred)
+            middle_end = len(value.elts) - suffix_count
+            middle = ast.List(
+                elts=value.elts[star_index:middle_end], ctx=ast.Load()
+            )
+            ast.copy_location(middle, value)
+            middle_resolutions = [
+                resolutions[id(element)]
+                for element in value.elts[star_index:middle_end]
+            ]
+            middle_literals = (
+                tuple(
+                    literal
+                    for resolution in middle_resolutions
+                    for literal in resolution.literals or ()
+                )
+                if all(resolution.literals is not None for resolution in middle_resolutions)
+                else None
+            )
+            resolutions[id(middle)] = _AssignmentResolution(
+                None, middle_literals, middle_literals
+            )
+            self._assign_target(starred_target.value, middle, resolutions)
+            if suffix_count:
+                for element, element_value in zip(
+                    target.elts[-suffix_count:], value.elts[-suffix_count:]
+                ):
+                    self._assign_target(element, element_value, resolutions)
+            return
+        if isinstance(target, ast.Starred):
+            self._assign_target(target.value, value, resolutions)
+            return
+
+        self._visit_assignment_target(target)
+        resolution = resolutions[id(value)]
+        kind = resolution.kind
+        literal_values = resolution.literals
+        iterable_values = resolution.iterable
+        target_path = _attribute_path(target)
+        if target_path is not None:
+            target_frame = self._binding_frame(target_path.split(".", maxsplit=1)[0])
+            volatile = (
+                isinstance(target, ast.Name)
+                and target.id in self.volatile_bindings[target_frame]
+            )
+            if volatile and (
+                kind is not None or self._visible_alias_state(target_path) is not None
+            ):
+                self.aliases[target_frame][target_path] = "dynamic"
+            elif kind is not None:
+                self.aliases[target_frame][target_path] = kind
+            elif isinstance(value, ast.Dict):
+                self.aliases[target_frame].pop(target_path, None)
+            elif self._visible_alias_state(target_path) is not None:
+                self.aliases[target_frame][target_path] = "shadowed"
+            else:
+                self.aliases[target_frame].pop(target_path, None)
+        if isinstance(target, ast.Name):
+            if literal_values is not None:
+                self._bind_literal(
+                    target.id,
+                    literal_values,
+                    iterable_values=iterable_values,
+                )
+            else:
+                self._bind_unknown(target.id)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if node.value is None:
+            return
+        synthetic = ast.Assign(targets=[node.target], value=node.value)
+        ast.copy_location(synthetic, node)
+        self.visit_Assign(synthetic)
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        if isinstance(node.target, ast.Subscript):
+            read_target: ast.expr = ast.Subscript(
+                value=node.target.value,
+                slice=node.target.slice,
+                ctx=ast.Load(),
+            )
+        elif isinstance(node.target, ast.Attribute):
+            read_target = ast.Attribute(
+                value=node.target.value,
+                attr=node.target.attr,
+                ctx=ast.Load(),
+            )
+        else:
+            read_target = ast.Name(
+                id=node.target.id, ctx=ast.Load()
+            ) if isinstance(node.target, ast.Name) else node.target
+        ast.copy_location(read_target, node.target)
+        self.visit(read_target)
+        self.visit(node.value)
+        self._bind_target_unknown(node.target)
+
+    def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
+        self.visit(node.value)
+        kind = self._container_kind(node.value)
+        literal_values = _literal_strings(node.value, self.visible_values)
+        iterable_values = self._iterable_strings(node.value)
+        frame_index = next(
+            index
+            for index in range(len(self.scope_frames) - 1, -1, -1)
+            if self.scope_frames[index] != "comprehension"
+        )
+        target_path = _attribute_path(node.target)
+        if isinstance(node.target, ast.Name):
+            frame_index = self._binding_frame(node.target.id, frame_index)
+        if target_path is not None and kind is not None:
+            self.aliases[frame_index][target_path] = kind
+        else:
+            self._bind_target_unknown(node.target, frame_index)
+        if isinstance(node.target, ast.Name) and literal_values is not None:
+            self._bind_literal(
+                node.target.id,
+                literal_values,
+                frame_index,
+                iterable_values,
+            )
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for imported in node.names:
+            self._bind_name_unknown(
+                imported.asname or imported.name.split(".", maxsplit=1)[0]
+            )
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        for imported in node.names:
+            if imported.name == "*":
+                for name in set(self.current_aliases) | set(self.current_values):
+                    self._bind_name_unknown(name)
+                continue
+            self._bind_name_unknown(imported.asname or imported.name)
+
+    def visit_Delete(self, node: ast.Delete) -> None:
+        for target in node.targets:
+            self._visit_and_bind_target_unknown(target)
+
+    def visit_With(
+        self, node: ast.With | ast.AsyncWith
+    ) -> _StatementFlow:
+        for item in node.items:
+            self.visit(item.context_expr)
+            if item.optional_vars is not None:
+                self._visit_and_bind_target_unknown(item.optional_vars)
+        return self._visit_statements(node.body)
+
+    visit_AsyncWith = visit_With
+
+    def _reject_conditional_alias_reassignment(self, node: ast.AST) -> None:
+        if self._suppress_accessor_body_reads():
+            return
+        tracked = set(self.current_aliases)
+        if not tracked:
+            return
+
+        def is_read_as_container(path: str) -> bool:
+            if not self.function_nodes:
+                return False
+            for inner in ast.walk(self.function_nodes[-1]):
+                if (
+                    isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Attribute)
+                    and inner.func.attr == "get"
+                    and _attribute_path(inner.func.value) == path
+                ):
+                    return True
+                if (
+                    isinstance(inner, ast.Subscript)
+                    and isinstance(inner.ctx, ast.Load)
+                    and _attribute_path(inner.value) == path
+                ):
+                    return True
+                if isinstance(inner, ast.Compare) and any(
+                    _attribute_path(comparator) == path
+                    for comparator in inner.comparators
+                ):
+                    return True
+            return False
+
+        def reject_path(path: str | None, owner: ast.AST) -> None:
+            if path in tracked and path is not None and is_read_as_container(path):
+                raise self._error(
+                    owner, "conditional configuration alias reassignment"
+                )
+
+        if isinstance(node, (ast.For, ast.AsyncFor)):
+            pending_targets = [node.target]
+            while pending_targets:
+                target = pending_targets.pop()
+                if isinstance(target, (ast.Tuple, ast.List)):
+                    pending_targets.extend(target.elts)
+                elif isinstance(target, ast.Starred):
+                    pending_targets.append(target.value)
+                else:
+                    reject_path(_attribute_path(target), node)
+        if isinstance(node, (ast.Try, ast.TryStar)):
+            for handler in node.handlers:
+                reject_path(handler.name, handler)
+        if isinstance(node, ast.Match):
+            for pattern in ast.walk(node):
+                if isinstance(pattern, (ast.MatchAs, ast.MatchStar)):
+                    reject_path(pattern.name, pattern)
+                elif isinstance(pattern, ast.MatchMapping):
+                    reject_path(pattern.rest, pattern)
+
+        def conditional_nodes(root: ast.AST) -> Iterator[ast.AST]:
+            yield root
+            for field, value in ast.iter_fields(root):
+                if (
+                    isinstance(root, (ast.Try, ast.TryStar))
+                    and field == "finalbody"
+                ):
+                    continue
+                if isinstance(value, ast.AST):
+                    yield from conditional_nodes(value)
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, ast.AST):
+                            yield from conditional_nodes(item)
+
+        for inner in conditional_nodes(node):
+            if isinstance(inner, ast.Assign):
+                targets = inner.targets
+            elif isinstance(inner, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
+                targets = [inner.target]
+            elif isinstance(inner, ast.Delete):
+                targets = inner.targets
+            else:
+                continue
+            for target in targets:
+                pending = [target]
+                while pending:
+                    candidate = pending.pop()
+                    if isinstance(candidate, (ast.Tuple, ast.List)):
+                        pending.extend(candidate.elts)
+                        continue
+                    if isinstance(candidate, ast.Starred):
+                        pending.append(candidate.value)
+                        continue
+                    path = _attribute_path(candidate)
+                    reject_path(path, inner)
+
+    def visit_For(self, node: ast.For) -> _StatementFlow:
+        self._reject_conditional_alias_reassignment(node)
+        self.visit(node.iter)
+        baseline = self._capture_state()
+        iterable = self._iterable_strings(node.iter)
+        if (
+            iterable is None
+            and _literal_strings(node.iter, self.visible_values) is not None
+        ):
+            raise self._error(node.iter, "iterable value shape is scalar")
+        if iterable is not None and not iterable:
+            return self._visit_statements(node.orelse)
+
+        def finish_loop(
+            body_flow: _StatementFlow,
+            *,
+            zero_iteration: bool,
+        ) -> _StatementFlow:
+            break_states = [
+                state for kind, state in body_flow.terminals if kind == "break"
+            ]
+            iteration_states = [
+                state
+                for kind, state in body_flow.terminals
+                if kind == "continue"
+            ]
+            propagated = [
+                (kind, state)
+                for kind, state in body_flow.terminals
+                if kind not in {"break", "continue"}
+            ]
+            prefixes = list(body_flow.prefixes)
+            if body_flow.falls_through:
+                iteration_states.append(self._capture_state())
+            repeat_states = list(iteration_states)
+            if (
+                repeat_states
+                and (iterable is None or len(iterable) > 1)
+            ):
+                self._restore_state(self._merge_states(repeat_states))
+                self._visit_and_bind_target_unknown(node.target)
+            if zero_iteration:
+                iteration_states.append(baseline)
+
+            post_states = list(break_states)
+            if iteration_states:
+                self._restore_state(self._merge_states(iteration_states))
+                else_flow = self._visit_statements(node.orelse)
+                prefixes.extend(else_flow.prefixes)
+                propagated.extend(else_flow.terminals)
+                if else_flow.falls_through:
+                    post_states.append(self._capture_state())
+            if not post_states:
+                return _StatementFlow(
+                    False, tuple(propagated), tuple(prefixes)
+                )
+            self._restore_state(self._merge_states(post_states))
+            return _StatementFlow(True, tuple(propagated), tuple(prefixes))
+
+        if isinstance(node.target, ast.Name) and iterable is not None:
+            self._visit_assignment_target(node.target)
+            self._bind_target_unknown(node.target)
+            self._bind_literal(node.target.id, iterable)
+            return finish_loop(
+                self._visit_statements(node.body), zero_iteration=False
+            )
+        iterated_value = node.iter
+        element_target = node.target
+        if (
+            isinstance(node.iter, ast.Call)
+            and isinstance(node.iter.func, ast.Name)
+            and node.iter.func.id == "enumerate"
+            and node.iter.args
+        ):
+            iterated_value = node.iter.args[0]
+            if isinstance(node.target, (ast.Tuple, ast.List)) and len(node.target.elts) >= 2:
+                element_target = node.target.elts[1]
+        element_kind = self._container_kind(iterated_value)
+        if element_kind is not None:
+            target_path = _attribute_path(element_target)
+            if target_path is None:
+                raise self._error(node, "configuration loop target is not statically named")
+            self._visit_and_bind_target_unknown(node.target)
+            self.current_aliases[target_path] = element_kind
+            return finish_loop(
+                self._visit_statements(node.body), zero_iteration=True
+            )
+        self._visit_and_bind_target_unknown(node.target)
+        return finish_loop(
+            self._visit_statements(node.body), zero_iteration=True
+        )
+
+    visit_AsyncFor = visit_For
+
+    def visit_While(self, node: ast.While) -> _StatementFlow:
+        self._reject_conditional_alias_reassignment(node)
+        self.visit(node.test)
+        baseline = self._capture_state()
+        body_flow = self._visit_statements(node.body)
+        break_states = [
+            state for kind, state in body_flow.terminals if kind == "break"
+        ]
+        normal_states = [
+            state for kind, state in body_flow.terminals if kind == "continue"
+        ]
+        propagated = [
+            (kind, state)
+            for kind, state in body_flow.terminals
+            if kind not in {"break", "continue"}
+        ]
+        prefixes = list(body_flow.prefixes)
+        if body_flow.falls_through:
+            normal_states.append(self._capture_state())
+        normal_states.append(baseline)
+
+        self._restore_state(self._merge_states(normal_states))
+        else_flow = self._visit_statements(node.orelse)
+        prefixes.extend(else_flow.prefixes)
+        propagated.extend(else_flow.terminals)
+        post_states = list(break_states)
+        if else_flow.falls_through:
+            post_states.append(self._capture_state())
+        if not post_states:
+            return _StatementFlow(False, tuple(propagated), tuple(prefixes))
+        self._restore_state(self._merge_states(post_states))
+        return _StatementFlow(True, tuple(propagated), tuple(prefixes))
+
+    def _merge_may_alias_states(
+        self,
+        alias_states: Sequence[dict[str, str]],
+        value_states: Sequence[dict[str, tuple[str, ...]]],
+        iterable_states: Sequence[dict[str, tuple[str, ...]]],
+        binding_states: Sequence[set[str]],
+        frame_index: int = -1,
+    ) -> None:
+        merged_aliases: dict[str, str] = {}
+        for name in set().union(*(state.keys() for state in alias_states)):
+            kinds = {state[name] for state in alias_states if name in state}
+            merged_aliases[name] = kinds.pop() if len(kinds) == 1 else "dynamic"
+        merged_values: dict[str, tuple[str, ...]] = {}
+        merged_bindings = set().union(*binding_states)
+        for name in merged_bindings:
+            if all(
+                name in bindings and name in values
+                for bindings, values in zip(binding_states, value_states)
+            ):
+                merged_values[name] = tuple(
+                    sorted(
+                        {
+                            value
+                            for state in value_states
+                            for value in state[name]
+                        }
+                    )
+                )
+        self.aliases[frame_index] = merged_aliases
+        self.values[frame_index] = merged_values
+        self.iterables[frame_index] = {
+            name: tuple(
+                sorted(
+                    {
+                        value
+                        for state in iterable_states
+                        for value in state[name]
+                    }
+                )
+            )
+            for name in set.intersection(
+                *(set(state) for state in iterable_states)
+            )
+        }
+        self.value_bindings[frame_index] = merged_bindings
+
+    def visit_Try(self, node: ast.Try) -> _StatementFlow:
+        self._reject_conditional_alias_reassignment(node)
+        baseline = self._capture_state()
+        body_flow = self._visit_statements(node.body)
+        prefixes = list(body_flow.prefixes)
+        continuing_states: list[_SettingState] = []
+        terminals = list(body_flow.terminals)
+        if body_flow.falls_through:
+            else_flow = self._visit_statements(node.orelse)
+            prefixes.extend(else_flow.prefixes)
+            terminals.extend(else_flow.terminals)
+            if else_flow.falls_through:
+                continuing_states.append(self._capture_state())
+        elif node.handlers:
+            # Handler matching and exception provenance are intentionally not
+            # interpreted. Retain the pre-try state as a conservative path.
+            continuing_states.append(baseline)
+
+        handler_inputs = list(body_flow.prefixes or (baseline,))
+        handler_inputs.extend(state for _, state in body_flow.terminals)
+        handler_entry = self._merge_states(handler_inputs)
+        for handler in node.handlers:
+            self._restore_state(handler_entry)
+            if handler.type is not None:
+                self.visit(handler.type)
+            if handler.name is not None:
+                self._bind_name_unknown(handler.name)
+            handler_flow = self._visit_statements(handler.body)
+            prefixes.extend(handler_flow.prefixes)
+            if handler.name is not None:
+                self._bind_name_unknown(handler.name)
+            terminals.extend(handler_flow.terminals)
+            if handler_flow.falls_through:
+                continuing_states.append(self._capture_state())
+
+        if node.finalbody:
+            final_continuing: list[_SettingState] = []
+            final_terminals: list[tuple[str, _SettingState]] = []
+
+            for state in continuing_states:
+                self._restore_state(state)
+                final_flow = self._visit_statements(node.finalbody)
+                prefixes.extend(final_flow.prefixes)
+                final_terminals.extend(final_flow.terminals)
+                if final_flow.falls_through:
+                    final_continuing.append(self._capture_state())
+
+            for kind, state in terminals:
+                self._restore_state(state)
+                final_flow = self._visit_statements(node.finalbody)
+                prefixes.extend(final_flow.prefixes)
+                final_terminals.extend(final_flow.terminals)
+                if final_flow.falls_through:
+                    final_terminals.append((kind, self._capture_state()))
+
+            if not continuing_states and not terminals:
+                self._restore_state(handler_entry)
+                final_flow = self._visit_statements(node.finalbody)
+                prefixes.extend(final_flow.prefixes)
+                final_terminals.extend(final_flow.terminals)
+                if final_flow.falls_through:
+                    final_continuing.append(self._capture_state())
+
+            if final_continuing:
+                self._restore_state(self._merge_states(final_continuing))
+                return _StatementFlow(
+                    True, tuple(final_terminals), tuple(prefixes)
+                )
+            terminal_states = [state for _, state in final_terminals]
+            if terminal_states:
+                self._restore_state(self._merge_states(terminal_states))
+            return _StatementFlow(
+                False, tuple(final_terminals), tuple(prefixes)
+            )
+
+        if continuing_states:
+            self._restore_state(self._merge_states(continuing_states))
+            return _StatementFlow(True, tuple(terminals), tuple(prefixes))
+        terminal_states = [state for _, state in terminals]
+        if terminal_states:
+            self._restore_state(self._merge_states(terminal_states))
+        return _StatementFlow(False, tuple(terminals), tuple(prefixes))
+
+    visit_TryStar = visit_Try
+
+    def visit_Match(self, node: ast.Match) -> _StatementFlow:
+        self._reject_conditional_alias_reassignment(node)
+        self.visit(node.subject)
+        baseline = self._capture_state()
+        pending_unmatched = [baseline]
+        continuing: list[_SettingState] = []
+        terminals: list[tuple[str, _SettingState]] = []
+        prefixes: list[_SettingState] = []
+        for case in node.cases:
+            entry = self._merge_states(pending_unmatched)
+            self._restore_state(entry)
+            self.visit(case.pattern)
+            for name in {
+                pattern.name
+                for pattern in ast.walk(case.pattern)
+                if isinstance(pattern, (ast.MatchAs, ast.MatchStar))
+                and pattern.name is not None
+            } | {
+                pattern.rest
+                for pattern in ast.walk(case.pattern)
+                if isinstance(pattern, ast.MatchMapping)
+                and pattern.rest is not None
+            }:
+                self._bind_name_unknown(name)
+            if case.guard is not None:
+                self.visit(case.guard)
+                pending_unmatched = [entry, self._capture_state()]
+            else:
+                pending_unmatched = [entry]
+            case_flow = self._visit_statements(case.body)
+            prefixes.extend(case_flow.prefixes)
+            terminals.extend(case_flow.terminals)
+            if case_flow.falls_through:
+                continuing.append(self._capture_state())
+        continuing.append(self._merge_states(pending_unmatched))
+        self._restore_state(self._merge_states(continuing))
+        return _StatementFlow(True, tuple(terminals), tuple(prefixes))
+
+    def visit_If(self, node: ast.If) -> _StatementFlow:
+        self.visit(node.test)
+        baseline = self._capture_state()
+
+        self._restore_state(baseline)
+        body_flow = self._visit_statements(node.body)
+        body_state = self._capture_state() if body_flow.falls_through else None
+        continuing = [body_state] if body_state is not None else []
+
+        self._restore_state(baseline)
+        else_flow = self._visit_statements(node.orelse)
+        else_state = self._capture_state() if else_flow.falls_through else None
+        if else_state is not None:
+            continuing.append(else_state)
+
+        terminals = body_flow.terminals + else_flow.terminals
+        if not continuing:
+            terminal_states = [state for _, state in terminals]
+            if terminal_states:
+                self._restore_state(self._merge_states(terminal_states))
+            return _StatementFlow(
+                False,
+                terminals,
+                body_flow.prefixes + else_flow.prefixes,
+            )
+        self._restore_state(self._merge_states(continuing))
+        for name in baseline.aliases:
+            if (
+                body_state is not None
+                and else_state is not None
+                and (name in body_state.aliases)
+                != (name in else_state.aliases)
+            ):
+                self.current_aliases[name] = "dynamic"
+        return _StatementFlow(
+            True,
+            terminals,
+            body_flow.prefixes + else_flow.prefixes,
+        )
+
+    def visit_Subscript(self, node: ast.Subscript) -> None:
+        if not isinstance(node.ctx, ast.Load):
+            self.generic_visit(node)
+            return
+        if (
+            isinstance(node.value, ast.Attribute)
+            and self._normalized_os_path(node.value) == "os.environ"
+        ):
+            if _literal_strings(node.slice, self.visible_values) is None:
+                self._dynamic_environment_read(node, "os.environ[]")
+                self.visit(node.value)
+                self.visit(node.slice)
+                return
+            for key in self._resolved_keys(node.slice, node):
+                self._add(node, key, "os.environ[]", "environment", None)
+            self.visit(node.value)
+            self.visit(node.slice)
+            return
+        kind = self._container_kind(node.value)
+        if kind is not None:
+            if kind == "dynamic":
+                raise self._error(node, "branch-dependent configuration alias")
+            if self._suppress_accessor_body_reads():
+                self.visit(node.value)
+                self.visit(node.slice)
+                return
+            for key in self._resolved_keys(node.slice, node):
+                read_kind = "model_kwargs[]" if kind == "model_kwargs" else "kwargs[]"
+                if kind == "attribute":
+                    read_kind = "attribute[]"
+                scope = "model" if kind == "model_kwargs" else "core"
+                self._add(node, key, read_kind, scope, None)
+            self.visit(node.value)
+            self.visit(node.slice)
+            return
+        self.generic_visit(node)
+
+    def visit_Compare(self, node: ast.Compare) -> None:
+        if (
+            len(node.ops) == 1
+            and isinstance(node.ops[0], (ast.In, ast.NotIn))
+            and len(node.comparators) == 1
+        ):
+            container = node.comparators[0]
+            kind = self._container_kind(container)
+            if kind is not None:
+                if kind == "dynamic":
+                    raise self._error(node, "branch-dependent configuration alias")
+                if self._suppress_accessor_body_reads():
+                    self.visit(node.left)
+                    self.visit(container)
+                    return
+                if kind == "model_kwargs":
+                    read_kind, scope = "model_kwargs.contains", "model"
+                elif kind == "attribute":
+                    read_kind, scope = "attribute.contains", "core"
+                else:
+                    read_kind, scope = "kwargs.contains", "core"
+                for key in self._resolved_keys(node.left, node):
+                    self._add(node, key, read_kind, scope, None)
+                self.visit(node.left)
+                self.visit(container)
+                return
+        self.visit(node.left)
+        paths: list[tuple[_SettingState, ...]] = []
+        for comparator in node.comparators:
+            self.visit(comparator)
+            paths.append(self._capture_scope_state())
+        self._restore_scope_state(self._merge_scope_states(paths))
+
+    def visit_Assert(self, node: ast.Assert) -> _StatementFlow:
+        self.visit(node.test)
+        continuing = self._capture_scope_state()
+        terminals = (("raise", self._capture_state()),)
+        if node.msg is not None:
+            self.visit(node.msg)
+            terminals = (("raise", self._capture_state()),)
+            self._restore_scope_state(continuing)
+        return _StatementFlow(True, terminals)
+
+    def _visit_call_children(self, node: ast.Call) -> None:
+        self.visit(node.func)
+        for argument in node.args:
+            self.visit(argument)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if any(
+            keyword.arg is None
+            and isinstance(keyword.value, ast.Name)
+            and keyword.value.id == "network_kwargs"
+            for keyword in node.keywords
+        ):
+            self._discover_network_dispatch(node)
+            for argument in node.args:
+                self.visit(argument)
+            for keyword in node.keywords:
+                if keyword.arg is not None or not (
+                    isinstance(keyword.value, ast.Name)
+                    and keyword.value.id == "network_kwargs"
+                ):
+                    self.visit(keyword.value)
+            return
+
+        path = self._normalized_os_path(node.func)
+        if path == "os.getenv":
+            if not node.args:
+                raise self._error(node, "os.getenv call has no key")
+            if _literal_strings(node.args[0], self.visible_values) is None:
+                self._dynamic_environment_read(node, "os.getenv")
+                self._visit_call_children(node)
+                return
+            default = node.args[1] if len(node.args) > 1 else None
+            for key in self._resolved_keys(node.args[0], node):
+                self._add(node, key, "os.getenv", "environment", default)
+            self._visit_call_children(node)
+            return
+        if path == "os.environ.get":
+            if not node.args:
+                raise self._error(node, "os.environ.get call has no key")
+            if _literal_strings(node.args[0], self.visible_values) is None:
+                self._dynamic_environment_read(node, "os.environ.get")
+                self._visit_call_children(node)
+                return
+            default = node.args[1] if len(node.args) > 1 else None
+            for key in self._resolved_keys(node.args[0], node):
+                self._add(node, key, "os.environ.get", "environment", default)
+            self._visit_call_children(node)
+            return
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "add_argument":
+            if not node.args:
+                raise self._error(
+                    node, "argparse.add_argument call has no argument name"
+                )
+            self.visit(node.func)
+            option_values: list[str] = []
+            for argument in node.args:
+                self.visit(argument)
+                option_values.extend(self._resolved_keys(argument, node))
+            keys: tuple[str, ...] | None = None
+            default: ast.AST | None = None
+            for keyword in node.keywords:
+                self.visit(keyword.value)
+                if keyword.arg == "dest":
+                    keys = self._resolved_keys(keyword.value, node)
+                elif keyword.arg == "default":
+                    default = keyword.value
+            if keys is None:
+                long_options = [
+                    value for value in option_values if value.startswith("--")
+                ]
+                selected = long_options[0] if long_options else option_values[0]
+                keys = (selected.lstrip("-").replace("-", "_"),)
+            for key in keys:
+                self._add(node, key, "argparse.add_argument", "cli", default)
+            return
+
+        if isinstance(node.func, ast.Attribute) and node.func.attr in {"get_conf", "get_config"}:
+            if not node.args:
+                raise self._error(node, f"{node.func.attr} call has no key")
+            self.visit(node.func)
+            self.visit(node.args[0])
+            keys = self._resolved_keys(node.args[0], node)
+            for argument in node.args[1:]:
+                self.visit(argument)
+            for keyword in node.keywords:
+                self.visit(keyword.value)
+            default = node.args[1] if len(node.args) > 1 else next(
+                (keyword.value for keyword in node.keywords if keyword.arg == "default"),
+                None,
+            )
+            for key in keys:
+                self._add(node, key, node.func.attr, "core", default)
+            return
+
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "get":
+            kind = self._container_kind(node.func.value)
+            if kind is not None:
+                if kind == "dynamic":
+                    raise self._error(node, "branch-dependent configuration alias")
+                if not node.args:
+                    raise self._error(node, "configuration get call has no key")
+                # Accessor implementations deliberately accept a dynamic key; their
+                # finite public call sites are catalogued instead.
+                if self._suppress_accessor_body_reads():
+                    self._visit_call_children(node)
+                    return
+                default = node.args[1] if len(node.args) > 1 else None
+                for key in self._resolved_keys(node.args[0], node):
+                    if kind == "model_kwargs":
+                        read_kind, scope = "model_kwargs.get", "model"
+                    elif kind == "attribute":
+                        read_kind, scope = "attribute.get", "core"
+                    else:
+                        read_kind, scope = "kwargs.get", "core"
+                    self._add(node, key, read_kind, scope, default)
+                self._visit_call_children(node)
+                return
+        self.generic_visit(node)
+
+    def _assigned_class_names(self, name: str) -> tuple[str, ...]:
+        if not self.function_stack:
+            return ()
+        function_name = self.function_stack[-1]
+        candidates: set[str] = set()
+        for node in ast.walk(self.tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name != function_name:
+                continue
+            for inner in ast.walk(node):
+                if isinstance(inner, ast.Assign):
+                    if any(
+                        isinstance(target, ast.Name) and target.id == name
+                        for target in inner.targets
+                    ):
+                        if isinstance(inner.value, ast.Name):
+                            candidates.add(inner.value.id)
+                        else:
+                            raise self._error(
+                                inner, "dynamic network_kwargs call target"
+                            )
+        return tuple(sorted(candidates))
+
+    def _discover_network_dispatch(self, call: ast.Call) -> None:
+        if not isinstance(call.func, ast.Name):
+            raise self._error(call, "dynamic network_kwargs call target")
+        if any(isinstance(argument, ast.Starred) for argument in call.args):
+            raise self._error(call, "dynamic positional network_kwargs arguments")
+        target_names = (
+            (call.func.id,)
+            if call.func.id in self.classes
+            else self._assigned_class_names(call.func.id)
+        )
+        if not target_names:
+            raise self._error(call, "dynamic network_kwargs call target")
+        explicit_keywords = {
+            keyword.arg for keyword in call.keywords if keyword.arg is not None
+        }
+        for target_name in target_names:
+            infos = self.classes.get(target_name, [])
+            if len(infos) != 1:
+                raise self._error(
+                    call, f"ambiguous network_kwargs target {target_name!r}"
+                )
+            constructor = next(
+                (
+                    node
+                    for node in infos[0].node.body
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name == "__init__"
+                ),
+                None,
+            )
+            if constructor is None:
+                raise self._error(
+                    call, f"network target {target_name!r} has no constructor"
+                )
+            positional_parameters = [
+                argument.arg
+                for argument in (
+                    list(constructor.args.posonlyargs) + list(constructor.args.args)
+                )
+                if argument.arg not in {"self", "cls"}
+            ]
+            if len(call.args) > len(positional_parameters):
+                raise self._error(
+                    call, f"too many positional arguments for network target {target_name!r}"
+                )
+            explicit = set(explicit_keywords)
+            explicit.update(positional_parameters[: len(call.args)])
+            self._add_constructor_surface(infos[0], explicit, "accepted", set())
+
+    def _add_constructor_surface(
+        self,
+        info: _ClassInfo,
+        explicit: set[str],
+        mode: str,
+        seen: set[tuple[str, str]],
+    ) -> None:
+        marker = (info.source, info.node.name)
+        if marker in seen:
+            raise self._error(info.node, "cyclic network_kwargs constructor forwarding")
+        seen = set(seen)
+        seen.add(marker)
+        constructor = next(
+            (
+                node
+                for node in info.node.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == "__init__"
+            ),
+            None,
+        )
+        if constructor is None:
+            raise self._error(info.node, f"network target {info.node.name} has no constructor")
+        positional = list(constructor.args.posonlyargs) + list(constructor.args.args)
+        defaults: dict[str, ast.AST | None] = {
+            argument.arg: None for argument in positional
+        }
+        offset = len(positional) - len(constructor.args.defaults)
+        for argument, default in zip(positional[offset:], constructor.args.defaults):
+            defaults[argument.arg] = default
+        for argument, default in zip(
+            constructor.args.kwonlyargs, constructor.args.kw_defaults
+        ):
+            defaults[argument.arg] = default
+        defaults.pop("self", None)
+        defaults.pop("cls", None)
+        symbol = _class_method_symbol(info.node.name, "__init__")
+        old_source = self.source
+        old_classes = self.class_stack
+        old_functions = self.function_stack
+        self.source = info.source
+        self.class_stack = [info.node.name]
+        self.function_stack = ["__init__"]
+        try:
+            for key in sorted(defaults):
+                if key in explicit:
+                    read_kind = "network_kwargs.reserved"
+                elif mode == "forwarded":
+                    read_kind = "network_kwargs.forwarded"
+                else:
+                    read_kind = "network_kwargs.accepted"
+                self.facts.append(
+                    DiscoveredSetting(
+                        info.source,
+                        symbol,
+                        constructor.lineno,
+                        key,
+                        read_kind,
+                        "network",
+                        _source_expression(defaults[key]),
+                    )
+                )
+
+            if constructor.args.kwarg is not None:
+                kwargs_name = constructor.args.kwarg.arg
+                statement_positions = {
+                    id(inner): position
+                    for position, statement in enumerate(constructor.body)
+                    for inner in ast.walk(statement)
+                }
+                direct_calls: dict[int, int] = {}
+                reachable = True
+                for position, statement in enumerate(constructor.body):
+                    value: ast.AST | None = None
+                    if isinstance(statement, ast.Expr):
+                        value = statement.value
+                    elif isinstance(statement, ast.Assign):
+                        value = statement.value
+                    elif isinstance(statement, ast.AnnAssign):
+                        value = statement.value
+                    if reachable and isinstance(value, ast.Call):
+                        direct_calls[id(value)] = position
+                    if isinstance(statement, (ast.Return, ast.Raise)):
+                        reachable = False
+                nested_nodes: set[int] = set()
+                for inner in ast.walk(constructor):
+                    if inner is constructor:
+                        continue
+                    if isinstance(
+                        inner,
+                        (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef),
+                    ):
+                        nested_nodes.update(id(descendant) for descendant in ast.walk(inner))
+
+                forwarding_uses: set[int] = set()
+                consumed_uses: set[int] = set()
+                read_defaults: dict[str, ast.AST | None] = {}
+                read_positions: dict[str, list[int]] = {}
+                mutated_or_indexed_keys: set[str] = set()
+                spread_calls: list[ast.Call] = []
+                for inner in ast.walk(constructor):
+                    if id(inner) in nested_nodes:
+                        if isinstance(inner, ast.Call):
+                            nested_spreads = [
+                                keyword.value
+                                for keyword in inner.keywords
+                                if keyword.arg is None
+                                and isinstance(keyword.value, ast.Name)
+                                and keyword.value.id == kwargs_name
+                            ]
+                            if nested_spreads:
+                                spread_calls.append(inner)
+                                forwarding_uses.update(
+                                    id(value) for value in nested_spreads
+                                )
+                        continue
+                    if (
+                        isinstance(inner, ast.Call)
+                        and isinstance(inner.func, ast.Attribute)
+                        and isinstance(inner.func.value, ast.Name)
+                        and inner.func.value.id == kwargs_name
+                        and inner.func.attr in {"get", "pop"}
+                        and inner.args
+                    ):
+                        keys = _literal_strings(inner.args[0], {})
+                        if keys is not None:
+                            consumed_uses.add(id(inner.func.value))
+                            if inner.func.attr == "get":
+                                default = inner.args[1] if len(inner.args) > 1 else None
+                                for key in keys:
+                                    previous = read_defaults.get(key)
+                                    if (
+                                        key in read_defaults
+                                        and _source_expression(previous)
+                                        != _source_expression(default)
+                                    ):
+                                        raise self._error(
+                                            inner,
+                                            "conflicting reserved kwargs read defaults",
+                                        )
+                                    read_defaults[key] = default
+                                    read_positions.setdefault(key, []).append(
+                                        statement_positions[id(inner)]
+                                    )
+                            else:
+                                mutated_or_indexed_keys.update(keys)
+                    if (
+                        isinstance(inner, ast.Subscript)
+                        and isinstance(inner.ctx, ast.Load)
+                        and isinstance(inner.value, ast.Name)
+                        and inner.value.id == kwargs_name
+                    ):
+                        keys = _literal_strings(inner.slice, {})
+                        if keys is not None:
+                            consumed_uses.add(id(inner.value))
+                            mutated_or_indexed_keys.update(keys)
+                    if not isinstance(inner, ast.Call):
+                        continue
+                    spreads_kwargs = any(
+                        keyword.arg is None
+                        and isinstance(keyword.value, ast.Name)
+                        and keyword.value.id == kwargs_name
+                        for keyword in inner.keywords
+                    )
+                    if not spreads_kwargs:
+                        continue
+                    spread_calls.append(inner)
+                    forwarding_uses.update(
+                        id(keyword.value)
+                        for keyword in inner.keywords
+                        if keyword.arg is None
+                        and isinstance(keyword.value, ast.Name)
+                        and keyword.value.id == kwargs_name
+                    )
+                kwargs_is_consumed = any(
+                    isinstance(inner, ast.Name)
+                    and inner.id == kwargs_name
+                    and isinstance(inner.ctx, ast.Load)
+                    and id(inner) not in forwarding_uses
+                    and id(inner) not in consumed_uses
+                    for inner in ast.walk(constructor)
+                )
+                edge_read_keys = set(read_defaults)
+                first_read_position = min(
+                    (
+                        position
+                        for positions in read_positions.values()
+                        for position in positions
+                    ),
+                    default=len(constructor.body),
+                )
+                forwarded = False
+                for inner in spread_calls:
+                    position = direct_calls.get(id(inner))
+                    if position is None or (
+                        edge_read_keys and position >= first_read_position
+                    ):
+                        continue
+                    base_names: list[str] = []
+                    if (
+                        isinstance(inner.func, ast.Attribute)
+                        and inner.func.attr == "__init__"
+                        and isinstance(inner.func.value, ast.Call)
+                        and isinstance(inner.func.value.func, ast.Name)
+                        and inner.func.value.func.id == "super"
+                    ):
+                        base_names = [
+                            base.id for base in info.node.bases if isinstance(base, ast.Name)
+                        ]
+                    elif (
+                        isinstance(inner.func, ast.Attribute)
+                        and inner.func.attr == "__init__"
+                        and isinstance(inner.func.value, ast.Name)
+                    ):
+                        base_names = [inner.func.value.id]
+                    if not base_names:
+                        continue
+                    for base_name in base_names:
+                        base_infos = self.classes.get(base_name, [])
+                        if len(base_infos) != 1:
+                            raise self._error(
+                                inner, f"unresolved forwarded constructor {base_name!r}"
+                            )
+                        self._add_constructor_surface(
+                            base_infos[0], explicit, "forwarded", seen
+                        )
+                        forwarded = True
+                # An unread terminal **kwargs is a dead sink, not an open
+                # setting surface. Any later read/forward/expansion flips this
+                # branch to a fail-closed error (covered by the mutation test).
+                edge_read_keys = set(read_defaults)
+                invalid_edge_reads = edge_read_keys.difference(explicit) | (
+                    edge_read_keys & set(defaults)
+                )
+                invalid_consumption = bool(
+                    kwargs_is_consumed
+                    or mutated_or_indexed_keys
+                    or invalid_edge_reads
+                )
+                if forwarded and invalid_consumption:
+                    raise self._error(
+                        constructor, "consumed forwarded kwargs sink"
+                    )
+                if not forwarded and (
+                    spread_calls or invalid_consumption or edge_read_keys
+                ):
+                    raise self._error(
+                        constructor, "unconstrained forwarded kwargs sink"
+                    )
+                if forwarded:
+                    for key in sorted(edge_read_keys):
+                        self.facts.append(
+                            DiscoveredSetting(
+                                info.source,
+                                symbol,
+                                constructor.lineno,
+                                key,
+                                "network_kwargs.reserved",
+                                "network",
+                                _source_expression(read_defaults[key]),
+                            )
+                        )
+        finally:
+            self.source = old_source
+            self.class_stack = old_classes
+            self.function_stack = old_functions
+
+
+def _collect_source_paths(
+    repository_root: Path, globs: Sequence[str]
+) -> tuple[Path, ...]:
+    if not globs:
+        raise DiscoveryError("discovery requires at least one source glob")
+    paths: dict[str, Path] = {}
+    for index, pattern in enumerate(globs):
+        if not isinstance(pattern, str) or not pattern:
+            raise DiscoveryError(f"discovery glob {index} is empty or invalid")
+        parsed = PurePosixPath(pattern)
+        if "\\" in pattern or parsed.is_absolute() or ".." in parsed.parts:
+            raise DiscoveryError(f"discovery glob is not a portable relative pattern: {pattern!r}")
+        matches = sorted(path for path in repository_root.glob(pattern) if path.is_file())
+        if not matches:
+            raise DiscoveryError(f"discovery glob matched no files: {pattern!r}")
+        for path in matches:
+            if path.suffix != ".py":
+                raise DiscoveryError(f"Python discovery glob matched non-Python source: {path}")
+            paths[_portable_path(repository_root, path)] = path
+    return tuple(paths[key] for key in sorted(paths))
+
+
+@dataclass(frozen=True)
+class _DispatchSelector:
+    kind: str
+    value: str
+    suffix: str | None = None
+
+    @property
+    def identity(self) -> str:
+        if self.kind == "combined":
+            if self.suffix is None:
+                raise DiscoveryError("combined dispatch selector is missing its suffix")
+            return f"prefix={self.value};suffix={self.suffix}"
+        return self.value
+
+
+def _dispatch_selectors(
+    node: ast.AST, names: set[str]
+) -> tuple[_DispatchSelector, ...] | None:
+    if (
+        isinstance(node, ast.Compare)
+        and len(node.ops) == 1
+        and isinstance(node.ops[0], ast.Eq)
+        and len(node.comparators) == 1
+    ):
+        pairs = ((node.left, node.comparators[0]), (node.comparators[0], node.left))
+        for variable, literal in pairs:
+            if (
+                isinstance(variable, ast.Name)
+                and variable.id in names
+                and isinstance(literal, ast.Constant)
+                and isinstance(literal.value, str)
+            ):
+                return (_DispatchSelector("exact", literal.value),)
+    if (
+        isinstance(node, ast.Compare)
+        and len(node.ops) == 1
+        and isinstance(node.ops[0], ast.In)
+        and len(node.comparators) == 1
+        and isinstance(node.left, ast.Name)
+        and node.left.id in names
+        and isinstance(node.comparators[0], (ast.Set, ast.Tuple, ast.List))
+        and node.comparators[0].elts
+        and all(
+            isinstance(element, ast.Constant)
+            and isinstance(element.value, str)
+            for element in node.comparators[0].elts
+        )
+    ):
+        return tuple(
+            _DispatchSelector("exact", value)
+            for value in sorted({element.value for element in node.comparators[0].elts})
+        )
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"startswith", "endswith"}
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id in names
+        and len(node.args) == 1
+        and not node.keywords
+        and isinstance(node.args[0], ast.Constant)
+        and isinstance(node.args[0].value, str)
+    ):
+        kind = "prefix" if node.func.attr == "startswith" else "suffix"
+        return (_DispatchSelector(kind, node.args[0].value),)
+    return None
+
+
+def _dispatch_references(node: ast.AST, names: set[str]) -> bool:
+    return any(
+        isinstance(inner, ast.Name) and inner.id in names
+        for inner in ast.walk(node)
+    )
+
+
+def _dispatch_spread_aliases(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+    spread_name: str,
+    source: str,
+) -> dict[str, int]:
+    parents = {
+        child: parent
+        for parent in ast.walk(function)
+        for child in ast.iter_child_nodes(parent)
+    }
+    assignments: dict[str, list[tuple[ast.AST, ast.AST]]] = {}
+    for node in ast.walk(function):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    assignments.setdefault(target.id, []).append((node, node.value))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            if node.value is not None:
+                assignments.setdefault(node.target.id, []).append((node, node.value))
+
+    aliases = {spread_name}
+    changed = True
+    while changed:
+        changed = False
+        for target, bindings in assignments.items():
+            if target in aliases:
+                continue
+            if any(isinstance(value, ast.Name) and value.id in aliases for _, value in bindings):
+                aliases.add(target)
+                changed = True
+
+    for alias in aliases - {spread_name}:
+        bindings = assignments.get(alias, ())
+        if (
+            len(bindings) != 1
+            or not isinstance(bindings[0][1], ast.Name)
+            or bindings[0][1].id not in aliases
+            or parents.get(bindings[0][0]) is not function
+        ):
+            raise DiscoveryError(
+                f"dispatch spread alias {alias!r} is reassigned or conditionally bound in {source}"
+            )
+
+    bound_at = {spread_name: 0}
+    pending = set(aliases) - {spread_name}
+    while pending:
+        progressed = False
+        for alias in tuple(pending):
+            binding, value = assignments[alias][0]
+            if isinstance(value, ast.Name) and value.id in bound_at:
+                bound_at[alias] = binding.lineno
+                pending.remove(alias)
+                progressed = True
+        if not progressed:
+            raise DiscoveryError(
+                f"dispatch spread aliases have ambiguous dataflow in {source}"
+            )
+
+    for node in ast.walk(function):
+        if not isinstance(node, ast.Name) or not isinstance(node.ctx, ast.Load):
+            continue
+        if node.id not in aliases:
+            continue
+        parent = parents.get(node)
+        if node.lineno <= bound_at[node.id]:
+            raise DiscoveryError(
+                f"dispatch spread alias {node.id!r} is used before it is bound in {source}"
+            )
+        if isinstance(parent, ast.Attribute) and parent.value is node:
+            if parent.attr not in {"pop", "get"}:
+                raise DiscoveryError(
+                    f"dispatch spread mapping method {parent.attr!r} has unsupported "
+                    f"effects in {source}:{node.lineno}"
+                )
+            attribute_parent = parents.get(parent)
+            if not (
+                isinstance(attribute_parent, ast.Call)
+                and attribute_parent.func is parent
+            ):
+                raise DiscoveryError(
+                    f"dispatch spread mapping method {parent.attr!r} escapes as a "
+                    f"bound reference in {source}:{node.lineno}"
+                )
+        allowed = (
+            isinstance(parent, ast.keyword) and parent.arg is None
+            or isinstance(parent, ast.Subscript) and parent.value is node
+            or isinstance(parent, ast.Attribute) and parent.value is node
+            or isinstance(parent, (ast.Assign, ast.AnnAssign)) and parent.value is node
+            or isinstance(parent, ast.Compare)
+        )
+        if not allowed:
+            raise DiscoveryError(
+                f"dispatch spread mapping {node.id!r} escapes static analysis in {source}"
+            )
+    return bound_at
+
+
+def _combine_dispatch_selectors(
+    outer: _DispatchSelector | None,
+    inner: _DispatchSelector,
+) -> _DispatchSelector | None:
+    if outer is None:
+        return inner
+
+    selectors = (outer, inner)
+    exacts = [selector.value for selector in selectors if selector.kind == "exact"]
+    prefixes = [
+        selector.value
+        for selector in selectors
+        if selector.kind in {"prefix", "combined"}
+    ]
+    suffixes = [
+        selector.suffix if selector.kind == "combined" else selector.value
+        for selector in selectors
+        if selector.kind in {"suffix", "combined"}
+    ]
+    if exacts and any(value != exacts[0] for value in exacts[1:]):
+        return None
+    prefix = max(prefixes, key=len) if prefixes else None
+    if prefix is not None and any(not prefix.startswith(value) for value in prefixes):
+        return None
+    suffix = max(suffixes, key=len) if suffixes else None
+    if suffix is not None and any(not suffix.endswith(value) for value in suffixes):
+        return None
+    if exacts:
+        exact = exacts[0]
+        if prefix is not None and not exact.startswith(prefix):
+            return None
+        if suffix is not None and not exact.endswith(suffix):
+            return None
+        return _DispatchSelector("exact", exact)
+    if prefix is not None and suffix is not None:
+        return _DispatchSelector("combined", prefix, suffix)
+    if prefix is not None:
+        return _DispatchSelector("prefix", prefix)
+    if suffix is not None:
+        return _DispatchSelector("suffix", suffix)
+    return None
+
+
+def _dispatch_subscript_key(node: ast.AST, name: str) -> str | None:
+    if not (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == name
+        and isinstance(node.slice, ast.Constant)
+        and isinstance(node.slice.value, str)
+    ):
+        return None
+    return node.slice.value
+
+
+def _dispatch_key(selector: _DispatchSelector, parameter: str | None = None) -> str:
+    choice = "".join(
+        character if character.isalnum() or character in "_=;-" else "_"
+        for character in selector.identity
+    )
+    return choice if parameter is None else f"{choice}__{parameter}"
+
+
+@dataclass
+class _DispatchBindings:
+    values: dict[str, str | None]
+    poisoned: set[str]
+
+    def copy(self) -> "_DispatchBindings":
+        return _DispatchBindings(dict(self.values), set(self.poisoned))
+
+
+def _dispatch_target_names(node: ast.AST) -> set[str]:
+    return {
+        inner.id
+        for inner in ast.walk(node)
+        if isinstance(inner, ast.Name) and isinstance(inner.ctx, (ast.Store, ast.Del))
+    }
+
+
+def _dispatch_scope_bindings(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> set[str]:
+    names = {
+        argument.arg
+        for argument in (
+            *function.args.posonlyargs,
+            *function.args.args,
+            *function.args.kwonlyargs,
+        )
+    }
+    if function.args.vararg is not None:
+        names.add(function.args.vararg.arg)
+    if function.args.kwarg is not None:
+        names.add(function.args.kwarg.arg)
+
+    def visit(node: ast.AST) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+            return
+        if isinstance(node, ast.Lambda):
+            return
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            return
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for imported in node.names:
+                if imported.name != "*":
+                    names.add(
+                        imported.asname
+                        or imported.name.split(".", maxsplit=1)[0]
+                    )
+            return
+        if isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+        if isinstance(node, ast.MatchAs) and node.name:
+            names.add(node.name)
+        if isinstance(node, ast.MatchStar) and node.name:
+            names.add(node.name)
+        if isinstance(node, ast.MatchMapping) and node.rest:
+            names.add(node.rest)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            names.add(node.id)
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+
+    for statement in function.body:
+        visit(statement)
+    return names
+
+
+def _dispatch_returned_names(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> set[str]:
+    names: set[str] = set()
+
+    def visit(node: ast.AST) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            return
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Name):
+            names.add(node.value.id)
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+
+    for statement in function.body:
+        visit(statement)
+    return names
+
+
+def _dispatch_import_bindings(node: ast.Import | ast.ImportFrom) -> dict[str, str]:
+    bindings: dict[str, str] = {}
+    if isinstance(node, ast.Import):
+        for imported in node.names:
+            bound = imported.asname or imported.name.split(".", maxsplit=1)[0]
+            # Python binds ``import package.module`` to ``package`` unless an
+            # alias is present.  Keep the binding and the later attribute path
+            # separate so resolution does not repeat ``module``.
+            bindings[bound] = imported.name if imported.asname else bound
+    elif node.level == 0 and node.module:
+        for imported in node.names:
+            if imported.name != "*":
+                bindings[imported.asname or imported.name] = (
+                    f"{node.module}.{imported.name}"
+                )
+    return bindings
+
+
+def _dispatch_module_bindings(
+    tree: ast.Module,
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> _DispatchBindings:
+    def statement_bindings(node: ast.AST) -> set[str]:
+        names: set[str] = set()
+
+        def visit(inner: ast.AST) -> None:
+            if isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(inner.name)
+                return
+            if isinstance(inner, ast.Lambda):
+                return
+            if isinstance(
+                inner, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+            ):
+                return
+            if isinstance(inner, (ast.Import, ast.ImportFrom)):
+                names.update(_dispatch_import_bindings(inner))
+                return
+            if isinstance(inner, ast.ExceptHandler) and inner.name:
+                names.add(inner.name)
+            if isinstance(inner, ast.MatchAs) and inner.name:
+                names.add(inner.name)
+            if isinstance(inner, ast.MatchStar) and inner.name:
+                names.add(inner.name)
+            if isinstance(inner, ast.MatchMapping) and inner.rest:
+                names.add(inner.rest)
+            if isinstance(inner, ast.Name) and isinstance(
+                inner.ctx, (ast.Store, ast.Del)
+            ):
+                names.add(inner.id)
+            for child in ast.iter_child_nodes(inner):
+                visit(child)
+
+        visit(node)
+        return names
+
+    state = _DispatchBindings({}, set())
+    for statement in tree.body:
+        if statement is function:
+            break
+        if isinstance(statement, (ast.Import, ast.ImportFrom)):
+            for name, target in _dispatch_import_bindings(statement).items():
+                if name in state.values and state.values[name] != target:
+                    state.values[name] = None
+                    state.poisoned.add(name)
+                elif name not in state.poisoned:
+                    state.values[name] = target
+            continue
+        for name in statement_bindings(statement):
+            state.values[name] = None
+            state.poisoned.add(name)
+    return state
+
+
+def _discover_dispatch_settings(
+    parsed: Sequence[tuple[str, ast.Module]],
+) -> tuple[DiscoveredSetting, ...]:
+    facts: list[DiscoveredSetting] = []
+    optimizer_targets: list[
+        tuple[_DispatchSelector, str, int, str, str]
+    ] = []
+
+    def validate_spreads(
+        node: ast.Call,
+        spread_aliases: dict[str, int],
+        source: str,
+    ) -> bool:
+        has_spread = False
+        for keyword in node.keywords:
+            if keyword.arg is not None:
+                continue
+            has_spread = True
+            if (
+                isinstance(keyword.value, ast.Name)
+                and keyword.value.id in spread_aliases
+            ):
+                if keyword.value.lineno <= spread_aliases[keyword.value.id]:
+                    raise DiscoveryError(
+                        f"dispatch spread alias {keyword.value.id!r} is used before "
+                        f"it is bound in {source}:{node.lineno}"
+                    )
+                continue
+            if _dispatch_references(keyword.value, set(spread_aliases)):
+                raise DiscoveryError(
+                    f"dispatch call uses a dynamic spread expression in {source}:{node.lineno}"
+                )
+            raise DiscoveryError(
+                f"dispatch call uses an unproven spread mapping in {source}:{node.lineno}"
+            )
+        return has_spread
+
+    for source, tree in parsed:
+        for function in (
+            node
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in {"get_optimizer", "get_lr_scheduler"}
+        ):
+            is_optimizer = function.name == "get_optimizer"
+            spread_name = "optimizer_params" if is_optimizer else "kwargs"
+            selector_names = {"optimizer_type", "lower_type"} if is_optimizer else {"name"}
+            scope = "optimizer" if is_optimizer else "scheduler"
+            registry_prefix = "optimizer" if is_optimizer else "scheduler"
+
+            def shape_error(node: ast.AST, detail: str) -> DiscoveryError:
+                return DiscoveryError(
+                    f"unsupported dispatch shape {type(node).__name__} ({detail}) "
+                    f"in {source}:{getattr(node, 'lineno', function.lineno)} "
+                    f"for {function.name}"
+                )
+
+            future_annotations = any(
+                isinstance(statement, ast.ImportFrom)
+                and statement.module == "__future__"
+                and any(
+                    imported.name == "annotations"
+                    for imported in statement.names
+                )
+                for statement in tree.body
+            )
+            safe_builtin_targets = {
+                f"builtins.{name}"
+                for name in {
+                    "abs", "all", "any", "bool", "bytes", "classmethod",
+                    "delattr", "dict", "enumerate", "float", "frozenset",
+                    "globals", "int", "isinstance", "issubclass", "len",
+                    "list", "locals", "max", "min", "object", "property",
+                    "range", "repr", "reversed", "round", "set", "setattr",
+                    "slice", "sorted", "staticmethod", "str", "sum", "tuple",
+                    "type", "vars", "zip",
+                }
+            }
+            callback_builtin_keywords = {
+                "builtins.max": frozenset({"key"}),
+                "builtins.min": frozenset({"key"}),
+                "builtins.sorted": frozenset({"key"}),
+            }
+            Binding = tuple[str, object | None]
+
+            class ModuleFrame:
+                def __init__(
+                    self,
+                    kind: str,
+                    module: "ModuleFrame | None" = None,
+                ) -> None:
+                    self.kind = kind
+                    self.module = self if module is None else module
+                    self.bindings: dict[str, Binding] = {}
+
+                def copy(self) -> "ModuleFrame":
+                    clone = ModuleFrame(
+                        self.kind,
+                        None if self.kind == "module" else self.module,
+                    )
+                    clone.bindings = dict(self.bindings)
+                    return clone
+
+                def lookup(self, name: str) -> Binding:
+                    if name in self.bindings:
+                        return self.bindings[name]
+                    if self.kind == "class":
+                        return self.module.lookup(name)
+                    builtin = f"builtins.{name}"
+                    if builtin in safe_builtin_targets:
+                        return ("safe", builtin)
+                    return ("unknown", None)
+
+            module_frame = ModuleFrame("module")
+
+            def module_error(
+                node: ast.AST,
+                category: str,
+                detail: str,
+            ) -> DiscoveryError:
+                label = (
+                    "imported namespace"
+                    if category == "sensitive namespace"
+                    else category
+                )
+                return DiscoveryError(
+                    f"module {label} {detail} is unsupported in "
+                    f"{source}:{getattr(node, 'lineno', function.lineno)} "
+                    f"for {function.name}"
+                )
+
+            def accessor_frame(
+                node: ast.AST,
+                frame: ModuleFrame,
+            ) -> ModuleFrame | None:
+                if not (
+                    isinstance(node, ast.Call)
+                    and not node.args
+                    and not node.keywords
+                ):
+                    return None
+                kind, target = expression_binding(node.func, frame)
+                if kind != "safe":
+                    return None
+                targets = target if isinstance(target, tuple) else (target,)
+                accessors = {
+                    "builtins.globals", "builtins.locals", "builtins.vars",
+                }
+                if not any(candidate in accessors for candidate in targets):
+                    return None
+                if not all(candidate in accessors for candidate in targets):
+                    raise module_error(
+                        node, "binding grammar", "ambiguous semantic accessor"
+                    )
+                if frame.kind == "module":
+                    return frame
+                if targets == ("builtins.globals",):
+                    return frame if frame.kind == "module" else frame.module
+                if "builtins.globals" not in targets:
+                    return frame
+                raise module_error(
+                    node, "binding grammar", "ambiguous accessor frame"
+                )
+
+            def expression_binding(
+                node: ast.AST,
+                frame: ModuleFrame,
+            ) -> Binding:
+                if isinstance(node, ast.Name):
+                    return frame.lookup(node.id)
+                if isinstance(node, ast.Lambda):
+                    return ("local-callable", None)
+                if isinstance(node, ast.Constant) and node.value is None:
+                    return ("safe-disabled-callback", None)
+                if isinstance(node, ast.IfExp):
+                    return join_bindings(
+                        (
+                            expression_binding(node.body, frame),
+                            expression_binding(node.orelse, frame),
+                        ),
+                        node,
+                    )
+                if isinstance(node, ast.BoolOp):
+                    return join_bindings(
+                        tuple(
+                            expression_binding(value, frame)
+                            for value in node.values
+                        ),
+                        node,
+                    )
+                if isinstance(node, ast.Attribute):
+                    kind, target = expression_binding(node.value, frame)
+                    if kind == "builtin-namespace":
+                        resolved = f"{target}.{node.attr}"
+                        return (
+                            ("safe", resolved)
+                            if resolved in safe_builtin_targets
+                            else ("sensitive", resolved)
+                        )
+                    if kind in {"sensitive", "local-callable"}:
+                        resolved = (
+                            None if target is None else f"{target}.{node.attr}"
+                        )
+                        return (kind, resolved)
+                    return ("unknown", None)
+                if isinstance(node, (ast.List, ast.Tuple)):
+                    values: list[Binding] = []
+                    for element in node.elts:
+                        if isinstance(element, ast.Starred):
+                            kind, contained = expression_binding(
+                                element.value, frame
+                            )
+                            if not (
+                                kind == "finite-sequence"
+                                and isinstance(contained, tuple)
+                            ):
+                                raise module_error(
+                                    element,
+                                    "binding grammar",
+                                    "ambiguous starred container",
+                                )
+                            values.extend(contained)
+                        else:
+                            values.append(expression_binding(element, frame))
+                    return (
+                        "finite-sequence",
+                        tuple(values),
+                    )
+                if isinstance(node, ast.Set):
+                    return (
+                        "finite-set",
+                        tuple(expression_binding(element, frame) for element in node.elts),
+                    )
+                if isinstance(node, ast.Dict):
+                    entries: list[tuple[object, Binding]] = []
+                    for key, value in zip(node.keys, node.values):
+                        if key is None:
+                            kind, contained = expression_binding(value, frame)
+                            if not (
+                                kind == "finite-mapping"
+                                and isinstance(contained, tuple)
+                            ):
+                                raise module_error(
+                                    value,
+                                    "binding grammar",
+                                    "ambiguous mapping unpack",
+                                )
+                            entries.extend(contained)
+                            continue
+                        if not (
+                            isinstance(key, ast.Constant)
+                            and isinstance(key.value, (str, int, float, bytes, bool))
+                        ):
+                            return ("unknown", None)
+                        entries.append((key.value, expression_binding(value, frame)))
+                    return ("finite-mapping", tuple(entries))
+                if isinstance(
+                    node,
+                    (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp),
+                ):
+                    return comprehension_binding(node, frame, audit=False)
+                if isinstance(node, ast.Subscript):
+                    namespace = accessor_frame(node.value, frame)
+                    if namespace is not None:
+                        if not (
+                            isinstance(node.slice, ast.Constant)
+                            and isinstance(node.slice.value, str)
+                        ):
+                            if any(
+                                kind == "sensitive"
+                                for kind, _ in visible_bindings(namespace).values()
+                            ):
+                                raise module_error(
+                                    node, "sensitive namespace", "dynamic accessor"
+                                )
+                            return ("unknown", None)
+                        return namespace.lookup(node.slice.value)
+                    kind, target = expression_binding(node.value, frame)
+                    if kind == "finite-sequence":
+                        values = tuple(target) if isinstance(target, tuple) else ()
+                        if isinstance(node.slice, ast.Constant) and isinstance(
+                            node.slice.value, int
+                        ):
+                            index = node.slice.value
+                            if -len(values) <= index < len(values):
+                                return values[index]
+                            return ("unknown", None)
+                        return uniform_binding(values, node, "dynamic sequence index")
+                    if kind == "finite-mapping":
+                        entries = dict(target) if isinstance(target, tuple) else {}
+                        if isinstance(node.slice, ast.Constant):
+                            return entries.get(node.slice.value, ("unknown", None))
+                        return uniform_binding(
+                            tuple(entries.values()), node, "dynamic mapping key"
+                        )
+                    if kind == "finite-ambiguous" and isinstance(target, tuple):
+                        return target
+                    if kind in {"sensitive", "local-callable"}:
+                        return (kind, target)
+                    return ("unknown", None)
+                return ("unknown", None)
+
+            def visible_bindings(
+                frame: ModuleFrame,
+            ) -> dict[str, Binding]:
+                if frame.kind == "module":
+                    return dict(frame.bindings)
+                visible = dict(frame.module.bindings)
+                visible.update(frame.bindings)
+                return visible
+
+            def binding_contains_kind(binding: Binding, expected: str) -> bool:
+                kind, target = binding
+                if kind == expected:
+                    return True
+                if kind == "finite-ambiguous" and isinstance(target, tuple):
+                    return binding_contains_kind(target, expected)
+                if kind in {"finite-sequence", "finite-set"} and isinstance(
+                    target, tuple
+                ):
+                    return any(
+                        binding_contains_kind(value, expected) for value in target
+                    )
+                if kind == "finite-mapping" and isinstance(target, tuple):
+                    return any(
+                        binding_contains_kind(value, expected)
+                        for _, value in target
+                    )
+                return False
+
+            def join_bindings(
+                values: Sequence[Binding],
+                node: ast.AST,
+            ) -> Binding:
+                if not values:
+                    return ("unknown", None)
+                if all(value == values[0] for value in values[1:]):
+                    return values[0]
+                kinds = {kind for kind, _ in values}
+                if kinds == {"finite-sequence"}:
+                    sequences = [
+                        tuple(target) if isinstance(target, tuple) else ()
+                        for _, target in values
+                    ]
+                    if len({len(sequence) for sequence in sequences}) == 1:
+                        return (
+                            "finite-sequence",
+                            tuple(
+                                join_bindings(items, node)
+                                for items in zip(*sequences)
+                            ),
+                        )
+                if kinds == {"finite-set"}:
+                    sets = [
+                        tuple(target) if isinstance(target, tuple) else ()
+                        for _, target in values
+                    ]
+                    return (
+                        "finite-set",
+                        (
+                            join_bindings(
+                                tuple(item for items in sets for item in items),
+                                node,
+                            ),
+                        ),
+                    )
+                if kinds == {"finite-mapping"}:
+                    mappings = [
+                        dict(target) if isinstance(target, tuple) else {}
+                        for _, target in values
+                    ]
+                    keys = tuple(mappings[0])
+                    if all(set(mapping) == set(keys) for mapping in mappings[1:]):
+                        return (
+                            "finite-mapping",
+                            tuple(
+                                (
+                                    key,
+                                    join_bindings(
+                                        tuple(mapping[key] for mapping in mappings),
+                                        node,
+                                    ),
+                                )
+                                for key in keys
+                            ),
+                        )
+                if any(kind.startswith("finite-") for kind in kinds):
+                    poison: Binding | None = None
+                    if any(
+                        binding_contains_kind(value, "sensitive")
+                        for value in values
+                    ):
+                        poison = ("sensitive", None)
+                    elif any(
+                        binding_contains_kind(value, "local-callable")
+                        for value in values
+                    ):
+                        poison = ("local-callable", None)
+                    return ("finite-ambiguous", poison)
+                if any(
+                    binding_contains_kind(value, "sensitive")
+                    for value in values
+                ):
+                    return ("sensitive", None)
+                if any(
+                    binding_contains_kind(value, "local-callable")
+                    for value in values
+                ):
+                    return ("local-callable", None)
+                if kinds == {"safe"}:
+                    targets: list[object] = []
+                    for _, target in values:
+                        if isinstance(target, tuple):
+                            targets.extend(target)
+                        else:
+                            targets.append(target)
+                    return ("safe", tuple(dict.fromkeys(targets)))
+                callback_safe_kinds = {
+                    "safe", "safe-callback", "safe-disabled-callback",
+                }
+                if kinds.issubset(callback_safe_kinds):
+                    targets = []
+                    for kind, target in values:
+                        if kind == "safe-disabled-callback":
+                            continue
+                        if isinstance(target, tuple):
+                            targets.extend(target)
+                        else:
+                            targets.append(target)
+                    return (
+                        "safe-callback",
+                        tuple(dict.fromkeys(targets)),
+                    )
+                return ("unknown", None)
+
+            def uniform_binding(
+                values: Sequence[Binding],
+                node: ast.AST,
+                detail: str,
+            ) -> Binding:
+                if not values:
+                    return ("unknown", None)
+                if all(value == values[0] for value in values[1:]):
+                    return values[0]
+                raise module_error(node, "binding grammar", detail)
+
+            def contains_binding_kind(
+                node: ast.AST,
+                frame: ModuleFrame,
+                expected: str,
+            ) -> bool:
+                if binding_contains_kind(
+                    expression_binding(node, frame), expected
+                ):
+                    return True
+                if isinstance(node, ast.Lambda):
+                    return any(
+                        contains_binding_kind(default, frame, expected)
+                        for default in (
+                            *node.args.defaults,
+                            *(default for default in node.args.kw_defaults if default),
+                        )
+                    )
+                return any(
+                    contains_binding_kind(child, frame, expected)
+                    for child in ast.iter_child_nodes(node)
+                )
+
+            def contains_sensitive(node: ast.AST, frame: ModuleFrame) -> bool:
+                return contains_binding_kind(node, frame, "sensitive")
+
+            def contains_finite_binding(
+                node: ast.AST,
+                frame: ModuleFrame,
+            ) -> bool:
+                if expression_binding(node, frame)[0].startswith("finite-"):
+                    return True
+                if isinstance(node, ast.Lambda):
+                    return any(
+                        contains_finite_binding(default, frame)
+                        for default in (
+                            *node.args.defaults,
+                            *(default for default in node.args.kw_defaults if default),
+                        )
+                    )
+                return any(
+                    contains_finite_binding(child, frame)
+                    for child in ast.iter_child_nodes(node)
+                )
+
+            def validate_builtin_callbacks(
+                node: ast.Call,
+                target: object | None,
+                frame: ModuleFrame,
+            ) -> None:
+                targets = target if isinstance(target, tuple) else (target,)
+                callback_keywords = set().union(
+                    *(
+                        callback_builtin_keywords.get(candidate, frozenset())
+                        for candidate in targets
+                    )
+                )
+                if not callback_keywords:
+                    return
+
+                def validate_callback(value: ast.AST, keyword: str) -> None:
+                    if expression_binding(value, frame)[0] not in {
+                        "safe", "safe-callback", "safe-disabled-callback",
+                    }:
+                        raise module_error(
+                            value,
+                            "callback",
+                            f"unproven {keyword} value",
+                        )
+
+                for keyword in node.keywords:
+                    if keyword.arg in callback_keywords:
+                        validate_callback(keyword.value, keyword.arg)
+                        continue
+                    if keyword.arg is not None:
+                        continue
+                    if not isinstance(keyword.value, ast.Dict):
+                        raise module_error(
+                            keyword.value,
+                            "callback",
+                            "unproven keyword spread",
+                        )
+                    for key, value in zip(
+                        keyword.value.keys, keyword.value.values
+                    ):
+                        if not (
+                            isinstance(key, ast.Constant)
+                            and isinstance(key.value, str)
+                        ):
+                            raise module_error(
+                                keyword.value,
+                                "callback",
+                                "unproven keyword spread",
+                            )
+                        if key.value in callback_keywords:
+                            validate_callback(value, key.value)
+
+            def audit_expression(node: ast.AST, frame: ModuleFrame) -> None:
+                if isinstance(node, ast.Lambda):
+                    for default in (
+                        *node.args.defaults,
+                        *(default for default in node.args.kw_defaults if default),
+                    ):
+                        audit_expression(default, frame)
+                    return
+                if isinstance(
+                    node,
+                    (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp),
+                ):
+                    comprehension_binding(node, frame, audit=True)
+                    return
+                if isinstance(node, ast.NamedExpr):
+                    audit_expression(node.value, frame)
+                    if contains_sensitive(node.value, frame):
+                        raise module_error(
+                            node, "sensitive namespace", "assignment escape"
+                        )
+                    bind_target(
+                        node.target, expression_binding(node.value, frame), frame
+                    )
+                    return
+                if isinstance(node, ast.Call):
+                    audit_expression(node.func, frame)
+                    for argument in node.args:
+                        audit_expression(argument, frame)
+                    for keyword in node.keywords:
+                        audit_expression(keyword.value, frame)
+                    kind, target = expression_binding(node.func, frame)
+                    if kind == "local-callable":
+                        raise module_error(
+                            node, "local callable", "execution"
+                        )
+                    arguments_are_sensitive = any(
+                        contains_sensitive(argument, frame)
+                        for argument in node.args
+                    ) or any(
+                        contains_sensitive(keyword.value, frame)
+                        for keyword in node.keywords
+                    )
+                    arguments_have_local_callable = any(
+                        contains_binding_kind(
+                            argument, frame, "local-callable"
+                        )
+                        for argument in node.args
+                    ) or any(
+                        contains_binding_kind(
+                            keyword.value, frame, "local-callable"
+                        )
+                        for keyword in node.keywords
+                    )
+                    if arguments_have_local_callable:
+                        raise module_error(
+                            node, "local callable", "argument execution"
+                        )
+                    if kind == "sensitive" or arguments_are_sensitive:
+                        raise module_error(
+                            node, "sensitive namespace", target or "call escape"
+                        )
+                    if kind != "safe":
+                        raise module_error(
+                            node, "local callable", "unproven execution"
+                        )
+                    validate_builtin_callbacks(node, target, frame)
+                    return
+                if isinstance(node, ast.Attribute):
+                    audit_expression(node.value, frame)
+                    if node.attr == "__dict__" and contains_sensitive(
+                        node.value, frame
+                    ):
+                        raise module_error(
+                            node, "sensitive namespace", "__dict__ access"
+                        )
+                    return
+                if isinstance(node, ast.Subscript):
+                    audit_expression(node.value, frame)
+                    audit_expression(node.slice, frame)
+                    kind, target = expression_binding(node, frame)
+                    if kind == "sensitive" and accessor_frame(
+                        node.value, frame
+                    ) is not None:
+                        raise module_error(
+                            node,
+                            "sensitive namespace",
+                            target or "accessor escape",
+                        )
+                    return
+                for child in ast.iter_child_nodes(node):
+                    audit_expression(child, frame)
+
+            def audit_callable_trigger(
+                node: ast.AST,
+                frame: ModuleFrame,
+            ) -> None:
+                audit_expression(node, frame)
+                kind, target = expression_binding(node, frame)
+                if kind == "local-callable":
+                    raise module_error(node, "local callable", "execution")
+                if kind == "sensitive":
+                    raise module_error(
+                        node, "sensitive namespace", target or "call escape"
+                    )
+                if kind != "safe":
+                    raise module_error(
+                        node, "local callable", "unproven execution"
+                    )
+
+            def iterated_binding(
+                iterable: Binding,
+                node: ast.AST,
+            ) -> Binding:
+                kind, target = iterable
+                if kind in {"finite-sequence", "finite-set"} and isinstance(
+                    target, tuple
+                ):
+                    return uniform_binding(target, node, "ambiguous finite iterator")
+                if kind == "finite-mapping":
+                    return ("unknown", None)
+                if binding_contains_kind(iterable, "sensitive") or (
+                    binding_contains_kind(iterable, "local-callable")
+                ):
+                    raise module_error(
+                        node, "binding grammar", "unsupported iterator provenance"
+                    )
+                return ("unknown", None)
+
+            def comprehension_binding(
+                node: ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp,
+                frame: ModuleFrame,
+                audit: bool,
+            ) -> Binding:
+                if len(node.generators) != 1 or node.generators[0].is_async:
+                    raise module_error(
+                        node, "binding grammar", "ambiguous comprehension"
+                    )
+                generator = node.generators[0]
+                if audit:
+                    audit_expression(generator.iter, frame)
+                value = iterated_binding(
+                    expression_binding(generator.iter, frame), generator.iter
+                )
+                comprehension_frame = frame.copy()
+                bind_target(generator.target, value, comprehension_frame)
+                for condition in generator.ifs:
+                    if audit:
+                        audit_expression(condition, comprehension_frame)
+                if isinstance(node, ast.DictComp):
+                    if audit:
+                        audit_expression(node.key, comprehension_frame)
+                        audit_expression(node.value, comprehension_frame)
+                    if not (
+                        isinstance(node.key, ast.Constant)
+                        and isinstance(
+                            node.key.value, (str, int, float, bytes, bool)
+                        )
+                    ):
+                        raise module_error(
+                            node, "binding grammar", "dynamic comprehension key"
+                        )
+                    return (
+                        "finite-mapping",
+                        ((node.key.value, expression_binding(
+                            node.value, comprehension_frame
+                        )),),
+                    )
+                if audit:
+                    audit_expression(node.elt, comprehension_frame)
+                result = expression_binding(node.elt, comprehension_frame)
+                return (
+                    "finite-set" if isinstance(node, ast.SetComp) else "finite-sequence",
+                    (result,),
+                )
+
+            def bind_target(
+                target: ast.AST,
+                value: Binding,
+                frame: ModuleFrame,
+            ) -> None:
+                if isinstance(target, ast.Name):
+                    frame.bindings[target.id] = value
+                    return
+                if isinstance(target, ast.Starred):
+                    raise module_error(
+                        target, "binding grammar", "starred binder"
+                    )
+                if isinstance(target, (ast.Tuple, ast.List)):
+                    kind, contained = value
+                    if not (
+                        kind == "finite-sequence"
+                        and isinstance(contained, tuple)
+                        and len(contained) == len(target.elts)
+                    ):
+                        raise module_error(
+                            target, "binding grammar", "ambiguous destructuring"
+                        )
+                    for element, element_value in zip(target.elts, contained):
+                        bind_target(element, element_value, frame)
+                    return
+                owner = (
+                    target.value
+                    if isinstance(target, (ast.Attribute, ast.Subscript))
+                    else target
+                )
+                audit_expression(owner, frame)
+                if contains_finite_binding(owner, frame):
+                    raise module_error(
+                        target, "binding grammar", "finite container mutation"
+                    )
+                if contains_sensitive(owner, frame):
+                    raise module_error(
+                        target, "sensitive namespace", "mutation"
+                    )
+
+            def bind_pattern(
+                pattern: ast.pattern,
+                value: Binding,
+                frame: ModuleFrame,
+            ) -> None:
+                if isinstance(pattern, ast.MatchAs):
+                    if pattern.pattern is not None:
+                        bind_pattern(pattern.pattern, value, frame)
+                    if pattern.name is not None:
+                        frame.bindings[pattern.name] = value
+                    return
+                if isinstance(pattern, (ast.MatchValue, ast.MatchSingleton)):
+                    if isinstance(pattern, ast.MatchValue):
+                        audit_expression(pattern.value, frame)
+                    return
+                if isinstance(pattern, ast.MatchSequence):
+                    kind, contained = value
+                    if not (
+                        kind == "finite-sequence"
+                        and isinstance(contained, tuple)
+                        and len(contained) == len(pattern.patterns)
+                        and not any(
+                            isinstance(item, ast.MatchStar)
+                            for item in pattern.patterns
+                        )
+                    ):
+                        raise module_error(
+                            pattern, "binding grammar", "ambiguous sequence pattern"
+                        )
+                    for item, item_value in zip(pattern.patterns, contained):
+                        bind_pattern(item, item_value, frame)
+                    return
+                if isinstance(pattern, ast.MatchMapping):
+                    kind, contained = value
+                    if not (
+                        kind == "finite-mapping" and isinstance(contained, tuple)
+                    ):
+                        raise module_error(
+                            pattern, "binding grammar", "ambiguous mapping pattern"
+                        )
+                    entries = dict(contained)
+                    matched: set[object] = set()
+                    for key, item in zip(pattern.keys, pattern.patterns):
+                        if not isinstance(key, ast.Constant) or key.value not in entries:
+                            raise module_error(
+                                pattern, "binding grammar", "dynamic mapping pattern"
+                            )
+                        matched.add(key.value)
+                        bind_pattern(item, entries[key.value], frame)
+                    if pattern.rest is not None:
+                        frame.bindings[pattern.rest] = (
+                            "finite-mapping",
+                            tuple(
+                                (key, item)
+                                for key, item in contained
+                                if key not in matched
+                            ),
+                        )
+                    return
+                if isinstance(pattern, ast.MatchOr):
+                    branches = []
+                    for option in pattern.patterns:
+                        branch = frame.copy()
+                        bind_pattern(option, value, branch)
+                        branches.append(branch)
+                    merge_frames(frame, branches)
+                    return
+                raise module_error(
+                    pattern, "binding grammar", type(pattern).__name__
+                )
+
+            def merge_frames(
+                frame: ModuleFrame,
+                branches: Sequence[ModuleFrame],
+            ) -> None:
+                names = set().union(*(branch.bindings for branch in branches))
+                for name in names:
+                    values = [branch.lookup(name) for branch in branches]
+                    if all(value == values[0] for value in values[1:]):
+                        frame.bindings[name] = values[0]
+                    elif any(
+                        binding_contains_kind(value, "sensitive")
+                        for value in values
+                    ):
+                        frame.bindings[name] = ("sensitive", None)
+                    elif any(
+                        binding_contains_kind(value, "local-callable")
+                        for value in values
+                    ):
+                        frame.bindings[name] = ("local-callable", None)
+                    else:
+                        frame.bindings[name] = ("unknown", None)
+
+            def process_import(
+                node: ast.Import | ast.ImportFrom,
+                frame: ModuleFrame,
+            ) -> None:
+                if isinstance(node, ast.ImportFrom) and node.module == "__future__":
+                    return
+                for name, target in _dispatch_import_bindings(node).items():
+                    if target == "builtins":
+                        frame.bindings[name] = ("builtin-namespace", target)
+                    elif target in safe_builtin_targets:
+                        frame.bindings[name] = ("safe", target)
+                    else:
+                        frame.bindings[name] = ("sensitive", target)
+
+            def process_function(
+                node: ast.FunctionDef | ast.AsyncFunctionDef,
+                frame: ModuleFrame,
+            ) -> None:
+                for decorator in node.decorator_list:
+                    audit_callable_trigger(decorator, frame)
+                for default in node.args.defaults:
+                    audit_expression(default, frame)
+                for default in node.args.kw_defaults:
+                    if default is not None:
+                        audit_expression(default, frame)
+                if not future_annotations:
+                    for argument in (
+                        *node.args.posonlyargs,
+                        *node.args.args,
+                        *node.args.kwonlyargs,
+                        node.args.vararg,
+                        node.args.kwarg,
+                    ):
+                        if argument is not None and argument.annotation is not None:
+                            audit_expression(argument.annotation, frame)
+                    if node.returns is not None:
+                        audit_expression(node.returns, frame)
+                for type_parameter in getattr(node, "type_params", ()):
+                    audit_expression(type_parameter, frame)
+                frame.bindings[node.name] = ("local-callable", None)
+
+            def process_class(node: ast.ClassDef, frame: ModuleFrame) -> None:
+                for decorator in node.decorator_list:
+                    audit_callable_trigger(decorator, frame)
+                for base in node.bases:
+                    audit_callable_trigger(base, frame)
+                for keyword in node.keywords:
+                    audit_callable_trigger(keyword.value, frame)
+                for type_parameter in getattr(node, "type_params", ()):
+                    audit_expression(type_parameter, frame)
+                class_frame = ModuleFrame("class", frame.module)
+                process_statements(node.body, class_frame)
+                frame.bindings[node.name] = ("local-callable", None)
+
+            def process_statement(node: ast.stmt, frame: ModuleFrame) -> None:
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    process_import(node, frame)
+                    return
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    process_function(node, frame)
+                    return
+                if isinstance(node, ast.ClassDef):
+                    process_class(node, frame)
+                    return
+                if isinstance(node, ast.Assign):
+                    audit_expression(node.value, frame)
+                    if contains_sensitive(node.value, frame):
+                        raise module_error(
+                            node, "sensitive namespace", "assignment escape"
+                        )
+                    value = expression_binding(node.value, frame)
+                    for target in node.targets:
+                        bind_target(target, value, frame)
+                    return
+                if isinstance(node, ast.AnnAssign):
+                    if not future_annotations:
+                        audit_expression(node.annotation, frame)
+                    if node.value is not None:
+                        audit_expression(node.value, frame)
+                        if contains_sensitive(node.value, frame):
+                            raise module_error(
+                                node, "sensitive namespace", "assignment escape"
+                            )
+                        bind_target(
+                            node.target, expression_binding(node.value, frame), frame
+                        )
+                    return
+                if isinstance(node, ast.AugAssign):
+                    audit_expression(node.target, frame)
+                    audit_expression(node.value, frame)
+                    if contains_finite_binding(node.target, frame):
+                        raise module_error(
+                            node, "binding grammar", "finite container mutation"
+                        )
+                    if contains_sensitive(node.target, frame):
+                        raise module_error(
+                            node, "sensitive namespace", "mutation"
+                        )
+                    bind_target(node.target, ("unknown", None), frame)
+                    return
+                if isinstance(node, ast.Delete):
+                    for target in node.targets:
+                        if contains_sensitive(target, frame):
+                            raise module_error(
+                                node, "sensitive namespace", "deletion"
+                            )
+                        if isinstance(target, ast.Name):
+                            frame.bindings.pop(target.id, None)
+                        else:
+                            bind_target(target, ("unknown", None), frame)
+                    return
+                if isinstance(node, ast.Expr):
+                    audit_expression(node.value, frame)
+                    return
+                if isinstance(node, ast.If):
+                    audit_expression(node.test, frame)
+                    body = frame.copy()
+                    process_statements(node.body, body)
+                    alternate = frame.copy()
+                    process_statements(node.orelse, alternate)
+                    merge_frames(frame, (body, alternate))
+                    return
+                if isinstance(node, (ast.For, ast.AsyncFor)):
+                    audit_expression(node.iter, frame)
+                    body = frame.copy()
+                    bind_target(
+                        node.target,
+                        iterated_binding(
+                            expression_binding(node.iter, frame), node.iter
+                        ),
+                        body,
+                    )
+                    process_statements(node.body, body)
+                    process_statements(node.orelse, body)
+                    merge_frames(frame, (frame.copy(), body))
+                    return
+                if isinstance(node, ast.While):
+                    audit_expression(node.test, frame)
+                    body = frame.copy()
+                    process_statements(node.body, body)
+                    process_statements(node.orelse, body)
+                    merge_frames(frame, (frame.copy(), body))
+                    return
+                if isinstance(node, (ast.With, ast.AsyncWith)):
+                    for item in node.items:
+                        audit_expression(item.context_expr, frame)
+                        if item.optional_vars is not None:
+                            bind_target(item.optional_vars, ("unknown", None), frame)
+                    process_statements(node.body, frame)
+                    return
+                if isinstance(node, ast.Try):
+                    body = frame.copy()
+                    process_statements(node.body, body)
+                    process_statements(node.orelse, body)
+                    branches = [body]
+                    for handler in node.handlers:
+                        branch = frame.copy()
+                        if handler.type is not None:
+                            audit_expression(handler.type, branch)
+                        if handler.name:
+                            branch.bindings[handler.name] = ("unknown", None)
+                        process_statements(handler.body, branch)
+                        branches.append(branch)
+                    merge_frames(frame, branches)
+                    process_statements(node.finalbody, frame)
+                    return
+                if isinstance(node, ast.Match):
+                    audit_expression(node.subject, frame)
+                    subject = expression_binding(node.subject, frame)
+                    branches = [frame.copy()]
+                    for case in node.cases:
+                        branch = frame.copy()
+                        bind_pattern(case.pattern, subject, branch)
+                        if case.guard is not None:
+                            audit_expression(case.guard, branch)
+                        process_statements(case.body, branch)
+                        branches.append(branch)
+                    merge_frames(frame, branches)
+                    return
+                if isinstance(node, ast.Assert):
+                    audit_expression(node.test, frame)
+                    if node.msg is not None:
+                        audit_expression(node.msg, frame)
+                    return
+                if isinstance(node, ast.Raise):
+                    if node.exc is not None:
+                        audit_expression(node.exc, frame)
+                    if node.cause is not None:
+                        audit_expression(node.cause, frame)
+                    return
+                if isinstance(node, (ast.Pass, ast.Break, ast.Continue)):
+                    return
+                if isinstance(node, (ast.Global, ast.Nonlocal)):
+                    raise module_error(node, "binding grammar", type(node).__name__)
+                raise module_error(node, "binding grammar", type(node).__name__)
+
+            def process_statements(
+                statements: Sequence[ast.stmt],
+                frame: ModuleFrame,
+            ) -> None:
+                for statement in statements:
+                    process_statement(statement, frame)
+
+            process_statements(tree.body, module_frame)
+
+            module_prefix = tree.body[:tree.body.index(function)]
+            dispatch_imports: list[ast.ImportFrom] = [
+                statement
+                for statement in module_prefix
+                if isinstance(statement, ast.ImportFrom)
+            ]
+
+            def collect_dispatch_imports(node: ast.AST) -> None:
+                if isinstance(
+                    node,
+                    (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
+                ):
+                    return
+                if isinstance(node, ast.ImportFrom):
+                    dispatch_imports.append(node)
+                for child in ast.iter_child_nodes(node):
+                    collect_dispatch_imports(child)
+
+            for statement in function.body:
+                collect_dispatch_imports(statement)
+            relative_import = next(
+                (node for node in dispatch_imports if node.level > 0),
+                None,
+            )
+            if relative_import is not None:
+                raise shape_error(relative_import, "relative import is not portable")
+
+            spread_aliases = _dispatch_spread_aliases(function, spread_name, source)
+            module_bindings = _dispatch_module_bindings(tree, function)
+            bindings = module_bindings.copy()
+            local_names = _dispatch_scope_bindings(function)
+            arguments = {
+                argument.arg
+                for argument in (
+                    *function.args.posonlyargs,
+                    *function.args.args,
+                    *function.args.kwonlyargs,
+                )
+            }
+            if function.args.vararg is not None:
+                arguments.add(function.args.vararg.arg)
+            if function.args.kwarg is not None:
+                arguments.add(function.args.kwarg.arg)
+            for name in local_names:
+                bindings.values[name] = None
+            bindings.poisoned.update(arguments)
+            returned_names = _dispatch_returned_names(function)
+            claimed_constructor_calls: set[int] = set()
+            claimed_mapping_calls: set[int] = set()
+            claimed_mapping_reads: set[int] = set()
+            claimed_subscript_effects: set[int] = set()
+            approved_fallback_calls: set[int] = set()
+
+            def poison(state: _DispatchBindings, names: Iterable[str]) -> None:
+                for name in names:
+                    state.values[name] = None
+                    state.poisoned.add(name)
+
+            def merge_states(
+                state: _DispatchBindings,
+                branches: Sequence[_DispatchBindings],
+            ) -> None:
+                names = set(state.values)
+                for branch in branches:
+                    names.update(branch.values)
+                for name in names:
+                    values = {branch.values.get(name) for branch in branches}
+                    any_poisoned = any(name in branch.poisoned for branch in branches)
+                    if not any_poisoned and len(values) == 1:
+                        state.values[name] = values.pop()
+                        state.poisoned.discard(name)
+                    else:
+                        state.values[name] = None
+                        state.poisoned.add(name)
+
+            def resolve_path(node: ast.AST, state: _DispatchBindings) -> str:
+                path = _attribute_path(node)
+                if path is None:
+                    raise shape_error(node, "dynamic constructor target")
+                root, separator, remainder = path.partition(".")
+                resolved = state.values.get(root)
+                if resolved is None or root in state.poisoned:
+                    raise shape_error(
+                        node, f"constructor binding {root!r} is not proven"
+                    )
+                return resolved + (separator + remainder if separator else "")
+
+            def resolve_constructor(
+                call: ast.Call, state: _DispatchBindings
+            ) -> str:
+                return resolve_path(call.func, state)
+
+            def bind_static(
+                state: _DispatchBindings, name: str, target: str
+            ) -> None:
+                module_target = module_bindings.values.get(name)
+                current = state.values.get(name)
+                if (
+                    name in state.poisoned
+                    or module_target is not None and module_target != target
+                    or current is not None and current != target
+                ):
+                    poison(state, (name,))
+                else:
+                    state.values[name] = target
+
+            def bind_import(
+                state: _DispatchBindings, statement: ast.Import | ast.ImportFrom
+            ) -> None:
+                imported = _dispatch_import_bindings(statement)
+                if not imported:
+                    raise DiscoveryError(
+                        f"dispatch wildcard or relative import is unsupported in "
+                        f"{source}:{statement.lineno}"
+                    )
+                for name, target in imported.items():
+                    bind_static(state, name, target)
+
+            def bind_assignment(
+                state: _DispatchBindings,
+                statement: ast.Assign | ast.AnnAssign,
+            ) -> None:
+                targets = (
+                    statement.targets
+                    if isinstance(statement, ast.Assign)
+                    else (statement.target,)
+                )
+                names = set().union(*(_dispatch_target_names(target) for target in targets))
+                value = statement.value
+                if value is None:
+                    poison(state, names)
+                    return
+                if (
+                    source == "toolkit/scheduler.py"
+                    and not is_optimizer
+                    and len(names) == 1
+                    and names == {"schedule_func"}
+                    and isinstance(value, ast.Subscript)
+                    and isinstance(value.slice, ast.Name)
+                    and value.slice.id == "name"
+                ):
+                    try:
+                        lookup = resolve_path(value.value, state)
+                    except DiscoveryError:
+                        lookup = None
+                    if lookup == "diffusers.optimization.TYPE_TO_SCHEDULER_FUNCTION":
+                        bind_static(state, "schedule_func", "@diffusers-scheduler")
+                        return
+                if len(names) == 1 and isinstance(value, (ast.Name, ast.Attribute)):
+                    try:
+                        target = resolve_path(value, state)
+                    except DiscoveryError:
+                        target = None
+                    if target is not None:
+                        bind_static(state, next(iter(names)), target)
+                        return
+                poison(state, names)
+
+            def constructor_call(statement: ast.stmt) -> ast.Call | None:
+                if isinstance(statement, ast.Return) and isinstance(statement.value, ast.Call):
+                    return statement.value
+                if isinstance(statement, ast.Assign) and isinstance(statement.value, ast.Call):
+                    if any(
+                        _dispatch_target_names(target).intersection(returned_names)
+                        for target in statement.targets
+                    ):
+                        return statement.value
+                if (
+                    isinstance(statement, ast.AnnAssign)
+                    and isinstance(statement.value, ast.Call)
+                    and _dispatch_target_names(statement.target).intersection(returned_names)
+                ):
+                    return statement.value
+                return None
+
+            def contains_constructor(statement: ast.stmt) -> bool:
+                found = False
+
+                def visit(node: ast.AST) -> None:
+                    nonlocal found
+                    if found:
+                        return
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                        return
+                    if isinstance(node, ast.stmt) and constructor_call(node) is not None:
+                        found = True
+                        return
+                    for child in ast.iter_child_nodes(node):
+                        visit(child)
+
+                visit(statement)
+                return found
+
+            def mapping_method(call: ast.Call) -> tuple[str, str] | None:
+                if not (
+                    isinstance(call.func, ast.Attribute)
+                    and call.func.attr in {"pop", "get"}
+                    and isinstance(call.func.value, ast.Name)
+                    and call.func.value.id in spread_aliases
+                ):
+                    return None
+                if call.func.value.lineno <= spread_aliases[call.func.value.id]:
+                    raise DiscoveryError(
+                        f"dispatch spread alias {call.func.value.id!r} is used before "
+                        f"it is bound in {source}:{call.lineno}"
+                    )
+                if (
+                    not 1 <= len(call.args) <= 2
+                    or call.keywords
+                    or not isinstance(call.args[0], ast.Constant)
+                    or not isinstance(call.args[0].value, str)
+                ):
+                    raise DiscoveryError(
+                        f"dispatch mapping {call.func.attr} call is not statically finite "
+                        f"in {source}:{call.lineno}"
+                    )
+                return call.func.attr, call.args[0].value
+
+            def mapping_origin(node: ast.AST) -> tuple[str, int] | None:
+                if isinstance(node, ast.Name) and node.id in spread_aliases:
+                    return node.id, 0
+                if isinstance(node, ast.Subscript):
+                    origin = mapping_origin(node.value)
+                    if origin is not None:
+                        return origin[0], origin[1] + 1
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in {"get", "pop"}
+                ):
+                    origin = mapping_origin(node.func.value)
+                    if origin is not None:
+                        return origin[0], origin[1] + 1
+                return None
+
+            def mapping_reads(
+                root: ast.AST,
+            ) -> tuple[tuple[ast.AST, str, str], ...]:
+                reads: list[tuple[ast.AST, str, str]] = []
+
+                def visit(node: ast.AST) -> None:
+                    if isinstance(
+                        node,
+                        (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
+                    ):
+                        return
+                    if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load):
+                        origin = mapping_origin(node)
+                        if origin is not None:
+                            if not (
+                                origin[1] == 1
+                                and isinstance(node.slice, ast.Constant)
+                                and isinstance(node.slice.value, str)
+                            ):
+                                raise DiscoveryError(
+                                    f"dispatch mapping load shape is not a direct literal "
+                                    f"key in {source}:{node.lineno} for {function.name}"
+                                )
+                            reads.append((node, node.slice.value, "required"))
+                    if (
+                        isinstance(node, ast.Compare)
+                        and any(isinstance(operator, (ast.In, ast.NotIn)) for operator in node.ops)
+                        and _dispatch_references(node, set(spread_aliases))
+                    ):
+                        if not (
+                            len(node.ops) == 1
+                            and isinstance(node.ops[0], (ast.In, ast.NotIn))
+                            and len(node.comparators) == 1
+                            and isinstance(node.left, ast.Constant)
+                            and isinstance(node.left.value, str)
+                            and isinstance(node.comparators[0], ast.Name)
+                            and node.comparators[0].id in spread_aliases
+                        ):
+                            raise DiscoveryError(
+                                f"dispatch mapping membership shape is not a direct "
+                                f"literal key in {source}:{node.lineno} for {function.name}"
+                            )
+                        reads.append((node, node.left.value, "presence-check"))
+                    for child in ast.iter_child_nodes(node):
+                        visit(child)
+
+                visit(root)
+                return tuple(reads)
+
+            def add_constructor_facts(
+                call: ast.Call,
+                selector: _DispatchSelector,
+                state: _DispatchBindings,
+            ) -> None:
+                validate_spreads(call, spread_aliases, source)
+                target = resolve_constructor(call, state)
+                if target == "@diffusers-scheduler":
+                    raise DiscoveryError(
+                        f"dynamic scheduler target appears under a finite selector in "
+                        f"{source}:{call.lineno}"
+                    )
+                claimed_constructor_calls.add(id(call))
+                read_kind = (
+                    f"{registry_prefix}.registry"
+                    if selector.kind == "exact"
+                    else f"{registry_prefix}.registry_{selector.kind}"
+                )
+                key = _dispatch_key(selector)
+                facts.append(
+                    DiscoveredSetting(
+                        source, function.name, call.lineno, key,
+                        read_kind, scope, target,
+                    )
+                )
+                target_key = f"{key}__target={target}"
+                facts.append(
+                    DiscoveredSetting(
+                        source, function.name, call.lineno, target_key,
+                        f"{registry_prefix}.dispatch_target", scope, target,
+                    )
+                )
+                if is_optimizer:
+                    optimizer_targets.append(
+                        (selector, target, call.lineno, source, function.name)
+                    )
+                    if not target.startswith("toolkit.optimizers."):
+                        facts.append(
+                            DiscoveredSetting(
+                                source, function.name, call.lineno, target_key,
+                                "optimizer.external_boundary", scope, target,
+                            )
+                        )
+                for keyword in call.keywords:
+                    if keyword.arg is not None:
+                        facts.append(
+                            DiscoveredSetting(
+                                source,
+                                function.name,
+                                call.lineno,
+                                _dispatch_key(selector, keyword.arg),
+                                f"{registry_prefix}.injected",
+                                scope,
+                                _source_expression(keyword.value),
+                            )
+                        )
+
+            def add_mapping_read_facts(
+                node: ast.AST, selector: _DispatchSelector
+            ) -> None:
+                for read, parameter, default in mapping_reads(node):
+                    claimed_mapping_reads.add(id(read))
+                    facts.append(
+                        DiscoveredSetting(
+                            source,
+                            function.name,
+                            read.lineno,
+                            _dispatch_key(selector, parameter),
+                            f"{registry_prefix}.consumed",
+                            scope,
+                            default,
+                        )
+                    )
+
+            def add_mapping_facts(
+                statement: ast.stmt, selector: _DispatchSelector
+            ) -> None:
+                add_mapping_read_facts(statement, selector)
+                for node in ast.walk(statement):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    method = mapping_method(node)
+                    if method is None:
+                        continue
+                    parent = next(
+                        (
+                            candidate
+                            for candidate in ast.walk(statement)
+                            if isinstance(candidate, (ast.Assign, ast.AnnAssign))
+                            and candidate.value is node
+                        ),
+                        None,
+                    )
+                    if parent is not None:
+                        parent_targets = (
+                            parent.targets
+                            if isinstance(parent, ast.Assign)
+                            else (parent.target,)
+                        )
+                        if any(
+                            any(
+                                _dispatch_subscript_key(target, alias) is not None
+                                for alias in spread_aliases
+                            )
+                            for target in parent_targets
+                        ):
+                            continue
+                    _, parameter = method
+                    claimed_mapping_calls.add(id(node))
+                    default = (
+                        _source_expression(node.args[1])
+                        if len(node.args) == 2
+                        else "required"
+                    )
+                    facts.append(
+                        DiscoveredSetting(
+                            source, function.name, node.lineno,
+                            _dispatch_key(selector, parameter),
+                            f"{registry_prefix}.consumed", scope, default,
+                        )
+                    )
+
+                if isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                    targets = (
+                        statement.targets
+                        if isinstance(statement, ast.Assign)
+                        else (statement.target,)
+                    )
+                    value = statement.value
+                    if value is None:
+                        return
+                    for target_node in targets:
+                        target_key = next(
+                            (
+                                key
+                                for alias in spread_aliases
+                                if (key := _dispatch_subscript_key(target_node, alias))
+                                is not None
+                            ),
+                            None,
+                        )
+                        if target_key is None:
+                            continue
+                        claimed_subscript_effects.add(id(target_node))
+                        normalized_from = None
+                        if (
+                            isinstance(value, ast.Call)
+                            and isinstance(value.func, ast.Attribute)
+                            and value.func.attr == "pop"
+                            and isinstance(value.func.value, ast.Name)
+                            and value.func.value.id in spread_aliases
+                            and value.args
+                            and isinstance(value.args[0], ast.Constant)
+                            and isinstance(value.args[0].value, str)
+                        ):
+                            normalized_from = value.args[0].value
+                        if normalized_from is not None:
+                            claimed_mapping_calls.add(id(value))
+                            facts.append(
+                                DiscoveredSetting(
+                                    source, function.name, statement.lineno,
+                                    _dispatch_key(selector, normalized_from),
+                                    f"{registry_prefix}.normalized", scope,
+                                    target_key,
+                                )
+                            )
+                        else:
+                            facts.append(
+                                DiscoveredSetting(
+                                    source, function.name, statement.lineno,
+                                    _dispatch_key(selector, target_key),
+                                    f"{registry_prefix}.injected", scope,
+                                    _source_expression(value),
+                                )
+                            )
+                elif isinstance(statement, ast.Delete):
+                    for target_node in statement.targets:
+                        target_key = next(
+                            (
+                                key
+                                for alias in spread_aliases
+                                if (key := _dispatch_subscript_key(target_node, alias))
+                                is not None
+                            ),
+                            None,
+                        )
+                        if target_key is not None:
+                            claimed_subscript_effects.add(id(target_node))
+                            facts.append(
+                                DiscoveredSetting(
+                                    source, function.name, statement.lineno,
+                                    _dispatch_key(selector, target_key),
+                                    f"{registry_prefix}.consumed", scope,
+                                    "removed",
+                                )
+                            )
+
+            def is_diffusers_fallback(
+                call: ast.Call, state: _DispatchBindings, conditional_depth: int
+            ) -> bool:
+                return (
+                    conditional_depth == 0
+                    and source == "toolkit/scheduler.py"
+                    and function.name == "get_lr_scheduler"
+                    and isinstance(call.func, ast.Name)
+                    and call.func.id == "schedule_func"
+                    and state.values.get("schedule_func") == "@diffusers-scheduler"
+                    and "schedule_func" not in state.poisoned
+                    and len(call.args) == 1
+                    and isinstance(call.args[0], ast.Name)
+                    and call.args[0].id == "optimizer"
+                    and len(call.keywords) == 1
+                    and call.keywords[0].arg is None
+                    and isinstance(call.keywords[0].value, ast.Name)
+                    and call.keywords[0].value.id == spread_name
+                )
+
+            def process_simple_binding(
+                statement: ast.stmt, state: _DispatchBindings
+            ) -> None:
+                named = {
+                    node.target.id
+                    for node in ast.walk(statement)
+                    if isinstance(node, ast.NamedExpr)
+                    and isinstance(node.target, ast.Name)
+                }
+                poison(state, named)
+                if isinstance(statement, (ast.Import, ast.ImportFrom)):
+                    bind_import(state, statement)
+                elif isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                    bind_assignment(state, statement)
+                elif isinstance(statement, ast.AugAssign):
+                    poison(state, _dispatch_target_names(statement.target))
+                elif isinstance(statement, ast.Delete):
+                    poison(
+                        state,
+                        set().union(
+                            *(_dispatch_target_names(target) for target in statement.targets)
+                        ),
+                    )
+                elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    poison(state, (statement.name,))
+
+            def validate_closed_grammar() -> None:
+                """Reject every dispatch shape outside the source-proven grammar.
+
+                This validator intentionally runs before fact emission.  The discovery
+                visitor below may understand bindings and ownership, but it must never
+                make unsupported syntax disappear merely because no ``**kwargs`` spread
+                was present.
+                """
+
+                approved_calls: set[int] = set()
+                approved_returns: set[int] = set()
+
+                def scoped_nodes(roots: Iterable[ast.AST]) -> Iterable[ast.AST]:
+                    def visit(node: ast.AST) -> Iterable[ast.AST]:
+                        yield node
+                        if isinstance(
+                            node,
+                            (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
+                        ) and node is not function:
+                            return
+                        for child in ast.iter_child_nodes(node):
+                            yield from visit(child)
+
+                    for root in roots:
+                        yield from visit(root)
+
+                imported_roots: set[str] = set()
+                for statement in module_prefix:
+                    if isinstance(statement, (ast.Import, ast.ImportFrom)):
+                        imported_roots.update(_dispatch_import_bindings(statement))
+                for node in scoped_nodes(function.body):
+                    if isinstance(node, (ast.Import, ast.ImportFrom)):
+                        imported_roots.update(_dispatch_import_bindings(node))
+
+                def rooted_in_import(node: ast.AST) -> bool:
+                    path = _attribute_path(node)
+                    return path is not None and path.split(".", maxsplit=1)[0] in imported_roots
+
+                for node in scoped_nodes(function.body):
+                    if (
+                        isinstance(node, ast.Attribute)
+                        and isinstance(node.ctx, (ast.Store, ast.Del))
+                        and rooted_in_import(node)
+                    ):
+                        raise DiscoveryError(
+                            f"imported namespace mutation is an unsupported dispatch "
+                            f"shape {type(node.ctx).__name__} in {source}:{node.lineno} "
+                            f"for {function.name}"
+                        )
+                    if (
+                        isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Name)
+                        and node.func.id in {"setattr", "delattr"}
+                        and node.args
+                        and rooted_in_import(node.args[0])
+                    ):
+                        raise DiscoveryError(
+                            f"imported namespace mutation is an unsupported dispatch "
+                            f"shape {node.func.id} in {source}:{node.lineno} "
+                            f"for {function.name}"
+                        )
+
+                for statement in function.body:
+                    mapping_reads(statement)
+
+                for node in scoped_nodes(function.body):
+                    if isinstance(node, ast.Subscript):
+                        origin = mapping_origin(node)
+                        if (
+                            origin is not None
+                            and origin[1] > 1
+                        ):
+                            raise DiscoveryError(
+                                f"dispatch mapping shape nested subscript is "
+                                f"unsupported in {source}:{node.lineno} for {function.name}"
+                            )
+                    if (
+                        isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Attribute)
+                        and node.func.attr not in {"get", "pop"}
+                    ):
+                        origin = mapping_origin(node.func.value)
+                        if origin is not None and origin[1] > 0:
+                            raise DiscoveryError(
+                                f"dispatch mapping shape nested method effect is "
+                                f"unsupported in {source}:{node.lineno} for {function.name}"
+                            )
+
+                def allow_simple_call(call: ast.Call) -> bool:
+                    if (
+                        isinstance(call.func, ast.Name)
+                        and call.func.id == "print"
+                    ):
+                        approved_calls.add(id(call))
+                        return True
+                    if (
+                        isinstance(call.func, ast.Name)
+                        and call.func.id == "float"
+                        and len(call.args) == 1
+                        and not call.keywords
+                    ):
+                        approved_calls.add(id(call))
+                        return True
+                    if (
+                        isinstance(call.func, ast.Attribute)
+                        and call.func.attr == "lower"
+                        and isinstance(call.func.value, ast.Name)
+                        and call.func.value.id == "optimizer_type"
+                        and not call.args
+                        and not call.keywords
+                    ):
+                        approved_calls.add(id(call))
+                        return True
+                    return False
+
+                def allow_constructor_call(call: ast.Call) -> None:
+                    target_path = _attribute_path(call.func)
+                    target_root = (
+                        target_path.split(".", maxsplit=1)[0]
+                        if target_path is not None
+                        else None
+                    )
+                    if target_root not in imported_roots:
+                        raise shape_error(
+                            call.func,
+                            "constructor target is not a direct imported binding",
+                        )
+                    approved_calls.add(id(call))
+                    for node in ast.walk(call):
+                        if node is call or not isinstance(node, ast.Call):
+                            continue
+                        if not allow_simple_call(node):
+                            raise shape_error(
+                                node, "nested constructor argument call is not supported"
+                            )
+
+                def mapping_effect(node: ast.AST) -> bool:
+                    if isinstance(node, ast.Call) and mapping_method(node) is not None:
+                        return True
+                    if isinstance(node, ast.Subscript):
+                        origin = mapping_origin(node)
+                        return origin is not None and isinstance(
+                            node.ctx, (ast.Store, ast.Del)
+                        )
+                    return False
+
+                def supported_mapping_condition(statement: ast.If) -> bool:
+                    test = statement.test
+                    if not (
+                        isinstance(test, ast.Compare)
+                        and len(test.ops) == 1
+                        and isinstance(test.ops[0], (ast.In, ast.NotIn))
+                        and len(test.comparators) == 1
+                        and isinstance(test.left, ast.Constant)
+                        and isinstance(test.left.value, str)
+                        and isinstance(test.comparators[0], ast.Name)
+                        and test.comparators[0].id in spread_aliases
+                        and not statement.orelse
+                    ):
+                        return False
+                    effects = [
+                        node
+                        for child in statement.body
+                        for node in ast.walk(child)
+                        if mapping_effect(node)
+                    ]
+                    return bool(effects)
+
+                def exact_diffusers_try(statement: ast.Try) -> bool:
+                    if not (
+                        source == "toolkit/scheduler.py"
+                        and function.name == "get_lr_scheduler"
+                        and len(statement.body) == 3
+                        and statement.handlers
+                        and not statement.orelse
+                        and not statement.finalbody
+                    ):
+                        return False
+                    convert, lookup, returned = statement.body
+                    if not (
+                        isinstance(convert, ast.Assign)
+                        and len(convert.targets) == 1
+                        and isinstance(convert.targets[0], ast.Name)
+                        and convert.targets[0].id == "name"
+                        and isinstance(convert.value, ast.Call)
+                        and isinstance(convert.value.func, ast.Name)
+                        and convert.value.func.id == "SchedulerType"
+                        and len(convert.value.args) == 1
+                        and isinstance(convert.value.args[0], ast.Name)
+                        and convert.value.args[0].id == "name"
+                        and not convert.value.keywords
+                    ):
+                        return False
+                    if not (
+                        isinstance(lookup, ast.Assign)
+                        and len(lookup.targets) == 1
+                        and isinstance(lookup.targets[0], ast.Name)
+                        and lookup.targets[0].id == "schedule_func"
+                        and isinstance(lookup.value, ast.Subscript)
+                        and isinstance(lookup.value.value, ast.Name)
+                        and lookup.value.value.id == "TYPE_TO_SCHEDULER_FUNCTION"
+                        and isinstance(lookup.value.slice, ast.Name)
+                        and lookup.value.slice.id == "name"
+                    ):
+                        return False
+                    if not (
+                        isinstance(returned, ast.Return)
+                        and isinstance(returned.value, ast.Call)
+                        and isinstance(returned.value.func, ast.Name)
+                        and returned.value.func.id == "schedule_func"
+                        and len(returned.value.args) == 1
+                        and isinstance(returned.value.args[0], ast.Name)
+                        and returned.value.args[0].id == "optimizer"
+                        and len(returned.value.keywords) == 1
+                        and returned.value.keywords[0].arg is None
+                        and isinstance(returned.value.keywords[0].value, ast.Name)
+                        and returned.value.keywords[0].value.id == spread_name
+                    ):
+                        return False
+                    approved_calls.update(
+                        {id(convert.value), id(returned.value)}
+                    )
+                    approved_returns.add(id(returned))
+                    return True
+
+                def exact_lion_try(
+                    statement: ast.Try, selector: _DispatchSelector | None
+                ) -> bool:
+                    if not (
+                        source == "toolkit/optimizer.py"
+                        and function.name == "get_optimizer"
+                        and selector is not None
+                        and selector.kind == "exact"
+                        and selector.value == "lion"
+                        and len(statement.body) == 2
+                        and len(statement.handlers) == 1
+                        and not statement.orelse
+                        and not statement.finalbody
+                    ):
+                        return False
+                    imported, returned = statement.body
+                    handler = statement.handlers[0]
+                    if not (
+                        isinstance(imported, ast.ImportFrom)
+                        and imported.level == 0
+                        and imported.module == "lion_pytorch"
+                        and len(imported.names) == 1
+                        and imported.names[0].name == "Lion"
+                        and isinstance(returned, ast.Return)
+                        and isinstance(returned.value, ast.Call)
+                        and isinstance(returned.value.func, ast.Name)
+                        and returned.value.func.id == "Lion"
+                        and isinstance(handler.type, ast.Name)
+                        and handler.type.id == "ImportError"
+                    ):
+                        return False
+                    allow_constructor_call(returned.value)
+                    approved_returns.add(id(returned))
+                    return True
+
+                def approve_selector_calls(test: ast.AST) -> None:
+                    for node in ast.walk(test):
+                        if isinstance(node, ast.Call):
+                            if not (
+                                isinstance(node.func, ast.Attribute)
+                                and node.func.attr in {"startswith", "endswith"}
+                                and isinstance(node.func.value, ast.Name)
+                                and node.func.value.id in selector_names
+                            ):
+                                raise shape_error(node, "selector call is not finite")
+                            approved_calls.add(id(node))
+
+                def visit_closed(
+                    statements: Sequence[ast.stmt],
+                    inherited: _DispatchSelector | None = None,
+                    conditional_depth: int = 0,
+                    available_locals: set[str] | None = None,
+                    allow_conditional_mapping: bool = False,
+                ) -> set[str]:
+                    available = set() if available_locals is None else set(available_locals)
+                    for statement in statements:
+                        if isinstance(statement, ast.If):
+                            branches = _dispatch_selectors(statement.test, selector_names)
+                            if branches is not None:
+                                approve_selector_calls(statement.test)
+                                branch_results: list[set[str]] = []
+                                for branch in branches:
+                                    combined = _combine_dispatch_selectors(inherited, branch)
+                                    if combined is not None:
+                                        branch_results.append(
+                                            visit_closed(
+                                                statement.body,
+                                                combined,
+                                                conditional_depth,
+                                                available,
+                                            )
+                                        )
+                                branch_results.append(
+                                    visit_closed(
+                                        statement.orelse,
+                                        inherited,
+                                        conditional_depth,
+                                        available,
+                                    )
+                                )
+                            else:
+                                if _dispatch_references(statement.test, selector_names):
+                                    raise shape_error(statement.test, "selector is not finite")
+                                mapping_condition = supported_mapping_condition(statement)
+                                branch_results = [
+                                    visit_closed(
+                                        statement.body,
+                                        inherited,
+                                        conditional_depth + 1,
+                                        available,
+                                        mapping_condition,
+                                    ),
+                                    visit_closed(
+                                        statement.orelse,
+                                        inherited,
+                                        conditional_depth + 1,
+                                        available,
+                                    ),
+                                ]
+                            if branch_results:
+                                available.intersection_update(*branch_results)
+                            continue
+
+                        if isinstance(statement, ast.Try):
+                            if exact_diffusers_try(statement):
+                                for handler in statement.handlers:
+                                    visit_closed(handler.body, inherited, conditional_depth, available)
+                                continue
+                            if exact_lion_try(statement, inherited):
+                                for handler in statement.handlers:
+                                    visit_closed(handler.body, inherited, conditional_depth, available)
+                                continue
+                            raise shape_error(statement, "try flow is not source-proven")
+                        unsupported_control = (
+                            ast.While, ast.For, ast.AsyncFor, ast.With, ast.AsyncWith, ast.Match
+                        )
+                        try_star = getattr(ast, "TryStar", None)
+                        if isinstance(statement, unsupported_control) or (
+                            try_star is not None and isinstance(statement, try_star)
+                        ):
+                            raise shape_error(statement, "control flow is not supported")
+
+                        write_targets: tuple[ast.AST, ...] = ()
+                        if isinstance(statement, ast.Assign):
+                            write_targets = tuple(statement.targets)
+                        elif isinstance(statement, (ast.AnnAssign, ast.AugAssign)):
+                            write_targets = (statement.target,)
+                        elif isinstance(statement, ast.Delete):
+                            write_targets = tuple(statement.targets)
+                        for target in write_targets:
+                            if isinstance(target, ast.Name):
+                                continue
+                            origin = mapping_origin(target)
+                            if (
+                                isinstance(target, ast.Subscript)
+                                and origin is not None
+                                and origin[1] == 1
+                            ):
+                                if conditional_depth and not allow_conditional_mapping:
+                                    raise DiscoveryError(
+                                        f"dispatch mapping conditional shape is unsupported "
+                                        f"in {source}:{target.lineno} for {function.name}"
+                                    )
+                                continue
+                            raise shape_error(target, "write target is not supported")
+
+                        call = constructor_call(statement)
+                        if call is not None:
+                            if conditional_depth:
+                                raise shape_error(
+                                    statement,
+                                    "constructor is conditionally reachable outside a selector",
+                                )
+                            allow_constructor_call(call)
+                            if isinstance(statement, ast.Return):
+                                approved_returns.add(id(statement))
+                            else:
+                                targets = (
+                                    statement.targets
+                                    if isinstance(statement, ast.Assign)
+                                    else (statement.target,)
+                                )
+                                for target in targets:
+                                    if isinstance(target, ast.Name):
+                                        available.add(target.id)
+
+                        if isinstance(statement, ast.Return) and id(statement) not in approved_returns:
+                            if (
+                                isinstance(statement.value, ast.Name)
+                                and statement.value.id in available
+                            ):
+                                approved_returns.add(id(statement))
+                            elif (
+                                source == "toolkit/optimizer.py"
+                                and function.name == "get_optimizer"
+                                and statement is function.body[-1]
+                                and isinstance(statement.value, ast.Name)
+                                and statement.value.id == "optimizer"
+                            ):
+                                approved_returns.add(id(statement))
+                            else:
+                                raise shape_error(statement, "returned value is not proven")
+
+                        for node in ast.walk(statement):
+                            if not isinstance(node, ast.Call) or id(node) in approved_calls:
+                                continue
+                            if allow_simple_call(node):
+                                continue
+                            method = mapping_method(node)
+                            if method is not None:
+                                if conditional_depth and not allow_conditional_mapping:
+                                    raise DiscoveryError(
+                                        f"dispatch mapping conditional shape is unsupported "
+                                        f"in {source}:{node.lineno} for {function.name}"
+                                    )
+                                approved_calls.add(id(node))
+                                continue
+                            if (
+                                isinstance(statement, ast.Raise)
+                                and node is statement.exc
+                                and isinstance(node.func, ast.Name)
+                                and node.func.id in {"ValueError", "ImportError"}
+                            ):
+                                approved_calls.add(id(node))
+                                continue
+                            raise shape_error(node, "call is not in the closed grammar")
+
+                        if conditional_depth:
+                            for node in ast.walk(statement):
+                                if mapping_effect(node) and not allow_conditional_mapping:
+                                    raise DiscoveryError(
+                                        f"dispatch mapping conditional shape is unsupported "
+                                        f"in {source}:{getattr(node, 'lineno', statement.lineno)} "
+                                        f"for {function.name}"
+                                    )
+                    return available
+
+                visit_closed(function.body)
+                for node in scoped_nodes(function.body):
+                    if isinstance(node, ast.Return) and id(node) not in approved_returns:
+                        raise shape_error(node, "return escaped the closed grammar")
+                    if isinstance(node, ast.Call) and id(node) not in approved_calls:
+                        raise shape_error(node, "call escaped the closed grammar")
+
+            validate_closed_grammar()
+
+            def visit_statements(
+                statements: Sequence[ast.stmt],
+                inherited: _DispatchSelector | None = None,
+                state: _DispatchBindings | None = None,
+                conditional_depth: int = 0,
+            ) -> _DispatchBindings:
+                if state is None:
+                    state = bindings
+                for statement in statements:
+                    if isinstance(statement, ast.If):
+                        poison(
+                            state,
+                            (
+                                node.target.id
+                                for node in ast.walk(statement.test)
+                                if isinstance(node, ast.NamedExpr)
+                                and isinstance(node.target, ast.Name)
+                            ),
+                        )
+                        if inherited is not None:
+                            add_mapping_read_facts(statement.test, inherited)
+                        branches = _dispatch_selectors(statement.test, selector_names)
+                        if branches is None:
+                            if _dispatch_references(statement.test, selector_names):
+                                raise DiscoveryError(
+                                    f"unsupported dispatch selector in {source}:{statement.lineno}"
+                                )
+                            has_constructor = contains_constructor(statement)
+                            has_spread = any(
+                                isinstance(node, ast.Call)
+                                and validate_spreads(node, spread_aliases, source)
+                                for node in ast.walk(statement)
+                            )
+                            if inherited is not None and (has_constructor or has_spread):
+                                raise DiscoveryError(
+                                    f"unsupported dispatch branch around constructor call "
+                                    f"in {source}:{statement.lineno}"
+                                )
+                            body_state = visit_statements(
+                                statement.body, inherited, state.copy(),
+                                conditional_depth + 1,
+                            )
+                            else_state = visit_statements(
+                                statement.orelse, inherited, state.copy(),
+                                conditional_depth + 1,
+                            )
+                            merge_states(state, (body_state, else_state))
+                            continue
+                        branch_states: list[_DispatchBindings] = []
+                        for branch in branches:
+                            combined = _combine_dispatch_selectors(inherited, branch)
+                            if combined is not None:
+                                branch_states.append(
+                                    visit_statements(
+                                        statement.body, combined, state.copy(),
+                                        conditional_depth,
+                                    )
+                                )
+                        branch_states.append(
+                            visit_statements(
+                                statement.orelse, inherited, state.copy(),
+                                conditional_depth,
+                            )
+                        )
+                        merge_states(state, branch_states)
+                        continue
+                    if isinstance(statement, ast.Try):
+                        body_state = visit_statements(
+                            statement.body, inherited, state.copy(), conditional_depth
+                        )
+                        if statement.orelse:
+                            body_state = visit_statements(
+                                statement.orelse, inherited, body_state,
+                                conditional_depth,
+                            )
+                        paths = [body_state]
+                        for handler in statement.handlers:
+                            handler_state = state.copy()
+                            if handler.name:
+                                poison(handler_state, (handler.name,))
+                            paths.append(
+                                visit_statements(
+                                    handler.body, inherited, handler_state,
+                                    conditional_depth,
+                                )
+                            )
+                        merge_states(state, paths)
+                        if statement.finalbody:
+                            visit_statements(
+                                statement.finalbody, inherited, state,
+                                conditional_depth,
+                            )
+                        continue
+                    if isinstance(statement, (ast.For, ast.AsyncFor)):
+                        loop_state = state.copy()
+                        poison(loop_state, _dispatch_target_names(statement.target))
+                        visit_statements(
+                            statement.body, inherited, loop_state,
+                            conditional_depth + 1,
+                        )
+                        visit_statements(
+                            statement.orelse, inherited, loop_state,
+                            conditional_depth + 1,
+                        )
+                        merge_states(state, (state.copy(), loop_state))
+                        continue
+                    if isinstance(statement, (ast.With, ast.AsyncWith)):
+                        with_state = state.copy()
+                        for item in statement.items:
+                            if item.optional_vars is not None:
+                                poison(
+                                    with_state,
+                                    _dispatch_target_names(item.optional_vars),
+                                )
+                        visit_statements(
+                            statement.body, inherited, with_state,
+                            conditional_depth + 1,
+                        )
+                        merge_states(state, (state.copy(), with_state))
+                        continue
+                    if isinstance(statement, ast.Match):
+                        case_states = [state.copy()]
+                        for case in statement.cases:
+                            case_state = state.copy()
+                            poison(case_state, _dispatch_target_names(case.pattern))
+                            case_states.append(
+                                visit_statements(
+                                    case.body, inherited, case_state,
+                                    conditional_depth + 1,
+                                )
+                            )
+                        merge_states(state, case_states)
+                        continue
+
+                    call = constructor_call(statement)
+                    if call is not None:
+                        if inherited is not None:
+                            add_constructor_facts(call, inherited, state)
+                        elif is_diffusers_fallback(call, state, conditional_depth):
+                            validate_spreads(call, spread_aliases, source)
+                            approved_fallback_calls.add(id(call))
+                        else:
+                            resolve_constructor(call, state)
+                            raise DiscoveryError(
+                                f"dispatch constructor call is not guarded by a finite "
+                                f"selector in {source}:{call.lineno}"
+                            )
+                    if inherited is not None:
+                        add_mapping_facts(statement, inherited)
+                    process_simple_binding(statement, state)
+                return state
+
+            visit_statements(function.body, state=bindings)
+            for statement in function.body:
+                for read, _, _ in mapping_reads(statement):
+                    if id(read) in claimed_mapping_reads:
+                        continue
+                    raise DiscoveryError(
+                        f"dispatch mapping read is not guarded by a finite selector "
+                        f"in {source}:{read.lineno} for {function.name}"
+                    )
+            for node in ast.walk(function):
+                if not (
+                    isinstance(node, ast.Subscript)
+                    and isinstance(node.ctx, (ast.Store, ast.Del))
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id in spread_aliases
+                    and id(node) not in claimed_subscript_effects
+                ):
+                    continue
+                raise DiscoveryError(
+                    f"dispatch mapping subscript effect is not guarded by a finite "
+                    f"selector in {source}:{node.lineno}"
+                )
+            for node in ast.walk(function):
+                if not isinstance(node, ast.Call):
+                    continue
+                method = mapping_method(node)
+                if method is not None and id(node) not in claimed_mapping_calls:
+                    raise DiscoveryError(
+                        f"dispatch mapping access is not guarded by a finite selector "
+                        f"in {source}:{node.lineno}"
+                    )
+            for node in ast.walk(function):
+                if not isinstance(node, ast.Call):
+                    continue
+                has_spread = validate_spreads(node, spread_aliases, source)
+                if not has_spread:
+                    continue
+                if id(node) in claimed_constructor_calls or id(node) in approved_fallback_calls:
+                    continue
+                raise DiscoveryError(
+                    f"dispatch constructor call is not guarded by a finite selector "
+                    f"in {source}:{node.lineno}"
+                )
+
+    local_classes: dict[str, tuple[str, ast.ClassDef]] = {}
+    for source, tree in parsed:
+        if not source.startswith("toolkit/optimizers/") or not source.endswith(".py"):
+            continue
+        module = source[:-3].replace("/", ".")
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef):
+                local_classes[f"{module}.{node.name}"] = (source, node)
+
+    emitted_constructor_params: set[tuple[str, str, str]] = set()
+    emitted_fused: set[tuple[str, str, str, str]] = set()
+    for selector, target, line, factory_source, factory_symbol in optimizer_targets:
+        local = local_classes.get(target)
+        if local is None:
+            continue
+        class_source, class_node = local
+        constructor = next(
+            (
+                node for node in class_node.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == "__init__"
+            ),
+            None,
+        )
+        if constructor is None:
+            continue
+        symbol = f"{class_node.name}.__init__"
+        positional = (*constructor.args.posonlyargs, *constructor.args.args)
+        defaults: dict[str, ast.AST | None] = {
+            argument.arg: None for argument in positional
+        }
+        for argument, default in zip(
+            positional[-len(constructor.args.defaults):],
+            constructor.args.defaults,
+        ):
+            defaults[argument.arg] = default
+        defaults.update(
+            {
+                argument.arg: default
+                for argument, default in zip(
+                    constructor.args.kwonlyargs, constructor.args.kw_defaults
+                )
+            }
+        )
+        for parameter, default in defaults.items():
+            identity = (class_source, symbol, parameter)
+            if parameter in {"self", "params"} or identity in emitted_constructor_params:
+                continue
+            emitted_constructor_params.add(identity)
+            facts.append(
+                DiscoveredSetting(
+                    class_source, symbol, constructor.lineno, parameter,
+                    "optimizer.parameter", "optimizer",
+                    _source_expression(default),
+                )
+            )
+
+        backward_hook = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "register_post_accumulate_grad_hook"
+            and any(
+                isinstance(inner, ast.Attribute)
+                and inner.attr == "_make_backward_hook"
+                for argument in node.args
+                for inner in ast.walk(argument)
+            )
+            for node in ast.walk(constructor)
+        )
+        fused_identity = (
+            factory_source, factory_symbol, _dispatch_key(selector),
+            "optimizer.fused_backward",
+        )
+        if backward_hook and fused_identity not in emitted_fused:
+            emitted_fused.add(fused_identity)
+            facts.append(
+                DiscoveredSetting(
+                    factory_source, factory_symbol, line,
+                    _dispatch_key(selector), "optimizer.fused_backward",
+                    "optimizer", "optional" if "fused" in defaults else "required",
+                )
+            )
+    return tuple(facts)
+
+
+def discover_python_settings(
+    repository_root: Path, globs: Sequence[str]
+) -> tuple[DiscoveredSetting, ...]:
+    """Discover a finite setting inventory by parsing source files as AST only."""
+
+    root = Path(repository_root)
+    if not root.is_dir():
+        raise DiscoveryError(f"repository root is not a directory: {root}")
+    _bound_receiver.cache_clear()
+    source_paths = _collect_source_paths(root, globs)
+    parsed: list[tuple[str, ast.Module]] = []
+    classes: dict[str, list[_ClassInfo]] = {}
+    postponed_annotation_sources: set[str] = set()
+    for source_path in source_paths:
+        source = _portable_path(root, source_path)
+        try:
+            tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=source)
+        except (OSError, UnicodeError, SyntaxError) as error:
+            raise DiscoveryError(f"cannot parse {source}: {error}") from error
+        parsed.append((source, tree))
+        if any(
+            isinstance(node, ast.ImportFrom)
+            and node.module == "__future__"
+            and any(alias.name == "annotations" for alias in node.names)
+            for node in tree.body
+        ):
+            postponed_annotation_sources.add(source)
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef):
+                classes.setdefault(node.name, []).append(_ClassInfo(source, node))
+
+    facts: list[DiscoveredSetting] = []
+    mutable_call_sites: dict[str, list[_MethodCall]] = {}
+    mutable_method_references: dict[str, list[_MethodReference]] = {}
+    reflective_alias_cache: dict[tuple[str, int], frozenset[str]] = {}
+
+    def collect_reflective_aliases(
+        scope: ast.AST, inherited: Iterable[str] = ()
+    ) -> frozenset[str]:
+        aliases = set(inherited)
+        dependencies: dict[str, set[str]] = {}
+
+        def is_identity(value: ast.AST | None) -> bool:
+            return value is not None and _attribute_path(value) in {
+                "getattr",
+                "builtins.getattr",
+                "object.__getattribute__",
+            }
+
+        def bind(target: ast.AST, value: ast.AST | None) -> None:
+            if isinstance(target, ast.Name):
+                if target.id in {"getattr", "builtins", "object"} or is_identity(value):
+                    aliases.add(target.id)
+                elif isinstance(value, ast.Name):
+                    dependencies.setdefault(target.id, set()).add(value.id)
+                return
+            if isinstance(target, (ast.Tuple, ast.List)) and isinstance(
+                value, (ast.Tuple, ast.List)
+            ):
+                if len(target.elts) == len(value.elts):
+                    for target_element, value_element in zip(
+                        target.elts, value.elts
+                    ):
+                        bind(target_element, value_element)
+
+        class AliasVisitor(ast.NodeVisitor):
+            def visit_Module(self, node: ast.Module) -> None:
+                for statement in node.body:
+                    self.visit(statement)
+
+            def _visit_function(
+                self, node: ast.FunctionDef | ast.AsyncFunctionDef
+            ) -> None:
+                if node is not scope:
+                    return
+                positional = (*node.args.posonlyargs, *node.args.args)
+                aliases.update(
+                    argument.arg
+                    for argument in (
+                        *positional,
+                        *node.args.kwonlyargs,
+                        *(
+                            ()
+                            if node.args.vararg is None
+                            else (node.args.vararg,)
+                        ),
+                        *(
+                            ()
+                            if node.args.kwarg is None
+                            else (node.args.kwarg,)
+                        ),
+                    )
+                    if argument.arg in {"getattr", "builtins", "object"}
+                )
+                for argument, default in zip(
+                    positional[-len(node.args.defaults) :],
+                    node.args.defaults,
+                ):
+                    bind(ast.Name(id=argument.arg, ctx=ast.Store()), default)
+                for argument, default in zip(
+                    node.args.kwonlyargs, node.args.kw_defaults
+                ):
+                    bind(ast.Name(id=argument.arg, ctx=ast.Store()), default)
+                for statement in node.body:
+                    self.visit(statement)
+
+            visit_FunctionDef = _visit_function
+            visit_AsyncFunctionDef = _visit_function
+
+            def visit_Lambda(self, node: ast.Lambda) -> None:
+                if node is not scope:
+                    return
+                positional = (*node.args.posonlyargs, *node.args.args)
+                aliases.update(
+                    argument.arg
+                    for argument in (
+                        *positional,
+                        *node.args.kwonlyargs,
+                        *(
+                            ()
+                            if node.args.vararg is None
+                            else (node.args.vararg,)
+                        ),
+                        *(
+                            ()
+                            if node.args.kwarg is None
+                            else (node.args.kwarg,)
+                        ),
+                    )
+                    if argument.arg in {"getattr", "builtins", "object"}
+                )
+                for argument, default in zip(
+                    positional[-len(node.args.defaults) :],
+                    node.args.defaults,
+                ):
+                    bind(ast.Name(id=argument.arg, ctx=ast.Store()), default)
+                for argument, default in zip(
+                    node.args.kwonlyargs, node.args.kw_defaults
+                ):
+                    bind(ast.Name(id=argument.arg, ctx=ast.Store()), default)
+                self.visit(node.body)
+
+            def visit_ClassDef(self, node: ast.ClassDef) -> None:
+                return
+
+            def visit_Assign(self, node: ast.Assign) -> None:
+                for target in node.targets:
+                    bind(target, node.value)
+                self.visit(node.value)
+
+            def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+                bind(node.target, node.value)
+                if node.value is not None:
+                    self.visit(node.value)
+
+            def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
+                bind(node.target, node.value)
+                self.visit(node.value)
+
+            def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+                for imported in node.names:
+                    bound = imported.asname or imported.name
+                    if (
+                        node.module == "builtins"
+                        and imported.name == "getattr"
+                    ) or bound in {"getattr", "builtins", "object"}:
+                        aliases.add(bound)
+
+            def visit_Import(self, node: ast.Import) -> None:
+                for imported in node.names:
+                    bound = imported.asname or imported.name.split(".", maxsplit=1)[0]
+                    if bound in {"getattr", "builtins", "object"} and not (
+                        imported.name == bound == "builtins"
+                    ):
+                        aliases.add(bound)
+
+        AliasVisitor().visit(scope)
+        changed = True
+        while changed:
+            changed = False
+            for target, sources in dependencies.items():
+                if target not in aliases and aliases.intersection(sources):
+                    aliases.add(target)
+                    changed = True
+        return frozenset(aliases)
+
+    module_aliases = {
+        source: collect_reflective_aliases(tree) for source, tree in parsed
+    }
+
+    def reflective_aliases(
+        function: _FunctionNode | None, source: str
+    ) -> frozenset[str]:
+        if function is None:
+            return module_aliases[source]
+        cache_key = (source, id(function))
+        if cache_key in reflective_alias_cache:
+            return reflective_alias_cache[cache_key]
+        aliases = frozenset(
+            collect_reflective_aliases(function, module_aliases[source])
+        )
+        reflective_alias_cache[cache_key] = aliases
+        return aliases
+
+    def reflective_attribute(
+        lookup: tuple[ast.AST, str | None, bool], method_name: str
+    ) -> ast.Attribute:
+        receiver, literal_name, ambiguous = lookup
+        attribute = ast.Attribute(value=receiver, attr=method_name, ctx=ast.Load())
+        if literal_name is None or ambiguous:
+            attribute._dynamic_reflective_name = True
+        return attribute
+
+    def reflective_names(
+        lookup: tuple[ast.AST, str | None, bool], caller: _CallerInfo
+    ) -> tuple[str, ...]:
+        receiver, literal_name, _ = lookup
+        if literal_name is not None:
+            return (literal_name,)
+        bound_receiver, rebound = _bound_receiver(caller)
+        if rebound or bound_receiver is None:
+            return ()
+        supported_receiver = (
+            isinstance(receiver, ast.Name) and receiver.id == bound_receiver
+        ) or (
+            isinstance(receiver, ast.Call)
+            and isinstance(receiver.func, ast.Name)
+            and receiver.func.id == "super"
+            and not receiver.args
+            and not receiver.keywords
+        )
+        if not supported_receiver or caller.class_name is None:
+            return ()
+        candidates = [
+            info
+            for info in classes.get(caller.class_name, ())
+            if info.source == caller.source
+        ]
+        if len(candidates) != 1:
+            return ()
+        names: set[str] = set()
+        pending = [candidates[0]]
+        seen: set[_MethodOwner] = set()
+        while pending:
+            info = pending.pop()
+            owner = (info.source, info.node.name)
+            if owner in seen:
+                continue
+            seen.add(owner)
+            names.update(
+                method.name
+                for method in info.node.body
+                if isinstance(
+                    method, (ast.FunctionDef, ast.AsyncFunctionDef)
+                )
+            )
+            pending.extend(_base_infos(classes, info)[0])
+        return tuple(sorted(names))
+
+    def collect_method_uses(
+        node: ast.AST,
+        source: str,
+        containing_class: str | None = None,
+        containing_function: _FunctionNode | None = None,
+        direct_method: bool = False,
+        parent: ast.AST | None = None,
+    ) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            definition_expressions: list[ast.AST] = [
+                *node.decorator_list,
+                *node.args.defaults,
+                *(
+                    default
+                    for default in node.args.kw_defaults
+                    if default is not None
+                ),
+                *getattr(node, "type_params", ()),
+            ]
+            if source not in postponed_annotation_sources:
+                definition_expressions.extend(
+                    annotation
+                    for argument in (
+                        *node.args.posonlyargs,
+                        *node.args.args,
+                        *node.args.kwonlyargs,
+                        node.args.vararg,
+                        node.args.kwarg,
+                    )
+                    if argument is not None
+                    if (annotation := argument.annotation) is not None
+                )
+                if node.returns is not None:
+                    definition_expressions.append(node.returns)
+            for expression in definition_expressions:
+                collect_method_uses(
+                    expression,
+                    source,
+                    containing_class,
+                    containing_function,
+                    direct_method,
+                    node,
+                )
+            method_scope = isinstance(parent, ast.ClassDef)
+            for statement in node.body:
+                collect_method_uses(
+                    statement,
+                    source,
+                    containing_class,
+                    node,
+                    method_scope,
+                    node,
+                )
+            return
+        if isinstance(node, ast.ClassDef):
+            containing_class = node.name
+            containing_function = None
+            direct_method = False
+        elif isinstance(node, ast.Lambda):
+            containing_function = node
+            direct_method = False
+        caller = _CallerInfo(
+            source,
+            containing_class,
+            containing_function,
+            direct_method,
+        )
+        if isinstance(node, ast.Call):
+            reflective_call = _reflective_method_lookup(
+                node.func, reflective_aliases(containing_function, source)
+            )
+            if reflective_call is not None:
+                method_names = reflective_names(reflective_call, caller)
+                for method_name in method_names:
+                    synthetic = ast.Call(
+                        func=reflective_attribute(
+                            reflective_call, method_name
+                        ),
+                        args=node.args,
+                        keywords=node.keywords,
+                    )
+                    ast.copy_location(synthetic, node)
+                    ast.copy_location(synthetic.func, node.func)
+                    mutable_call_sites.setdefault(method_name, []).append(
+                        (synthetic, caller)
+                    )
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            mutable_call_sites.setdefault(node.func.attr, []).append((node, caller))
+        reflective_reference = _reflective_method_lookup(
+            node, reflective_aliases(containing_function, source)
+        )
+        if reflective_reference is not None and not (
+            isinstance(parent, ast.Call) and parent.func is node
+        ):
+            method_names = reflective_names(reflective_reference, caller)
+            for method_name in method_names:
+                synthetic = reflective_attribute(
+                    reflective_reference, method_name
+                )
+                ast.copy_location(synthetic, node)
+                mutable_method_references.setdefault(method_name, []).append(
+                    (synthetic, caller)
+                )
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.ctx, ast.Load)
+            and not (
+                isinstance(parent, ast.Call)
+                and parent.func is node
+            )
+        ):
+            mutable_method_references.setdefault(node.attr, []).append(
+                (node, caller)
+            )
+        for child in ast.iter_child_nodes(node):
+            collect_method_uses(
+                child,
+                source,
+                containing_class,
+                containing_function,
+                direct_method,
+                node,
+            )
+
+    for source, tree in parsed:
+        collect_method_uses(tree, source)
+    call_sites = {
+        name: tuple(calls) for name, calls in mutable_call_sites.items()
+    }
+    method_references = {
+        name: tuple(references)
+        for name, references in mutable_method_references.items()
+    }
+    inherited_override_cache: dict[
+        tuple[str, str, str, str, _MethodOwner], bool
+    ] = {}
+    for source, tree in parsed:
+        visitor = _SettingVisitor(
+            source=source,
+            tree=tree,
+            classes=classes,
+            call_sites=call_sites,
+            method_references=method_references,
+            inherited_override_cache=inherited_override_cache,
+        )
+        visitor.visit(tree)
+        facts.extend(visitor.facts)
+    facts.extend(_discover_dispatch_settings(parsed))
+
+    reserved_kwargs_reads = {
+        (fact.source, fact.symbol, fact.key)
+        for fact in facts
+        if fact.read_kind == "network_kwargs.reserved"
+    }
+    facts = [
+        fact
+        for fact in facts
+        if not (
+            fact.read_kind == "kwargs.get"
+            and (fact.source, fact.symbol, fact.key) in reserved_kwargs_reads
+        )
+    ]
+    unique: dict[_Identity, DiscoveredSetting] = {}
+    for fact in sorted(
+        facts,
+        key=lambda item: (
+            item.source,
+            item.symbol,
+            item.key,
+            item.read_kind,
+            item.line,
+            item.default_expression or "",
+        ),
+    ):
+        unique.setdefault(_identity(fact), fact)
+    return tuple(unique.values())
+
+
+def validate_setting_ownership(
+    discovered: Sequence[DiscoveredSetting],
+    catalog_claims: Sequence[SourceClaim],
+    exclusions: Sequence[Exclusion],
+) -> None:
+    """Require one exact owner for every read and reject stale declarations."""
+
+    discovered_by_identity: dict[_Identity, DiscoveredSetting] = {}
+    for fact in discovered:
+        identity = _identity(fact)
+        if identity in discovered_by_identity:
+            raise DiscoveryError(f"duplicate discovered logical read: {identity!r}")
+        discovered_by_identity[identity] = fact
+
+    owners: dict[_Identity, list[str]] = {}
+    for claim in catalog_claims:
+        identity_fields = (claim.source, claim.symbol, claim.key, claim.read_kind)
+        if not all(identity_fields) or any(
+            _contains_identity_glob(field, read_kind=index == 3)
+            for index, field in enumerate(identity_fields)
+        ):
+            raise DiscoveryError(f"catalog claim requires exact identity: {claim!r}")
+        _portable_declaration(claim.source, "catalog claim source", glob=False)
+        owners.setdefault(_identity(claim), []).append("catalog")
+    for exclusion in exclusions:
+        if not exclusion.symbol or any(
+            metacharacter in exclusion.symbol for metacharacter in "*?["
+        ):
+            raise DiscoveryError(f"exclusion requires an exact symbol: {exclusion!r}")
+        if "*" in exclusion.key or "*" in exclusion.read_kind:
+            raise DiscoveryError(f"blanket exclusion is forbidden: {exclusion!r}")
+        if (
+            _contains_identity_glob(exclusion.source)
+            or _contains_identity_glob(exclusion.key)
+            or _contains_identity_glob(exclusion.read_kind, read_kind=True)
+        ):
+            raise DiscoveryError(f"exclusion requires an exact identity: {exclusion!r}")
+        _portable_declaration(exclusion.source, "exclusion source", glob=False)
+        if not exclusion.reason or not exclusion.reason.strip():
+            raise DiscoveryError(f"exclusion requires a reason: {exclusion!r}")
+        if exclusion.reason not in _APPROVED_EXCLUSION_REASONS:
+            raise DiscoveryError(
+                "exclusion reason must be an approved category: "
+                f"{exclusion.reason!r}"
+            )
+        owners.setdefault(_identity(exclusion), []).append("exclusion")
+
+    for identity, identity_owners in sorted(owners.items()):
+        if len(identity_owners) != 1:
+            raise DiscoveryError(
+                f"setting has multiple owners {identity_owners!r}: {identity!r}"
+            )
+        if identity not in discovered_by_identity:
+            raise DiscoveryError(f"declared source has vanished: {identity!r}")
+    for identity in sorted(discovered_by_identity):
+        if identity not in owners:
+            raise DiscoveryError(f"discovered setting is unowned: {identity!r}")
+
+
+def ownership_status(
+    discovered: Iterable[DiscoveredSetting],
+    catalog_claims: Sequence[SourceClaim],
+    exclusions: Sequence[Exclusion],
+) -> tuple[tuple[DiscoveredSetting, str], ...]:
+    """Return deterministic ownership labels for inventory reporting."""
+
+    claim_ids = {_identity(claim) for claim in catalog_claims}
+    exclusion_ids = {_identity(exclusion) for exclusion in exclusions}
+    rows: list[tuple[DiscoveredSetting, str]] = []
+    for fact in discovered:
+        identity = _identity(fact)
+        count = int(identity in claim_ids) + int(identity in exclusion_ids)
+        if count > 1:
+            status = "double-owned"
+        elif identity in claim_ids:
+            status = "cataloged"
+        elif identity in exclusion_ids:
+            status = "excluded"
+        else:
+            status = "unowned"
+        rows.append((fact, status))
+    return tuple(rows)
+
+
+def validate_discovery_target(
+    discovered: Sequence[DiscoveredSetting],
+    catalog_claims: Sequence[SourceClaim],
+    exclusions: Sequence[Exclusion],
+    *,
+    declared_sources: Sequence[str],
+    target_source: str | None = None,
+    target_symbol: str | None = None,
+) -> None:
+    """Validate one exact source or source/symbol slice in isolation."""
+
+    if bool(target_source) == bool(target_symbol):
+        raise DiscoveryError(
+            "target-source and target-symbol are mutually exclusive and exactly one is required"
+        )
+    declared = set(declared_sources)
+    selected_source: str
+    selected_symbol: str | None
+    if target_source is not None:
+        if any(character in target_source for character in "*?["):
+            raise DiscoveryError("target-source must be an exact source path")
+        selected_source = target_source
+        selected_symbol = None
+    else:
+        assert target_symbol is not None
+        if target_symbol.count("::") != 1:
+            raise DiscoveryError(
+                "target-symbol format must be <portable-source-path>::<exact-symbol>"
+            )
+        selected_source, selected_symbol = target_symbol.split("::", 1)
+        if not selected_source or not selected_symbol or any(
+            character in target_symbol for character in "*?["
+        ):
+            raise DiscoveryError("target-symbol requires an exact source and symbol")
+    if selected_source not in declared:
+        raise DiscoveryError(
+            f"target is not in the declared source union: {selected_source!r}"
+        )
+    selected = tuple(
+        fact
+        for fact in discovered
+        if fact.source == selected_source
+        and (selected_symbol is None or fact.symbol == selected_symbol)
+    )
+    if not selected:
+        raise DiscoveryError("target discovered no facts")
+    selected_claims = tuple(
+        claim
+        for claim in catalog_claims
+        if claim.source == selected_source
+        and (selected_symbol is None or claim.symbol == selected_symbol)
+    )
+    selected_exclusions = tuple(
+        exclusion
+        for exclusion in exclusions
+        if exclusion.source == selected_source
+        and (selected_symbol is None or exclusion.symbol == selected_symbol)
+    )
+    validate_setting_ownership(selected, selected_claims, selected_exclusions)

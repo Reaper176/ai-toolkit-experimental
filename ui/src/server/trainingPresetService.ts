@@ -6,9 +6,18 @@ import {
   normalizePresetName,
   sanitizeTrainingPreset,
   validateTrainingPresetSnapshot,
-  type TrainingPresetRecord,
   type TrainingPresetSnapshotV1,
+  type BuiltInTrainingPresetRecord,
+  type TrainingPresetRecord,
+  type UserTrainingPresetRecord,
 } from '../helpers/trainingPresets';
+import { copyBuiltInPreset } from '../helpers/builtInTrainingPresets';
+import { trainingPresetCatalogIdLogDigest } from './trainingPresetCatalogDigest';
+import {
+  getBuiltInTrainingPresetCatalog,
+  type TrainingPresetCatalogEntryEvent,
+  type TrainingPresetCatalogProviderEvent,
+} from './trainingPresetCatalogRuntime';
 
 export const MAX_PRESET_REQUEST_BYTES = 1024 * 1024;
 
@@ -49,34 +58,90 @@ class TrainingPresetServiceError extends Error {
   }
 }
 
-export class TrainingPresetValidationError extends TrainingPresetServiceError {}
+const trainingPresetValidationErrors = new WeakSet<object>();
+const trainingPresetPayloadTooLargeErrors = new WeakSet<object>();
+const trainingPresetConflictErrors = new WeakSet<object>();
+const trainingPresetNotFoundErrors = new WeakSet<object>();
+const trainingPresetReadOnlyErrors = new WeakSet<object>();
+const trainingPresetProvenanceErrors = new WeakSet<object>();
+
+export class TrainingPresetValidationError extends TrainingPresetServiceError {
+  constructor(message: string) {
+    super(message);
+    trainingPresetValidationErrors.add(this);
+  }
+}
 export class TrainingPresetPayloadTooLargeError extends TrainingPresetServiceError {
   constructor() {
     super('Preset request must not exceed 1 MiB');
+    trainingPresetPayloadTooLargeErrors.add(this);
   }
 }
-export class TrainingPresetConflictError extends TrainingPresetServiceError {}
-export class TrainingPresetNotFoundError extends TrainingPresetServiceError {}
+export class TrainingPresetConflictError extends TrainingPresetServiceError {
+  constructor(message: string) {
+    super(message);
+    trainingPresetConflictErrors.add(this);
+  }
+}
+export class TrainingPresetNotFoundError extends TrainingPresetServiceError {
+  constructor(message: string) {
+    super(message);
+    trainingPresetNotFoundErrors.add(this);
+  }
+}
 export class TrainingPresetCorruptError extends TrainingPresetServiceError {}
+export class TrainingPresetReadOnlyError extends TrainingPresetServiceError {
+  constructor() {
+    super('Built-in training presets are read-only');
+    trainingPresetReadOnlyErrors.add(this);
+  }
+}
+export class TrainingPresetProvenanceError extends TrainingPresetServiceError {
+  constructor() {
+    super('Preset catalog provenance is server-owned');
+    trainingPresetProvenanceErrors.add(this);
+  }
+}
 
 export interface TrainingPresetErrorResponse {
   status: 400 | 404 | 409 | 413 | 500;
   error: string;
+  code?: 'BUILTIN_PRESET_READ_ONLY' | 'PRESET_PROVENANCE_NOT_ALLOWED';
   shouldLog: boolean;
 }
 
 export function mapTrainingPresetError(error: unknown): TrainingPresetErrorResponse {
-  if (error instanceof TrainingPresetPayloadTooLargeError) {
-    return { status: 413, error: error.message, shouldLog: false };
-  }
-  if (error instanceof TrainingPresetValidationError) {
-    return { status: 400, error: error.message, shouldLog: false };
-  }
-  if (error instanceof TrainingPresetConflictError) {
-    return { status: 409, error: error.message, shouldLog: false };
-  }
-  if (error instanceof TrainingPresetNotFoundError) {
-    return { status: 404, error: error.message, shouldLog: false };
+  try {
+    if (trainingPresetPayloadTooLargeErrors.has(error as object)) {
+      return { status: 413, error: (error as Error).message, shouldLog: false };
+    }
+    if (trainingPresetProvenanceErrors.has(error as object)) {
+      return {
+        status: 400,
+        error: 'Preset catalog provenance is server-owned',
+        code: 'PRESET_PROVENANCE_NOT_ALLOWED',
+        shouldLog: false,
+      };
+    }
+    if (trainingPresetReadOnlyErrors.has(error as object)) {
+      return {
+        status: 409,
+        error: 'Built-in training presets are read-only',
+        code: 'BUILTIN_PRESET_READ_ONLY',
+        shouldLog: false,
+      };
+    }
+    if (trainingPresetValidationErrors.has(error as object)) {
+      return { status: 400, error: (error as Error).message, shouldLog: false };
+    }
+    if (trainingPresetConflictErrors.has(error as object)) {
+      return { status: 409, error: (error as Error).message, shouldLog: false };
+    }
+    if (trainingPresetNotFoundErrors.has(error as object)) {
+      return { status: 404, error: (error as Error).message, shouldLog: false };
+    }
+  } catch {
+    // Error classification and message access must fail closed for arbitrary thrown values.
   }
   return { status: 500, error: 'Training preset storage is unavailable', shouldLog: true };
 }
@@ -103,6 +168,12 @@ function validateId(id: unknown): string {
   return id.trim();
 }
 
+function rejectBuiltInPresetId(id: string): void {
+  if (id.toLowerCase().startsWith('builtin:')) {
+    throw new TrainingPresetReadOnlyError();
+  }
+}
+
 function sanitizeJobConfig(jobConfig: JobConfig): TrainingPresetSnapshotV1 {
   try {
     return sanitizeTrainingPreset(jobConfig);
@@ -119,7 +190,7 @@ function serializeSnapshot(snapshot: TrainingPresetSnapshotV1): string {
   return serialized;
 }
 
-function deserializeRow(row: TrainingPresetRow): TrainingPresetRecord {
+function deserializeRow(row: TrainingPresetRow): UserTrainingPresetRecord {
   try {
     let parsed: unknown;
     try {
@@ -137,6 +208,8 @@ function deserializeRow(row: TrainingPresetRow): TrainingPresetRecord {
     return {
       id: row.id,
       name: row.name,
+      source: 'user',
+      read_only: false,
       schema_version: SNAPSHOT_SCHEMA_VERSION,
       snapshot,
       created_at: createdAt,
@@ -148,7 +221,10 @@ function deserializeRow(row: TrainingPresetRow): TrainingPresetRecord {
   }
 }
 
-export function parsePresetRequestText(text: string): { name: unknown; job_config: JobConfig } {
+export function parsePresetRequestText(
+  text: string,
+  rejectCatalogProvenance = false,
+): { name: unknown; job_config: JobConfig } {
   if (new TextEncoder().encode(text).byteLength > MAX_PRESET_REQUEST_BYTES) {
     throw new TrainingPresetPayloadTooLargeError();
   }
@@ -162,6 +238,22 @@ export function parsePresetRequestText(text: string): { name: unknown; job_confi
 
   if (!isPlainObject(body)) {
     throw new TrainingPresetValidationError('Preset request body must be a plain object');
+  }
+  if (rejectCatalogProvenance) {
+    for (const field of [
+      'source',
+      'read_only',
+      'category',
+      'intent_slug',
+      'model_arch',
+      'catalog_revision',
+      'recipe_path',
+      'evidence',
+    ]) {
+      if (Object.prototype.hasOwnProperty.call(body, field)) {
+        throw new TrainingPresetProvenanceError();
+      }
+    }
   }
   if (!Object.prototype.hasOwnProperty.call(body, 'job_config')) {
     throw new TrainingPresetValidationError('Preset request body must contain job_config');
@@ -213,19 +305,73 @@ export async function readPresetRequestText(request: Pick<Request, 'body' | 'hea
 
 export interface TrainingPresetService {
   list(): Promise<TrainingPresetRecord[]>;
-  create(nameInput: unknown, currentJobConfig: JobConfig): Promise<TrainingPresetRecord>;
-  update(idInput: unknown, currentJobConfig: JobConfig): Promise<TrainingPresetRecord>;
+  create(nameInput: unknown, currentJobConfig: JobConfig): Promise<UserTrainingPresetRecord>;
+  update(idInput: unknown, currentJobConfig: JobConfig): Promise<UserTrainingPresetRecord>;
   remove(idInput: unknown): Promise<void>;
 }
 
-export function createTrainingPresetService(store: TrainingPresetStore): TrainingPresetService {
+export interface TrainingPresetServiceDependencies {
+  listBuiltIns: (logger: (event: TrainingPresetCatalogEntryEvent) => void) => BuiltInTrainingPresetRecord[];
+  logCatalogEvent: (event: TrainingPresetCatalogEntryEvent) => void;
+  logCatalogProviderFailure: (event: TrainingPresetCatalogProviderEvent) => void;
+  logCorruptUserPreset: (idDigest: string) => void;
+}
+
+function logCatalogEvent(event: TrainingPresetCatalogEntryEvent): void {
+  console.error(event.code, event.id_digest);
+}
+
+function logCatalogProviderFailure(event: TrainingPresetCatalogProviderEvent): void {
+  console.error(event.code);
+}
+
+function logCorruptUserPreset(idDigest: string): void {
+  console.error('TRAINING_PRESET_CORRUPT', idDigest);
+}
+
+const defaultTrainingPresetServiceDependencies: TrainingPresetServiceDependencies = {
+  listBuiltIns: getBuiltInTrainingPresetCatalog,
+  logCatalogEvent,
+  logCatalogProviderFailure,
+  logCorruptUserPreset,
+};
+
+function logBestEffort<T>(logger: (entry: T) => void, entry: T): void {
+  try {
+    logger(entry);
+  } catch {
+    // Observability callbacks must not change preset availability.
+  }
+}
+
+export function createTrainingPresetService(
+  store: TrainingPresetStore,
+  dependencies?: Partial<TrainingPresetServiceDependencies>,
+): TrainingPresetService {
+  const resolvedDependencies = { ...defaultTrainingPresetServiceDependencies, ...dependencies };
   return {
     async list(): Promise<TrainingPresetRecord[]> {
-      const records = (await store.findMany()).map(deserializeRow);
-      return records.sort(compareTrainingPresetRecords);
+      let builtIns: BuiltInTrainingPresetRecord[] = [];
+      try {
+        builtIns = resolvedDependencies
+          .listBuiltIns(event => logBestEffort(resolvedDependencies.logCatalogEvent, event))
+          .map(copyBuiltInPreset);
+      } catch {
+        logBestEffort(resolvedDependencies.logCatalogProviderFailure, {
+          code: 'BUILTIN_PRESET_PROVIDER_FAILED',
+        });
+      }
+
+      const userRows = (await store.findMany()).filter(row => {
+        if (!row.id.toLowerCase().startsWith('builtin:')) return true;
+        logBestEffort(resolvedDependencies.logCorruptUserPreset, trainingPresetCatalogIdLogDigest(row.id));
+        return false;
+      });
+      const users = userRows.map(deserializeRow).sort(compareTrainingPresetRecords);
+      return [...builtIns, ...users];
     },
 
-    async create(nameInput: unknown, currentJobConfig: JobConfig): Promise<TrainingPresetRecord> {
+    async create(nameInput: unknown, currentJobConfig: JobConfig): Promise<UserTrainingPresetRecord> {
       let normalized: { name: string; nameKey: string };
       try {
         normalized = normalizePresetName(nameInput);
@@ -256,8 +402,9 @@ export function createTrainingPresetService(store: TrainingPresetStore): Trainin
       }
     },
 
-    async update(idInput: unknown, currentJobConfig: JobConfig): Promise<TrainingPresetRecord> {
+    async update(idInput: unknown, currentJobConfig: JobConfig): Promise<UserTrainingPresetRecord> {
       const id = validateId(idInput);
+      rejectBuiltInPresetId(id);
       if (!(await store.findUnique({ where: { id } }))) {
         throw new TrainingPresetNotFoundError(`Training preset "${id}" was not found`);
       }
@@ -280,6 +427,7 @@ export function createTrainingPresetService(store: TrainingPresetStore): Trainin
 
     async remove(idInput: unknown): Promise<void> {
       const id = validateId(idInput);
+      rejectBuiltInPresetId(id);
       if (!(await store.findUnique({ where: { id } }))) {
         throw new TrainingPresetNotFoundError(`Training preset "${id}" was not found`);
       }

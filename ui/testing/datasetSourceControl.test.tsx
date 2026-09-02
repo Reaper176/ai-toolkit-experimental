@@ -13,7 +13,7 @@ import {
 import type { JobConfig } from '../src/types';
 import useDatasetPresets, { type UseDatasetPresetsResult } from '../src/hooks/useDatasetPresets';
 import { TrainingPresetControl } from '../src/components/TrainingPresetControl';
-import { sanitizeTrainingPreset, type TrainingPresetRecord } from '../src/helpers/trainingPresets';
+import { sanitizeTrainingPreset, type UserTrainingPresetRecord } from '../src/helpers/trainingPresets';
 import {
   PRESET_ACTION_UNDO,
   presetValue,
@@ -635,8 +635,8 @@ async function runTrainingPresetReplacementBehavior(): Promise<void> {
     },
     meta: { name: '[name]', version: '1' },
   } as unknown as JobConfig);
-  const trainingPreset: TrainingPresetRecord = {
-    id: 'training-preset', name: 'Training defaults', schema_version: 1,
+  const trainingPreset: UserTrainingPresetRecord = {
+    id: 'training-preset', name: 'Training defaults', source: 'user', read_only: false, schema_version: 1,
     snapshot: sanitizeTrainingPreset(job(200)),
     created_at: '2026-08-01T00:00:00.000Z', updated_at: '2026-08-01T00:00:00.000Z',
   };

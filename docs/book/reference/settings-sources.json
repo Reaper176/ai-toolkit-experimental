@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "source_groups": [
+    {
+      "owner": "python-ast",
+      "globs": [
+        "jobs/**/*.py",
+        "extensions_built_in/sd_trainer/**/*.py",
+        "extensions_built_in/diffusion_models/**/*.py",
+        "extensions_built_in/flex2/**/*.py",
+        "extensions_built_in/audio_models/**/*.py",
+        "toolkit/config.py",
+        "toolkit/config_modules.py",
+        "toolkit/data_loader.py",
+        "toolkit/dataloader_mixins.py",
+        "toolkit/data_transfer_object/**/*.py",
+        "toolkit/network_mixins.py",
+        "toolkit/lora_special.py",
+        "toolkit/lycoris_special.py",
+        "toolkit/kohya_lora.py",
+        "toolkit/optimizer.py",
+        "toolkit/optimizers/**/*.py",
+        "toolkit/scheduler.py",
+        "toolkit/samplers/**/*.py",
+        "toolkit/models/**/*.py",
+        "toolkit/paths.py",
+        "toolkit/memory_management/manager_modules.py",
+        "run.py"
+      ]
+    },
+    {
+      "owner": "typescript-test",
+      "globs": [
+        "ui/cron/**/*",
+        "ui/src/app/jobs/new/**/*",
+        "ui/src/app/settings/**/*",
+        "ui/src/app/layout.tsx",
+        "ui/src/components/**/*",
+        "ui/src/hooks/useSettings.tsx",
+        "ui/src/helpers/defaultSamples.ts",
+        "ui/src/paths.ts",
+        "ui/src/utils/**/*",
+        "ui/src/server/**/*.ts",
+        "ui/src/app/api/**/*.ts",
+        "ui/src/middleware.ts",
+        "ui/src/docs.tsx",
+        "ui/src/types.ts"
+      ]
+    }
+  ],
+  "claims": []
+}

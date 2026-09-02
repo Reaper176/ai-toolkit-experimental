@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict';
 import type { JobConfig } from '../src/types';
-import type { TrainingPresetRecord } from '../src/helpers/trainingPresets';
+import type { UserTrainingPresetRecord } from '../src/helpers/trainingPresets';
+import { migrateJobConfig } from '../src/app/jobs/new/jobConfig';
+import {
+  preparePresetApplication,
+  validateTrainingPresetListResponse,
+} from '../src/components/TrainingPresetSelect';
 import {
   MAX_PRESET_REQUEST_BYTES,
   TrainingPresetPayloadTooLargeError,
+  TrainingPresetProvenanceError,
+  TrainingPresetReadOnlyError,
   createTrainingPresetService,
   mapTrainingPresetError,
   type TrainingPresetCreateData,
@@ -37,6 +44,8 @@ function jobFixture(): JobConfig {
 const recordFixture = {
   id: 'preset-id',
   name: 'Preset',
+  source: 'user',
+  read_only: false,
   schema_version: 1,
   snapshot: {
     schema_version: 1,
@@ -45,27 +54,42 @@ const recordFixture = {
   },
   created_at: '2025-01-01T00:00:00.000Z',
   updated_at: '2025-01-01T00:00:00.000Z',
-} as TrainingPresetRecord;
+} as UserTrainingPresetRecord;
 
 class FakeService implements TrainingPresetServiceApi {
+  listCalls = 0;
   createCalls = 0;
   updateCalls = 0;
+  removeCalls = 0;
+  createError?: unknown;
+  updateError?: unknown;
+  removeError?: unknown;
+  lastUpdateId?: unknown;
+  lastRemoveId?: unknown;
 
-  async list(): Promise<TrainingPresetRecord[]> {
+  async list(): Promise<UserTrainingPresetRecord[]> {
+    this.listCalls += 1;
     return [];
   }
 
-  async create(): Promise<TrainingPresetRecord> {
+  async create(): Promise<UserTrainingPresetRecord> {
     this.createCalls += 1;
+    if (this.createError !== undefined) throw this.createError;
     return structuredClone(recordFixture);
   }
 
-  async update(): Promise<TrainingPresetRecord> {
+  async update(idInput: unknown): Promise<UserTrainingPresetRecord> {
     this.updateCalls += 1;
+    this.lastUpdateId = idInput;
+    if (this.updateError !== undefined) throw this.updateError;
     return structuredClone(recordFixture);
   }
 
-  async remove(): Promise<void> {}
+  async remove(idInput: unknown): Promise<void> {
+    this.removeCalls += 1;
+    this.lastRemoveId = idInput;
+    if (this.removeError !== undefined) throw this.removeError;
+  }
 }
 
 class RecordingStore implements TrainingPresetStore {
@@ -163,6 +187,36 @@ async function main(): Promise<void> {
     shouldLog: false,
   });
 
+  const routeStore = new RecordingStore();
+  await createTrainingPresetService(routeStore).create('Route User', jobFixture());
+  const injectedGet = createTrainingPresetCollectionHandlers(
+    createTrainingPresetService(routeStore),
+    () => undefined,
+  );
+  const getResponse = await injectedGet.GET();
+  assert.equal(getResponse.status, 200);
+  const getBody = await getResponse.json();
+  const getPresets = (getBody as { presets: Array<{ source: string; read_only: boolean }> }).presets;
+  assert.equal(getPresets.length, 15);
+  assert.deepEqual(
+    getPresets.slice(0, 14).map(preset => [preset.source, preset.read_only]),
+    Array(14).fill(['builtin', true]),
+  );
+  assert.deepEqual(
+    getPresets.slice(14).map(preset => [preset.source, preset.read_only]),
+    [['user', false]],
+  );
+  const acceptedGetPresets = validateTrainingPresetListResponse(getBody);
+  assert.equal(acceptedGetPresets.length, 15, 'the client accepts every production GET record');
+  const fluxPreset = acceptedGetPresets.find(preset => preset.id === 'builtin:flux:character-general-concept@1');
+  assert(fluxPreset);
+  const appliedGetPreset = preparePresetApplication(jobFixture(), fluxPreset, migrateJobConfig);
+  assert.equal(
+    appliedGetPreset.jobConfig.config.process[0].model.name_or_path,
+    'black-forest-labs/FLUX.1-dev',
+    'the production GET record traverses the source-aware built-in application path',
+  );
+
   const chunk = new Uint8Array(256 * 1024);
   const postBody = trackedBody([chunk, chunk, chunk, chunk, chunk, chunk]);
   const postService = new FakeService();
@@ -243,6 +297,175 @@ async function main(): Promise<void> {
   assert.match(String(((await invalidCreateResponse.json()) as { error: string }).error), /job.*extension/i);
   assert.equal(invalidCreateStore.createCalls, 0);
   assert.equal(invalidCreateStore.rows.length, 0);
+
+  for (const provenanceField of [
+    'source',
+    'read_only',
+    'category',
+    'intent_slug',
+    'model_arch',
+    'catalog_revision',
+    'recipe_path',
+    'evidence',
+  ]) {
+    const provenanceService = new FakeService();
+    const provenanceResponse = await createTrainingPresetCollectionHandlers(
+      provenanceService,
+      () => undefined,
+    ).POST(
+      new Request('http://localhost/api/training-presets', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'Owned', job_config: jobFixture(), [provenanceField]: true }),
+      }),
+    );
+    assert.equal(provenanceResponse.status, 400);
+    assert.deepEqual(await provenanceResponse.json(), {
+      error: 'Preset catalog provenance is server-owned',
+      code: 'PRESET_PROVENANCE_NOT_ALLOWED',
+    });
+    assert.equal(provenanceService.createCalls, 0);
+  }
+
+  for (const provenanceField of [
+    'source',
+    'read_only',
+    'category',
+    'intent_slug',
+    'model_arch',
+    'catalog_revision',
+    'recipe_path',
+    'evidence',
+  ]) {
+    const ordinaryUpdateService = new FakeService();
+    const ordinaryUpdateResponse = await createTrainingPresetDetailHandlers(
+      ordinaryUpdateService,
+      () => undefined,
+    ).PUT(
+      new Request('http://localhost/api/training-presets', {
+        method: 'PUT',
+        body: JSON.stringify({ job_config: jobFixture(), [provenanceField]: 'ignored' }),
+      }),
+      { params: Promise.resolve({ presetId: 'user-preset' }) },
+    );
+    assert.equal(ordinaryUpdateResponse.status, 200, `${provenanceField} must remain compatible on PUT`);
+    assert.equal(ordinaryUpdateService.updateCalls, 1);
+  }
+
+  const nestedProvenanceService = new FakeService();
+  const nestedProvenanceResponse = await createTrainingPresetCollectionHandlers(
+    nestedProvenanceService,
+    () => undefined,
+  ).POST(
+    new Request('http://localhost/api/training-presets', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Nested provenance',
+        job_config: { ...jobFixture(), source: 'nested', evidence: ['nested'] },
+      }),
+    }),
+  );
+  assert.equal(nestedProvenanceResponse.status, 201);
+  assert.equal(nestedProvenanceService.createCalls, 1);
+
+  const readOnlyUpdateService = new FakeService();
+  readOnlyUpdateService.updateError = new TrainingPresetReadOnlyError();
+  const readOnlyUpdateResponse = await createTrainingPresetDetailHandlers(
+    readOnlyUpdateService,
+    () => undefined,
+  ).PUT(
+    new Request('http://localhost/api/training-presets', {
+      method: 'PUT',
+      body: JSON.stringify({ job_config: jobFixture() }),
+    }),
+    { params: Promise.resolve({ presetId: 'builtin:test' }) },
+  );
+  assert.equal(readOnlyUpdateResponse.status, 409);
+  assert.deepEqual(await readOnlyUpdateResponse.json(), {
+    error: 'Built-in training presets are read-only',
+    code: 'BUILTIN_PRESET_READ_ONLY',
+  });
+  assert.equal(readOnlyUpdateService.updateCalls, 1);
+  assert.equal(readOnlyUpdateService.lastUpdateId, 'builtin:test');
+  assert.equal(readOnlyUpdateService.createCalls, 0);
+  assert.equal(readOnlyUpdateService.listCalls, 0);
+  assert.equal(readOnlyUpdateService.removeCalls, 0);
+
+  const readOnlyDeleteService = new FakeService();
+  readOnlyDeleteService.removeError = new TrainingPresetReadOnlyError();
+  const readOnlyDeleteResponse = await createTrainingPresetDetailHandlers(
+    readOnlyDeleteService,
+    () => undefined,
+  ).DELETE(new Request('http://localhost/api/training-presets', { method: 'DELETE' }), {
+    params: Promise.resolve({ presetId: 'builtin:test' }),
+  });
+  assert.equal(readOnlyDeleteResponse.status, 409);
+  assert.deepEqual(await readOnlyDeleteResponse.json(), {
+    error: 'Built-in training presets are read-only',
+    code: 'BUILTIN_PRESET_READ_ONLY',
+  });
+  assert.equal(readOnlyDeleteService.removeCalls, 1);
+  assert.equal(readOnlyDeleteService.lastRemoveId, 'builtin:test');
+  assert.equal(readOnlyDeleteService.createCalls, 0);
+  assert.equal(readOnlyDeleteService.listCalls, 0);
+  assert.equal(readOnlyDeleteService.updateCalls, 0);
+
+  const ordinaryDeleteService = new FakeService();
+  const ordinaryDeleteResponse = await createTrainingPresetDetailHandlers(
+    ordinaryDeleteService,
+    () => undefined,
+  ).DELETE(new Request('http://localhost/api/training-presets', { method: 'DELETE' }), {
+    params: Promise.resolve({ presetId: 'user-preset' }),
+  });
+  assert.equal(ordinaryDeleteResponse.status, 200);
+  assert.deepEqual(await ordinaryDeleteResponse.json(), { ok: true });
+  assert.equal(ordinaryDeleteService.removeCalls, 1);
+  assert.equal(ordinaryDeleteService.lastRemoveId, 'user-preset');
+  assert.equal(ordinaryDeleteService.createCalls, 0);
+  assert.equal(ordinaryDeleteService.listCalls, 0);
+  assert.equal(ordinaryDeleteService.updateCalls, 0);
+
+  const ordinaryErrorService = new FakeService();
+  ordinaryErrorService.createError = new TrainingPresetPayloadTooLargeError();
+  const ordinaryErrorResponse = await createTrainingPresetCollectionHandlers(
+    ordinaryErrorService,
+    () => undefined,
+  ).POST(
+    new Request('http://localhost/api/training-presets', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Ordinary', job_config: jobFixture() }),
+    }),
+  );
+  assert.deepEqual(await ordinaryErrorResponse.json(), { error: 'Preset request must not exceed 1 MiB' });
+
+  const hostileErrorService = new FakeService();
+  hostileErrorService.createError = new Proxy(
+    {},
+    {
+      getPrototypeOf() {
+        throw new Error('private prototype detail');
+      },
+    },
+  );
+  const hostileLogs: Array<{ operation: string; error: unknown }> = [];
+  const hostileErrorResponse = await createTrainingPresetCollectionHandlers(
+    hostileErrorService,
+    (operation, error) => hostileLogs.push({ operation, error }),
+  ).POST(
+    new Request('http://localhost/api/training-presets', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Hostile error', job_config: jobFixture() }),
+    }),
+  );
+  assert.equal(hostileErrorResponse.status, 500);
+  assert.deepEqual(await hostileErrorResponse.json(), { error: 'Training preset storage is unavailable' });
+  assert.equal(hostileLogs.length, 1);
+  assert.equal(hostileLogs[0].operation, 'create');
+
+  assert.deepEqual(mapTrainingPresetError(new TrainingPresetReadOnlyError()).code, 'BUILTIN_PRESET_READ_ONLY');
+  assert.deepEqual(
+    mapTrainingPresetError(new TrainingPresetProvenanceError()).code,
+    'PRESET_PROVENANCE_NOT_ALLOWED',
+  );
 
   console.log('Training preset route handler tests passed');
 }

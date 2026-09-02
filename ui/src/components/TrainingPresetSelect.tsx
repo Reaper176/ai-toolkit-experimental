@@ -6,10 +6,19 @@ import {
   SNAPSHOT_SCHEMA_VERSION,
   applyTrainingPreset,
   compareTrainingPresetRecords,
+  copyTrainingPresetJobConfigPreservingProperties,
   normalizePresetName,
+  sanitizeTrainingPreset,
+  type BuiltInTrainingPresetRecord,
   type TrainingPresetRecord,
+  type UserTrainingPresetRecord,
   validateTrainingPresetSnapshot,
 } from '../helpers/trainingPresets';
+import {
+  applyBuiltInTrainingPreset,
+  compareBuiltInTrainingPresetRecords,
+  validateBuiltInTrainingPresetRecord,
+} from '../helpers/builtInTrainingPresets';
 
 const PRESET_PREFIX = 'preset:';
 
@@ -59,7 +68,20 @@ export function handleTrainingPresetSelection(
 }
 
 export function sortTrainingPresetRecords(presets: readonly TrainingPresetRecord[]): TrainingPresetRecord[] {
-  return [...presets].sort(compareTrainingPresetRecords);
+  const builtins = presets
+    .filter((preset): preset is BuiltInTrainingPresetRecord => preset.source === 'builtin')
+    .sort((left, right) => {
+      const fixedOrder = compareBuiltInTrainingPresetRecords(left, right);
+      if (left.model_arch !== right.model_arch || left.category !== right.category) return fixedOrder;
+      const caseInsensitive = left.name.localeCompare(right.name, 'en', { sensitivity: 'base' });
+      const exactName = left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
+      const exactId = left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+      return caseInsensitive || exactName || exactId;
+    });
+  const users = presets
+    .filter((preset): preset is UserTrainingPresetRecord => preset.source === 'user')
+    .sort(compareTrainingPresetRecords);
+  return [...builtins, ...users];
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -68,8 +90,27 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
-export function validateTrainingPresetRecord(value: unknown): TrainingPresetRecord {
+const CATALOG_ONLY_RECORD_KEYS = [
+  'category',
+  'intent_slug',
+  'model_arch',
+  'catalog_revision',
+  'summary',
+  'recipe_path',
+  'prerequisites',
+  'warnings',
+  'evidence',
+] as const;
+
+function validateUserTrainingPresetRecord(value: unknown): UserTrainingPresetRecord {
   if (!isPlainObject(value)) throw new Error('Training preset record must be an object');
+  if (value.source !== 'user') throw new Error('Training preset record source must be user');
+  if (value.read_only !== false) throw new Error('Training preset record read_only must be false');
+  for (const key of CATALOG_ONLY_RECORD_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) {
+      throw new Error(`Training preset user record must not contain catalog field ${key}`);
+    }
+  }
   if (typeof value.id !== 'string' || value.id.trim() === '') {
     throw new Error('Training preset record id must be a nonblank string');
   }
@@ -85,6 +126,8 @@ export function validateTrainingPresetRecord(value: unknown): TrainingPresetReco
   return {
     id: value.id,
     name: value.name,
+    source: 'user',
+    read_only: false,
     schema_version: SNAPSHOT_SCHEMA_VERSION,
     snapshot: validateTrainingPresetSnapshot(value.snapshot),
     created_at: value.created_at,
@@ -92,39 +135,92 @@ export function validateTrainingPresetRecord(value: unknown): TrainingPresetReco
   };
 }
 
-export function validateTrainingPresetListResponse(response: unknown): TrainingPresetRecord[] {
+export type TrainingPresetDroppedRecordReason =
+  | 'invalid-user-record'
+  | 'invalid-builtin-record'
+  | 'invalid-record-source';
+
+export interface TrainingPresetDroppedRecordDiagnostic {
+  source: 'user' | 'builtin' | 'unknown';
+  index: number;
+  reason: TrainingPresetDroppedRecordReason;
+}
+
+export type TrainingPresetDroppedRecordCallback = (diagnostic: TrainingPresetDroppedRecordDiagnostic) => void;
+
+function droppedRecordSource(value: unknown): TrainingPresetDroppedRecordDiagnostic['source'] {
+  if (value === null || typeof value !== 'object') return 'unknown';
+  try {
+    const source = Object.getOwnPropertyDescriptor(value, 'source');
+    if (source === undefined || !source.enumerable || !('value' in source)) return 'unknown';
+    return source.value === 'user' || source.value === 'builtin' ? source.value : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+export function validateTrainingPresetRecord(value: unknown): TrainingPresetRecord {
+  const source = droppedRecordSource(value);
+  if (source === 'user') return validateUserTrainingPresetRecord(value);
+  if (source === 'builtin') return validateBuiltInTrainingPresetRecord(value);
+  throw new Error('Training preset record source must be an own enumerable user or builtin data property');
+}
+
+export function validateTrainingPresetListResponse(
+  response: unknown,
+  onDroppedRecord?: TrainingPresetDroppedRecordCallback,
+): TrainingPresetRecord[] {
   if (!isPlainObject(response) || !Array.isArray(response.presets)) {
     throw new Error('Training preset response must contain a presets array');
   }
-  return sortTrainingPresetRecords(response.presets.map(validateTrainingPresetRecord));
+  const validated: TrainingPresetRecord[] = [];
+  response.presets.forEach((value, index) => {
+    try {
+      validated.push(validateTrainingPresetRecord(value));
+    } catch {
+      const source = droppedRecordSource(value);
+      const reason =
+        source === 'user'
+          ? 'invalid-user-record'
+          : source === 'builtin'
+            ? 'invalid-builtin-record'
+            : 'invalid-record-source';
+      try {
+        onDroppedRecord?.({ source, index, reason });
+      } catch {
+        // Diagnostics must not make one malformed record poison the usable list.
+      }
+    }
+  });
+  return sortTrainingPresetRecords(validated);
 }
 
 export function reconcileSelectedPresetId(
   selectedPresetId: string | null,
   presets: readonly TrainingPresetRecord[],
+  currentModelArch?: string,
 ): string | null {
-  return selectedPresetId !== null && presets.some(preset => preset.id === selectedPresetId) ? selectedPresetId : null;
-}
-
-function copyJobConfig(jobConfig: JobConfig): JobConfig {
-  try {
-    return JSON.parse(JSON.stringify(jobConfig)) as JobConfig;
-  } catch {
-    throw new Error('Job config must be JSON serializable');
-  }
+  if (selectedPresetId === null) return null;
+  const selected = presets.find(preset => preset.id === selectedPresetId);
+  if (selected === undefined) return null;
+  return selected.source === 'builtin' && selected.model_arch !== currentModelArch ? null : selectedPresetId;
 }
 
 export function preparePresetApplication(
   currentJobConfig: JobConfig,
-  snapshot: unknown,
+  preset: TrainingPresetRecord,
   migrateJobConfig: (jobConfig: JobConfig) => JobConfig,
 ): { jobConfig: JobConfig; undoConfig: JobConfig } {
-  const jobConfig = applyTrainingPreset(currentJobConfig, snapshot, migrateJobConfig);
-  return { jobConfig, undoConfig: copyJobConfig(currentJobConfig) };
+  const acceptedPreset = validateTrainingPresetRecord(preset);
+  const jobConfig = acceptedPreset.source === 'builtin'
+    ? applyBuiltInTrainingPreset(currentJobConfig, acceptedPreset, migrateJobConfig)
+    : applyTrainingPreset(currentJobConfig, acceptedPreset.snapshot, migrateJobConfig);
+  sanitizeTrainingPreset(jobConfig);
+  return { jobConfig, undoConfig: copyTrainingPresetJobConfigPreservingProperties(currentJobConfig) };
 }
 
 export function restorePresetUndo(undoConfig: JobConfig, onJobConfigChange: (jobConfig: JobConfig) => void): null {
-  onJobConfigChange(copyJobConfig(undoConfig));
+  onJobConfigChange(copyTrainingPresetJobConfigPreservingProperties(undoConfig));
   return null;
 }
 
@@ -168,10 +264,10 @@ export async function createTrainingPreset(
   nameInput: unknown,
   jobConfig: JobConfig,
   signal?: AbortSignal,
-): Promise<TrainingPresetRecord> {
+): Promise<UserTrainingPresetRecord> {
   const { name } = normalizePresetName(nameInput);
   const response = await api.post('/api/training-presets', { name, job_config: jobConfig }, requestOptions(signal));
-  return validateTrainingPresetRecord(response.data);
+  return validateUserTrainingPresetRecord(response.data);
 }
 
 export async function updateTrainingPreset(
@@ -179,13 +275,13 @@ export async function updateTrainingPreset(
   presetId: string,
   jobConfig: JobConfig,
   signal?: AbortSignal,
-): Promise<TrainingPresetRecord> {
+): Promise<UserTrainingPresetRecord> {
   const response = await api.put(
     `/api/training-presets/${encodeURIComponent(presetId)}`,
     { job_config: jobConfig },
     requestOptions(signal),
   );
-  return validateTrainingPresetRecord(response.data);
+  return validateUserTrainingPresetRecord(response.data);
 }
 
 export async function deleteTrainingPreset(
@@ -265,9 +361,9 @@ async function runTrainingPresetMutation(
   lock: TrainingPresetActionLock,
   signal: AbortSignal,
   currentState: TrainingPresetControllerState,
-  mutate: () => Promise<TrainingPresetRecord | null>,
-  fallback: (record: TrainingPresetRecord | null) => TrainingPresetRecord[],
-  selectAfterRefresh: (presets: TrainingPresetRecord[], record: TrainingPresetRecord | null) => string | null,
+  mutate: () => Promise<UserTrainingPresetRecord | null>,
+  fallback: (record: UserTrainingPresetRecord | null) => TrainingPresetRecord[],
+  selectAfterRefresh: (presets: TrainingPresetRecord[], record: UserTrainingPresetRecord | null) => string | null,
   missingSelectionMessage?: string,
 ): Promise<TrainingPresetMutationResult> {
   if (lock.active) return { status: 'busy' };
@@ -329,6 +425,9 @@ export function updateTrainingPresetAndRefresh(
   currentState: TrainingPresetControllerState,
   signal: AbortSignal,
 ): Promise<TrainingPresetMutationResult> {
+  if (currentState.presets.some(preset => preset.id === presetId && (preset.source !== 'user' || preset.read_only))) {
+    return Promise.reject(new Error('Built-in training presets are read-only.'));
+  }
   return runTrainingPresetMutation(
     api,
     lock,
@@ -351,6 +450,9 @@ export async function deleteTrainingPresetAndRefresh(
   currentState: TrainingPresetControllerState,
   signal: AbortSignal = new AbortController().signal,
 ): Promise<TrainingPresetMutationResult> {
+  if (currentState.presets.some(preset => preset.id === presetId && (preset.source !== 'user' || preset.read_only))) {
+    return Promise.reject(new Error('Built-in training presets are read-only.'));
+  }
   return runTrainingPresetMutation(
     api,
     lock,
@@ -399,8 +501,9 @@ export async function deleteTrainingPresetAndRefresh(
 }
 
 export interface TrainingPresetSelectProps {
-  presets: readonly Pick<TrainingPresetRecord, 'id' | 'name'>[];
+  presets: readonly TrainingPresetRecord[];
   selectedPresetId: string | null;
+  currentModelArch: string;
   canUndo: boolean;
   disabled: boolean;
   onSelect: (selection: TrainingPresetSelection) => void;
@@ -409,15 +512,22 @@ export interface TrainingPresetSelectProps {
 export function TrainingPresetSelect({
   presets,
   selectedPresetId,
+  currentModelArch,
   canUndo,
   disabled,
   onSelect,
 }: TrainingPresetSelectProps) {
-  const sortedPresets = [...presets].sort(compareTrainingPresetRecords);
-  const selectedValue =
-    selectedPresetId !== null && sortedPresets.some(preset => preset.id === selectedPresetId)
-      ? presetValue(selectedPresetId)
-      : '';
+  const compatibleBuiltins = presets.filter(
+    (preset): preset is BuiltInTrainingPresetRecord =>
+      preset.source === 'builtin' && preset.model_arch === currentModelArch,
+  );
+  const userPresets = presets.filter((preset): preset is UserTrainingPresetRecord => preset.source === 'user');
+  const selectedPreset = selectedPresetId === null ? undefined : presets.find(preset => preset.id === selectedPresetId);
+  const selectedIsCompatible =
+    selectedPreset?.source === 'user' ||
+    (selectedPreset?.source === 'builtin' && selectedPreset.model_arch === currentModelArch);
+  const selectedValue = selectedPresetId !== null && selectedIsCompatible ? presetValue(selectedPresetId) : '';
+  const selectedIsBuiltin = selectedPreset?.source === 'builtin';
 
   const handleChange = (event: ChangeEvent<HTMLSelectElement>) => {
     handleTrainingPresetSelection(event.currentTarget, selectedValue, onSelect);
@@ -434,8 +544,15 @@ export function TrainingPresetSelect({
         onChange={handleChange}
       >
         <option value="">Preset</option>
-        <optgroup label="Saved presets">
-          {sortedPresets.map(preset => (
+        <optgroup label="Built-in recipes">
+          {compatibleBuiltins.map(preset => (
+            <option key={preset.id} value={presetValue(preset.id)}>
+              {preset.name} — {preset.intent_slug} ({preset.model_arch})
+            </option>
+          ))}
+        </optgroup>
+        <optgroup label="My presets">
+          {userPresets.map(preset => (
             <option key={preset.id} value={presetValue(preset.id)}>
               {preset.name}
             </option>
@@ -443,10 +560,10 @@ export function TrainingPresetSelect({
         </optgroup>
         <optgroup label="Actions">
           <option value={PRESET_ACTION_SAVE}>Save preset…</option>
-          <option value={PRESET_ACTION_UPDATE} disabled={selectedValue === ''}>
+          <option value={PRESET_ACTION_UPDATE} disabled={selectedValue === '' || selectedIsBuiltin}>
             Update preset…
           </option>
-          <option value={PRESET_ACTION_DELETE} disabled={selectedValue === ''}>
+          <option value={PRESET_ACTION_DELETE} disabled={selectedValue === '' || selectedIsBuiltin}>
             Delete preset…
           </option>
           {canUndo && <option value={PRESET_ACTION_UNDO}>Undo preset</option>}

@@ -6,9 +6,13 @@ import {
   MAX_PRESET_SNAPSHOT_BYTES,
   SNAPSHOT_SCHEMA_VERSION,
   applyTrainingPreset,
+  applyTrainingPresetWithPolicy,
   normalizePresetName,
   sanitizeTrainingPreset,
   validateTrainingPresetSnapshot,
+  type BuiltInTrainingPresetRecord,
+  type TrainingPresetRecord,
+  type UserTrainingPresetRecord,
 } from '../src/helpers/trainingPresets';
 
 type LooseJobConfig = JobConfig & Record<string, unknown>;
@@ -40,7 +44,7 @@ function jobFixture(): LooseJobConfig {
             sampler: 'flowmatch',
             sample_every: 100,
             guidance_scale: 3.5,
-            samples: [{ prompt: 'current sample', seed: 12 }],
+            samples: [{ prompt: 'current sample', seed: 12, control_image_path: '/current/control.png' }],
           },
           future_training_option: { enabled: true },
         },
@@ -71,6 +75,12 @@ function presetJobFixture(): LooseJobConfig {
     prompts: ['legacy preset prompt'],
   };
   process.future_training_option = { enabled: false, mode: 'future' };
+  return job;
+}
+
+function userJobFixture(): LooseJobConfig {
+  const job = presetJobFixture();
+  (job.config.process[0] as any).sample.neg = 'saved user negative';
   return job;
 }
 
@@ -112,7 +122,132 @@ assert.deepEqual(sanitizedProcess.save, { save_every: 250 });
 assert.deepEqual(sanitizedProcess.logging, { log_every: 1 });
 assert.equal(sanitizedProcess.sample.sampler, 'ddim');
 assert.equal(sanitizedProcess.sample.sample_every, 25);
+assert.equal('neg' in sanitizedProcess.sample, false);
 assert.deepEqual(sanitizedProcess.future_training_option, { enabled: false, mode: 'future' });
+
+const sanitizedUserPreset = sanitizeTrainingPreset(userJobFixture());
+assert.equal((sanitizedUserPreset.config.process[0] as any).sample.neg, 'saved user negative');
+const ordinaryUserApplied = applyTrainingPreset(jobFixture(), sanitizedUserPreset, (job: JobConfig) => job);
+assert.equal((ordinaryUserApplied.config.process[0] as any).sample.neg, 'saved user negative');
+const policyCurrent = jobFixture();
+(policyCurrent.config.process[0] as any).sample.neg = 'current negative';
+const policySnapshot = structuredClone(sanitizedUserPreset);
+const ordinaryPolicyApplied = applyTrainingPresetWithPolicy(policyCurrent, policySnapshot, job => job, {
+  preserveCurrentNegativePrompt: false,
+});
+assert.equal((ordinaryPolicyApplied.config.process[0] as any).sample.neg, 'saved user negative');
+const builtInPolicySnapshot = structuredClone(sanitizedUserPreset) as any;
+delete builtInPolicySnapshot.config.process[0].sample.neg;
+const builtInPolicyApplied = applyTrainingPresetWithPolicy(policyCurrent, builtInPolicySnapshot, job => {
+  const process = job.config.process[0] as any;
+  process.sample.neg = process.model.name_or_path === 'current/model'
+    ? 'migrated current negative'
+    : 'candidate migration negative';
+  return job;
+}, { preserveCurrentNegativePrompt: true });
+assert.equal((builtInPolicyApplied.config.process[0] as any).sample.neg, 'migrated current negative');
+
+const arrayPropertyCurrent = jobFixture() as any;
+arrayPropertyCurrent.config.process[0].train.future_values = [1];
+arrayPropertyCurrent.config.process[0].train.future_values.extra = Number.NaN;
+assert.throws(
+  () => applyTrainingPresetWithPolicy(arrayPropertyCurrent, builtInPolicySnapshot, job => job, {
+    preserveCurrentNegativePrompt: true,
+  }),
+  /array.*(?:property|index)/i,
+);
+
+const accessorCurrent = jobFixture() as any;
+let unsafeAccessorReads = 0;
+Object.defineProperty(accessorCurrent.config.process[0].train, 'changing_value', {
+  enumerable: true,
+  configurable: true,
+  get: () => {
+    unsafeAccessorReads += 1;
+    return unsafeAccessorReads === 1 ? undefined : 1n;
+  },
+});
+assert.throws(
+  () => applyTrainingPresetWithPolicy(accessorCurrent, builtInPolicySnapshot, job => job, {
+    preserveCurrentNegativePrompt: true,
+  }),
+  /accessor/i,
+);
+assert.equal(unsafeAccessorReads, 0, 'descriptor-aware copy must not invoke rejected accessors');
+
+const protoKeyCurrent = jobFixture() as any;
+Object.defineProperty(protoKeyCurrent.config.process[0].train, '__proto__', {
+  value: undefined,
+  enumerable: true,
+  writable: true,
+  configurable: true,
+});
+let protoKeyMigrationCall = 0;
+applyTrainingPresetWithPolicy(protoKeyCurrent, builtInPolicySnapshot, job => {
+  protoKeyMigrationCall += 1;
+  if (protoKeyMigrationCall === 1) {
+    const train = (job.config.process[0] as any).train;
+    assert.equal(Object.prototype.hasOwnProperty.call(train, '__proto__'), true);
+    assert.equal(train.__proto__, undefined);
+  }
+  return job;
+}, { preserveCurrentNegativePrompt: true });
+assert.equal(protoKeyMigrationCall, 2);
+
+const migratedNegativeAccessorCurrent = jobFixture() as any;
+let migratedNegativeGetterReads = 0;
+let migratedNegativeAccessorCalls = 0;
+assert.throws(
+  () => applyTrainingPresetWithPolicy(migratedNegativeAccessorCurrent, builtInPolicySnapshot, job => {
+    migratedNegativeAccessorCalls += 1;
+    if (migratedNegativeAccessorCalls === 1) {
+      Object.defineProperty((job.config.process[0] as any).sample, 'neg', {
+        enumerable: true,
+        configurable: true,
+        get: () => {
+          migratedNegativeGetterReads += 1;
+          return 'unsafe migrated negative';
+        },
+      });
+    }
+    return job;
+  }, { preserveCurrentNegativePrompt: true }),
+  /sample\.neg.*accessor/i,
+);
+assert.equal(migratedNegativeGetterReads, 0, 'migrated negative getter must never execute');
+assert.equal(migratedNegativeAccessorCalls, 1);
+
+const userRecordContract: UserTrainingPresetRecord = {
+  id: 'user-preset',
+  name: 'User preset',
+  source: 'user',
+  read_only: false,
+  schema_version: 1,
+  snapshot: sanitizedUserPreset,
+  created_at: '2026-01-01T00:00:00.000Z',
+  updated_at: '2026-01-01T00:00:00.000Z',
+};
+const builtInRecordContract: BuiltInTrainingPresetRecord = {
+  id: 'builtin-preset',
+  name: 'Built-in preset',
+  source: 'builtin',
+  read_only: true,
+  schema_version: 1,
+  snapshot: sanitizedUserPreset,
+  created_at: '2026-01-01T00:00:00.000Z',
+  updated_at: '2026-01-01T00:00:00.000Z',
+  category: 'style',
+  intent_slug: 'style-balanced',
+  model_arch: 'flux',
+  catalog_revision: 1,
+  summary: 'Balanced style training.',
+  recipe_path: 'recipes/style-balanced.yaml',
+  prerequisites: ['captioned images'],
+  warnings: [],
+  evidence: 'configuration-validated',
+};
+const recordContracts: TrainingPresetRecord[] = [userRecordContract, builtInRecordContract];
+assert.deepEqual(recordContracts.map(record => record.source), ['user', 'builtin']);
 
 const sourceForSanitize = presetJobFixture();
 const isolatedSnapshot = sanitizeTrainingPreset(sourceForSanitize);
@@ -360,7 +495,9 @@ assert.equal(appliedProcess.sqlite_db_path, '/current/jobs.sqlite');
 assert.equal(appliedProcess.device, 'cuda:1');
 assert.equal(appliedProcess.trigger_word, 'CURRENT');
 assert.deepEqual(appliedProcess.datasets, [{ folder_path: '/current/images', resolution: [1024] }]);
-assert.deepEqual(appliedProcess.sample.samples, [{ prompt: 'current sample', seed: 12 }]);
+assert.deepEqual(appliedProcess.sample.samples, [
+  { prompt: 'current sample', seed: 12, control_image_path: '/current/control.png' },
+]);
 assert.equal(appliedProcess.sample.sampler, 'ddim');
 assert.equal(appliedProcess.sample.guidance_scale, 7);
 assert.equal(appliedProcess.model.arch, 'sdxl');

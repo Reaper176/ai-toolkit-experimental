@@ -4,6 +4,8 @@ import { resolve } from 'node:path';
 import ts from 'typescript';
 
 const pageSource = readFileSync(resolve(process.cwd(), 'src/app/jobs/new/page.tsx'), 'utf8');
+const presetControlSource = readFileSync(resolve(process.cwd(), 'src/components/TrainingPresetControl.tsx'), 'utf8');
+const layoutSource = readFileSync(resolve(process.cwd(), 'src/components/layout.tsx'), 'utf8');
 const sourceFile = ts.createSourceFile('page.tsx', pageSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const advancedSource = readFileSync(resolve(process.cwd(), 'src/components/AdvancedConfigEditor.tsx'), 'utf8');
 const advancedSourceFile = ts.createSourceFile(
@@ -14,6 +16,19 @@ const advancedSourceFile = ts.createSourceFile(
   ts.ScriptKind.TSX,
 );
 const runnerSource = readFileSync(resolve(process.cwd(), 'testing/runTrainingPresetTests.mjs'), 'utf8');
+const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')) as {
+  scripts: Record<string, string>;
+};
+assert.equal(
+  packageJson.scripts['validate:training-presets'],
+  'node testing/runTrainingPresetTests.mjs --catalog-only',
+  'the release catalog validation command must be stable',
+);
+assert.equal(
+  packageJson.scripts.build,
+  'npm run validate:training-presets && tsc -p tsconfig.worker.json && next build',
+  'build must validate the built-in release before either compiler/build phase',
+);
 assert.doesNotMatch(runnerSource, /optionalTestFiles/, 'every committed preset test artifact must be mandatory');
 assert.doesNotMatch(
   runnerSource,
@@ -25,6 +40,36 @@ for (const sourceTest of readdirSync(resolve(process.cwd(), 'testing')).filter(f
 )) {
   const compiledTest = sourceTest.replace(/\.tsx?$/, '.js');
   assert.match(runnerSource, new RegExp(`['"]${compiledTest}['"]`), `${compiledTest} must be required by the runner`);
+}
+for (const requiredCatalogArtifact of [
+  'trainingPresetCatalog.test.js',
+  'trainingPresetCatalogRuntime.test.js',
+  'trainingPresetCatalogBuildValidation.test.js',
+]) {
+  assert.match(runnerSource, new RegExp(`['"]${requiredCatalogArtifact}['"]`), `${requiredCatalogArtifact} must be catalog-gated`);
+}
+assert.match(runnerSource, /--catalog-only/, 'runner must expose the build-safe catalog-only mode');
+assert.match(runnerSource, /trainingPresetBackendMapping\.test\.py/, 'catalog validation must run the Python mapping checks');
+assert.match(runnerSource, /trainingPresetCatalogBuildValidationCli\.js[\s\S]*--check/, 'catalog validation must run the strict release check');
+assert.match(runnerSource, /generate_training_book_reference\.py[\s\S]*--check/, 'catalog validation must check generated book references');
+const catalogTestFilesSource = /const catalogTestFiles = \[([\s\S]*?)\];/.exec(runnerSource)?.[1];
+const lifecycleTestFilesSource = /const lifecycleTestFiles = \[([\s\S]*?)\];/.exec(runnerSource)?.[1];
+assert.ok(catalogTestFilesSource, 'runner must declare its catalog-only artifacts explicitly');
+assert.ok(lifecycleTestFilesSource, 'runner must declare its normal-mode lifecycle artifacts explicitly');
+for (const normalOnlyArtifact of [
+  'trainingPresets.test.js',
+  'trainingPresetApplicationIntegration.test.js',
+]) {
+  assert.doesNotMatch(
+    catalogTestFilesSource,
+    new RegExp(normalOnlyArtifact.replaceAll('.', '\\.')),
+    `catalog-only validation must not compile or execute ${normalOnlyArtifact}`,
+  );
+  assert.match(
+    lifecycleTestFilesSource,
+    new RegExp(normalOnlyArtifact.replaceAll('.', '\\.')),
+    `normal validation must retain ${normalOnlyArtifact}`,
+  );
 }
 
 function visitDescendants(node: ts.Node, predicate: (candidate: ts.Node) => boolean): ts.Node[] {
@@ -107,6 +152,23 @@ const presetControls = visitDescendants(returns[0].expression, node =>
 ) as Array<ts.JsxElement | ts.JsxSelfClosingElement>;
 assert.equal(presetControls.length, 1, 'TrainingForm must render exactly one TrainingPresetControl');
 const presetControl = presetControls[0];
+
+assert.match(layoutSource, /overflow-x-auto/, 'TopBar must retain horizontal scrolling for narrow toolbars');
+assert.match(
+  presetControlSource,
+  /data-preset-details-region[\s\S]*?className="[^"]*\bfixed\b[^"]*\btop-12\b[^"]*"/,
+  'preset details must use viewport-fixed positioning below the clipping TopBar',
+);
+assert.match(
+  presetControlSource,
+  /data-preset-details-region[\s\S]*?className="[^"]*\bwhitespace-normal\b[^"]*"/,
+  'preset details must restore text wrapping inherited from the non-wrapping TopBar',
+);
+assert.doesNotMatch(
+  presetControlSource,
+  /data-preset-details-region[\s\S]*?className="[^"]*\b(?:absolute|top-full)\b[^"]*"/,
+  'preset details must not use positioning that is clipped by TopBar overflow',
+);
 
 let presetWrapper: ts.Node = presetControl;
 while (presetWrapper.parent !== topBar && !ts.isSourceFile(presetWrapper)) presetWrapper = presetWrapper.parent;
@@ -238,6 +300,9 @@ assert.equal(
   0,
   'TrainingPresetControl subtree must not reference gpuIDs',
 );
+for (const catalogField of ['source', 'read_only', 'category', 'intent_slug', 'catalog_revision', 'summary', 'warnings', 'prerequisites', 'evidence']) {
+  assert.equal(getAttribute(presetControl, catalogField), undefined, `page must not pass catalog-only ${catalogField} into job state`);
+}
 
 const classAttribute = getAttribute(presetWrapper, 'className');
 assert.ok(

@@ -1,0 +1,2602 @@
+{
+  "$defs": {
+    "Alias": {
+      "additionalProperties": false,
+      "properties": {
+        "location": {
+          "minLength": 1,
+          "title": "Location",
+          "type": "string"
+        },
+        "replacement": {
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9*]+)*$",
+          "title": "Replacement",
+          "type": "string"
+        },
+        "precedence": {
+          "enum": [
+            "replacement-wins",
+            "alias-wins",
+            "error-on-both"
+          ],
+          "title": "Precedence",
+          "type": "string"
+        },
+        "migration": {
+          "minLength": 1,
+          "title": "Migration",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "legacy",
+            "deprecated",
+            "removed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "location",
+        "replacement",
+        "precedence",
+        "migration",
+        "status"
+      ],
+      "title": "Alias",
+      "type": "object"
+    },
+    "Applicability": {
+      "additionalProperties": false,
+      "properties": {
+        "job_type": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Job Type"
+        },
+        "process_type": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Process Type"
+        },
+        "network_type": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Network Type"
+        },
+        "ui_architecture": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Architecture"
+        },
+        "engine_architecture": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engine Architecture"
+        },
+        "optimizer": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Optimizer"
+        },
+        "optimizer_prefix": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Optimizer Prefix"
+        },
+        "optimizer_suffix": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Optimizer Suffix"
+        },
+        "optimizer_exclude_prefix": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Optimizer Exclude Prefix"
+        },
+        "scheduler": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scheduler"
+        },
+        "scheduler_prefix": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scheduler Prefix"
+        },
+        "scheduler_suffix": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scheduler Suffix"
+        },
+        "scheduler_exclude_prefix": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scheduler Exclude Prefix"
+        }
+      },
+      "title": "Applicability",
+      "type": "object"
+    },
+    "CatalogLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "yaml",
+            "cli",
+            "environment",
+            "inline-prompt",
+            "ui-state"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ],
+      "title": "CatalogLocation",
+      "type": "object"
+    },
+    "CatalogSourceClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "symbol": {
+          "minLength": 1,
+          "title": "Symbol",
+          "type": "string"
+        },
+        "key": {
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "read_kind": {
+          "minLength": 1,
+          "title": "Read Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "symbol",
+        "key",
+        "read_kind"
+      ],
+      "title": "CatalogSourceClaim",
+      "type": "object"
+    },
+    "Interaction": {
+      "additionalProperties": false,
+      "properties": {
+        "setting": {
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9*]+)*$",
+          "title": "Setting",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "requires",
+            "conflicts",
+            "overrides",
+            "constrains",
+            "affects",
+            "fallback"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "applicability": {
+          "items": {
+            "$ref": "#/$defs/Applicability"
+          },
+          "title": "Applicability",
+          "type": "array"
+        }
+      },
+      "required": [
+        "setting",
+        "kind",
+        "description",
+        "applicability"
+      ],
+      "title": "Interaction",
+      "type": "object"
+    },
+    "Normalization": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "applicability": {
+          "items": {
+            "$ref": "#/$defs/Applicability"
+          },
+          "title": "Applicability",
+          "type": "array"
+        }
+      },
+      "required": [
+        "description",
+        "applicability"
+      ],
+      "title": "Normalization",
+      "type": "object"
+    },
+    "NumericRange": {
+      "additionalProperties": false,
+      "properties": {
+        "minimum": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Minimum"
+        },
+        "maximum": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Maximum"
+        },
+        "minimum_inclusive": {
+          "title": "Minimum Inclusive",
+          "type": "boolean"
+        },
+        "maximum_inclusive": {
+          "title": "Maximum Inclusive",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "minimum",
+        "maximum",
+        "minimum_inclusive",
+        "maximum_inclusive"
+      ],
+      "title": "NumericRange",
+      "type": "object"
+    },
+    "RenderMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "page": {
+          "minLength": 1,
+          "title": "Page",
+          "type": "string"
+        },
+        "anchor": {
+          "minLength": 1,
+          "title": "Anchor",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "benefits": {
+          "minLength": 1,
+          "title": "Benefits",
+          "type": "string"
+        },
+        "drawbacks": {
+          "minLength": 1,
+          "title": "Drawbacks",
+          "type": "string"
+        },
+        "example": {
+          "minLength": 1,
+          "title": "Example",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page",
+        "anchor",
+        "description",
+        "benefits",
+        "drawbacks",
+        "example"
+      ],
+      "title": "RenderMetadata",
+      "type": "object"
+    },
+    "Setting": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9*]+)*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "ui_label": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ui Label"
+        },
+        "scope": {
+          "enum": [
+            "root",
+            "job",
+            "process",
+            "model",
+            "network",
+            "train",
+            "dataset",
+            "save",
+            "sample",
+            "logging",
+            "optimizer",
+            "scheduler",
+            "cli",
+            "environment",
+            "ui-state"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "locations": {
+          "items": {
+            "$ref": "#/$defs/CatalogLocation"
+          },
+          "minItems": 1,
+          "title": "Locations",
+          "type": "array"
+        },
+        "surfaces": {
+          "items": {
+            "enum": [
+              "simple-ui",
+              "advanced-yaml",
+              "cli"
+            ],
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Surfaces",
+          "type": "array"
+        },
+        "persistence": {
+          "enum": [
+            "config",
+            "job-json",
+            "database",
+            "runtime",
+            "transient",
+            "browser-storage"
+          ],
+          "title": "Persistence",
+          "type": "string"
+        },
+        "authority": {
+          "enum": [
+            "user",
+            "ui-derived",
+            "server-overwritten",
+            "runtime-forced"
+          ],
+          "title": "Authority",
+          "type": "string"
+        },
+        "ui_projection": {
+          "anyOf": [
+            {
+              "enum": [
+                "discriminator-control",
+                "composite-option"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Projection"
+        },
+        "lifecycle": {
+          "enum": [
+            "supported",
+            "legacy",
+            "deprecated",
+            "experimental",
+            "unconsumed"
+          ],
+          "title": "Lifecycle",
+          "type": "string"
+        },
+        "applicability": {
+          "items": {
+            "$ref": "#/$defs/Applicability"
+          },
+          "title": "Applicability",
+          "type": "array"
+        },
+        "contract": {
+          "$ref": "#/$defs/SettingContract"
+        },
+        "defaults": {
+          "items": {
+            "$ref": "#/$defs/SettingDefault"
+          },
+          "title": "Defaults",
+          "type": "array"
+        },
+        "normalizations": {
+          "items": {
+            "$ref": "#/$defs/Normalization"
+          },
+          "title": "Normalizations",
+          "type": "array"
+        },
+        "interactions": {
+          "items": {
+            "$ref": "#/$defs/Interaction"
+          },
+          "title": "Interactions",
+          "type": "array"
+        },
+        "aliases": {
+          "items": {
+            "$ref": "#/$defs/Alias"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
+        "section": {
+          "minLength": 1,
+          "title": "Section",
+          "type": "string"
+        },
+        "source_claims": {
+          "items": {
+            "$ref": "#/$defs/CatalogSourceClaim"
+          },
+          "title": "Source Claims",
+          "type": "array"
+        },
+        "render": {
+          "$ref": "#/$defs/RenderMetadata"
+        }
+      },
+      "required": [
+        "id",
+        "ui_label",
+        "scope",
+        "locations",
+        "surfaces",
+        "persistence",
+        "authority",
+        "lifecycle",
+        "applicability",
+        "contract",
+        "defaults",
+        "normalizations",
+        "interactions",
+        "aliases",
+        "section",
+        "source_claims",
+        "render"
+      ],
+      "title": "Setting",
+      "type": "object"
+    },
+    "SettingContract": {
+      "additionalProperties": false,
+      "properties": {
+        "parser_type": {
+          "minLength": 1,
+          "title": "Parser Type",
+          "type": "string"
+        },
+        "supported_type": {
+          "minLength": 1,
+          "title": "Supported Type",
+          "type": "string"
+        },
+        "ui_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "boolean",
+                "integer",
+                "number",
+                "string",
+                "path",
+                "boolean-list",
+                "integer-list",
+                "number-list",
+                "string-list",
+                "object",
+                "object-list"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ui Type"
+        },
+        "ui_optional": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Optional"
+        },
+        "ui_nullable": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Nullable"
+        },
+        "ui_accepted_values": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Accepted Values"
+        },
+        "ui_suggested_values": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Suggested Values"
+        },
+        "ui_range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NumericRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "config_to_ui_scale": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Config To Ui Scale"
+        },
+        "ui_to_config_scale": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui To Config Scale"
+        },
+        "example_type": {
+          "enum": [
+            "boolean",
+            "integer",
+            "number",
+            "string",
+            "path",
+            "boolean-list",
+            "integer-list",
+            "number-list",
+            "string-list",
+            "object",
+            "object-list"
+          ],
+          "title": "Example Type",
+          "type": "string"
+        },
+        "accepted_values": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Accepted Values"
+        },
+        "accepted_types": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "boolean",
+                  "integer",
+                  "number",
+                  "string",
+                  "path",
+                  "boolean-list",
+                  "integer-list",
+                  "number-list",
+                  "string-list",
+                  "object",
+                  "object-list"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accepted Types"
+        },
+        "collection_length": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Collection Length"
+        },
+        "range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NumericRange"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "null": {
+          "enum": [
+            "accepted",
+            "rejected",
+            "normalized-to-absent"
+          ],
+          "title": "Null",
+          "type": "string"
+        }
+      },
+      "required": [
+        "parser_type",
+        "supported_type",
+        "ui_type",
+        "example_type",
+        "accepted_values",
+        "range",
+        "null"
+      ],
+      "title": "SettingContract",
+      "type": "object"
+    },
+    "SettingDefault": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "ui-created",
+            "engine-fallback",
+            "on-select",
+            "on-leave",
+            "runtime-forced"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "presence": {
+          "enum": [
+            "absent",
+            "present"
+          ],
+          "title": "Presence",
+          "type": "string"
+        },
+        "value": {
+          "default": null,
+          "title": "Value"
+        },
+        "applicability": {
+          "items": {
+            "$ref": "#/$defs/Applicability"
+          },
+          "title": "Applicability",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "presence",
+        "applicability"
+      ],
+      "title": "SettingDefault",
+      "type": "object"
+    },
+    "UiArchitectureCustomOptionsPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "payload_kind": {
+          "const": "custom-options",
+          "title": "Payload Kind",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/UiCustomOptions"
+        }
+      },
+      "required": [
+        "payload_kind",
+        "value"
+      ],
+      "title": "UiArchitectureCustomOptionsPayload",
+      "type": "object"
+    },
+    "UiArchitectureJsxPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "payload_kind": {
+          "const": "jsx",
+          "title": "Payload Kind",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/UiStaticJsx"
+        }
+      },
+      "required": [
+        "payload_kind",
+        "value"
+      ],
+      "title": "UiArchitectureJsxPayload",
+      "type": "object"
+    },
+    "UiArchitecturePresencePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "payload_kind": {
+          "const": "presence",
+          "title": "Payload Kind",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/UiPresence"
+        }
+      },
+      "required": [
+        "payload_kind",
+        "value"
+      ],
+      "title": "UiArchitecturePresencePayload",
+      "type": "object"
+    },
+    "UiArchitectureValuePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "payload_kind": {
+          "const": "value",
+          "title": "Payload Kind",
+          "type": "string"
+        },
+        "value": {
+          "discriminator": {
+            "mapping": {
+              "array": "#/$defs/UiArrayValue",
+              "boolean": "#/$defs/UiBooleanValue",
+              "null": "#/$defs/UiNullValue",
+              "number": "#/$defs/UiNumberValue",
+              "object": "#/$defs/UiObjectValue",
+              "string": "#/$defs/UiStringValue",
+              "undefined": "#/$defs/UiUndefinedValue"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UiUndefinedValue"
+            },
+            {
+              "$ref": "#/$defs/UiNullValue"
+            },
+            {
+              "$ref": "#/$defs/UiBooleanValue"
+            },
+            {
+              "$ref": "#/$defs/UiNumberValue"
+            },
+            {
+              "$ref": "#/$defs/UiStringValue"
+            },
+            {
+              "$ref": "#/$defs/UiArrayValue"
+            },
+            {
+              "$ref": "#/$defs/UiObjectValue"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "payload_kind",
+        "value"
+      ],
+      "title": "UiArchitectureValuePayload",
+      "type": "object"
+    },
+    "UiArrayValue": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "array",
+          "title": "Kind",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "array": "#/$defs/UiArrayValue",
+                "boolean": "#/$defs/UiBooleanValue",
+                "null": "#/$defs/UiNullValue",
+                "number": "#/$defs/UiNumberValue",
+                "object": "#/$defs/UiObjectValue",
+                "string": "#/$defs/UiStringValue",
+                "undefined": "#/$defs/UiUndefinedValue"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/UiUndefinedValue"
+              },
+              {
+                "$ref": "#/$defs/UiNullValue"
+              },
+              {
+                "$ref": "#/$defs/UiBooleanValue"
+              },
+              {
+                "$ref": "#/$defs/UiNumberValue"
+              },
+              {
+                "$ref": "#/$defs/UiStringValue"
+              },
+              {
+                "$ref": "#/$defs/UiArrayValue"
+              },
+              {
+                "$ref": "#/$defs/UiObjectValue"
+              }
+            ]
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "items"
+      ],
+      "title": "UiArrayValue",
+      "type": "object"
+    },
+    "UiBehaviorArchitectureDefaultPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "architecture-default",
+          "title": "Kind",
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "revert",
+            "apply"
+          ],
+          "title": "Phase",
+          "type": "string"
+        },
+        "value_index": {
+          "enum": [
+            0,
+            1
+          ],
+          "title": "Value Index",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "phase",
+        "value_index"
+      ],
+      "title": "UiBehaviorArchitectureDefaultPayload",
+      "type": "object"
+    },
+    "UiBehaviorArchitectureFieldPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "architecture-field",
+          "title": "Kind",
+          "type": "string"
+        },
+        "field": {
+          "const": "controls",
+          "title": "Field",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "field"
+      ],
+      "title": "UiBehaviorArchitectureFieldPayload",
+      "type": "object"
+    },
+    "UiBehaviorArchitectureNamePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "architecture-name",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "UiBehaviorArchitectureNamePayload",
+      "type": "object"
+    },
+    "UiBehaviorContract": {
+      "additionalProperties": false,
+      "properties": {
+        "guard": {
+          "enum": [
+            "prompts-nonempty-array",
+            "after-prompts-write",
+            "type-is-ui-trainer",
+            "property-present",
+            "property-absent",
+            "platform-mac",
+            "text-encoder-path-unsupported",
+            "vae-path-unsupported",
+            "layer-offloading-unsupported-property-present",
+            "section-unsupported",
+            "section-supported-property-absent",
+            "architecture-change",
+            "multi-control",
+            "single-control",
+            "no-control",
+            "source-nonempty-target-empty",
+            "source-nonempty",
+            "frame-count-unsupported",
+            "auto-frame-count-unsupported",
+            "sample-control-unsupported",
+            "revert-current-defaults",
+            "apply-next-defaults"
+          ],
+          "title": "Guard",
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "write",
+            "delete"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "payload": {
+          "discriminator": {
+            "mapping": {
+              "architecture-default": "#/$defs/UiBehaviorArchitectureDefaultPayload",
+              "architecture-field": "#/$defs/UiBehaviorArchitectureFieldPayload",
+              "architecture-name": "#/$defs/UiBehaviorArchitectureNamePayload",
+              "copy": "#/$defs/UiBehaviorCopyPayload",
+              "literal": "#/$defs/UiBehaviorLiteralPayload",
+              "map-prompt-objects": "#/$defs/UiBehaviorPromptMapPayload",
+              "undefined": "#/$defs/UiBehaviorUndefinedPayload"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UiBehaviorLiteralPayload"
+            },
+            {
+              "$ref": "#/$defs/UiBehaviorUndefinedPayload"
+            },
+            {
+              "$ref": "#/$defs/UiBehaviorCopyPayload"
+            },
+            {
+              "$ref": "#/$defs/UiBehaviorPromptMapPayload"
+            },
+            {
+              "$ref": "#/$defs/UiBehaviorArchitectureNamePayload"
+            },
+            {
+              "$ref": "#/$defs/UiBehaviorArchitectureFieldPayload"
+            },
+            {
+              "$ref": "#/$defs/UiBehaviorArchitectureDefaultPayload"
+            }
+          ],
+          "title": "Payload"
+        }
+      },
+      "required": [
+        "guard",
+        "operation",
+        "sources",
+        "payload"
+      ],
+      "title": "UiBehaviorContract",
+      "type": "object"
+    },
+    "UiBehaviorCopyPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "copy",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_path": {
+          "title": "Source Path",
+          "type": "string"
+        },
+        "fallback": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "array": "#/$defs/UiArrayValue",
+                  "boolean": "#/$defs/UiBooleanValue",
+                  "null": "#/$defs/UiNullValue",
+                  "number": "#/$defs/UiNumberValue",
+                  "object": "#/$defs/UiObjectValue",
+                  "string": "#/$defs/UiStringValue",
+                  "undefined": "#/$defs/UiUndefinedValue"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/UiUndefinedValue"
+                },
+                {
+                  "$ref": "#/$defs/UiNullValue"
+                },
+                {
+                  "$ref": "#/$defs/UiBooleanValue"
+                },
+                {
+                  "$ref": "#/$defs/UiNumberValue"
+                },
+                {
+                  "$ref": "#/$defs/UiStringValue"
+                },
+                {
+                  "$ref": "#/$defs/UiArrayValue"
+                },
+                {
+                  "$ref": "#/$defs/UiObjectValue"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fallback"
+        }
+      },
+      "required": [
+        "kind",
+        "source_path"
+      ],
+      "title": "UiBehaviorCopyPayload",
+      "type": "object"
+    },
+    "UiBehaviorLiteralPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "literal",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "discriminator": {
+            "mapping": {
+              "array": "#/$defs/UiArrayValue",
+              "boolean": "#/$defs/UiBooleanValue",
+              "null": "#/$defs/UiNullValue",
+              "number": "#/$defs/UiNumberValue",
+              "object": "#/$defs/UiObjectValue",
+              "string": "#/$defs/UiStringValue",
+              "undefined": "#/$defs/UiUndefinedValue"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UiUndefinedValue"
+            },
+            {
+              "$ref": "#/$defs/UiNullValue"
+            },
+            {
+              "$ref": "#/$defs/UiBooleanValue"
+            },
+            {
+              "$ref": "#/$defs/UiNumberValue"
+            },
+            {
+              "$ref": "#/$defs/UiStringValue"
+            },
+            {
+              "$ref": "#/$defs/UiArrayValue"
+            },
+            {
+              "$ref": "#/$defs/UiObjectValue"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "UiBehaviorLiteralPayload",
+      "type": "object"
+    },
+    "UiBehaviorPromptMapPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "map-prompt-objects",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_path": {
+          "title": "Source Path",
+          "type": "string"
+        },
+        "item_key": {
+          "const": "prompt",
+          "title": "Item Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "source_path",
+        "item_key"
+      ],
+      "title": "UiBehaviorPromptMapPayload",
+      "type": "object"
+    },
+    "UiBehaviorUndefinedPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "undefined",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "UiBehaviorUndefinedPayload",
+      "type": "object"
+    },
+    "UiBooleanValue": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "boolean",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "UiBooleanValue",
+      "type": "object"
+    },
+    "UiCustomOption": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/UiOptionChoice"
+          },
+          "title": "Options",
+          "type": "array"
+        },
+        "doc": {
+          "$ref": "#/$defs/UiStaticJsx"
+        },
+        "get_value_cases": {
+          "items": {
+            "$ref": "#/$defs/UiGetValueCase"
+          },
+          "title": "Get Value Cases",
+          "type": "array"
+        },
+        "writes": {
+          "items": {
+            "$ref": "#/$defs/UiOptionWrite"
+          },
+          "title": "Writes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "options",
+        "doc",
+        "get_value_cases",
+        "writes"
+      ],
+      "title": "UiCustomOption",
+      "type": "object"
+    },
+    "UiCustomOptions": {
+      "additionalProperties": false,
+      "properties": {
+        "present": {
+          "title": "Present",
+          "type": "boolean"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/UiCustomOption"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "present"
+      ],
+      "title": "UiCustomOptions",
+      "type": "object"
+    },
+    "UiFactOwner": {
+      "additionalProperties": false,
+      "properties": {
+        "setting_id": {
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9*]+)*$",
+          "title": "Setting Id",
+          "type": "string"
+        },
+        "fact": {
+          "discriminator": {
+            "mapping": {
+              "architecture-container": "#/$defs/UiOwnedArchitectureContainer",
+              "architecture-default": "#/$defs/UiOwnedArchitectureDefault",
+              "architecture-field": "#/$defs/UiOwnedArchitectureField",
+              "architecture-transition": "#/$defs/UiOwnedArchitectureTransition",
+              "source-claim": "#/$defs/UiOwnedSourceFact",
+              "ui-default": "#/$defs/UiOwnedDefaultFact"
+            },
+            "propertyName": "fact_type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UiOwnedSourceFact"
+            },
+            {
+              "$ref": "#/$defs/UiOwnedDefaultFact"
+            },
+            {
+              "$ref": "#/$defs/UiOwnedArchitectureTransition"
+            },
+            {
+              "$ref": "#/$defs/UiOwnedArchitectureField"
+            },
+            {
+              "$ref": "#/$defs/UiOwnedArchitectureDefault"
+            },
+            {
+              "$ref": "#/$defs/UiOwnedArchitectureContainer"
+            }
+          ],
+          "title": "Fact"
+        }
+      },
+      "required": [
+        "setting_id",
+        "fact"
+      ],
+      "title": "UiFactOwner",
+      "type": "object"
+    },
+    "UiGetValueCase": {
+      "additionalProperties": false,
+      "properties": {
+        "condition": {
+          "$ref": "#/$defs/UiPredicate"
+        },
+        "return_value": {
+          "discriminator": {
+            "mapping": {
+              "array": "#/$defs/UiArrayValue",
+              "boolean": "#/$defs/UiBooleanValue",
+              "null": "#/$defs/UiNullValue",
+              "number": "#/$defs/UiNumberValue",
+              "object": "#/$defs/UiObjectValue",
+              "string": "#/$defs/UiStringValue",
+              "undefined": "#/$defs/UiUndefinedValue"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UiUndefinedValue"
+            },
+            {
+              "$ref": "#/$defs/UiNullValue"
+            },
+            {
+              "$ref": "#/$defs/UiBooleanValue"
+            },
+            {
+              "$ref": "#/$defs/UiNumberValue"
+            },
+            {
+              "$ref": "#/$defs/UiStringValue"
+            },
+            {
+              "$ref": "#/$defs/UiArrayValue"
+            },
+            {
+              "$ref": "#/$defs/UiObjectValue"
+            }
+          ],
+          "title": "Return Value"
+        }
+      },
+      "required": [
+        "condition",
+        "return_value"
+      ],
+      "title": "UiGetValueCase",
+      "type": "object"
+    },
+    "UiNullValue": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "null",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "UiNullValue",
+      "type": "object"
+    },
+    "UiNumberValue": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "number",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "UiNumberValue",
+      "type": "object"
+    },
+    "UiObjectEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "value": {
+          "discriminator": {
+            "mapping": {
+              "array": "#/$defs/UiArrayValue",
+              "boolean": "#/$defs/UiBooleanValue",
+              "null": "#/$defs/UiNullValue",
+              "number": "#/$defs/UiNumberValue",
+              "object": "#/$defs/UiObjectValue",
+              "string": "#/$defs/UiStringValue",
+              "undefined": "#/$defs/UiUndefinedValue"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UiUndefinedValue"
+            },
+            {
+              "$ref": "#/$defs/UiNullValue"
+            },
+            {
+              "$ref": "#/$defs/UiBooleanValue"
+            },
+            {
+              "$ref": "#/$defs/UiNumberValue"
+            },
+            {
+              "$ref": "#/$defs/UiStringValue"
+            },
+            {
+              "$ref": "#/$defs/UiArrayValue"
+            },
+            {
+              "$ref": "#/$defs/UiObjectValue"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "title": "UiObjectEntry",
+      "type": "object"
+    },
+    "UiObjectValue": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "object",
+          "title": "Kind",
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/UiObjectEntry"
+          },
+          "title": "Entries",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "entries"
+      ],
+      "title": "UiObjectValue",
+      "type": "object"
+    },
+    "UiOptionChoice": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "title": "Value",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "label"
+      ],
+      "title": "UiOptionChoice",
+      "type": "object"
+    },
+    "UiOptionWrite": {
+      "additionalProperties": false,
+      "properties": {
+        "selected_value": {
+          "title": "Selected Value",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "value": {
+          "discriminator": {
+            "mapping": {
+              "array": "#/$defs/UiArrayValue",
+              "boolean": "#/$defs/UiBooleanValue",
+              "null": "#/$defs/UiNullValue",
+              "number": "#/$defs/UiNumberValue",
+              "object": "#/$defs/UiObjectValue",
+              "string": "#/$defs/UiStringValue",
+              "undefined": "#/$defs/UiUndefinedValue"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UiUndefinedValue"
+            },
+            {
+              "$ref": "#/$defs/UiNullValue"
+            },
+            {
+              "$ref": "#/$defs/UiBooleanValue"
+            },
+            {
+              "$ref": "#/$defs/UiNumberValue"
+            },
+            {
+              "$ref": "#/$defs/UiStringValue"
+            },
+            {
+              "$ref": "#/$defs/UiArrayValue"
+            },
+            {
+              "$ref": "#/$defs/UiObjectValue"
+            }
+          ],
+          "title": "Value"
+        },
+        "guard": {
+          "$ref": "#/$defs/UiPredicate"
+        }
+      },
+      "required": [
+        "selected_value",
+        "path",
+        "value",
+        "guard"
+      ],
+      "title": "UiOptionWrite",
+      "type": "object"
+    },
+    "UiOwnedArchitectureContainer": {
+      "additionalProperties": false,
+      "properties": {
+        "fact_type": {
+          "const": "architecture-container",
+          "title": "Fact Type",
+          "type": "string"
+        },
+        "architecture": {
+          "title": "Architecture",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "selected_present": {
+          "title": "Selected Present",
+          "type": "boolean"
+        },
+        "unselected_present": {
+          "title": "Unselected Present",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "fact_type",
+        "architecture",
+        "path",
+        "selected_present",
+        "unselected_present"
+      ],
+      "title": "UiOwnedArchitectureContainer",
+      "type": "object"
+    },
+    "UiOwnedArchitectureDefault": {
+      "additionalProperties": false,
+      "properties": {
+        "fact_type": {
+          "const": "architecture-default",
+          "title": "Fact Type",
+          "type": "string"
+        },
+        "architecture": {
+          "title": "Architecture",
+          "type": "string"
+        },
+        "declaration_path": {
+          "title": "Declaration Path",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "selected": {
+          "$ref": "#/$defs/UiPresence"
+        },
+        "unselected": {
+          "$ref": "#/$defs/UiPresence"
+        }
+      },
+      "required": [
+        "fact_type",
+        "architecture",
+        "declaration_path",
+        "path",
+        "selected",
+        "unselected"
+      ],
+      "title": "UiOwnedArchitectureDefault",
+      "type": "object"
+    },
+    "UiOwnedArchitectureField": {
+      "additionalProperties": false,
+      "properties": {
+        "fact_type": {
+          "const": "architecture-field",
+          "title": "Fact Type",
+          "type": "string"
+        },
+        "architecture": {
+          "title": "Architecture",
+          "type": "string"
+        },
+        "field": {
+          "enum": [
+            "label",
+            "group",
+            "model_path",
+            "gate_url",
+            "is_video_model",
+            "has_multiline_prompts",
+            "accuracy_recovery_adapters",
+            "sample_tags",
+            "custom_model_select_options",
+            "model_notes",
+            "controls",
+            "disable_sections",
+            "additional_sections"
+          ],
+          "title": "Field",
+          "type": "string"
+        },
+        "payload": {
+          "discriminator": {
+            "mapping": {
+              "custom-options": "#/$defs/UiArchitectureCustomOptionsPayload",
+              "jsx": "#/$defs/UiArchitectureJsxPayload",
+              "presence": "#/$defs/UiArchitecturePresencePayload",
+              "value": "#/$defs/UiArchitectureValuePayload"
+            },
+            "propertyName": "payload_kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UiArchitectureValuePayload"
+            },
+            {
+              "$ref": "#/$defs/UiArchitecturePresencePayload"
+            },
+            {
+              "$ref": "#/$defs/UiArchitectureJsxPayload"
+            },
+            {
+              "$ref": "#/$defs/UiArchitectureCustomOptionsPayload"
+            }
+          ],
+          "title": "Payload"
+        }
+      },
+      "required": [
+        "fact_type",
+        "architecture",
+        "field",
+        "payload"
+      ],
+      "title": "UiOwnedArchitectureField",
+      "type": "object"
+    },
+    "UiOwnedArchitectureTransition": {
+      "additionalProperties": false,
+      "properties": {
+        "architecture": {
+          "title": "Architecture",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "selected": {
+          "$ref": "#/$defs/UiPresence"
+        },
+        "unselected": {
+          "$ref": "#/$defs/UiPresence"
+        },
+        "fact_type": {
+          "const": "architecture-transition",
+          "title": "Fact Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "architecture",
+        "path",
+        "selected",
+        "unselected",
+        "fact_type"
+      ],
+      "title": "UiOwnedArchitectureTransition",
+      "type": "object"
+    },
+    "UiOwnedDefaultFact": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/UiPresence"
+        },
+        "source_path": {
+          "title": "Source Path",
+          "type": "string"
+        },
+        "symbol": {
+          "title": "Symbol",
+          "type": "string"
+        },
+        "fact_type": {
+          "const": "ui-default",
+          "title": "Fact Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "value",
+        "source_path",
+        "symbol",
+        "fact_type"
+      ],
+      "title": "UiOwnedDefaultFact",
+      "type": "object"
+    },
+    "UiOwnedSourceFact": {
+      "additionalProperties": false,
+      "properties": {
+        "source_path": {
+          "title": "Source Path",
+          "type": "string"
+        },
+        "symbol": {
+          "title": "Symbol",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "setter",
+            "default",
+            "doc",
+            "setting",
+            "server-state"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "ui_label": {
+          "$ref": "#/$defs/UiPresence"
+        },
+        "value_contract": {
+          "$ref": "#/$defs/UiValueContract"
+        },
+        "behavior_contract": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiBehaviorContract"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "server_state_contract": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiServerStateContract"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "fact_type": {
+          "const": "source-claim",
+          "title": "Fact Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_path",
+        "symbol",
+        "path",
+        "kind",
+        "ui_label",
+        "value_contract",
+        "fact_type"
+      ],
+      "title": "UiOwnedSourceFact",
+      "type": "object"
+    },
+    "UiPredicate": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "always",
+            "truthy",
+            "nonblank-string",
+            "not",
+            "and",
+            "or"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "operand": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiPredicate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "operands": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/UiPredicate"
+                },
+                {
+                  "$ref": "#/$defs/UiPredicate"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operands"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "UiPredicate",
+      "type": "object"
+    },
+    "UiPresence": {
+      "additionalProperties": false,
+      "properties": {
+        "present": {
+          "title": "Present",
+          "type": "boolean"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "array": "#/$defs/UiArrayValue",
+                  "boolean": "#/$defs/UiBooleanValue",
+                  "null": "#/$defs/UiNullValue",
+                  "number": "#/$defs/UiNumberValue",
+                  "object": "#/$defs/UiObjectValue",
+                  "string": "#/$defs/UiStringValue",
+                  "undefined": "#/$defs/UiUndefinedValue"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/UiUndefinedValue"
+                },
+                {
+                  "$ref": "#/$defs/UiNullValue"
+                },
+                {
+                  "$ref": "#/$defs/UiBooleanValue"
+                },
+                {
+                  "$ref": "#/$defs/UiNumberValue"
+                },
+                {
+                  "$ref": "#/$defs/UiStringValue"
+                },
+                {
+                  "$ref": "#/$defs/UiArrayValue"
+                },
+                {
+                  "$ref": "#/$defs/UiObjectValue"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "present"
+      ],
+      "title": "UiPresence",
+      "type": "object"
+    },
+    "UiServerStateContract": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "enum": [
+            "read",
+            "write",
+            "delete",
+            "derive"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "provenance": {
+          "enum": [
+            "browser-storage",
+            "database",
+            "environment",
+            "config",
+            "http",
+            "runtime"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        },
+        "authority": {
+          "enum": [
+            "user",
+            "ui-derived",
+            "server-overwritten",
+            "runtime-forced"
+          ],
+          "title": "Authority",
+          "type": "string"
+        },
+        "persistence": {
+          "enum": [
+            "config",
+            "job-json",
+            "database",
+            "runtime",
+            "transient",
+            "browser-storage"
+          ],
+          "title": "Persistence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "provenance",
+        "authority",
+        "persistence"
+      ],
+      "title": "UiServerStateContract",
+      "type": "object"
+    },
+    "UiStaticJsx": {
+      "additionalProperties": false,
+      "properties": {
+        "present": {
+          "title": "Present",
+          "type": "boolean"
+        },
+        "text_literals": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text Literals"
+        },
+        "code_literals": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Code Literals"
+        },
+        "link_hrefs": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Link Hrefs"
+        }
+      },
+      "required": [
+        "present"
+      ],
+      "title": "UiStaticJsx",
+      "type": "object"
+    },
+    "UiStringValue": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "string",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "UiStringValue",
+      "type": "object"
+    },
+    "UiUndefinedValue": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "undefined",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "UiUndefinedValue",
+      "type": "object"
+    },
+    "UiValueContract": {
+      "additionalProperties": false,
+      "properties": {
+        "ui_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "boolean",
+                "integer",
+                "number",
+                "string",
+                "path",
+                "boolean-list",
+                "integer-list",
+                "number-list",
+                "string-list",
+                "object",
+                "object-list"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ui Type"
+        },
+        "widget_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "checkbox",
+                "number",
+                "text",
+                "multiline",
+                "path",
+                "select",
+                "json",
+                "read-only"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Widget Kind"
+        },
+        "optional": {
+          "title": "Optional",
+          "type": "boolean"
+        },
+        "nullable": {
+          "title": "Nullable",
+          "type": "boolean"
+        },
+        "accepted_values": {
+          "anyOf": [
+            {
+              "items": {
+                "discriminator": {
+                  "mapping": {
+                    "array": "#/$defs/UiArrayValue",
+                    "boolean": "#/$defs/UiBooleanValue",
+                    "null": "#/$defs/UiNullValue",
+                    "number": "#/$defs/UiNumberValue",
+                    "object": "#/$defs/UiObjectValue",
+                    "string": "#/$defs/UiStringValue",
+                    "undefined": "#/$defs/UiUndefinedValue"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/UiUndefinedValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiNullValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiBooleanValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiNumberValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiStringValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiArrayValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiObjectValue"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accepted Values"
+        },
+        "suggested_values": {
+          "anyOf": [
+            {
+              "items": {
+                "discriminator": {
+                  "mapping": {
+                    "array": "#/$defs/UiArrayValue",
+                    "boolean": "#/$defs/UiBooleanValue",
+                    "null": "#/$defs/UiNullValue",
+                    "number": "#/$defs/UiNumberValue",
+                    "object": "#/$defs/UiObjectValue",
+                    "string": "#/$defs/UiStringValue",
+                    "undefined": "#/$defs/UiUndefinedValue"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/UiUndefinedValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiNullValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiBooleanValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiNumberValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiStringValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiArrayValue"
+                  },
+                  {
+                    "$ref": "#/$defs/UiObjectValue"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggested Values"
+        },
+        "minimum": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum"
+        },
+        "maximum": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum"
+        },
+        "config_to_ui_scale": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Config To Ui Scale"
+        },
+        "ui_to_config_scale": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui To Config Scale"
+        }
+      },
+      "required": [
+        "ui_type",
+        "widget_kind",
+        "optional",
+        "nullable"
+      ],
+      "title": "UiValueContract",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "settings": {
+      "items": {
+        "$ref": "#/$defs/Setting"
+      },
+      "title": "Settings",
+      "type": "array"
+    },
+    "ui_claims": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/UiFactOwner"
+      },
+      "title": "Ui Claims",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "settings"
+  ],
+  "title": "SettingsCatalog",
+  "type": "object"
+}

@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useCallback, useEffect, useReducer, useRef, useState, type ComponentType } from 'react';
+import React, { useCallback, useEffect, useId, useReducer, useRef, useState, type ComponentType } from 'react';
 import type { JobConfig } from '../types';
 import { normalizePresetName, type TrainingPresetRecord } from '../helpers/trainingPresets';
 import { apiClient } from '../utils/api';
+import { TrainingPresetDetails } from './TrainingPresetDetails';
 import {
   CLOSED_TRAINING_PRESET_DIALOG,
   TrainingPresetDialogView,
@@ -63,8 +64,11 @@ export function TrainingPresetControl({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fetchFailed, setFetchFailed] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [dialog, dispatchDialog] = useReducer(trainingPresetDialogReducer, CLOSED_TRAINING_PRESET_DIALOG);
+  const detailsId = useId();
   const dialogRef = useRef(dialog);
+  const controlRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(false);
   const pendingRef = useRef(false);
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -78,6 +82,11 @@ export function TrainingPresetControl({
   migrateRef.current = migrateJobConfig;
   disabledRef.current = disabled;
   dialogRef.current = dialog;
+
+  const selectedBuiltIn = selectedPresetId === null
+    ? undefined
+    : presets.find(preset => preset.id === selectedPresetId && preset.source === 'builtin');
+  const interactionDisabled = disabled || loading || pending || dialog.kind !== 'closed';
 
   const startRequest = useCallback(() => {
     requestControllerRef.current?.abort();
@@ -101,7 +110,9 @@ export function TrainingPresetControl({
       const nextPresets = validateTrainingPresetListResponse(response.data);
       if (!mountedRef.current || controller.signal.aborted) return;
       setPresets(nextPresets);
-      setSelectedPresetId(current => reconcileSelectedPresetId(current, nextPresets));
+      setSelectedPresetId(current =>
+        reconcileSelectedPresetId(current, nextPresets, jobConfigRef.current.config.process[0].model.arch),
+      );
     } catch (requestError) {
       if (!mountedRef.current || isTrainingPresetCancellation(requestError, controller.signal)) return;
       setFetchFailed(true);
@@ -119,6 +130,34 @@ export function TrainingPresetControl({
       requestControllerRef.current?.abort();
     };
   }, [fetchPresets]);
+
+  useEffect(() => {
+    setSelectedPresetId(current => reconcileSelectedPresetId(current, presets, jobConfig.config.process[0].model.arch));
+  }, [jobConfig.config.process, presets]);
+
+  useEffect(() => {
+    if (selectedBuiltIn === undefined) setDetailsOpen(false);
+  }, [selectedBuiltIn]);
+
+  useEffect(() => {
+    if (!detailsOpen || typeof document === 'undefined') return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target !== null && !controlRef.current?.contains(event.target as Node)) {
+        setDetailsOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDetailsOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [detailsOpen]);
 
   const beginPending = (): boolean => {
     if (!mountedRef.current || pendingRef.current || disabledRef.current) return false;
@@ -156,11 +195,17 @@ export function TrainingPresetControl({
     if (selection.type === 'preset') {
       const preset = presets.find(candidate => candidate.id === selection.id);
       if (!preset) return;
+      if (preset.source === 'builtin' && preset.model_arch !== jobConfigRef.current.config.process[0].model.arch) {
+        setSelectedPresetId(null);
+        setDetailsOpen(false);
+        return;
+      }
       try {
-        const transaction = preparePresetApplication(jobConfigRef.current, preset.snapshot, migrateRef.current);
+        const transaction = preparePresetApplication(jobConfigRef.current, preset, migrateRef.current);
         changeRef.current(transaction.jobConfig);
         setUndoConfig(transaction.undoConfig);
         setSelectedPresetId(preset.id);
+        if (preset.source === 'user') setDetailsOpen(false);
         setError(null);
       } catch (applyError) {
         setError(localError('Could not apply training preset', applyError));
@@ -187,7 +232,7 @@ export function TrainingPresetControl({
 
     const selected =
       selectedPresetId === null ? undefined : presets.find(candidate => candidate.id === selectedPresetId);
-    if (!selected) return;
+    if (!selected || selected.source !== 'user' || selected.read_only) return;
     if (selection.type === 'update') {
       dispatchDialog({ type: 'open-update', presetId: selected.id, presetName: selected.name });
     } else if (selection.type === 'delete') {
@@ -205,6 +250,10 @@ export function TrainingPresetControl({
     )
       return;
     const activeDialog = expectedDialog;
+    if (activeDialog.kind === 'update' || activeDialog.kind === 'delete') {
+      const target = presets.find(preset => preset.id === activeDialog.presetId);
+      if (!target || target.source !== 'user' || target.read_only) return;
+    }
     let normalizedName: string | undefined;
     if (activeDialog.kind === 'save') {
       try {
@@ -255,14 +304,39 @@ export function TrainingPresetControl({
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div ref={controlRef} data-training-preset-control className="relative flex flex-wrap items-center gap-2">
       <TrainingPresetSelect
         presets={presets}
         selectedPresetId={selectedPresetId}
+        currentModelArch={jobConfig.config.process[0].model.arch}
         canUndo={undoConfig !== null}
-        disabled={disabled || loading || pending || dialog.kind !== 'closed'}
+        disabled={interactionDisabled}
         onSelect={handleSelection}
       />
+      {selectedBuiltIn?.source === 'builtin' && (
+        <button
+          type="button"
+          aria-label="Show preset details"
+          aria-expanded={detailsOpen}
+          aria-controls={detailsId}
+          disabled={interactionDisabled}
+          className="rounded border border-gray-700 bg-gray-800 px-2 py-1 text-sm text-gray-100 disabled:opacity-50"
+          onClick={() => setDetailsOpen(open => !open)}
+        >
+          Details
+        </button>
+      )}
+      {selectedBuiltIn?.source === 'builtin' && detailsOpen && (
+        <div
+          id={detailsId}
+          role="region"
+          aria-label="Selected preset details"
+          data-preset-details-region
+          className="fixed right-2 top-12 z-50 mt-2 max-h-[calc(100vh-6rem)] w-[min(24rem,calc(100vw-1rem))] overflow-y-auto whitespace-normal rounded shadow-xl"
+        >
+          <TrainingPresetDetails preset={selectedBuiltIn} />
+        </div>
+      )}
       {(loading || pending) && (
         <span role="status" className="text-xs text-gray-400">
           {loading ? 'Loading presets…' : 'Updating presets…'}

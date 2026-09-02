@@ -1,0 +1,6095 @@
+{
+  "schema_version": 2,
+  "exclusions": [
+    {
+      "source": "jobs/ExtractJob.py",
+      "symbol": "ExtractJob.__init__",
+      "key": "base_model",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/ExtractJob.py",
+      "symbol": "ExtractJob.__init__",
+      "key": "device",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/ExtractJob.py",
+      "symbol": "ExtractJob.__init__",
+      "key": "dtype",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/ExtractJob.py",
+      "symbol": "ExtractJob.__init__",
+      "key": "extract_model",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/ExtractJob.py",
+      "symbol": "ExtractJob.__init__",
+      "key": "extract_text_encoder",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/ExtractJob.py",
+      "symbol": "ExtractJob.__init__",
+      "key": "extract_unet",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/ExtractJob.py",
+      "symbol": "ExtractJob.__init__",
+      "key": "is_v2",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/ExtractJob.py",
+      "symbol": "ExtractJob.__init__",
+      "key": "output_folder",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/GenerateJob.py",
+      "symbol": "GenerateJob.__init__",
+      "key": "device",
+      "read_kind": "get_conf",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/BaseExtractProcess.py",
+      "symbol": "BaseExtractProcess.__init__",
+      "key": "dtype",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/BaseExtractProcess.py",
+      "symbol": "BaseExtractProcess.__init__",
+      "key": "extract_text_encoder",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/BaseExtractProcess.py",
+      "symbol": "BaseExtractProcess.__init__",
+      "key": "extract_unet",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/BaseExtractProcess.py",
+      "symbol": "BaseExtractProcess.get_output_path",
+      "key": "filename",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/BaseExtractProcess.py",
+      "symbol": "BaseExtractProcess.get_output_path",
+      "key": "output_path",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/BaseExtractProcess.py",
+      "symbol": "BaseExtractProcess.get_output_path",
+      "key": "process",
+      "read_kind": "attribute[]",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoconProcess.py",
+      "symbol": "ExtractLoconProcess.__init__",
+      "key": "conv",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoconProcess.py",
+      "symbol": "ExtractLoconProcess.__init__",
+      "key": "disable_cp",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoconProcess.py",
+      "symbol": "ExtractLoconProcess.__init__",
+      "key": "linear",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoconProcess.py",
+      "symbol": "ExtractLoconProcess.__init__",
+      "key": "mode",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoconProcess.py",
+      "symbol": "ExtractLoconProcess.__init__",
+      "key": "sparsity",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoconProcess.py",
+      "symbol": "ExtractLoconProcess.__init__",
+      "key": "use_sparse_bias",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoraProcess.py",
+      "symbol": "ExtractLoraProcess.__init__",
+      "key": "conv",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoraProcess.py",
+      "symbol": "ExtractLoraProcess.__init__",
+      "key": "linear",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoraProcess.py",
+      "symbol": "ExtractLoraProcess.__init__",
+      "key": "mode",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoraProcess.py",
+      "symbol": "ExtractLoraProcess.__init__",
+      "key": "sparsity",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/ExtractLoraProcess.py",
+      "symbol": "ExtractLoraProcess.__init__",
+      "key": "use_sparse_bias",
+      "read_kind": "get_conf",
+      "reason": "extraction-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "compile",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "ext",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "guidance_rescale",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "guidance_scale",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "height",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "max_images",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "max_random_per_prompt",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "neg",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "neg_2",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "num_repeats",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "prompt_2",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "prompt_file",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "prompts",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "random_prompts",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "sample_steps",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "sampler",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "seed",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "shuffle",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "size_list",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateConfig.__init__",
+      "key": "width",
+      "read_kind": "kwargs.get",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateProcess.__init__",
+      "key": "device",
+      "read_kind": "get_conf",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateProcess.__init__",
+      "key": "dtype",
+      "read_kind": "get_conf",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateProcess.__init__",
+      "key": "generate",
+      "read_kind": "get_conf",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateProcess.__init__",
+      "key": "model",
+      "read_kind": "get_conf",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/GenerateProcess.py",
+      "symbol": "GenerateProcess.__init__",
+      "key": "output_folder",
+      "read_kind": "get_conf",
+      "reason": "generation-only"
+    },
+    {
+      "source": "jobs/process/TrainSliderProcess.py",
+      "symbol": "TrainSliderProcess.__init__",
+      "key": "device",
+      "read_kind": "get_conf",
+      "reason": "slider-only"
+    },
+    {
+      "source": "jobs/process/TrainSliderProcess.py",
+      "symbol": "TrainSliderProcess.__init__",
+      "key": "slider",
+      "read_kind": "get_conf",
+      "reason": "slider-only"
+    },
+    {
+      "source": "jobs/process/TrainSliderProcessOld.py",
+      "symbol": "TrainSliderProcessOld.__init__",
+      "key": "device",
+      "read_kind": "get_conf",
+      "reason": "slider-only"
+    },
+    {
+      "source": "jobs/process/TrainSliderProcessOld.py",
+      "symbol": "TrainSliderProcessOld.__init__",
+      "key": "slider",
+      "read_kind": "get_conf",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "ReferenceDatasetConfig.__init__",
+      "key": "neg_folder",
+      "read_kind": "kwargs.get",
+      "reason": "reference-dataset-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "ReferenceDatasetConfig.__init__",
+      "key": "neg_weight",
+      "read_kind": "kwargs.get",
+      "reason": "reference-dataset-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "ReferenceDatasetConfig.__init__",
+      "key": "network_weight",
+      "read_kind": "kwargs.get",
+      "reason": "reference-dataset-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "ReferenceDatasetConfig.__init__",
+      "key": "pair_folder",
+      "read_kind": "kwargs.get",
+      "reason": "reference-dataset-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "ReferenceDatasetConfig.__init__",
+      "key": "pos_folder",
+      "read_kind": "kwargs.get",
+      "reason": "reference-dataset-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "ReferenceDatasetConfig.__init__",
+      "key": "pos_weight",
+      "read_kind": "kwargs.get",
+      "reason": "reference-dataset-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "ReferenceDatasetConfig.__init__",
+      "key": "size",
+      "read_kind": "kwargs.get",
+      "reason": "reference-dataset-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "ReferenceDatasetConfig.__init__",
+      "key": "target_class",
+      "read_kind": "kwargs.get",
+      "reason": "reference-dataset-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "adapter_img_dir",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "anchors",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "batch_full_slide",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "low_ram",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "prompt_file",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "prompt_tensors",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "resolutions",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "targets",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfig.__init__",
+      "key": "use_adapter",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfigAnchors.__init__",
+      "key": "multiplier",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfigAnchors.__init__",
+      "key": "neg_prompt",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderConfigAnchors.__init__",
+      "key": "prompt",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderTargetConfig.__init__",
+      "key": "multiplier",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderTargetConfig.__init__",
+      "key": "negative",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderTargetConfig.__init__",
+      "key": "positive",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderTargetConfig.__init__",
+      "key": "shuffle",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderTargetConfig.__init__",
+      "key": "target_class",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/config_modules.py",
+      "symbol": "SliderTargetConfig.__init__",
+      "key": "weight",
+      "read_kind": "kwargs.get",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/network_mixins.py",
+      "symbol": "ToolkitNetworkMixin.__init__",
+      "key": "is_lorm",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/network_mixins.py",
+      "symbol": "ToolkitNetworkMixin.__init__",
+      "key": "is_sdxl",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/network_mixins.py",
+      "symbol": "ToolkitNetworkMixin.__init__",
+      "key": "is_ssd",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/network_mixins.py",
+      "symbol": "ToolkitNetworkMixin.__init__",
+      "key": "is_v2",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/network_mixins.py",
+      "symbol": "ToolkitNetworkMixin.__init__",
+      "key": "is_vega",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/network_mixins.py",
+      "symbol": "ToolkitNetworkMixin.__init__",
+      "key": "network_config",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/network_mixins.py",
+      "symbol": "ToolkitNetworkMixin.__init__",
+      "key": "train_text_encoder",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/network_mixins.py",
+      "symbol": "ToolkitNetworkMixin.__init__",
+      "key": "train_unet",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "alpha",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "base_model",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "conv_alpha",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "conv_lora_dim",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "dropout",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_auraflow",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_flux",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_lorm",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_lumina2",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_pixart",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_sdxl",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_transformer",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_v2",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_v3",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "lora_dim",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "multiplier",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "network_config",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "network_type",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "text_encoder",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "train_text_encoder",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "train_unet",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "transformer_only",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "unet",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "use_bias",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "use_text_encoder_1",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "use_text_encoder_2",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_ara",
+      "read_kind": "network_kwargs.accepted",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "is_assistant_adapter",
+      "read_kind": "network_kwargs.accepted",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "module_class",
+      "read_kind": "network_kwargs.accepted",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "modules_alpha",
+      "read_kind": "network_kwargs.accepted",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "modules_dim",
+      "read_kind": "network_kwargs.accepted",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "target_conv_modules",
+      "read_kind": "network_kwargs.accepted",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lora_special.py",
+      "symbol": "LoRASpecialNetwork.__init__",
+      "key": "target_lin_modules",
+      "read_kind": "network_kwargs.accepted",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "alpha",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "conv_alpha",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "conv_lora_dim",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "dropout",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "is_lorm",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "lora_dim",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "multiplier",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "text_encoder",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "train_text_encoder",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "train_unet",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "unet",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "use_bias",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "use_text_encoder_1",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "use_text_encoder_2",
+      "read_kind": "network_kwargs.reserved",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/lycoris_special.py",
+      "symbol": "LycorisSpecialNetwork.__init__",
+      "key": "network_module",
+      "read_kind": "network_kwargs.accepted",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/kohya_lora.py",
+      "symbol": "create_network",
+      "key": "block_alphas",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/kohya_lora.py",
+      "symbol": "create_network",
+      "key": "block_dims",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/kohya_lora.py",
+      "symbol": "create_network",
+      "key": "conv_alpha",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/kohya_lora.py",
+      "symbol": "create_network",
+      "key": "conv_block_alphas",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/kohya_lora.py",
+      "symbol": "create_network",
+      "key": "conv_block_dims",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/kohya_lora.py",
+      "symbol": "create_network",
+      "key": "conv_dim",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/kohya_lora.py",
+      "symbol": "create_network",
+      "key": "module_dropout",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/kohya_lora.py",
+      "symbol": "create_network",
+      "key": "rank_dropout",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "adagrad__target=torch.optim.Adagrad",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "adam__target=torch.optim.Adam",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "adam8bit__target=bitsandbytes.optim.Adam8bit",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "adamw__target=torch.optim.AdamW",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "adamw8bit__target=bitsandbytes.optim.AdamW8bit",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "ademamix8bit__target=bitsandbytes.optim.AdEMAMix8bit",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "dadaptation__target=dadaptation.DAdaptAdam",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "prefix=dadaptation;suffix=adam__target=dadaptation.DAdaptLion",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "prefix=dadaptation;suffix=lion__target=dadaptation.DAdaptLion",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "lion__target=lion_pytorch.Lion",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "lion8bit__target=bitsandbytes.optim.Lion8bit",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "prodigy__target=prodigyopt.Prodigy",
+      "read_kind": "optimizer.external_boundary",
+      "reason": "arbitrary third-party constructor surface"
+    },
+    {
+      "source": "toolkit/optimizers/optimizer_utils.py",
+      "symbol": "Auto8bitTensor.to",
+      "key": "dtype",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/optimizers/optimizer_utils.py",
+      "symbol": "Auto8bitTensor.to",
+      "key": "dtype",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/samplers/custom_flowmatch_sampler.py",
+      "symbol": "CustomFlowMatchEulerDiscreteScheduler.set_train_timesteps",
+      "key": "base_image_seq_len",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/samplers/custom_flowmatch_sampler.py",
+      "symbol": "CustomFlowMatchEulerDiscreteScheduler.set_train_timesteps",
+      "key": "base_shift",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/samplers/custom_flowmatch_sampler.py",
+      "symbol": "CustomFlowMatchEulerDiscreteScheduler.set_train_timesteps",
+      "key": "max_image_seq_len",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/samplers/custom_flowmatch_sampler.py",
+      "symbol": "CustomFlowMatchEulerDiscreteScheduler.set_train_timesteps",
+      "key": "max_shift",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/optimizer.py",
+      "symbol": "get_optimizer",
+      "key": "adamw8__decouple",
+      "read_kind": "optimizer.injected",
+      "reason": "runtime-forced duplicate-key boundary"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "AugmentedImageDataset.__init__",
+      "key": "augmentations",
+      "read_kind": "get_config",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "ImageDataset.__init__",
+      "key": "caption_ext",
+      "read_kind": "get_config",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "ImageDataset.__init__",
+      "key": "default_prompt",
+      "read_kind": "get_config",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "ImageDataset.__init__",
+      "key": "include_prompt",
+      "read_kind": "get_config",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "ImageDataset.__init__",
+      "key": "name",
+      "read_kind": "get_config",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "ImageDataset.__init__",
+      "key": "path",
+      "read_kind": "get_config",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "ImageDataset.__init__",
+      "key": "random_crop",
+      "read_kind": "get_config",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "ImageDataset.__init__",
+      "key": "random_scale",
+      "read_kind": "get_config",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "ImageDataset.__init__",
+      "key": "resolution",
+      "read_kind": "get_config",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "ImageDataset.__init__",
+      "key": "scale",
+      "read_kind": "get_config",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "PairedImageDataset.__init__",
+      "key": "default_prompt",
+      "read_kind": "get_config",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "PairedImageDataset.__init__",
+      "key": "neg_folder",
+      "read_kind": "get_config",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "PairedImageDataset.__init__",
+      "key": "neg_weight",
+      "read_kind": "get_config",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "PairedImageDataset.__init__",
+      "key": "network_weight",
+      "read_kind": "get_config",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "PairedImageDataset.__init__",
+      "key": "path",
+      "read_kind": "get_config",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "PairedImageDataset.__init__",
+      "key": "pos_folder",
+      "read_kind": "get_config",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "PairedImageDataset.__init__",
+      "key": "pos_weight",
+      "read_kind": "get_config",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/data_loader.py",
+      "symbol": "PairedImageDataset.__init__",
+      "key": "size",
+      "read_kind": "get_config",
+      "reason": "slider-only"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "DataLoaderBatchDTO.__init__",
+      "key": "file_items",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "crop_height",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "crop_width",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "crop_x",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "crop_y",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "dataloader_transforms",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "dataset_config",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "dataset_root",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "encode_control_in_text_embeddings",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "encode_first_frame_in_text_embeddings",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "flip_x",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "is_audio_model",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "latent_space_version",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "path",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "raw_caption",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "sample_rate",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "scale_to_height",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "scale_to_width",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "sd",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "size_database",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "te_padding_side",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "temporal_compression",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "text_embedding_space_version",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/dataloader_mixins.py",
+      "symbol": "AugmentationFileItemDTOMixin.__init__",
+      "key": "dataset_config",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/dataloader_mixins.py",
+      "symbol": "Augments.__init__",
+      "key": "method",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/dataloader_mixins.py",
+      "symbol": "Augments.__init__",
+      "key": "params",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/dataloader_mixins.py",
+      "symbol": "CaptionProcessingDTOMixin.__init__",
+      "key": "dataset_config",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/dataloader_mixins.py",
+      "symbol": "ClipImageFileItemDTOMixin.__init__",
+      "key": "dataset_config",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/dataloader_mixins.py",
+      "symbol": "ClipImageFileItemDTOMixin.__init__",
+      "key": "path",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/dataloader_mixins.py",
+      "symbol": "ClipImageFileItemDTOMixin.__init__",
+      "key": "sd",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/dataloader_mixins.py",
+      "symbol": "ControlFileItemDTOMixin.__init__",
+      "key": "dataset_config",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/dataloader_mixins.py",
+      "symbol": "ControlFileItemDTOMixin.__init__",
+      "key": "path",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/dataloader_mixins.py",
+      "symbol": "ControlFileItemDTOMixin.__init__",
+      "key": "sd",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/dataloader_mixins.py",
+      "symbol": "InpaintControlFileItemDTOMixin.__init__",
+      "key": "dataset_config",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/dataloader_mixins.py",
+      "symbol": "InpaintControlFileItemDTOMixin.__init__",
+      "key": "path",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/dataloader_mixins.py",
+      "symbol": "MaskFileItemDTOMixin.__init__",
+      "key": "dataset_config",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/dataloader_mixins.py",
+      "symbol": "MaskFileItemDTOMixin.__init__",
+      "key": "path",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/dataloader_mixins.py",
+      "symbol": "UnconditionalFileItemDTOMixin.__init__",
+      "key": "dataset_config",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/dataloader_mixins.py",
+      "symbol": "UnconditionalFileItemDTOMixin.__init__",
+      "key": "path",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/anima/anima.py",
+      "symbol": "AnimaModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/anima/anima.py",
+      "symbol": "AnimaModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/anima/anima.py",
+      "symbol": "AnimaPromptEmbeds._device_from_to_args",
+      "key": "device",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/anima/anima.py",
+      "symbol": "AnimaPromptEmbeds._device_from_to_args",
+      "key": "device",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/chroma/chroma_model.py",
+      "symbol": "ChromaModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/chroma/chroma_model.py",
+      "symbol": "ChromaModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/chroma/chroma_radiance_model.py",
+      "symbol": "ChromaRadianceModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/chroma/chroma_radiance_model.py",
+      "symbol": "ChromaRadianceModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/flux_kontext/flux_kontext.py",
+      "symbol": "FluxKontextModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/flux_kontext/flux_kontext.py",
+      "symbol": "FluxKontextModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/zeta_chroma/zeta_chroma_model.py",
+      "symbol": "ZetaChromaModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/zeta_chroma/zeta_chroma_model.py",
+      "symbol": "ZetaChromaModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/flex2/flex2.py",
+      "symbol": "Flex2.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/flex2/flex2.py",
+      "symbol": "Flex2.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/flux.py",
+      "symbol": "new_device_to",
+      "key": "device",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/flux.py",
+      "symbol": "new_device_to",
+      "key": "device",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/wan21/wan21.py",
+      "symbol": "Wan21.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/wan21/wan21.py",
+      "symbol": "Wan21.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/qwen_image/qwen_image.py",
+      "symbol": "QwenImageModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/qwen_image/qwen_image.py",
+      "symbol": "QwenImageModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/FakeVAE.py",
+      "symbol": "FakeVAE.to",
+      "key": "device",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/FakeVAE.py",
+      "symbol": "FakeVAE.to",
+      "key": "device",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/FakeVAE.py",
+      "symbol": "FakeVAE.to",
+      "key": "dtype",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/FakeVAE.py",
+      "symbol": "FakeVAE.to",
+      "key": "dtype",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/base_model.py",
+      "symbol": "BaseModel.predict_noise",
+      "key": "down_block_additional_residuals",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/base_model.py",
+      "symbol": "BaseModel.predict_noise",
+      "key": "down_block_additional_residuals",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/base_model.py",
+      "symbol": "BaseModel.predict_noise",
+      "key": "down_intrablock_additional_residuals",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/base_model.py",
+      "symbol": "BaseModel.predict_noise",
+      "key": "down_intrablock_additional_residuals",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/base_model.py",
+      "symbol": "BaseModel.predict_noise",
+      "key": "mid_block_additional_residual",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/base_model.py",
+      "symbol": "BaseModel.predict_noise",
+      "key": "mid_block_additional_residual",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/ace_step_15_model.py",
+      "symbol": "AceStep15Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/ace_step_15_model.py",
+      "symbol": "AceStep15Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "bpm",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "cfg",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "checkpoint",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "device",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "dtype",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "duration",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "key",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "language",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "lyrics",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "model",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "output",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "prompt",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "seed",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "shift",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "steps",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/audio_models/ace_step/src/model.py",
+      "symbol": "main",
+      "key": "time_sig",
+      "read_kind": "argparse.add_argument",
+      "reason": "generation-only"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/boogu_image/boogu_image.py",
+      "symbol": "BooguImageModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/boogu_image/boogu_image.py",
+      "symbol": "BooguImageModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ernie_image/ernie_image.py",
+      "symbol": "ErnieImageModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ernie_image/ernie_image.py",
+      "symbol": "ErnieImageModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/example_model/example_model.py",
+      "symbol": "ExampleModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/example_model/example_model.py",
+      "symbol": "ExampleModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/f_light/f_light.py",
+      "symbol": "FLiteModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/f_light/f_light.py",
+      "symbol": "FLiteModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/flux2/flux2_model.py",
+      "symbol": "Flux2Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/flux2/flux2_model.py",
+      "symbol": "Flux2Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_model.py",
+      "symbol": "HidreamModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_model.py",
+      "symbol": "HidreamModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+      "symbol": "FakeTextEncoder.to",
+      "key": "device",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+      "symbol": "FakeTextEncoder.to",
+      "key": "device",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+      "symbol": "FakeTextEncoder.to",
+      "key": "dtype",
+      "read_kind": "kwargs.contains",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+      "symbol": "FakeTextEncoder.to",
+      "key": "dtype",
+      "read_kind": "kwargs[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+      "symbol": "HidreamO1FlowmatchScheduler.__init__",
+      "key": "noise_scale",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+      "symbol": "HidreamO1Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/hidream_o1_model.py",
+      "symbol": "HidreamO1Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/src/hidream_o1/qwen3_vl_transformers.py",
+      "symbol": "Qwen3VLModel._forward_generation",
+      "key": "DEBUG_MEM",
+      "read_kind": "os.environ.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/src/hidream_o1/qwen3_vl_transformers.py",
+      "symbol": "Qwen3VLModel._forward_generation",
+      "key": "RANK",
+      "read_kind": "os.environ.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/src/hidream_o1/qwen3_vl_transformers.py",
+      "symbol": "Qwen3VLTextModel.forward",
+      "key": "DEBUG_MEM",
+      "read_kind": "os.environ.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/src/hidream_o1/qwen3_vl_transformers.py",
+      "symbol": "Qwen3VLTextModel.forward",
+      "key": "RANK",
+      "read_kind": "os.environ.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/src/pipelines/hidream_image/pipeline_hidream_image_editing.py",
+      "symbol": "HiDreamImageEditingPipeline.__call__",
+      "key": "negative_prompt_embeds",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/hidream/src/pipelines/hidream_image/pipeline_hidream_image_editing.py",
+      "symbol": "HiDreamImageEditingPipeline.__call__",
+      "key": "prompt_embeds",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ideogram4/ideogram4.py",
+      "symbol": "Ideogram4Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ideogram4/ideogram4.py",
+      "symbol": "Ideogram4Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/krea2/krea2.py",
+      "symbol": "Krea2Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/krea2/krea2.py",
+      "symbol": "Krea2Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ltx2/convert_ltx2_to_diffusers.py",
+      "symbol": "convert_ltx2_audio_vae",
+      "key": "diffusers_config",
+      "read_kind": "attribute[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ltx2/convert_ltx2_to_diffusers.py",
+      "symbol": "convert_ltx2_connectors",
+      "key": "diffusers_config",
+      "read_kind": "attribute[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ltx2/convert_ltx2_to_diffusers.py",
+      "symbol": "convert_ltx2_transformer",
+      "key": "diffusers_config",
+      "read_kind": "attribute[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ltx2/convert_ltx2_to_diffusers.py",
+      "symbol": "convert_ltx2_video_vae",
+      "key": "diffusers_config",
+      "read_kind": "attribute[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ltx2/convert_ltx2_to_diffusers.py",
+      "symbol": "convert_ltx2_vocoder",
+      "key": "diffusers_config",
+      "read_kind": "attribute[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ltx2/ltx2.py",
+      "symbol": "LTX2Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ltx2/ltx2.py",
+      "symbol": "LTX2Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/mageflow/mageflow.py",
+      "symbol": "MageFlowModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/mageflow/mageflow.py",
+      "symbol": "MageFlowModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py",
+      "symbol": "MinimaxH3Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py",
+      "symbol": "MinimaxH3Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/nucleus_image/nucleus_image_model.py",
+      "symbol": "NucleusImageModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/nucleus_image/nucleus_image_model.py",
+      "symbol": "NucleusImageModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/omnigen2/__init__.py",
+      "symbol": "OmniGen2Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/omnigen2/__init__.py",
+      "symbol": "OmniGen2Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/prx_pixel_t2i/prx_pixel_t2i.py",
+      "symbol": "PRXPixelT2IModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/z_image/z_image.py",
+      "symbol": "ZImageModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/z_image/z_image.py",
+      "symbol": "ZImageModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/z_image/z_image_l2p_model.py",
+      "symbol": "ZImageL2PModel.load_model",
+      "key": "in_channels",
+      "read_kind": "attribute[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/cogview4.py",
+      "symbol": "CogView4.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/cogview4.py",
+      "symbol": "CogView4.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/tipsv2.py",
+      "symbol": "TIPSv2DPTModel._extract_intermediate",
+      "key": "block_indices",
+      "read_kind": "attribute[]",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/tipsv2.py",
+      "symbol": "TIPSv2VisionModel.__init__",
+      "key": "ffn_layer",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/tipsv2.py",
+      "symbol": "TIPSv2VisionModel.__init__",
+      "key": "img_size",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/tipsv2.py",
+      "symbol": "TIPSv2VisionModel.__init__",
+      "key": "init_values",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/tipsv2.py",
+      "symbol": "TIPSv2VisionModel.__init__",
+      "key": "patch_size",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/models/tipsv2.py",
+      "symbol": "TIPSv2VisionModel.__init__",
+      "key": "vision_fn",
+      "read_kind": "attribute.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/MergeJob.py",
+      "symbol": "MergeJob.__init__",
+      "key": "dtype",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/MergeJob.py",
+      "symbol": "MergeJob.__init__",
+      "key": "is_v2",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/TrainJob.py",
+      "symbol": "TrainJob.__init__",
+      "key": "is_v2",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/TrainJob.py",
+      "symbol": "TrainJob.__init__",
+      "key": "log_dir",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/TrainJob.py",
+      "symbol": "TrainJob.__init__",
+      "key": "training_folder",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/BaseMergeProcess.py",
+      "symbol": "BaseMergeProcess.__init__",
+      "key": "dtype",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/BaseMergeProcess.py",
+      "symbol": "BaseMergeProcess.__init__",
+      "key": "output_path",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "current_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "input_path",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "is_v2",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "is_xl",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "output_path",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "replace_meta",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "save_dtype",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "scale_target",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/ModRescaleLoraProcess.py",
+      "symbol": "ModRescaleLoraProcess.__init__",
+      "key": "target_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "augmentations",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "batch_size",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "content_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "critic",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "critic_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "datasets",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "device",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "dtype",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "epochs",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "learning_rate",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "log_every",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "max_steps",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "mse_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "optimizer",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "optimizer_params",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "pattern_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "pretrained_path",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "resolution",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "sample_every",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "sample_sources",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "save_every",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "style_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "tv_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "upscale_sample",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "use_critic",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainESRGANProcess.py",
+      "symbol": "TrainESRGANProcess.__init__",
+      "key": "zoom",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainSDRescaleProcess.py",
+      "symbol": "RescaleConfig.__init__",
+      "key": "from_resolution",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainSDRescaleProcess.py",
+      "symbol": "RescaleConfig.__init__",
+      "key": "latent_tensor_dir",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainSDRescaleProcess.py",
+      "symbol": "RescaleConfig.__init__",
+      "key": "num_latent_tensors",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainSDRescaleProcess.py",
+      "symbol": "RescaleConfig.__init__",
+      "key": "prompt_dropout",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainSDRescaleProcess.py",
+      "symbol": "RescaleConfig.__init__",
+      "key": "scale",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainSDRescaleProcess.py",
+      "symbol": "RescaleConfig.__init__",
+      "key": "to_resolution",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainSDRescaleProcess.py",
+      "symbol": "TrainSDRescaleProcess.__init__",
+      "key": "device",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainSDRescaleProcess.py",
+      "symbol": "TrainSDRescaleProcess.__init__",
+      "key": "rescale",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "batch_size",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "blocks_to_train",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "clip_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "content_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "critic",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "critic_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "datasets",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "device",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "dropout",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "dtype",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "epochs",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "eq_vae",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "kld_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "learning_rate",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "log_every",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "lpips_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "lpm_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "ltv_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "mae_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "max_steps",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "mse_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "mv_loss_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "only_if_contains",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "optimizer",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "optimizer_params",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "pattern_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "random_scaling",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "resolution",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "sample_every",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "sample_resolution",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "sample_sources",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "save_every",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "style_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "target_latent_vae_path",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "train_encoder",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "tv_weight",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "use_critic",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "vae_config",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "vae_path",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "jobs/process/TrainVAEProcess.py",
+      "symbol": "TrainVAEProcess.__init__",
+      "key": "vae_type",
+      "read_kind": "get_conf",
+      "reason": "model-developer API"
+    }
+  ],
+  "ui_exclusions": [
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::NumberInput::config.process[*].sample.samples[*].prompt::BPM::architecture=ace_step_15::tag=BPM",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "BPM"
+          }
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "number",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::NumberInput::config.process[*].sample.samples[*].prompt::BPM::architecture=ace_step_15_xl::tag=BPM",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "BPM"
+          }
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "number",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::NumberInput::config.process[*].sample.samples[*].prompt::Duration (sec)::architecture=ace_step_15::tag=DURATION",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Duration (sec)"
+          }
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "number",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::NumberInput::config.process[*].sample.samples[*].prompt::Duration (sec)::architecture=ace_step_15_xl::tag=DURATION",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Duration (sec)"
+          }
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "number",
+          "optional": true,
+          "nullable": true
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::SelectInput::config.process[*].model.assistant_lora_path::Distillation Handling Method::architecture=minimax_h3",
+        "path": "config.process[*].model.assistant_lora_path",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Distillation Handling Method"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "select",
+          "optional": true,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "undefined"
+            },
+            {
+              "kind": "string",
+              "value": "ostris/minimax_h3_training_adapter/minimax_h3_training_adapter_v1.safetensors"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::SelectInput::config.process[*].train.do_guidance_loss::Distillation Handling Method::architecture=minimax_h3",
+        "path": "config.process[*].train.do_guidance_loss",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Distillation Handling Method"
+          }
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "select",
+          "optional": true,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": true
+            },
+            {
+              "kind": "undefined"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::SelectInput::config.process[*].train.guidance_loss_target::Distillation Handling Method::architecture=minimax_h3",
+        "path": "config.process[*].train.guidance_loss_target",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Distillation Handling Method"
+          }
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "select",
+          "optional": true,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "number",
+              "value": 3.5
+            },
+            {
+              "kind": "undefined"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextAreaInput::config.process[*].sample.samples[*].prompt::Lyrics::architecture=ace_step_15::tag=LYRICS",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Lyrics"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "multiline",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextAreaInput::config.process[*].sample.samples[*].prompt::Lyrics::architecture=ace_step_15_xl::tag=LYRICS",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Lyrics"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "multiline",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextInput::config.process[*].sample.samples[*].prompt::Audio Prompt::architecture=ace_step_15::tag=CAPTION",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Audio Prompt"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextInput::config.process[*].sample.samples[*].prompt::Audio Prompt::architecture=ace_step_15_xl::tag=CAPTION",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Audio Prompt"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextInput::config.process[*].sample.samples[*].prompt::Key Scale::architecture=ace_step_15::tag=KEYSCALE",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Key Scale"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextInput::config.process[*].sample.samples[*].prompt::Key Scale::architecture=ace_step_15_xl::tag=KEYSCALE",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Key Scale"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextInput::config.process[*].sample.samples[*].prompt::Language::architecture=ace_step_15::tag=LANGUAGE",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Language"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextInput::config.process[*].sample.samples[*].prompt::Language::architecture=ace_step_15_xl::tag=LANGUAGE",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Language"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextInput::config.process[*].sample.samples[*].prompt::Time Signature::architecture=ace_step_15::tag=TIMESIGNATURE",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Time Signature"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::TextInput::config.process[*].sample.samples[*].prompt::Time Signature::architecture=ace_step_15_xl::tag=TIMESIGNATURE",
+        "path": "config.process[*].sample.samples[*].prompt",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Time Signature"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "text",
+          "optional": true,
+          "nullable": false
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/paths.ts",
+        "symbol": "<module>::process.env.AI_TOOLKIT_QUIET_PATHS",
+        "path": "AI_TOOLKIT_QUIET_PATHS",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/fileServer.ts",
+        "symbol": "<module>::process.env.LD_LIBRARY_PATH",
+        "path": "LD_LIBRARY_PATH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/components/Sidebar.tsx",
+        "symbol": "Sidebar::process.env.NEXT_PUBLIC_APP_VERSION",
+        "path": "NEXT_PUBLIC_APP_VERSION",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/server/prisma.ts",
+        "symbol": "<module>::process.env.NODE_ENV",
+        "path": "NODE_ENV",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/fileServer.ts",
+        "symbol": "cluster.worker::process.env.PUBLIC_PORT",
+        "path": "PUBLIC_PORT",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/fileServer.ts",
+        "symbol": "cluster.worker::process.env.UPSTREAM_PORT",
+        "path": "UPSTREAM_PORT",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::import::config.process[*].device",
+        "path": "config.process[*].device",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "cuda"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "config",
+          "authority": "ui-derived",
+          "persistence": "config"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::job.pid",
+        "path": "job.pid",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "null"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts",
+        "symbol": "GET::job.pid",
+        "path": "job.pid",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "null"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::job.status",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "error"
+            },
+            {
+              "kind": "string",
+              "value": "running"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts",
+        "symbol": "GET::job.status",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "stopped"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/stop/route.ts",
+        "symbol": "GET::job.status",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "stopped"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/queue/[queueID]/start/route.ts",
+        "symbol": "GET::queue.gpu_ids",
+        "path": "queue.gpu_ids",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/layout.tsx",
+        "symbol": "RootLayout::os.platform",
+        "path": "server.platform",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "derive",
+          "provenance": "runtime",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/processQueue.ts",
+        "symbol": "processQueue::job.info",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "Stopping job..."
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/processQueue.ts",
+        "symbol": "processQueue::job.return_to_queue",
+        "path": "job.return_to_queue",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": true
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/processQueue.ts",
+        "symbol": "processQueue::queue.is_running",
+        "path": "queue.is_running",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": false
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::job.info",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "Error launching job: run.py not found"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::job.info::role=job-update-info-derived/arg:subprocess.once:error[1]/callback:subprocess.once:error[1]",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::job.info::role=job-update-info-derived/guard:catch",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::job.info::role=job-update-info-{\"kind\":\"string\",\"value\":\"Error launching job: run.py not found\"}/guard:if-then:!fs.existsSync(runFilePath)",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "Error launching job: run.py not found"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::job.info::role=job-updateMany-info-derived/arg:subprocess.once:exit[1]/callback:subprocess.once:exit[1]/guard:if-else:isWindows",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::job.pid",
+        "path": "job.pid",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "null"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::job.pid::role=job-update-pid-{\"kind\":\"null\"}/arg:subprocess.once:error[1]/callback:subprocess.once:error[1]",
+        "path": "job.pid",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "null"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::job.pid::role=job-update-pid-derived/guard:if-then:pid!=null",
+        "path": "job.pid",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::job.pid::role=job-updateMany-pid-{\"kind\":\"null\"}/arg:subprocess.once:exit[1]/callback:subprocess.once:exit[1]/guard:if-else:isWindows",
+        "path": "job.pid",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "null"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::job.status",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "error"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::job.status::role=job-update-status-{\"kind\":\"string\",\"value\":\"error\"}/arg:subprocess.once:error[1]/callback:subprocess.once:error[1]",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "error"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::job.status::role=job-update-status-{\"kind\":\"string\",\"value\":\"error\"}/guard:catch",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "error"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::job.status::role=job-update-status-{\"kind\":\"string\",\"value\":\"error\"}/guard:if-then:!fs.existsSync(runFilePath)",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "error"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::job.status::role=job-updateMany-status-{\"kind\":\"string\",\"value\":\"error\"}/arg:subprocess.once:exit[1]/callback:subprocess.once:exit[1]/guard:if-else:isWindows",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "error"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::spawn.env.inherited",
+        "path": "spawn.env.inherited",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "object",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::spawn.env.inherited::role=spawn-inherited-environment/property:env/arg:spawn[2]/rhs:subprocess/guard:if-else:isWindows",
+        "path": "spawn.env.inherited",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "object",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "launchAndWatchJob::spawn.env.inherited::role=spawn-inherited-environment/property:env/arg:spawn[2]/rhs:subprocess/guard:if-then:isWindows",
+        "path": "spawn.env.inherited",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "object",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startAndWatchJob::claim::job.info",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "Starting job..."
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startAndWatchJob::claim::job.return_to_queue",
+        "path": "job.return_to_queue",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": false
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startAndWatchJob::claim::job.status",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "running"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startAndWatchJob::fail::job.info",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startAndWatchJob::fail::job.pid",
+        "path": "job.pid",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "null"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startAndWatchJob::fail::job.status",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "error"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startAndWatchJob::job.info",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "Starting job..."
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startAndWatchJob::job.status",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "running"
+            },
+            {
+              "kind": "string",
+              "value": "error"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::job.info",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "Error launching job: run.py not found"
+            },
+            {
+              "kind": "string",
+              "value": "Starting job..."
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::spawn.env.AITK_JOB_ID",
+        "path": "spawn.env.AITK_JOB_ID",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::spawn.env.CUDA_DEVICE_ORDER",
+        "path": "spawn.env.CUDA_DEVICE_ORDER",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "PCI_BUS_ID"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::spawn.env.CUDA_VISIBLE_DEVICES",
+        "path": "spawn.env.CUDA_VISIBLE_DEVICES",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::spawn.env.HF_TOKEN",
+        "path": "spawn.env.HF_TOKEN",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::spawn.env.IS_AI_TOOLKIT_UI",
+        "path": "spawn.env.IS_AI_TOOLKIT_UI",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "1"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::spawn.env.MODELS_PATH",
+        "path": "spawn.env.MODELS_PATH",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::spawn.env.PYTHONUNBUFFERED",
+        "path": "spawn.env.PYTHONUNBUFFERED",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "1"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "startJob::spawn.env.inherited",
+        "path": "spawn.env.inherited",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "object",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "watchDetachedJob::job.info",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "watchDetachedJob::job.pid",
+        "path": "job.pid",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "null"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/actions/startJob.ts",
+        "symbol": "watchDetachedJob::job.status",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "error"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/fileServer.ts",
+        "symbol": "<module>::process.env.PUBLIC_PORT",
+        "path": "PUBLIC_PORT",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/fileServer.ts",
+        "symbol": "<module>::process.env.UPSTREAM_PORT",
+        "path": "UPSTREAM_PORT",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/fileServer.ts",
+        "symbol": "<module>::process.env.pass-through",
+        "path": "process.env.inherited",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "object",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/cron/fileServer.ts",
+        "symbol": "cluster.worker::process.env.AI_TOOLKIT_QUIET_PATHS",
+        "path": "AI_TOOLKIT_QUIET_PATHS",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "1"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/cpu/route.ts",
+        "symbol": "<module>::os.platform",
+        "path": "server.platform",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "derive",
+          "provenance": "runtime",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/gpu/route.ts",
+        "symbol": "getGpuInfo::os.platform",
+        "path": "server.platform",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "derive",
+          "provenance": "runtime",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/gpu/route.ts",
+        "symbol": "getGpuStats::spawn.env.inherited",
+        "path": "spawn.env.inherited",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "object",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts",
+        "symbol": "GET::job.info",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "Job stopped"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts",
+        "symbol": "GET::job.stop",
+        "path": "job.stop",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": true
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/sample_now/route.ts",
+        "symbol": "GET::job.sample_now",
+        "path": "job.sample_now",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": true
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/save_now/route.ts",
+        "symbol": "GET::job.save_now",
+        "path": "job.save_now",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": true
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/start/route.ts",
+        "symbol": "GET::mutateQueue::job.info",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "Job queued"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/start/route.ts",
+        "symbol": "GET::mutateQueue::job.queue_position",
+        "path": "job.queue_position",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/start/route.ts",
+        "symbol": "GET::mutateQueue::job.return_to_queue",
+        "path": "job.return_to_queue",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": false
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/start/route.ts",
+        "symbol": "GET::mutateQueue::job.status",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "queued"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/start/route.ts",
+        "symbol": "GET::mutateQueue::job.stop",
+        "path": "job.stop",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": false
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/start/route.ts",
+        "symbol": "GET::mutateQueue::queue.gpu_ids",
+        "path": "queue.gpu_ids",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/start/route.ts",
+        "symbol": "GET::mutateQueue::queue.is_running",
+        "path": "queue.is_running",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": false
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/stop/route.ts",
+        "symbol": "GET::job.info",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "Stopping job..."
+            },
+            {
+              "kind": "string",
+              "value": "Job stopped"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/stop/route.ts",
+        "symbol": "GET::job.info::role=job-update-info-{\"kind\":\"string\",\"value\":\"Job stopped\"}/guard:if-then:job.pid!=null",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "Job stopped"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/stop/route.ts",
+        "symbol": "GET::job.info::role=job-update-info-{\"kind\":\"string\",\"value\":\"Stopping job...\"}",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "Stopping job..."
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/stop/route.ts",
+        "symbol": "GET::job.stop",
+        "path": "job.stop",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": true
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/ostris_cloud/route.ts",
+        "symbol": "GET::Authorization.bearer",
+        "path": "http.Authorization",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "http",
+          "authority": "runtime-forced",
+          "persistence": "transient"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/queue/[queueID]/start/route.ts",
+        "symbol": "GET::queue.is_running",
+        "path": "queue.is_running",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": true
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/queue/[queueID]/start/route.ts",
+        "symbol": "GET::queue.is_running::role=queue-create-is_running-{\"kind\":\"boolean\",\"value\":true}/initializer:newQueue/guard:if-then:!queue",
+        "path": "queue.is_running",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": true
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/queue/[queueID]/start/route.ts",
+        "symbol": "GET::queue.is_running::role=queue-update-is_running-{\"kind\":\"boolean\",\"value\":true}",
+        "path": "queue.is_running",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": true
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/queue/[queueID]/stop/route.ts",
+        "symbol": "GET::queue.is_running",
+        "path": "queue.is_running",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": false
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/scripts/route.ts",
+        "symbol": "runBuffered::spawn.env.inherited",
+        "path": "spawn.env.inherited",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "object",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/scripts/route.ts",
+        "symbol": "runStreaming::spawn.env.inherited",
+        "path": "spawn.env.inherited",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "object",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "<module>::process.env.NODE_ENV",
+        "path": "NODE_ENV",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "<module>::process.env.NODE_ENV",
+        "path": "NODE_ENV",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::handleFileSelected::onload::import::config.process[*].device",
+        "path": "config.process[*].device",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "cuda"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "config",
+          "authority": "ui-derived",
+          "persistence": "config"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/server/jobDatasetPresetPrismaStore.ts",
+        "symbol": "transactionAdapter::createOrUpdateJob::job.gpu_ids",
+        "path": "job.gpu_ids",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/server/jobDatasetPresetPrismaStore.ts",
+        "symbol": "transactionAdapter::createOrUpdateJob::job.gpu_ids::role=job-create-gpu_ids-derived",
+        "path": "job.gpu_ids",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/server/jobDatasetPresetPrismaStore.ts",
+        "symbol": "transactionAdapter::createOrUpdateJob::job.gpu_ids::role=job-update-gpu_ids-derived/guard:if-then:input.id!==null&&!input.clone",
+        "path": "job.gpu_ids",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/server/jobDatasetPresetPrismaStore.ts",
+        "symbol": "transactionAdapter::createOrUpdateJob::job.queue_position",
+        "path": "job.queue_position",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/server/macstats.ts",
+        "symbol": "loadMacstats::os.platform",
+        "path": "server.platform",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "derive",
+          "provenance": "runtime",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/utils/api.ts",
+        "symbol": "apiClient.response::status=401",
+        "path": "auth.is_authorized",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "derive",
+          "provenance": "runtime",
+          "authority": "ui-derived",
+          "persistence": "transient"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/page.tsx",
+        "symbol": "TrainingForm::default::gpuids",
+        "path": "gpuids",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "derive",
+          "provenance": "runtime",
+          "authority": "ui-derived",
+          "persistence": "transient"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/components/CaptionDatasetModal.tsx",
+        "symbol": "CaptionDatasetModal::default::gpuids",
+        "path": "gpuids",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "derive",
+          "provenance": "runtime",
+          "authority": "ui-derived",
+          "persistence": "transient"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/middleware.ts",
+        "symbol": "middleware::Authorization.bearer",
+        "path": "http.Authorization",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": true,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "http",
+          "authority": "user",
+          "persistence": "transient"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/utils/api.ts",
+        "symbol": "apiClient.request::Authorization.bearer",
+        "path": "http.Authorization",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "http",
+          "authority": "user",
+          "persistence": "transient"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/server/trainingPresetCatalogBuildValidation.ts",
+        "symbol": "verifyTrainingPresetEvidenceCommit::process.env.pass-through",
+        "path": "process.env.inherited",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "object",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/utils/callScript.ts",
+        "symbol": "callScriptStream::Authorization.bearer",
+        "path": "http.Authorization",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "http",
+          "authority": "user",
+          "persistence": "transient"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    }
+  ]
+}
