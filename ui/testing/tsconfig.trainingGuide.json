@@ -18,6 +18,7 @@
     "trainingGuideNavigation.test.tsx",
     "trainingGuidePageIntegration.test.ts",
     "trainingGuideReader.test.ts",
+    "../src/app/book/layout.tsx",
     "../src/app/book/[[...slug]]/error.tsx",
     "../src/app/book/[[...slug]]/page.tsx",
     "../src/components/TrainingGuideMarkdown.tsx",

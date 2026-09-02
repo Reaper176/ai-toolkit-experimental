@@ -38,6 +38,7 @@ const requiredArtifacts = [
   presetCatalogRunner,
   join(repositoryRoot, 'docs', 'book', 'book-manifest.json'),
   join(repositoryRoot, 'docs', 'book', 'README.md'),
+  join(repositoryRoot, 'ui', 'src', 'app', 'book', 'layout.tsx'),
   join(repositoryRoot, 'ui', 'src', 'app', 'book', '[[...slug]]', 'page.tsx'),
   join(repositoryRoot, 'ui', 'src', 'app', 'book', '[[...slug]]', 'error.tsx'),
   join(repositoryRoot, 'ui', 'src', 'components', 'Sidebar.tsx'),

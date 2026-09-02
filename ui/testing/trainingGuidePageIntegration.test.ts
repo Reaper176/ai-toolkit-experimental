@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import Module from 'node:module';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -11,6 +11,7 @@ const repositoryRoot = process.env.TRAINING_BOOK_REPOSITORY_ROOT;
 assert.ok(repositoryRoot, 'TRAINING_BOOK_REPOSITORY_ROOT is required');
 
 const sidebarPath = join(repositoryRoot, 'ui', 'src', 'components', 'Sidebar.tsx');
+const bookLayoutPath = join(repositoryRoot, 'ui', 'src', 'app', 'book', 'layout.tsx');
 const pagePath = join(repositoryRoot, 'ui', 'src', 'app', 'book', '[[...slug]]', 'page.tsx');
 const errorBoundaryPath = join(repositoryRoot, 'ui', 'src', 'app', 'book', '[[...slug]]', 'error.tsx');
 
@@ -131,6 +132,19 @@ test('defines a server-rendered optional catch-all guide page', () => {
   assert.match(pageSource, /title:\s*result\.page\.title/u);
 });
 
+test('defines a shared mobile shell above every book route state', () => {
+  const layoutSource = sourceAt(bookLayoutPath);
+
+  assert.match(layoutSource, /import \{ TopBar \} from '@\/components\/layout'/u);
+  assert.match(layoutSource, /<TopBar className="md:hidden" \/>/u);
+  assert.match(layoutSource, /className="[^"]*\bisolate\b[^"]*"/u);
+  assert.match(layoutSource, /top-12/u);
+  assert.match(layoutSource, /md:top-0/u);
+  assert.match(layoutSource, /\{children\}/u);
+  assert.equal(dirname(bookLayoutPath), dirname(dirname(pagePath)));
+  assert.equal(dirname(bookLayoutPath), dirname(dirname(errorBoundaryPath)));
+});
+
 test('shares route loading across metadata and body while preserving all outcomes', async () => {
   type CommonJsLoad = (request: string, parent: unknown, isMain: boolean) => unknown;
   const commonJsModule = Module as unknown as { _load: CommonJsLoad };
@@ -196,6 +210,10 @@ test('shares route loading across metadata and body while preserving all outcome
         TrainingGuidePageOutline: () => React.createElement('aside', { 'data-outline': true }),
       };
     }
+    if (request === './Sidebar') {
+      return { mobileSidebarState: { use: () => [false, () => undefined] } };
+    }
+    if (request === './ThemeLogo') return { __esModule: true, default: () => null };
     return originalLoad(request, parent, isMain);
   };
   const routeCache = new Map<string, unknown>();
@@ -205,9 +223,26 @@ test('shares route loading across metadata and body while preserving all outcome
       default: (props: { params: Promise<{ slug?: string[] }> }) => Promise<React.ReactElement>;
       generateMetadata: (props: { params: Promise<{ slug?: string[] }> }) => Promise<{ title?: string }>;
     };
+    const BookLayout = (require('../src/app/book/layout') as { default: React.ComponentType<React.PropsWithChildren> })
+      .default;
+    const TrainingGuideError = (
+      require('../src/app/book/[[...slug]]/error') as {
+        default: React.ComponentType<{ error: Error; reset: () => void }>;
+      }
+    ).default;
+    const renderInBookShell = (content: React.ReactNode) =>
+      renderToStaticMarkup(React.createElement(BookLayout, null, content));
+    const assertMobileShell = (markup: string) => {
+      assert.match(markup, /aria-label="Open menu"/u);
+      assert.match(markup, /md:hidden/u);
+      assert.match(markup, /\bisolate\b/u);
+      assert.match(markup, /top-12/u);
+      assert.match(markup, /md:top-0/u);
+    };
     const foundParams = Promise.resolve({ slug: ['getting-started', 'first-lora'] });
     assert.deepEqual(await route.generateMetadata({ params: foundParams }), { title: 'First LoRA' });
-    const foundMarkup = renderToStaticMarkup(await route.default({ params: foundParams }));
+    const foundMarkup = renderInBookShell(await route.default({ params: foundParams }));
+    assertMobileShell(foundMarkup);
     assert.equal(foundMarkup.includes('<main'), false);
     assert.match(foundMarkup, /<article/u);
     assert.match(foundMarkup, /data-markdown="# First LoRA"/u);
@@ -215,9 +250,10 @@ test('shares route loading across metadata and body while preserving all outcome
     assert.equal(loadCalls.length, 1, 'metadata and page share one request-memoized guide load');
 
     result = { kind: 'unavailable' };
-    const unavailableMarkup = renderToStaticMarkup(
+    const unavailableMarkup = renderInBookShell(
       await route.default({ params: Promise.resolve({ slug: ['unavailable'] }) }),
     );
+    assertMobileShell(unavailableMarkup);
     assert.match(unavailableMarkup, /Training Guide unavailable/u);
     assert.match(unavailableMarkup, /offline training guide files/u);
 
@@ -229,6 +265,16 @@ test('shares route loading across metadata and body while preserving all outcome
       error => error === notFoundError,
     );
     assert.equal(loadCalls.length, 3, 'each distinct slug loads once across route consumers');
+
+    const errorMarkup = renderInBookShell(
+      React.createElement(TrainingGuideError, {
+        error: new Error('sensitive route detail'),
+        reset: () => undefined,
+      }),
+    );
+    assertMobileShell(errorMarkup);
+    assert.match(errorMarkup, /Training Guide unavailable/u);
+    assert.doesNotMatch(errorMarkup, /sensitive route detail/u);
   } finally {
     commonJsModule._load = originalLoad;
   }
