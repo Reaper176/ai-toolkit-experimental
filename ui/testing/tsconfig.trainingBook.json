@@ -19,6 +19,7 @@
     "trainingBook*.test.tsx",
     "trainingGuide*.test.ts",
     "trainingGuide*.test.tsx",
+    "../src/app/book/[[...slug]]/page.tsx",
     "../src/components/Sidebar.tsx",
     "../src/components/TrainingGuideMarkdown.tsx",
     "../src/components/TrainingGuideNavigation.tsx",

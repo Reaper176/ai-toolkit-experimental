@@ -4,6 +4,7 @@ import Module from 'node:module';
 import { join } from 'node:path';
 import test from 'node:test';
 import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import TestRenderer, { act } from 'react-test-renderer';
 
 const repositoryRoot = process.env.TRAINING_BOOK_REPOSITORY_ROOT;
@@ -109,7 +110,8 @@ test('defines a server-rendered optional catch-all guide page', () => {
 
   assert.equal(pageSource.includes("'use client'"), false);
   assert.match(pageSource, /params:\s*Promise<\{ slug\?: string\[\] \}>/u);
-  assert.match(pageSource, /loadTrainingGuidePage\(trainingGuideRepositoryRoot\(\),[\s\S]*?slug \?\? \[\]\)/u);
+  assert.match(pageSource, /loadTrainingGuidePage\(repositoryRoot, slug\)/u);
+  assert.match(pageSource, /loadTrainingGuideRoutePage\(trainingGuideRepositoryRoot\(\), \.\.\.slug\)/u);
   assert.match(pageSource, /if \(result\.kind === 'not-found'\) notFound\(\);/u);
   assert.match(pageSource, /if \(result\.kind === 'unavailable'\)[\s\S]*?<TrainingGuideUnavailable/u);
   assert.match(pageSource, /TrainingGuideChapterNavigation/u);
@@ -121,9 +123,115 @@ test('defines a server-rendered optional catch-all guide page', () => {
   assert.match(pageSource, /TrainingGuidePreviousNext/u);
   assert.match(pageSource, /TrainingGuidePageOutline/u);
   assert.match(pageSource, /grid-cols-1 lg:grid-cols-\[16rem_minmax\(0,1fr\)_14rem\]/u);
-  assert.match(pageSource, /<main[^>]*overflow-y-auto/u);
+  assert.doesNotMatch(pageSource, /<main\b/u);
+  assert.match(pageSource, /<div[^>]*overflow-y-auto/u);
+  assert.equal(pageSource.match(/loadTrainingGuidePage\(/gu)?.length, 1);
+  assert.match(pageSource, /cache\(/u);
   assert.match(pageSource, /generateMetadata/u);
   assert.match(pageSource, /title:\s*result\.page\.title/u);
+});
+
+test('shares route loading across metadata and body while preserving all outcomes', async () => {
+  type CommonJsLoad = (request: string, parent: unknown, isMain: boolean) => unknown;
+  const commonJsModule = Module as unknown as { _load: CommonJsLoad };
+  const originalLoad = commonJsModule._load;
+  const notFoundError = new Error('not-found sentinel');
+  const loadCalls: Array<{ repositoryRoot: string; slug: readonly string[] }> = [];
+  let result: Record<string, unknown> = {
+    kind: 'found',
+    page: {
+      groups: [],
+      path: 'getting-started/first-lora.md',
+      markdown: '# First LoRA',
+      title: 'First LoRA',
+      allowedPaths: ['getting-started/first-lora.md'],
+      headings: [{ depth: 1, text: 'First LoRA', id: 'first-lora' }],
+      previous: undefined,
+      next: undefined,
+    },
+  };
+
+  commonJsModule._load = (request, parent, isMain) => {
+    if (request === 'react') {
+      const realReact = originalLoad(request, parent, isMain) as typeof React;
+      return {
+        ...realReact,
+        cache:
+          (load: (...args: never[]) => unknown) =>
+          (...args: never[]) => {
+            const memoized = routeCache.get(JSON.stringify(args));
+            if (memoized !== undefined) return memoized;
+            const value = load(...args);
+            routeCache.set(JSON.stringify(args), value);
+            return value;
+          },
+      };
+    }
+    if (request === 'next/navigation') {
+      return {
+        notFound: () => {
+          throw notFoundError;
+        },
+      };
+    }
+    if (request === '@/server/trainingGuideReader') {
+      return {
+        trainingGuideRepositoryRoot: () => '/repository',
+        loadTrainingGuidePage: (repositoryRoot: string, slug: readonly string[]) => {
+          loadCalls.push({ repositoryRoot, slug });
+          return result;
+        },
+      };
+    }
+    if (request === '@/components/TrainingGuideMarkdown') {
+      const Markdown = ({ markdown }: { markdown: string }) =>
+        React.createElement('div', { 'data-markdown': markdown });
+      return { __esModule: true, default: Markdown };
+    }
+    if (request === '@/components/TrainingGuideNavigation') {
+      return {
+        TrainingGuideChapterNavigation: ({ currentPath }: { currentPath: string }) =>
+          React.createElement('nav', { 'data-current-path': currentPath }),
+        TrainingGuidePreviousNext: () => React.createElement('nav', { 'data-pagination': true }),
+        TrainingGuidePageOutline: () => React.createElement('aside', { 'data-outline': true }),
+      };
+    }
+    return originalLoad(request, parent, isMain);
+  };
+  const routeCache = new Map<string, unknown>();
+
+  try {
+    const route = require('../src/app/book/[[...slug]]/page') as {
+      default: (props: { params: Promise<{ slug?: string[] }> }) => Promise<React.ReactElement>;
+      generateMetadata: (props: { params: Promise<{ slug?: string[] }> }) => Promise<{ title?: string }>;
+    };
+    const foundParams = Promise.resolve({ slug: ['getting-started', 'first-lora'] });
+    assert.deepEqual(await route.generateMetadata({ params: foundParams }), { title: 'First LoRA' });
+    const foundMarkup = renderToStaticMarkup(await route.default({ params: foundParams }));
+    assert.equal(foundMarkup.includes('<main'), false);
+    assert.match(foundMarkup, /<article/u);
+    assert.match(foundMarkup, /data-markdown="# First LoRA"/u);
+    assert.match(foundMarkup, /data-current-path="getting-started\/first-lora\.md"/u);
+    assert.equal(loadCalls.length, 1, 'metadata and page share one request-memoized guide load');
+
+    result = { kind: 'unavailable' };
+    const unavailableMarkup = renderToStaticMarkup(
+      await route.default({ params: Promise.resolve({ slug: ['unavailable'] }) }),
+    );
+    assert.match(unavailableMarkup, /Training Guide unavailable/u);
+    assert.match(unavailableMarkup, /offline training guide files/u);
+
+    result = { kind: 'not-found' };
+    const missingParams = Promise.resolve({ slug: ['missing'] });
+    assert.deepEqual(await route.generateMetadata({ params: missingParams }), { title: 'Training Guide' });
+    await assert.rejects(
+      () => route.default({ params: missingParams }),
+      error => error === notFoundError,
+    );
+    assert.equal(loadCalls.length, 3, 'each distinct slug loads once across route consumers');
+  } finally {
+    commonJsModule._load = originalLoad;
+  }
 });
 
 test('keeps route failures concise without disclosing caught error details', () => {

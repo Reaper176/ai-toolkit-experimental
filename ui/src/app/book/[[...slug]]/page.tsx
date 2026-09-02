@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { cache } from 'react';
 
 import TrainingGuideMarkdown from '@/components/TrainingGuideMarkdown';
 import {
@@ -11,6 +12,15 @@ import { loadTrainingGuidePage, trainingGuideRepositoryRoot } from '@/server/tra
 
 interface TrainingGuideRouteProps {
   params: Promise<{ slug?: string[] }>;
+}
+
+const loadTrainingGuideRoutePage = cache((repositoryRoot: string, ...slug: string[]) =>
+  loadTrainingGuidePage(repositoryRoot, slug),
+);
+
+async function loadTrainingGuideRouteResult(params: TrainingGuideRouteProps['params']) {
+  const slug = (await params).slug ?? [];
+  return loadTrainingGuideRoutePage(trainingGuideRepositoryRoot(), ...slug);
 }
 
 function TrainingGuideUnavailable() {
@@ -25,13 +35,13 @@ function TrainingGuideUnavailable() {
 }
 
 export async function generateMetadata({ params }: TrainingGuideRouteProps): Promise<Metadata> {
-  const result = loadTrainingGuidePage(trainingGuideRepositoryRoot(), (await params).slug ?? []);
+  const result = await loadTrainingGuideRouteResult(params);
   if (result.kind === 'found') return { title: result.page.title };
   return { title: 'Training Guide' };
 }
 
 export default async function TrainingGuidePage({ params }: TrainingGuideRouteProps) {
-  const result = loadTrainingGuidePage(trainingGuideRepositoryRoot(), (await params).slug ?? []);
+  const result = await loadTrainingGuideRouteResult(params);
   if (result.kind === 'not-found') notFound();
   if (result.kind === 'unavailable') return <TrainingGuideUnavailable />;
 
@@ -39,12 +49,12 @@ export default async function TrainingGuidePage({ params }: TrainingGuideRoutePr
   return (
     <div className="grid h-full min-w-0 grid-cols-1 lg:grid-cols-[16rem_minmax(0,1fr)_14rem]">
       <TrainingGuideChapterNavigation groups={page.groups} currentPath={page.path} />
-      <main className="min-w-0 overflow-y-auto px-4 py-8 sm:px-8">
+      <div className="min-w-0 overflow-y-auto px-4 py-8 sm:px-8">
         <article className="mx-auto max-w-4xl">
           <TrainingGuideMarkdown markdown={page.markdown} currentPath={page.path} allowedPaths={page.allowedPaths} />
           <TrainingGuidePreviousNext previous={page.previous} next={page.next} />
         </article>
-      </main>
+      </div>
       <TrainingGuidePageOutline headings={page.headings} />
     </div>
   );

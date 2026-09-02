@@ -17409,8 +17409,8 @@ class BookArtifactTests(unittest.TestCase):
             for pattern in (
                 "trainingBook*.test.ts",
                 "trainingBook*.test.tsx",
-                "trainingGuideLink.test.ts",
-                "trainingGuideLink.test.tsx",
+                "trainingGuide*.test.ts",
+                "trainingGuide*.test.tsx",
             )
             for path in testing_root.glob(pattern)
         })
