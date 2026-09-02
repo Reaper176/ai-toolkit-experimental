@@ -16,8 +16,11 @@
   "include": [
     "trainingGuideLink.test.tsx",
     "trainingGuideMarkdownPaths.test.ts",
+    "trainingGuideNavigation.test.tsx",
     "trainingGuideReader.test.ts",
     "../src/components/TrainingGuideLink.tsx",
+    "../src/components/TrainingGuideMarkdown.tsx",
+    "../src/components/TrainingGuideNavigation.tsx",
     "../src/helpers/trainingGuideMarkdown.ts",
     "../src/server/trainingGuideReader.ts"
   ],

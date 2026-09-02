@@ -503,3 +503,26 @@ test('reads verified manifest and Markdown descriptors after their pathnames cha
     if (result.kind === 'found') assert.equal(result.page.title, 'First LoRA');
   });
 });
+
+test('keeps the Markdown renderer deterministic, safe, and horizontally scrollable', () => {
+  const source = fs.readFileSync(join(process.cwd(), 'src', 'components', 'TrainingGuideMarkdown.tsx'), 'utf8');
+
+  assert.match(source, /import ReactMarkdown from ['"]react-markdown['"]/u);
+  assert.match(source, /import remarkGfm from ['"]remark-gfm['"]/u);
+  assert.match(source, /remarkPlugins=\{\[remarkGfm\]\}/u);
+  assert.match(source, /rewriteTrainingGuideHref/u);
+  assert.match(source, /createTrainingGuideHeadingSlugger/u);
+  assert.match(source, /headingTextFromSource/u);
+  assert.match(source, /markdown\.slice/u);
+  assert.doesNotMatch(
+    source,
+    /\{ children, \.\.\.props \}/u,
+    'renderer-only AST nodes are not spread onto DOM elements',
+  );
+  assert.ok(
+    (source.match(/overflow-x-auto/gu)?.length ?? 0) >= 2,
+    'code and table renderers both use horizontally scrollable containers',
+  );
+  assert.doesNotMatch(source, /rehypeRaw/u);
+  assert.doesNotMatch(source, /dangerouslySetInnerHTML/u);
+});
