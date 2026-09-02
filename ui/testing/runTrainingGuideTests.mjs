@@ -58,16 +58,29 @@ function findCommittedTestSources() {
     .sort();
 }
 
-function assertConfiguredCommittedTestSources(testSources) {
-  if (testSources.length === 0) {
+function findCurrentTestSources() {
+  return readdirSync(testingDirectory).filter(source => testSourcePattern.test(source)).sort();
+}
+
+function assertTestSourceInventory(currentTestSources, committedTestSources) {
+  if (currentTestSources.length === 0) {
     throw new Error('No trainingGuide*.test.ts or trainingGuide*.test.tsx sources are configured');
   }
+  const missingFromConfig = currentTestSources.filter(
+    source => !configuredTestSources.includes(source),
+  );
+  const extraInConfig = configuredTestSources.filter(source => !currentTestSources.includes(source));
+  const silentlyOmittedCommitted = committedTestSources.filter(
+    source => existsSync(join(testingDirectory, source)) && !configuredTestSources.includes(source),
+  );
   if (
-    testSources.length !== configuredTestSources.length ||
-    testSources.some((source, index) => source !== configuredTestSources[index])
+    currentTestSources.length !== configuredTestSources.length ||
+    missingFromConfig.length !== 0 ||
+    extraInConfig.length !== 0 ||
+    silentlyOmittedCommitted.length !== 0
   ) {
     throw new Error(
-      `Configured training-guide tests do not match committed sources: ${configuredTestSources.join(', ')}`,
+      `Training-guide test inventory mismatch: missing=${missingFromConfig.join(', ')}; extra=${extraInConfig.join(', ')}; committed-omissions=${silentlyOmittedCommitted.join(', ')}`,
     );
   }
 }
@@ -97,8 +110,8 @@ function findCompiledTests(directory) {
     .map(name => join(compiledTestingDirectory, name));
 }
 
-const testSources = findCommittedTestSources();
-assertConfiguredCommittedTestSources(testSources);
+const testSources = findCurrentTestSources();
+assertTestSourceInventory(testSources, findCommittedTestSources());
 
 try {
   outputDirectory = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
@@ -137,7 +150,7 @@ try {
     compiledTests.some((compiledTest, index) => compiledTest !== expectedTests[index])
   ) {
     throw new Error(
-      `Compiled training-guide tests do not match committed configured sources: ${compiledTests.join(', ')}`,
+      `Compiled training-guide tests do not match current configured sources: ${compiledTests.join(', ')}`,
     );
   }
   for (const compiledTest of compiledTests) run(process.execPath, [compiledTest]);

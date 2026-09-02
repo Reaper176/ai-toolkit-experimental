@@ -6,7 +6,11 @@ export interface TrainingGuideHeading {
   id: string;
 }
 
-const GUIDE_SEGMENT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+const REPOSITORY_PATH_SEGMENT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+const PUBLIC_ROUTE_SEGMENT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+const README_FILENAME = 'README.md';
+const NESTED_README_SUFFIX = `/${README_FILENAME}`;
+const NESTED_README_ROUTE_SEGMENT = 'readme';
 const HTTP_HREF = /^https?:\/\//iu;
 
 function isGuideMarkdownPath(value: string): boolean {
@@ -19,24 +23,36 @@ function isGuideMarkdownPath(value: string): boolean {
   ) {
     return false;
   }
-  if (value === 'README.md') return true;
-
   const segments = value.split('/');
   const filename = segments.pop();
-  if (filename === undefined || !filename.endsWith('.md')) return false;
+  if (
+    filename === undefined ||
+    !segments.every(segment => REPOSITORY_PATH_SEGMENT.test(segment))
+  ) {
+    return false;
+  }
+  if (filename === README_FILENAME) return true;
+  if (!filename.endsWith('.md')) return false;
   const stem = filename.slice(0, -3);
-  return [...segments, stem].every(segment => GUIDE_SEGMENT.test(segment));
+  return stem !== NESTED_README_ROUTE_SEGMENT && REPOSITORY_PATH_SEGMENT.test(stem);
 }
 
 export function trainingGuideSlugFromPath(guidePath: string): string {
   if (!isGuideMarkdownPath(guidePath)) return '';
-  if (guidePath === 'README.md') return '';
+  if (guidePath === README_FILENAME) return '';
+  if (guidePath.endsWith(NESTED_README_SUFFIX)) {
+    return `${guidePath.slice(0, -NESTED_README_SUFFIX.length)}/${NESTED_README_ROUTE_SEGMENT}`;
+  }
   return guidePath.slice(0, -3);
 }
 
 export function trainingGuidePathFromSlug(segments: readonly string[]): string | undefined {
-  if (segments.length === 0) return 'README.md';
-  if (!segments.every(segment => GUIDE_SEGMENT.test(segment))) return undefined;
+  if (segments.length === 0) return README_FILENAME;
+  if (!segments.every(segment => PUBLIC_ROUTE_SEGMENT.test(segment))) return undefined;
+  if (segments.at(-1) === NESTED_README_ROUTE_SEGMENT) {
+    if (segments.length === 1) return undefined;
+    return `${segments.slice(0, -1).join('/')}/${README_FILENAME}`;
+  }
   return `${segments.join('/')}.md`;
 }
 
@@ -48,8 +64,7 @@ export function createTrainingGuideHeadingSlugger(): (text: string) => string {
       .normalize('NFKC')
       .trim()
       .toLowerCase()
-      .replace(/[^\p{Letter}\p{Number}\s-]/gu, '')
-      .replace(/[\s-]+/gu, '-')
+      .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
       .replace(/^-|-$/gu, '');
     const duplicateIndex = counts.get(base) ?? 0;
     counts.set(base, duplicateIndex + 1);
