@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useReducer, useRef, useState, type ComponentType } from 'react';
+import React, { useCallback, useEffect, useId, useReducer, useRef, useState, type ComponentType } from 'react';
 import type { JobConfig } from '../types';
 import { normalizePresetName, type TrainingPresetRecord } from '../helpers/trainingPresets';
 import { apiClient } from '../utils/api';
@@ -64,7 +64,9 @@ export function TrainingPresetControl({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fetchFailed, setFetchFailed] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [dialog, dispatchDialog] = useReducer(trainingPresetDialogReducer, CLOSED_TRAINING_PRESET_DIALOG);
+  const detailsId = useId();
   const dialogRef = useRef(dialog);
   const mountedRef = useRef(false);
   const pendingRef = useRef(false);
@@ -79,6 +81,11 @@ export function TrainingPresetControl({
   migrateRef.current = migrateJobConfig;
   disabledRef.current = disabled;
   dialogRef.current = dialog;
+
+  const selectedBuiltIn = selectedPresetId === null
+    ? undefined
+    : presets.find(preset => preset.id === selectedPresetId && preset.source === 'builtin');
+  const interactionDisabled = disabled || loading || pending || dialog.kind !== 'closed';
 
   const startRequest = useCallback(() => {
     requestControllerRef.current?.abort();
@@ -127,6 +134,10 @@ export function TrainingPresetControl({
     setSelectedPresetId(current => reconcileSelectedPresetId(current, presets, jobConfig.config.process[0].model.arch));
   }, [jobConfig.config.process, presets]);
 
+  useEffect(() => {
+    if (selectedBuiltIn === undefined) setDetailsOpen(false);
+  }, [selectedBuiltIn]);
+
   const beginPending = (): boolean => {
     if (!mountedRef.current || pendingRef.current || disabledRef.current) return false;
     pendingRef.current = true;
@@ -165,6 +176,7 @@ export function TrainingPresetControl({
       if (!preset) return;
       if (preset.source === 'builtin' && preset.model_arch !== jobConfigRef.current.config.process[0].model.arch) {
         setSelectedPresetId(null);
+        setDetailsOpen(false);
         return;
       }
       try {
@@ -172,6 +184,7 @@ export function TrainingPresetControl({
         changeRef.current(transaction.jobConfig);
         setUndoConfig(transaction.undoConfig);
         setSelectedPresetId(preset.id);
+        if (preset.source === 'user') setDetailsOpen(false);
         setError(null);
       } catch (applyError) {
         setError(localError('Could not apply training preset', applyError));
@@ -269,21 +282,40 @@ export function TrainingPresetControl({
     }
   };
 
-  const selectedBuiltIn = selectedPresetId === null
-    ? undefined
-    : presets.find(preset => preset.id === selectedPresetId && preset.source === 'builtin');
-
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="relative flex flex-wrap items-center gap-2">
       <TrainingPresetSelect
         presets={presets}
         selectedPresetId={selectedPresetId}
         currentModelArch={jobConfig.config.process[0].model.arch}
         canUndo={undoConfig !== null}
-        disabled={disabled || loading || pending || dialog.kind !== 'closed'}
+        disabled={interactionDisabled}
         onSelect={handleSelection}
       />
-      {selectedBuiltIn?.source === 'builtin' && <TrainingPresetDetails preset={selectedBuiltIn} />}
+      {selectedBuiltIn?.source === 'builtin' && (
+        <button
+          type="button"
+          aria-label="Show preset details"
+          aria-expanded={detailsOpen}
+          aria-controls={detailsId}
+          disabled={interactionDisabled}
+          className="rounded border border-gray-700 bg-gray-800 px-2 py-1 text-sm text-gray-100 disabled:opacity-50"
+          onClick={() => setDetailsOpen(open => !open)}
+        >
+          Details
+        </button>
+      )}
+      {selectedBuiltIn?.source === 'builtin' && detailsOpen && (
+        <div
+          id={detailsId}
+          role="region"
+          aria-label="Selected preset details"
+          data-preset-details-region
+          className="absolute right-0 top-full z-50 mt-2 max-h-[calc(100vh-6rem)] w-[min(24rem,calc(100vw-1rem))] overflow-y-auto rounded shadow-xl"
+        >
+          <TrainingPresetDetails preset={selectedBuiltIn} />
+        </div>
+      )}
       {(loading || pending) && (
         <span role="status" className="text-xs text-gray-400">
           {loading ? 'Loading presets…' : 'Updating presets…'}
