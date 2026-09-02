@@ -18,7 +18,8 @@
     "trainingGuideMarkdownPaths.test.ts",
     "trainingGuideReader.test.ts",
     "../src/components/TrainingGuideLink.tsx",
-    "../src/helpers/trainingGuideMarkdown.ts"
+    "../src/helpers/trainingGuideMarkdown.ts",
+    "../src/server/trainingGuideReader.ts"
   ],
   "exclude": ["../.next", "../node_modules"]
 }
