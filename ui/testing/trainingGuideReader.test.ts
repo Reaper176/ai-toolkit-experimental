@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -97,6 +98,53 @@ function withTrainingGuideFixture(run: (fixture: TrainingGuideFixture) => void):
   } finally {
     assertSafeFixtureRoot(root);
     rmSync(root, { recursive: true });
+  }
+}
+
+function withFileSwapAfterRealpath<T>(logicalPath: string, replacementPath: string, run: () => T): T {
+  const originalRealpathSync = fs.realpathSync;
+  let swapped = false;
+  const racingRealpathSync = ((target: string) => {
+    const result = originalRealpathSync(target);
+    if (!swapped && target === logicalPath) {
+      rmSync(logicalPath);
+      symlinkSync(replacementPath, logicalPath);
+      swapped = true;
+    }
+    return result;
+  }) as unknown as typeof fs.realpathSync;
+  Object.defineProperty(fs, 'realpathSync', { configurable: true, value: racingRealpathSync, writable: true });
+  try {
+    const result = run();
+    assert.equal(swapped, true, 'fixture must replace the target after realpath resolution');
+    return result;
+  } finally {
+    Object.defineProperty(fs, 'realpathSync', { configurable: true, value: originalRealpathSync, writable: true });
+  }
+}
+
+function withFileSwapAfterStat<T>(logicalPath: string, replacementPath: string, run: () => T): T {
+  const originalStatSync = fs.statSync;
+  let swapped = false;
+  const racingStatSync = ((target: string, options?: { bigint?: boolean }) => {
+    const result = (originalStatSync as unknown as (path: string, statOptions?: { bigint?: boolean }) => unknown)(
+      target,
+      options,
+    );
+    if (!swapped && target === logicalPath) {
+      rmSync(logicalPath);
+      symlinkSync(replacementPath, logicalPath);
+      swapped = true;
+    }
+    return result;
+  }) as unknown as typeof fs.statSync;
+  Object.defineProperty(fs, 'statSync', { configurable: true, value: racingStatSync, writable: true });
+  try {
+    const result = run();
+    assert.equal(swapped, true, 'fixture must replace the target after stat identity verification');
+    return result;
+  } finally {
+    Object.defineProperty(fs, 'statSync', { configurable: true, value: originalStatSync, writable: true });
   }
 }
 
@@ -336,5 +384,122 @@ test('derives navigation without requiring headings from non-current chapters', 
     if (result.kind === 'found') {
       assert.equal(result.page.groups[2].items[0].label, 'Curation');
     }
+  });
+});
+
+test('preserves manifest page order when a root page follows section groups', () => {
+  withTrainingGuideFixture(({ root, bookDirectory, manifest, writeManifest }) => {
+    manifest.pages[2].next = 'glossary.md';
+    manifest.pages.push({ path: 'glossary.md', previous: 'datasets/curation.md', next: null });
+    writeFileSync(join(bookDirectory, 'glossary.md'), '# Glossary\n');
+    writeManifest();
+
+    const result = loadTrainingGuidePage(root, []);
+    assert.equal(result.kind, 'found');
+    if (result.kind !== 'found') return;
+    assert.deepEqual(
+      result.page.groups.map(group => group.label),
+      ['Overview', 'Getting Started', 'Datasets', 'Glossary'],
+    );
+    assert.deepEqual(
+      result.page.groups.flatMap(group => group.items.map(item => item.path)),
+      manifest.pages.map(page => page.path),
+    );
+  });
+});
+
+test('returns not-found for an unknown valid slug before validating listed page files', () => {
+  withTrainingGuideFixture(({ root, bookDirectory }) => {
+    rmSync(join(bookDirectory, 'datasets', 'curation.md'));
+
+    assert.deepEqual(loadTrainingGuidePage(root, ['missing']), { kind: 'not-found' });
+  });
+});
+
+test('rejects a manifest whose pathname identity changes after realpath resolution', () => {
+  withTrainingGuideFixture(({ root, bookDirectory, manifest }) => {
+    const manifestPath = join(bookDirectory, 'book-manifest.json');
+    const outsideManifestPath = join(root, 'outside-manifest.json');
+    writeFileSync(outsideManifestPath, JSON.stringify(manifest));
+
+    const result = withFileSwapAfterRealpath(manifestPath, outsideManifestPath, () => loadTrainingGuidePage(root, []));
+    assert.deepEqual(result, { kind: 'unavailable' });
+    assert.equal(JSON.stringify(result).includes(root), false);
+  });
+});
+
+test('rejects a requested page whose pathname identity changes after realpath resolution', () => {
+  withTrainingGuideFixture(({ root, bookDirectory }) => {
+    const pagePath = join(bookDirectory, 'getting-started', 'first-lora.md');
+    const outsidePagePath = join(root, 'outside-page.md');
+    writeFileSync(outsidePagePath, '# Escaped Page\n');
+
+    const result = withFileSwapAfterRealpath(pagePath, outsidePagePath, () =>
+      loadTrainingGuidePage(root, ['getting-started', 'first-lora']),
+    );
+    assert.deepEqual(result, { kind: 'unavailable' });
+    assert.equal(JSON.stringify(result).includes(root), false);
+  });
+});
+
+test('uses exact bigint file identity stats', () => {
+  withTrainingGuideFixture(({ root }) => {
+    const originalFstatSync = fs.fstatSync;
+    const originalStatSync = fs.statSync;
+    const fstatOptions: Array<boolean> = [];
+    const statOptions: Array<boolean> = [];
+    const observingFstatSync = ((descriptor: number, options?: { bigint?: boolean }) => {
+      fstatOptions.push(options?.bigint === true);
+      return (originalFstatSync as unknown as (fd: number, statOptions?: { bigint?: boolean }) => unknown)(
+        descriptor,
+        options,
+      );
+    }) as unknown as typeof fs.fstatSync;
+    const observingStatSync = ((target: string, options?: { bigint?: boolean }) => {
+      statOptions.push(options?.bigint === true);
+      return (originalStatSync as unknown as (path: string, statOptions?: { bigint?: boolean }) => unknown)(
+        target,
+        options,
+      );
+    }) as unknown as typeof fs.statSync;
+    Object.defineProperty(fs, 'fstatSync', { configurable: true, value: observingFstatSync, writable: true });
+    Object.defineProperty(fs, 'statSync', { configurable: true, value: observingStatSync, writable: true });
+    let result;
+    try {
+      result = loadTrainingGuidePage(root, []);
+    } finally {
+      Object.defineProperty(fs, 'fstatSync', { configurable: true, value: originalFstatSync, writable: true });
+      Object.defineProperty(fs, 'statSync', { configurable: true, value: originalStatSync, writable: true });
+    }
+
+    assert.equal(result.kind, 'found');
+    assert.ok(fstatOptions.length > 0);
+    assert.ok(statOptions.length > 0);
+    assert.equal(fstatOptions.every(Boolean), true);
+    assert.equal(statOptions.every(Boolean), true);
+  });
+});
+
+test('reads verified manifest and Markdown descriptors after their pathnames change', () => {
+  withTrainingGuideFixture(({ root, bookDirectory }) => {
+    const manifestPath = join(bookDirectory, 'book-manifest.json');
+    const outsideManifestPath = join(root, 'outside-manifest.json');
+    writeFileSync(outsideManifestPath, '{"invalid":true}');
+
+    const result = withFileSwapAfterStat(manifestPath, outsideManifestPath, () => loadTrainingGuidePage(root, []));
+    assert.equal(result.kind, 'found');
+    if (result.kind === 'found') assert.equal(result.page.title, 'Overview');
+  });
+
+  withTrainingGuideFixture(({ root, bookDirectory }) => {
+    const pagePath = join(bookDirectory, 'getting-started', 'first-lora.md');
+    const outsidePagePath = join(root, 'outside-page.md');
+    writeFileSync(outsidePagePath, '# Escaped Page\n');
+
+    const result = withFileSwapAfterStat(pagePath, outsidePagePath, () =>
+      loadTrainingGuidePage(root, ['getting-started', 'first-lora']),
+    );
+    assert.equal(result.kind, 'found');
+    if (result.kind === 'found') assert.equal(result.page.title, 'First LoRA');
   });
 });

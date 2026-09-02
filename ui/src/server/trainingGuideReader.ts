@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -281,15 +281,47 @@ function parseManifest(source: string): TrainingGuideManifest | undefined {
   };
 }
 
-function isConfinedFile(bookDirectory: string, candidate: string): boolean {
+function isConfinedPath(bookDirectory: string, candidate: string): boolean {
   const relativeCandidate = path.relative(bookDirectory, candidate);
   return (
     relativeCandidate !== '' &&
     relativeCandidate !== '..' &&
     !relativeCandidate.startsWith(`..${path.sep}`) &&
-    !path.isAbsolute(relativeCandidate) &&
-    statSync(candidate).isFile()
+    !path.isAbsolute(relativeCandidate)
   );
+}
+
+function openConfinedFile(bookDirectory: string, relativePath: string): number | undefined {
+  const logicalPath = path.join(bookDirectory, relativePath);
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(logicalPath, 'r');
+    const openedFile = fstatSync(descriptor, { bigint: true });
+    if (!openedFile.isFile()) return undefined;
+
+    const realPath = realpathSync(logicalPath);
+    if (!isConfinedPath(bookDirectory, realPath)) return undefined;
+    const resolvedFile = statSync(realPath, { bigint: true });
+    if (!resolvedFile.isFile() || openedFile.dev !== resolvedFile.dev || openedFile.ino !== resolvedFile.ino) {
+      return undefined;
+    }
+
+    const result = descriptor;
+    descriptor = undefined;
+    return result;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+function readConfinedFile(bookDirectory: string, relativePath: string): string | undefined {
+  const descriptor = openConfinedFile(bookDirectory, relativePath);
+  if (descriptor === undefined) return undefined;
+  try {
+    return readFileSync(descriptor, 'utf8');
+  } finally {
+    closeSync(descriptor);
+  }
 }
 
 function titleCaseSegment(segment: string): string {
@@ -313,18 +345,20 @@ function navigationItem(guidePath: string): TrainingGuideNavigationItem {
 }
 
 function navigationGroups(pages: readonly TrainingGuideManifestPage[]): TrainingGuideNavigationGroup[] {
-  const groups = new Map<string, TrainingGuideNavigationGroup>();
+  const groups: TrainingGuideNavigationGroup[] = [];
   for (const page of pages) {
     const separatorIndex = page.path.indexOf('/');
-    const key = separatorIndex === -1 ? 'overview' : page.path.slice(0, separatorIndex);
-    let group = groups.get(key);
-    if (group === undefined) {
-      group = { key, label: titleCaseSegment(key), items: [] };
-      groups.set(key, group);
+    const item = navigationItem(page.path);
+    const key = separatorIndex === -1 ? item.slug || 'overview' : page.path.slice(0, separatorIndex);
+    const label = separatorIndex === -1 ? item.label : titleCaseSegment(key);
+    let group = groups.at(-1);
+    if (group === undefined || group.key !== key) {
+      group = { key, label, items: [] };
+      groups.push(group);
     }
-    group.items.push(navigationItem(page.path));
+    group.items.push(item);
   }
-  return [...groups.values()];
+  return groups;
 }
 
 export function trainingGuideRepositoryRoot(): string {
@@ -335,27 +369,27 @@ export function loadTrainingGuidePage(repositoryRoot: string, slug: readonly str
   const requestedPath = trainingGuidePathFromSlug(slug);
   if (requestedPath === undefined) return { kind: 'not-found' };
 
+  let currentPageDescriptor: number | undefined;
   try {
     const bookDirectory = realpathSync(path.join(path.resolve(repositoryRoot), 'docs', 'book'));
-    const manifestPath = realpathSync(path.join(bookDirectory, MANIFEST_FILENAME));
-    if (!isConfinedFile(bookDirectory, manifestPath)) return { kind: 'unavailable' };
-
-    const manifest = parseManifest(readFileSync(manifestPath, 'utf8'));
+    const manifestSource = readConfinedFile(bookDirectory, MANIFEST_FILENAME);
+    if (manifestSource === undefined) return { kind: 'unavailable' };
+    const manifest = parseManifest(manifestSource);
     if (manifest === undefined) return { kind: 'unavailable' };
-
-    const realPagePaths = new Map<string, string>();
-    for (const page of manifest.pages) {
-      const realPagePath = realpathSync(path.join(bookDirectory, page.path));
-      if (!isConfinedFile(bookDirectory, realPagePath)) return { kind: 'unavailable' };
-      realPagePaths.set(page.path, realPagePath);
-    }
 
     const currentPage = manifest.pages.find(page => page.path === requestedPath);
     if (currentPage === undefined) return { kind: 'not-found' };
-    const currentRealPath = realPagePaths.get(currentPage.path);
-    if (currentRealPath === undefined) return { kind: 'unavailable' };
 
-    const markdown = readFileSync(currentRealPath, 'utf8');
+    for (const page of manifest.pages) {
+      const descriptor = openConfinedFile(bookDirectory, page.path);
+      if (descriptor === undefined) return { kind: 'unavailable' };
+      if (page.path === requestedPath) currentPageDescriptor = descriptor;
+      else closeSync(descriptor);
+    }
+
+    if (currentPageDescriptor === undefined) return { kind: 'unavailable' };
+
+    const markdown = readFileSync(currentPageDescriptor, 'utf8');
     const headings = extractTrainingGuideHeadings(markdown);
     const title = headings.find(heading => heading.depth === 1)?.text;
     if (title === undefined || title === '') return { kind: 'unavailable' };
@@ -385,5 +419,7 @@ export function loadTrainingGuidePage(repositoryRoot: string, slug: readonly str
     };
   } catch {
     return { kind: 'unavailable' };
+  } finally {
+    if (currentPageDescriptor !== undefined) closeSync(currentPageDescriptor);
   }
 }
