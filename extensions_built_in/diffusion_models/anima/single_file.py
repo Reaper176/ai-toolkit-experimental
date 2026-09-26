@@ -5,15 +5,14 @@ import re
 
 import torch
 from accelerate import init_empty_weights
-from diffusers import (
-    AnimaAutoBlocks,
-    AnimaTextConditioner,
-    AutoencoderKLQwenImage,
-    CosmosTransformer3DModel,
-)
+from diffusers import AnimaAutoBlocks
 from diffusers.loaders.single_file_utils import convert_cosmos_transformer_checkpoint_to_diffusers
 from safetensors.torch import load_file
-from transformers import Qwen3Config, Qwen3Model
+from transformers import Qwen3Config
+from toolkit.models.v2.diffusion_models.cosmos import CosmosTransformer3DModel
+from toolkit.models.v2.text_encoders.anima import AnimaTextConditioner
+from toolkit.models.v2.text_encoders.qwen3 import Qwen3ModelEncoder as Qwen3Model
+from toolkit.models.v2.vae.qwen_image import QwenImageVAE as AutoencoderKLQwenImage
 
 
 ANIMA_BASE_REPO = "circlestone-labs/Anima-Base-v1.0-Diffusers"

@@ -2928,9 +2928,25 @@ function canonicalSetterPathsFromAst(source: ts.SourceFile, root: ts.Node, bindi
         if (!bindings.isExactNamedImport(node.expression, 'handleModelArchChange', './utils')) {
           fail(node.expression, 'architecture mediator requires the exact named import from ./utils');
         }
-        if (node.arguments.length !== 4) fail(node, 'architecture mediator requires four exact arguments');
-        const currentPath = canonicalAccessPath(node.arguments[0], bindings);
-        const [nextArchitecture, config, setter] = node.arguments.slice(1).map(unwrap);
+        const offset = node.arguments.length === 5 ? 1 : 0;
+        if (node.arguments.length !== 4 && node.arguments.length !== 5) fail(node, 'architecture mediator requires four legacy or five runtime exact arguments');
+        if (offset === 1) {
+          const list = unwrap(node.arguments[0]);
+          let proven = false;
+          const visitList = (candidate: ts.Node): void => {
+            if (ts.isVariableDeclaration(candidate) && ts.isObjectBindingPattern(candidate.name) && candidate.initializer !== undefined) {
+              const init = unwrap(candidate.initializer);
+              if (ts.isCallExpression(init) && ts.isIdentifier(init.expression) && init.arguments.length === 0 && bindings.isExactNamedImport(init.expression, 'useModelArchs', '@/extensions/modelArchs')) {
+                proven = proven || candidate.name.elements.some(element => ts.isIdentifier(element.name) && element.propertyName?.getText() === 'archs' && ts.isIdentifier(list) && bindings.isBinding(list, element.name));
+              }
+            }
+            ts.forEachChild(candidate, visitList);
+          };
+          visitList(node.getSourceFile());
+          if (!proven) fail(node.arguments[0], 'architecture mediator requires the exact useModelArchs architecture list');
+        }
+        const currentPath = canonicalAccessPath(node.arguments[offset], bindings);
+        const [nextArchitecture, config, setter] = node.arguments.slice(offset + 1).map(unwrap);
         const configBinding = ts.isIdentifier(config) ? bindings.componentPropBinding(config, 'jobConfig') : undefined;
         const setterBinding = ts.isIdentifier(setter) ? bindings.componentPropBinding(setter, 'setJobConfig') : undefined;
         if (configBinding === undefined || setterBinding === undefined || configBinding.owner !== setterBinding.owner) {
@@ -2944,7 +2960,7 @@ function canonicalSetterPathsFromAst(source: ts.SourceFile, root: ts.Node, bindi
           || !bindings.isBinding(nextArchitecture, valueDeclaration)
         ) fail(nextArchitecture, 'architecture mediator requires the exact onChange value binding');
         if (currentPath !== 'config.process[*].model.arch') fail(node.arguments[0], 'architecture mediator requires the exact model architecture read path');
-        let readBase = unwrap(node.arguments[0]);
+        let readBase = unwrap(node.arguments[offset]);
         while (ts.isPropertyAccessExpression(readBase) || ts.isElementAccessExpression(readBase)) readBase = unwrap(readBase.expression);
         const readBinding = ts.isIdentifier(readBase) ? bindings.componentPropBinding(readBase, 'jobConfig') : undefined;
         if (readBinding === undefined || readBinding.owner !== configBinding.owner) fail(node.arguments[0], 'architecture mediator read and arguments must bind the same component owner');
@@ -4619,8 +4635,8 @@ function architectureComparatorDirection(comparator: ts.Expression): 1 | -1 {
   fail(expression, 'modelArchs sort must compare its exact parameters');
 }
 
-function architectureFacts(repo: AstRepository): ModelArchitectureFact[] {
-  let expression = unwrap(repo.expression('modelArchs'));
+function architectureFacts(repo: AstRepository, symbol = 'modelArchs'): ModelArchitectureFact[] {
+  let expression = unwrap(repo.expression(symbol));
   let comparatorDirection: 1 | -1 | undefined;
   if (
     ts.isCallExpression(expression)
@@ -4632,7 +4648,7 @@ function architectureFacts(repo: AstRepository): ModelArchitectureFact[] {
     expression = unwrap(expression.expression.expression);
   }
   if (!ts.isArrayLiteralExpression(expression)) fail(expression, 'modelArchs must be an array literal');
-  const allowedFields = new Set(['name', 'label', 'group', 'controls', 'isVideoModel', 'hasMultiLinePrompts', 'defaults', 'disableSections', 'additionalSections', 'accuracyRecoveryAdapters', 'sampleTags', 'gateUrl', 'modelNotes', 'customModelSelectOptions']);
+  const allowedFields = new Set(['name', 'label', 'group', 'controls', 'isVideoModel', 'hasMultiLinePrompts', 'defaults', 'disableSections', 'additionalSections', 'accuracyRecoveryAdapters', 'sampleTags', 'gateUrl', 'modelNotes', 'customModelSelectOptions', 'generateNameOverride', 'generate']);
   const facts = expression.elements.map(element => {
     element = unwrap(element as ts.Expression);
     if (!ts.isObjectLiteralExpression(element)) fail(element, 'modelArchs entries must be object literals');
@@ -4685,6 +4701,97 @@ function architectureFacts(repo: AstRepository): ModelArchitectureFact[] {
     facts.sort((left, right) => comparatorDirection * left.label.localeCompare(right.label, undefined, { sensitivity: 'base' }));
   }
   return facts;
+}
+
+/** The book describes bundled metadata. User-installed overrides are runtime-specific. */
+export function bundledArchitectureSourcePaths(root: string): string[] {
+  const directory = join(root, 'extensions_built_in');
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && !entry.name.startsWith('.') && !entry.name.startsWith('_'))
+    .map(entry => entry.name).sort(compareCodePoint)
+    .flatMap(name => {
+      const file = ['ui.tsx', 'ui.ts', 'ui.jsx', 'ui.js'].find(file => existsSync(join(directory, name, file)));
+      return file === undefined ? [] : [`extensions_built_in/${name}/${file}`];
+    });
+}
+
+/** Narrow release-gate projection: no claims about the book's behavior/default inventory. */
+export function collectTrainingPresetArchitectureFacts(root: string): {
+  model_architectures: Array<Pick<ModelArchitectureFact, 'name' | 'model_path' | 'gate_url' | 'controls'>>;
+} {
+  const byName = new Map<string, Pick<ModelArchitectureFact, 'name' | 'model_path' | 'gate_url' | 'controls'>>();
+  const paths = bundledArchitectureSourcePaths(root);
+  if (paths.length === 0) fail(undefined, 'bundled model UI metadata is missing');
+  for (const path of paths) {
+    const repo = new AstRepository(root);
+    repo.source('ui/src/helpers/defaultSamples.ts');
+    const source = repo.source(path);
+    let exportedRegistry = false;
+    for (const statement of source.statements) {
+      if (ts.isImportDeclaration(statement) || ts.isEmptyStatement(statement)) continue;
+      if (!ts.isVariableStatement(statement) || (statement.declarationList.flags & ts.NodeFlags.Const) === 0) fail(statement, 'unsupported executable bundled UI module statement');
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || declaration.initializer === undefined) fail(declaration, 'unsupported bundled UI constant declaration');
+        if (declaration.name.text === 'AI_TOOLKIT_UI_MODELS') {
+          if (exportedRegistry || !statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) fail(declaration, 'bundled UI registry requires exactly one exported const binding');
+          exportedRegistry = true;
+        } else {
+          // Extra initialization must be inert: no calls, alias mutation, or side effects.
+          repo.value(declaration.initializer);
+        }
+      }
+    }
+    if (!exportedRegistry) fail(source, 'bundled UI registry requires exactly one exported const binding');
+    const array = unwrap(repo.expression('AI_TOOLKIT_UI_MODELS'));
+    if (!ts.isArrayLiteralExpression(array)) fail(array, 'bundled UI models must be an array literal');
+    for (const entry of array.elements) {
+      const object = unwrap(entry as ts.Expression);
+      if (!ts.isObjectLiteralExpression(object)) fail(object, 'bundled UI model must be an object literal');
+      const fields = objectProperties(object);
+      const name = repo.value(fields.get('name') ?? fail(object, 'bundled UI model name missing'));
+      if (name.kind !== 'string') fail(object, 'bundled UI model name must be a string');
+      for (const key of ['label', 'group']) {
+        const expression = fields.get(key) ?? fail(object, `bundled UI model ${key} missing`);
+        if (repo.value(expression).kind !== 'string') fail(expression, `bundled UI model ${key} must be a string`);
+      }
+      const defaults = fields.get('defaults');
+      let model_path: PresenceFact = { present: false };
+      if (defaults !== undefined) {
+        const defaultsObject = unwrap(defaults);
+        if (!ts.isObjectLiteralExpression(defaultsObject)) fail(defaults, 'bundled UI defaults must be an object literal');
+        const pair = objectProperties(defaultsObject).get('config.process[0].model.name_or_path');
+        if (pair !== undefined) {
+          const value = repo.value(pair);
+          if (value.kind !== 'array' || value.items.length !== 2 || value.items[0].kind !== 'string') fail(pair, 'model path requires a selected/unselected string pair');
+          model_path = presence(value.items[0]);
+        }
+      }
+      const controlsValue = fields.get('controls');
+      const controls = controlsValue === undefined ? { kind: 'array' as const, items: [] } : repo.value(controlsValue);
+      if (controls.kind !== 'array' || controls.items.some(item => item.kind !== 'string')) fail(controlsValue, 'model controls must be a string array');
+      const gateValue = fields.get('gateUrl');
+      const gate = gateValue === undefined ? undefined : repo.value(gateValue);
+      if (gate !== undefined && gate.kind !== 'string') fail(gateValue, 'model gate URL must be a string');
+      byName.set(name.value, { name: name.value, model_path, gate_url: presence(gate), controls: controls.items.map(item => (item as { kind: 'string'; value: string }).value) });
+    }
+  }
+  return { model_architectures: [...byName.values()].sort((a, b) => compareCodePoint(a.name, b.name)) };
+}
+
+export function writeTrainingPresetArchitectureFacts(root: string, destination: string): void {
+  writeFileSync(destination, `${JSON.stringify(collectTrainingPresetArchitectureFacts(resolve(root)), null, 2)}\n`, 'utf8');
+}
+
+function bundledArchitectureFacts(root: string): ModelArchitectureFact[] {
+  const byName = new Map<string, ModelArchitectureFact>();
+  for (const path of bundledArchitectureSourcePaths(root)) {
+    const moduleRepo = new AstRepository(root);
+    moduleRepo.source('ui/src/helpers/defaultSamples.ts');
+    moduleRepo.source(path);
+    for (const fact of architectureFacts(moduleRepo, 'AI_TOOLKIT_UI_MODELS')) byName.set(fact.name, fact);
+  }
+  return [...byName.values()].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
 }
 
 function flattenDefaults(repo: AstRepository, symbol: string, sourcePath: string, basePath: string): UiDefaultFact[] {
@@ -11167,10 +11274,10 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
   const source = ts.createSourceFile(sourceName, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const owner = exportedArrowFunction(source, 'handleModelArchChange');
   if (owner === undefined) return [];
-  if (owner.parameters.length !== 4 || owner.parameters.some(parameter => exactCallbackIdentifier(parameter) === undefined)) fail(owner, 'handleModelArchChange behavior requires four exact parameters');
+  if (owner.parameters.length !== 5 || owner.parameters.some(parameter => exactCallbackIdentifier(parameter) === undefined)) fail(owner, 'handleModelArchChange behavior requires five exact parameters');
   const ownerBody = owner.body;
   if (!ts.isBlock(ownerBody)) fail(owner, 'handleModelArchChange behavior requires a block body');
-  const [currentName, nextName, configParameter, setterParameter] = owner.parameters.map(parameter => exactCallbackIdentifier(parameter)!);
+  const [architecturesParameter, currentName, nextName, configParameter, setterParameter] = owner.parameters.map(parameter => exactCallbackIdentifier(parameter)!);
   const bindings = new LexicalBindings(source);
   const expandDatasetDefaultsDeclarations = source.statements.flatMap(statement => ts.isVariableStatement(statement)
     ? [...statement.declarationList.declarations].filter(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === 'expandDatasetDefaults')
@@ -11402,7 +11509,7 @@ export function collectHandleModelArchChangeBehaviorClaimsFromSource(
     if (node !== owner && ts.isFunctionLike(node)) return;
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined) {
       const initializer = unwrap(node.initializer);
-      if (ts.isCallExpression(initializer) && ts.isPropertyAccessExpression(initializer.expression) && initializer.expression.name.text === 'find' && ts.isIdentifier(unwrap(initializer.expression.expression)) && bindings.isExactNamedImport(unwrap(initializer.expression.expression) as ts.Identifier, 'modelArchs', './options') && initializer.arguments.length === 1) {
+      if (ts.isCallExpression(initializer) && ts.isPropertyAccessExpression(initializer.expression) && initializer.expression.name.text === 'find' && ts.isIdentifier(unwrap(initializer.expression.expression)) && bindings.isBinding(unwrap(initializer.expression.expression) as ts.Identifier, architecturesParameter) && initializer.arguments.length === 1) {
         const callback = unwrap(initializer.arguments[0]);
         if (!ts.isArrowFunction(callback) || callback.parameters.length !== 1 || !ts.isIdentifier(callback.parameters[0].name)) fail(callback, 'handleModelArchChange behavior requires an exact architecture find callback');
         const comparison = unwrap(callback.body as ts.Expression);
@@ -14398,8 +14505,9 @@ export function collectTrainingBookUiFacts(repositoryRoot: string): TrainingBook
     ...flattenDefaults(repo, 'defaultIdeogramSamplesConfig', 'ui/src/helpers/defaultSamples.ts', 'config.process[*].sample'),
   ];
   defaults.sort((left, right) => compareCodePoint(`${left.path}\0${left.source_path}\0${left.symbol}`, `${right.path}\0${right.source_path}\0${right.symbol}`));
-  const model_architectures = architectureFacts(repo);
-  const requiredProductionFacts = model_architectures.length === 51;
+  const hasBundledExtensions = bundledArchitectureSourcePaths(root).length > 0;
+  const model_architectures = hasBundledExtensions ? bundledArchitectureFacts(root) : architectureFacts(repo);
+  const requiredProductionFacts = hasBundledExtensions || model_architectures.length === 51;
   const config_claims = [
     ...defaultClaims(defaults),
     ...docClaims(root, repo),

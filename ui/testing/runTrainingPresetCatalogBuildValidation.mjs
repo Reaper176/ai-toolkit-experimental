@@ -37,7 +37,7 @@ try {
   run('python', [join(testingDirectory, 'trainingPresetBackendMapping.test.py'), '--emit', backendPath], repositoryRoot);
   const collector = join(temporary, 'testing', 'trainingBookFacts.js');
   if (!existsSync(collector)) throw new Error('canonical training book UI collector was not compiled');
-  run(process.execPath, ['-e', `require(${JSON.stringify(collector)}).writeTrainingBookUiFacts(${JSON.stringify(repositoryRoot)}, ${JSON.stringify(uiFactsPath)})`]);
+  run(process.execPath, ['-e', `require(${JSON.stringify(collector)}).writeTrainingPresetArchitectureFacts(${JSON.stringify(repositoryRoot)}, ${JSON.stringify(uiFactsPath)})`]);
   run('python', [join(repositoryRoot, 'scripts/generate_training_book_reference.py'), '--check'], repositoryRoot);
   const cli = join(temporary, 'testing', 'trainingPresetCatalogBuildValidationCli.js');
   const operationArgs = args[0] === '--emit-book-facts'

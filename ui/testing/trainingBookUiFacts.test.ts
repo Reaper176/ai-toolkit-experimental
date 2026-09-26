@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { defaultAudioSampleConfig, defaultIdeogramSamplesConfig, defaultSampleConfig } from '@/helpers/defaultSamples';
 import { defaultDatasetConfig, defaultJobConfig } from '@/app/jobs/new/jobConfig';
-import { modelArchs as runtimeModelArchs } from '@/app/jobs/new/options';
+import { loadBundledModelArchs } from './bundledModelArchs';
 import type { ModelArch } from '@/app/jobs/new/options';
 import type { JobConfig } from '@/types';
 
@@ -1309,6 +1309,8 @@ const modelArchProjectionBoundary = {
   group: true,
   controls: true,
   isVideoModel: true,
+  generateNameOverride: true,
+  generate: true,
   hasMultiLinePrompts: true,
   defaults: true,
   disableSections: true,
@@ -1327,6 +1329,8 @@ assert.deepEqual(Object.keys(modelArchProjectionBoundary).sort(), [
   'defaults',
   'disableSections',
   'gateUrl',
+  'generate',
+  'generateNameOverride',
   'group',
   'hasMultiLinePrompts',
   'isVideoModel',
@@ -5907,6 +5911,7 @@ for (const [label, mutated] of [
 
 const liveRoot = process.env.TRAINING_BOOK_REPOSITORY_ROOT;
 if (liveRoot !== undefined) {
+  const runtimeModelArchs = loadBundledModelArchs(liveRoot);
   const declaredTypeScriptSources = collectDeclaredTypeScriptSourcePaths(liveRoot);
   const summaryMigrateSource = readFileSync(join(liveRoot, 'ui/src/app/jobs/new/jobConfig.ts'), 'utf8');
   const summaryArchSource = readFileSync(join(liveRoot, 'ui/src/app/jobs/new/utils.ts'), 'utf8');
@@ -9791,12 +9796,13 @@ ${architectureCommit}`,
     assert.equal(emitted.custom_model_select_options.present, Object.prototype.hasOwnProperty.call(runtimeArchitecture, 'customModelSelectOptions'));
     if (runtimeArchitecture.customModelSelectOptions !== undefined) {
       assert.deepEqual(
-        emitted.custom_model_select_options.value?.map(option => ({ label: option.label, options: option.options })),
-        runtimeArchitecture.customModelSelectOptions.map(option => ({ label: option.label, options: option.options })),
+        emitted.custom_model_select_options.value?.map(option => ({ label: option.label, options: 'options' in option ? option.options : assert.fail('Unsupported checkbox projection') })),
+        runtimeArchitecture.customModelSelectOptions.map(option => ({ label: option.label, options: 'options' in option ? option.options : assert.fail('Unsupported checkbox projection') })),
         `${runtimeArchitecture.name} custom option order and shape must equal executed runtime data`,
       );
       assert.ok(runtimeArchitecture.customModelSelectOptions.every(option => typeof option.getValue === 'function' && typeof option.onChange === 'function'));
       for (const [optionIndex, runtimeOption] of runtimeArchitecture.customModelSelectOptions.entries()) {
+        assert.ok('options' in runtimeOption, 'Bundled custom controls must have a supported select projection');
         const emittedOption: CustomModelSelectOptionFact | undefined = emitted.custom_model_select_options.value?.[optionIndex];
         assert.ok(emittedOption !== undefined);
         const runtimeDoc = runtimeOption.doc === undefined

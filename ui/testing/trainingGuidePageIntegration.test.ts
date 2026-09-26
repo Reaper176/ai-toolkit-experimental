@@ -31,7 +31,7 @@ test('puts the offline Training Guide in the primary sidebar navigation', () => 
   }));
   assert.deepEqual(
     navigationEntries.map(entry => entry.name),
-    ['Dashboard', 'New Job', 'Queue', 'Datasets', 'Training Guide', 'Settings'],
+    ['Dashboard', 'Generate', 'New Job', 'Queue', 'Datasets', 'Training Guide', 'Settings'],
   );
   assert.equal(navigationEntries.find(entry => entry.name === 'Training Guide')?.href, '/book');
   assert.equal(sidebarSource.includes('TrainingGuideLink'), false);

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { collectTrainingPresetArchitectureFacts } from './trainingBookFacts';
+import { loadBundledModelArchs } from './bundledModelArchs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, cpSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -416,3 +418,52 @@ test('Git merge-base status one means known nonancestor', () => {
 test('Git non-one failure status is an explicit verification failure', () => assert.throws(() => verifyTrainingPresetEvidenceCommit('/repo', commit, () => ({ status: 2, signal: null })), /verification failed.*status 2/i));
 test('Git spawn errors are explicit verification failures', () => assert.throws(() => verifyTrainingPresetEvidenceCommit('/repo', commit, () => ({ status: null, signal: null, error: new Error('spawn broke') })), /verification failed.*spawn broke/i));
 test('Git signals are explicit verification failures', () => assert.throws(() => verifyTrainingPresetEvidenceCommit('/repo', commit, () => ({ status: null, signal: 'SIGTERM' })), /verification failed.*SIGTERM/i));
+
+
+test('release architecture facts equal executable bundled metadata', () => {
+  const facts = collectTrainingPresetArchitectureFacts(repositoryRoot).model_architectures;
+  const runtime = loadBundledModelArchs(repositoryRoot);
+  assert.equal(facts.length, runtime.length);
+  for (const architecture of runtime) {
+    const fact = facts.find(row => row.name === architecture.name);
+    assert.ok(fact, architecture.name);
+    const path = architecture.defaults?.['config.process[0].model.name_or_path']?.[0];
+    assert.deepEqual(fact.model_path, path === undefined ? { present: false } : { present: true, value: { kind: 'string', value: path } });
+    assert.deepEqual(fact.gate_url, architecture.gateUrl === undefined ? { present: false } : { present: true, value: { kind: 'string', value: architecture.gateUrl } });
+    assert.deepEqual(fact.controls, architecture.controls ?? []);
+  }
+});
+
+test('release architecture projection fails closed on dynamic release fields', () => {
+  const root = mkdtempSync(join(tmpdir(), 'training-preset-ui-facts-'));
+  try {
+    mkdirSync(join(root, 'ui/src/helpers'), { recursive: true });
+    mkdirSync(join(root, 'extensions_built_in/fixture'), { recursive: true });
+    writeFileSync(join(root, 'ui/src/helpers/defaultSamples.ts'), '');
+    const source = join(root, 'extensions_built_in/fixture/ui.tsx');
+    const write = (model: string) => writeFileSync(source, `export const AI_TOOLKIT_UI_MODELS = [{label: 'Fixture', group: 'image', ${model.slice(1)}];`);
+    write(`{name: 'fixture', defaults: {'config.process[0].model.name_or_path': ['model', '']}, controls: ['depth']}`);
+    assert.equal(collectTrainingPresetArchitectureFacts(root).model_architectures[0].name, 'fixture');
+    for (const model of [
+      `{name: getName()}`,
+      `{name: 'fixture', defaults: {'config.process[0].model.name_or_path': [getPath(), '']}}`,
+      `{name: 'fixture', controls: getControls()}`,
+      `{name: 'fixture', gateUrl: getGate()}`,
+      `{...unknownModel, name: 'fixture'}`,
+    ]) {
+      write(model);
+      assert.throws(() => collectTrainingPresetArchitectureFacts(root), /unsupported/);
+    }
+    for (const registry of [
+      `const AI_TOOLKIT_UI_MODELS = [{name: 'fixture', label: 'Fixture', group: 'image'}];`,
+      `export const AI_TOOLKIT_UI_MODELS = [{name: 'fixture', group: 'image'}];`,
+      `export const AI_TOOLKIT_UI_MODELS = [{name: 'fixture', label: 'Fixture', group: 42}];`,
+      `export const AI_TOOLKIT_UI_MODELS = [{name: 'fixture', label: 'Fixture', group: 'image'}]; AI_TOOLKIT_UI_MODELS.length = 0;`,
+      `export const AI_TOOLKIT_UI_MODELS = [{name: 'fixture', label: 'Fixture', group: 'image'}]; const mutated = AI_TOOLKIT_UI_MODELS.pop();`,
+    ]) {
+      writeFileSync(source, registry);
+      assert.throws(() => collectTrainingPresetArchitectureFacts(root), /unsupported|exported const|missing|must be a string/);
+    }
+
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

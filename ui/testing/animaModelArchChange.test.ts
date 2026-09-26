@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { resolve } from 'node:path';
+import { loadBundledModelArchs } from './bundledModelArchs';
+const modelArchs = loadBundledModelArchs(resolve(process.cwd(), '..'));
 import type { JobConfig } from '../src/types';
 import { handleModelArchChange } from '../src/app/jobs/new/utils';
 
@@ -22,7 +25,7 @@ const architectureChangeConfig = {
 };
 const modelUpdates: unknown[] = [];
 
-handleModelArchChange('anima', 'flux', architectureChangeConfig as unknown as JobConfig, (value, key) => {
+handleModelArchChange(modelArchs, 'anima', 'flux', architectureChangeConfig as unknown as JobConfig, (value, key) => {
   if (key === 'config.process[0].model') modelUpdates.push(value);
 });
 

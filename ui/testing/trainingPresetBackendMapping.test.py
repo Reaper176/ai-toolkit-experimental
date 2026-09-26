@@ -18,7 +18,7 @@ BINDINGS = (
     ("qwen_image", "qwen_image", "QwenImageModel", "extensions_built_in/diffusion_models/qwen_image/qwen_image.py"),
     ("qwen_image_edit_plus", "qwen_image_edit_plus", "QwenImageEditPlusModel", "extensions_built_in/diffusion_models/qwen_image/qwen_image_edit_plus.py"),
     ("sdxl", "sdxl", "StableDiffusion", "toolkit/stable_diffusion_model.py"),
-    ("sd15", "sd15", "StableDiffusion", "toolkit/stable_diffusion_model.py"),
+    ("sd15", "sd1", "StableDiffusion", "toolkit/stable_diffusion_model.py"),
     ("wan21:1b", "wan21", "Wan21", "toolkit/models/wan21/wan21.py"),
     ("wan22_14b:t2v", "wan22_14b", "Wan2214bModel", "extensions_built_in/diffusion_models/wan22/wan22_14b_model.py"),
 )
@@ -36,14 +36,14 @@ def tree(path: str, overrides: dict[str, str] | None = None) -> ast.Module:
 def _is_self_arch(node: ast.AST) -> bool:
     return isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "self" and node.attr == "arch"
 
-def normalization_rules(overrides: dict[str, str] | None = None) -> tuple[str, str, str]:
+def normalization_rules(overrides: dict[str, str] | None = None) -> tuple[str, dict[str, str]]:
     module = tree("toolkit/config_modules.py", overrides)
     model_config = next((node for node in module.body if isinstance(node, ast.ClassDef) and node.name == "ModelConfig"), None)
     initializer = next((node for node in (model_config.body if model_config else []) if isinstance(node, ast.FunctionDef) and node.name == "__init__"), None)
     if initializer is None:
         raise AssertionError("ModelConfig.__init__ source is missing")
     suffix_rule: tuple[int, str] | None = None
-    alias_rule: tuple[int, str, str] | None = None
+    alias_rules: dict[str, tuple[int, str]] = {}
     for condition in (node for node in ast.walk(initializer) if isinstance(node, ast.If)):
         test = condition.test
         assignments = [node for node in condition.body if isinstance(node, ast.Assign) and len(node.targets) == 1 and _is_self_arch(node.targets[0])]
@@ -55,18 +55,18 @@ def normalization_rules(overrides: dict[str, str] | None = None) -> tuple[str, s
                 raise AssertionError("ModelConfig suffix normalization control flow is unsupported")
             suffix_rule = (condition.lineno, test.left.value)
         if isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], ast.Eq) and len(test.comparators) == 1 and _is_self_arch(test.left) and isinstance(test.comparators[0], ast.Constant) and isinstance(test.comparators[0].value, str) and isinstance(value, ast.Constant) and isinstance(value.value, str):
-            if test.comparators[0].value == "flex1":
-                alias_rule = (condition.lineno, test.comparators[0].value, value.value)
-    if suffix_rule is None or alias_rule is None or suffix_rule[0] >= alias_rule[0]:
-        raise AssertionError("ModelConfig must strip suffixes before flex1 normalization")
-    return suffix_rule[1], alias_rule[1], alias_rule[2]
+            if test.comparators[0].value in {"flex1", "sd15"}:
+                alias_rules[test.comparators[0].value] = (condition.lineno, value.value)
+    if suffix_rule is None or set(alias_rules) != {"flex1", "sd15"} or any(suffix_rule[0] >= rule[0] for rule in alias_rules.values()):
+        raise AssertionError("ModelConfig must strip suffixes before flex1 and sd15 normalization")
+    return suffix_rule[1], {alias: rule[1] for alias, rule in alias_rules.items()}
 
 def normalize_architecture(value: str, overrides: dict[str, str] | None = None) -> str:
-    separator, alias, target = normalization_rules(overrides)
+    separator, aliases = normalization_rules(overrides)
     normalized = value.split(separator)[0] if separator in value else value
-    return target if normalized == alias else normalized
+    return aliases.get(normalized, normalized)
 
-def _literal_name_list(module: ast.Module, variable: str) -> list[str]:
+def _literal_name_list(module: ast.Module, variable: str, *, string_set: bool = False) -> list[str]:
     assignments: list[ast.Assign | ast.AnnAssign] = []
 
     class UnsupportedBindingVisitor(ast.NodeVisitor):
@@ -181,13 +181,18 @@ def _literal_name_list(module: ast.Module, variable: str) -> list[str]:
     if len(assignments) != 1:
         raise AssertionError(f"{variable} has multiple bindings")
     value = assignments[0].value
+    if string_set:
+        if not isinstance(value, ast.Set) or not all(isinstance(item, ast.Constant) and isinstance(item.value, str) for item in value.elts):
+            raise AssertionError(f"{variable} must be a literal source-visible string set")
+        return [item.value for item in value.elts]
     if not isinstance(value, (ast.List, ast.Tuple)) or not all(isinstance(item, ast.Name) for item in value.elts):
         raise AssertionError(f"{variable} must be a literal source-visible name list")
     return [item.id for item in value.elts]
 
-def resolver_contract(overrides: dict[str, str] | None = None) -> tuple[list[str], list[str], str]:
+def resolver_contract(overrides: dict[str, str] | None = None) -> tuple[list[str], list[str], str, set[str]]:
     module = tree("toolkit/util/get_model.py", overrides)
     builtins = _literal_name_list(module, "BUILT_IN_MODELS")
+    legacy_archs = set(_literal_name_list(module, "LEGACY_ARCHS", string_set=True))
     get_all = next((node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "get_all_models"), None)
     resolver = next((node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "get_model_class"), None)
     if get_all is None or resolver is None:
@@ -208,24 +213,25 @@ def resolver_contract(overrides: dict[str, str] | None = None) -> tuple[list[str
         for node in ast.walk(get_all)
     )
     returns_models = isinstance(get_all.body[-1], ast.Return) and isinstance(get_all.body[-1].value, ast.Name) and get_all.body[-1].value.id == "all_model_classes"
-    loop = next((node for node in resolver.body if isinstance(node, ast.For)), None)
-    fallback = resolver.body[-1] if resolver.body else None
-    valid_condition = False
-    if loop is not None and isinstance(loop.target, ast.Name) and loop.target.id == "ModelClass" and isinstance(loop.iter, ast.Name) and loop.iter.id == "all_models" and len(loop.body) == 1 and isinstance(loop.body[0], ast.If):
-        condition = loop.body[0]
-        test = condition.test
-        valid_condition = (
-            isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], ast.Eq)
-            and isinstance(test.left, ast.Attribute) and isinstance(test.left.value, ast.Name) and test.left.value.id == "ModelClass" and test.left.attr == "arch"
-            and len(test.comparators) == 1 and isinstance(test.comparators[0], ast.Attribute) and isinstance(test.comparators[0].value, ast.Name)
-            and test.comparators[0].value.id == "config" and test.comparators[0].attr == "arch"
-            and len(condition.body) == 1 and isinstance(condition.body[0], ast.Return) and isinstance(condition.body[0].value, ast.Name) and condition.body[0].value.id == "ModelClass"
-        )
-    if not valid_condition or not isinstance(fallback, ast.Return) or not isinstance(fallback.value, ast.Name):
-        raise AssertionError("resolver control flow must return the first exact arch match then a named fallback")
+    # Match the complete executable body so extra returns, loop else clauses,
+    # altered allowlist guards, and non-raising unknown paths fail closed.
+    expected_body = ast.parse("""
+all_models = get_all_models()
+for ModelClass in all_models:
+    if ModelClass.arch == config.arch:
+        return ModelClass
+if config.arch in LEGACY_ARCHS:
+    return StableDiffusion
+known = sorted({m.arch for m in all_models if m.arch} | LEGACY_ARCHS)
+raise ValueError(
+    f"Unknown model arch {config.arch!r}. Known archs: {', '.join(known)}"
+)
+""").body
+    if [ast.dump(node) for node in resolver.body] != [ast.dump(node) for node in expected_body]:
+        raise AssertionError("resolver control flow must return the first exact arch match, allow only legacy fallback, then raise ValueError")
     if extension_folders != ["extensions", "extensions_built_in"] or not initializes_in_order or not extends_in_order or not returns_models:
         raise AssertionError("resolver registered source order/control flow drift")
-    return builtins, extension_folders, fallback.value.id
+    return builtins, extension_folders, "StableDiffusion", legacy_archs
 
 ModelDefinition = tuple[str, str, str | None]
 
@@ -278,8 +284,8 @@ def resolve_symbol(module_path: str, symbol: str, overrides: dict[str, str] | No
                 return resolve_symbol(imported_path, alias.name, overrides, chain)
     raise AssertionError(f"{module_path} does not bind {symbol}")
 
-def registered_model_definitions(overrides: dict[str, str] | None = None) -> tuple[list[ModelDefinition], ModelDefinition]:
-    builtins, folders, fallback_symbol = resolver_contract(overrides)
+def registered_model_definitions(overrides: dict[str, str] | None = None) -> tuple[list[ModelDefinition], ModelDefinition, set[str]]:
+    builtins, folders, fallback_symbol, legacy_archs = resolver_contract(overrides)
     resolver_path = "toolkit/util/get_model.py"
     definitions = [resolve_symbol(resolver_path, symbol, overrides) for symbol in builtins]
     for folder in folders:
@@ -349,18 +355,20 @@ def registered_model_definitions(overrides: dict[str, str] | None = None) -> tup
             if relative is None:
                 raise AssertionError(f"eligible extension module {folder}/{module_name} lacks parseable .py source")
             definitions.extend(resolve_symbol(relative, symbol, overrides) for symbol in _literal_name_list(tree(relative, overrides), "AI_TOOLKIT_MODELS"))
-    return definitions, resolve_symbol(resolver_path, fallback_symbol, overrides)
+    return definitions, resolve_symbol(resolver_path, fallback_symbol, overrides), legacy_archs
 
 def build_report(overrides: dict[str, str] | None = None) -> dict[str, object]:
-    registered, fallback = registered_model_definitions(overrides)
+    registered, fallback, legacy_archs = registered_model_definitions(overrides)
     bindings = []
     for ui_architecture in UI_ARCHITECTURES:
         normalized = normalize_architecture(ui_architecture, overrides)
-        selected = fallback
+        selected = fallback if normalized in legacy_archs else None
         for candidate in registered:
             if candidate[2] == normalized:
                 selected = candidate
                 break
+        if selected is None:
+            raise AssertionError(f"Unknown model arch {normalized!r}: no registered model or legacy fallback")
         symbol, source_path, _ = selected
         bindings.append({
             "ui_architecture": ui_architecture,
@@ -394,10 +402,23 @@ def emit_report_exclusive(target: Path, value: dict[str, object]) -> None:
         os.fsync(stream.fileno())
 
 class BackendMappingTests(unittest.TestCase):
-    def test_model_config_suffix_and_flex1_normalization_are_ast_derived(self) -> None:
+    def test_model_config_suffix_and_alias_normalization_are_ast_derived(self) -> None:
         self.assertEqual(normalize_architecture("wan21:1b"), "wan21")
         self.assertEqual(normalize_architecture("wan22_14b:t2v"), "wan22_14b")
         self.assertEqual(normalize_architecture("flex1"), "flux")
+        self.assertEqual(normalize_architecture("sd15"), "sd1")
+        self.assertEqual(normalize_architecture("sd15:tag"), "sd1")
+
+    def test_sd15_normalization_drift_is_rejected(self) -> None:
+        path = "toolkit/config_modules.py"
+        original = source(path)
+        alias = '        if self.arch == "sd15":\n            self.arch = "sd1"'
+        self.assertIn(alias, original)
+        with self.assertRaisesRegex(AssertionError, "sd15 normalization"):
+            build_report({path: original.replace(alias, "", 1)})
+        mutated = original.replace(alias, alias.replace('"sd1"', '"sd2"'), 1)
+        with self.assertRaisesRegex(AssertionError, "backend mapping report drift"):
+            validate_expected_report(build_report({path: mutated}))
 
     def test_all_four_legacy_architectures_reach_the_parsed_fallback(self) -> None:
         value = build_report()
@@ -431,6 +452,33 @@ class BackendMappingTests(unittest.TestCase):
         mutated = source.replace("ModelClass.arch == config.arch", "ModelClass.arch != config.arch", 1)
         with self.assertRaisesRegex(AssertionError, "resolver control flow"):
             build_report({path: mutated})
+
+    def test_unregistered_architecture_cannot_use_legacy_fallback(self) -> None:
+        path = "toolkit/util/get_model.py"
+        original = source(path)
+        mutated = original.replace('    "flux",\n', '', 1)
+        with self.assertRaisesRegex(AssertionError, "Unknown model arch 'flux'"):
+            build_report({path: mutated})
+
+    def test_legacy_registry_dynamic_mutations_fail_closed(self) -> None:
+        path = "toolkit/util/get_model.py"
+        for mutation in ('LEGACY_ARCHS.add("unknown")', 'LEGACY_ARCHS = {"unknown"}'):
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(AssertionError, "LEGACY_ARCHS.*unsupported|LEGACY_ARCHS.*multiple"):
+                build_report({path: source(path) + "\n" + mutation + "\n"})
+
+    def test_legacy_guard_and_unknown_error_mutations_fail_closed(self) -> None:
+        path = "toolkit/util/get_model.py"
+        original = source(path)
+        variants = (
+            original.replace("config.arch in LEGACY_ARCHS", "config.arch not in LEGACY_ARCHS", 1),
+            original.replace("if config.arch in LEGACY_ARCHS:", "if True:", 1),
+            original.replace("raise ValueError(", "return ValueError(", 1),
+            original.replace("raise ValueError(", "raise RuntimeError(", 1),
+            original.replace("    all_models = get_all_models()", "    return StableDiffusion\n    all_models = get_all_models()", 1),
+        )
+        for index, mutated in enumerate(variants):
+            with self.subTest(index=index), self.assertRaisesRegex(AssertionError, "resolver control flow"):
+                build_report({path: mutated})
 
     def test_registry_import_path_drift_is_rejected(self) -> None:
         path = "extensions_built_in/diffusion_models/__init__.py"

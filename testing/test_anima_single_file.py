@@ -2,7 +2,9 @@ import os
 import re
 import tempfile
 import unittest
-from types import SimpleNamespace
+from contextlib import ExitStack
+from toolkit.config_modules import ModelConfig
+from toolkit.models.v2.diffusion_models.cosmos import CosmosTransformer3DModel
 from unittest.mock import Mock, call, patch
 
 import torch
@@ -797,7 +799,7 @@ class AnimaSingleFileTests(unittest.TestCase):
 class AnimaModelRoutingTest(unittest.TestCase):
     def make_model(self, name_or_path):
         model = object.__new__(AnimaModel)
-        model.model_config = SimpleNamespace(
+        model.model_config = ModelConfig(
             name_or_path=name_or_path,
             te_name_or_path="/models/qwen.safetensors",
             vae_path="/models/vae.safetensors",
@@ -808,6 +810,7 @@ class AnimaModelRoutingTest(unittest.TestCase):
         )
         model.torch_dtype = torch.bfloat16
         model.device_torch = torch.device("cpu")
+        model.te_device_torch = torch.device("cpu")
         model.get_train_scheduler = Mock(return_value="training-scheduler")
         model.print_and_status_update = Mock()
         return model
@@ -855,22 +858,13 @@ class AnimaModelRoutingTest(unittest.TestCase):
         self.assertIs(model.model.transformer, pipe.transformer)
         self.assertIs(model.model.text_conditioner, pipe.text_conditioner)
         self.assertIs(model.pipeline, pipe)
-        pipe.transformer.to.assert_called_once_with("cpu")
-        pipe.text_conditioner.to.assert_called_once_with("cpu")
-        self.assertEqual(
-            pipe.text_encoder.to.call_args_list,
-            [call(torch.device("cpu"), dtype=torch.bfloat16), call("cpu")],
-        )
+        for component in (pipe.transformer, pipe.text_conditioner, pipe.text_encoder):
+            kwargs = component.aitk_post_load.call_args.kwargs
+            self.assertEqual(kwargs["device"], "cpu")
+            self.assertEqual(kwargs["dtype"], torch.bfloat16)
+            self.assertIsNone(kwargs["qtype"])
         pipe.text_encoder.requires_grad_.assert_called_once_with(False)
         pipe.text_encoder.eval.assert_called_once_with()
-        self.assertEqual(
-            model.print_and_status_update.call_args_list,
-            [
-                call("Loading Anima model"),
-                call("Moving transformer to CPU"),
-                call("Model Loaded"),
-            ],
-        )
 
     @patch(
         "extensions_built_in.diffusion_models.anima.anima.build_anima_single_file_pipeline"
@@ -889,50 +883,20 @@ class AnimaModelRoutingTest(unittest.TestCase):
         model.model_config.layer_offloading_transformer_percent = 0.25
         model.model_config.layer_offloading_text_encoder_percent = 0.5
 
-        workflow = Mock()
-        with (
-            patch("extensions_built_in.diffusion_models.anima.anima.quantize_model") as quantize_model,
-            patch("extensions_built_in.diffusion_models.anima.anima.get_qtype") as get_qtype,
-            patch("extensions_built_in.diffusion_models.anima.anima.quantize") as quantize,
-            patch("extensions_built_in.diffusion_models.anima.anima.freeze") as freeze,
-            patch("extensions_built_in.diffusion_models.anima.anima.MemoryManager.attach") as attach,
-            patch("extensions_built_in.diffusion_models.anima.anima.flush"),
-        ):
-            get_qtype.side_effect = ["conditioner-weights", "text-encoder-weights"]
-            workflow.attach_mock(quantize_model, "quantize_model")
-            workflow.attach_mock(get_qtype, "get_qtype")
-            workflow.attach_mock(quantize, "quantize")
-            workflow.attach_mock(freeze, "freeze")
-            workflow.attach_mock(attach, "attach")
+        AnimaModel.load_model(model)
 
-            AnimaModel.load_model(model)
-
-        self.assertEqual(
-            workflow.mock_calls,
-            [
-                call.quantize_model(model, pipe.transformer),
-                call.get_qtype("transformer-qtype"),
-                call.quantize(pipe.text_conditioner, weights="conditioner-weights"),
-                call.freeze(pipe.text_conditioner),
-                call.attach(pipe.transformer, torch.device("cpu"), offload_percent=0.25),
-                call.attach(pipe.text_encoder, torch.device("cpu"), offload_percent=0.5),
-                call.attach(pipe.text_conditioner, torch.device("cpu"), offload_percent=0.5),
-                call.get_qtype("text-encoder-qtype"),
-                call.quantize(pipe.text_encoder, weights="text-encoder-weights"),
-                call.freeze(pipe.text_encoder),
-            ],
+        expected = (
+            (pipe.transformer, "transformer-qtype", 0.25),
+            (pipe.text_conditioner, "text-encoder-qtype", 0.5),
+            (pipe.text_encoder, "text-encoder-qtype", 0.5),
         )
-        self.assertEqual(
-            model.print_and_status_update.call_args_list,
-            [
-                call("Loading Anima model"),
-                call("Quantizing Transformer"),
-                call("Quantizing Text Conditioner"),
-                call("Moving transformer to CPU"),
-                call("Quantizing Text Encoder"),
-                call("Model Loaded"),
-            ],
-        )
+        for component, qtype, offload in expected:
+            component.aitk_post_load.assert_called_once()
+            kwargs = component.aitk_post_load.call_args.kwargs
+            self.assertEqual(kwargs["qtype"], qtype)
+            self.assertEqual(kwargs["offload"], offload)
+            self.assertEqual(kwargs["device"], "cpu")
+            self.assertIs(kwargs["base_model"], model)
 
     @patch(
         "extensions_built_in.diffusion_models.anima.anima.build_anima_single_file_pipeline"
@@ -948,18 +912,67 @@ class AnimaModelRoutingTest(unittest.TestCase):
 
         AnimaModel.load_model(model)
 
-        pipe.transformer.to.assert_called_once_with(
-            torch.device("cuda:0"), dtype=torch.bfloat16
+        # The text encoder has an independent placement policy.
+        for component, device in (
+            (pipe.transformer, torch.device("cuda:0")),
+            (pipe.text_conditioner, torch.device("cpu")),
+            (pipe.text_encoder, torch.device("cpu")),
+        ):
+            kwargs = component.aitk_post_load.call_args.kwargs
+            self.assertEqual(kwargs["device"], device)
+            self.assertEqual(kwargs["dtype"], torch.bfloat16)
+
+    @patch("extensions_built_in.diffusion_models.anima.anima.build_anima_single_file_pipeline")
+    def test_conditioner_uses_transformer_quantize_flag_and_text_encoder_qtype(self, build_pipeline):
+        for quantize, quantize_te in ((True, False), (False, True)):
+            with self.subTest(quantize=quantize, quantize_te=quantize_te):
+                pipe = self.make_pipeline()
+                build_pipeline.return_value = pipe
+                model = self.make_model("/models/anima.safetensors")
+                model.model_config.quantize = quantize
+                model.model_config.quantize_te = quantize_te
+                model.model_config.qtype = "transformer-qtype"
+                model.model_config.qtype_te = "text-encoder-qtype"
+
+                AnimaModel.load_model(model)
+
+                self.assertEqual(
+                    pipe.text_conditioner.aitk_post_load.call_args.kwargs["qtype"],
+                    "text-encoder-qtype" if quantize else None,
+                )
+                self.assertEqual(
+                    pipe.text_encoder.aitk_post_load.call_args.kwargs["qtype"],
+                    "text-encoder-qtype" if quantize_te else None,
+                )
+
+    def assert_pipeline_loading(self, name_or_path, pipe, model):
+        module = "extensions_built_in.diffusion_models.anima.anima"
+        components = (
+            ("CosmosTransformer3DModel", "transformer"),
+            ("QwenImageVAE", "vae"),
+            ("Qwen3ModelEncoder", "text_encoder"),
+            ("AnimaTextConditioner", "text_conditioner"),
         )
-        pipe.text_conditioner.to.assert_called_once_with(
-            torch.device("cuda:0"), dtype=torch.bfloat16
-        )
-        pipe.text_encoder.to.assert_called_once_with(
-            torch.device("cuda:0"), dtype=torch.bfloat16
-        )
-        self.assertEqual(
-            model.print_and_status_update.call_args_list,
-            [call("Loading Anima model"), call("Model Loaded")],
+        with ExitStack() as stack:
+            loaders = [
+                stack.enter_context(patch(f"{module}.{cls}.load_model", return_value=getattr(pipe, name)))
+                for cls, name in components
+            ]
+            tokenizer = stack.enter_context(patch("transformers.AutoTokenizer.from_pretrained"))
+            tokenizer.side_effect = [pipe.tokenizer, pipe.t5_tokenizer]
+            AnimaModel.load_model(model)
+        for loader in loaders:
+            loader.assert_called_once_with(name_or_path, dtype=torch.bfloat16)
+        self.assertEqual(tokenizer.call_args_list, [
+            call(name_or_path, subfolder="tokenizer"),
+            call(name_or_path, subfolder="t5_tokenizer"),
+        ])
+        pipe.load_components.assert_not_called()
+        pipe.update_components.assert_any_call(
+            transformer=pipe.transformer, vae=pipe.vae,
+            text_encoder=pipe.text_encoder, text_conditioner=pipe.text_conditioner,
+            tokenizer=pipe.tokenizer, t5_tokenizer=pipe.t5_tokenizer,
+            scheduler="training-scheduler",
         )
 
     @patch(
@@ -974,12 +987,10 @@ class AnimaModelRoutingTest(unittest.TestCase):
         auto_blocks_class.return_value.init_pipeline.return_value = pipe
         model = self.make_model(name_or_path)
 
-        AnimaModel.load_model(model)
+        self.assert_pipeline_loading(name_or_path, pipe, model)
 
         build_pipeline.assert_not_called()
         auto_blocks_class.return_value.init_pipeline.assert_called_once_with(name_or_path)
-        pipe.load_components.assert_called_once_with(torch_dtype=torch.bfloat16)
-        pipe.update_components.assert_called_once_with(scheduler="training-scheduler")
 
     @patch(
         "extensions_built_in.diffusion_models.anima.anima.build_anima_single_file_pipeline"
@@ -993,15 +1004,10 @@ class AnimaModelRoutingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             model = self.make_model(directory)
 
-            AnimaModel.load_model(model)
+            self.assert_pipeline_loading(os.path.abspath(directory), pipe, model)
 
             build_pipeline.assert_not_called()
             auto_blocks_class.return_value.init_pipeline.assert_called_once_with(directory)
-            pipe.load_components.assert_called_once_with(
-                torch_dtype=torch.bfloat16,
-                pretrained_model_name_or_path=os.path.abspath(directory),
-            )
-            pipe.update_components.assert_called_once_with(scheduler="training-scheduler")
 
     @patch(
         "extensions_built_in.diffusion_models.anima.anima.build_anima_single_file_pipeline"
@@ -1015,15 +1021,24 @@ class AnimaModelRoutingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(suffix=".safetensors") as directory:
             model = self.make_model(directory)
 
-            AnimaModel.load_model(model)
+            self.assert_pipeline_loading(os.path.abspath(directory), pipe, model)
 
             build_pipeline.assert_not_called()
             auto_blocks_class.return_value.init_pipeline.assert_called_once_with(directory)
-            pipe.load_components.assert_called_once_with(
-                torch_dtype=torch.bfloat16,
-                pretrained_model_name_or_path=os.path.abspath(directory),
-            )
-            pipe.update_components.assert_called_once_with(scheduler="training-scheduler")
+
+
+class V2DirectoryDispatchTest(unittest.TestCase):
+    def test_safetensors_suffix_directory_uses_pretrained_loader(self):
+        with tempfile.TemporaryDirectory(suffix=".safetensors") as directory:
+            os.mkdir(os.path.join(directory, "transformer"))
+            with (
+                patch.object(CosmosTransformer3DModel, "aitk_from_pretrained") as pretrained,
+                patch.object(CosmosTransformer3DModel, "_resolve_single_file") as single_file,
+            ):
+                result = CosmosTransformer3DModel.load_model(directory, dtype=torch.bfloat16)
+            self.assertIs(result, pretrained.return_value)
+            single_file.assert_not_called()
+            pretrained.assert_called_once_with(directory, subfolder="transformer", dtype=torch.bfloat16)
 
 
 if __name__ == "__main__":

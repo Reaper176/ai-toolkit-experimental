@@ -103,6 +103,9 @@ export default function AdvancedConfigEditor<T>({ config, setConfig, transformOn
     monacoRef.current = monaco;
     isEditorMounted.current = true;
 
+    // Model auto-detects indentation on creation; force 2 spaces
+    editor.getModel()?.updateOptions({ tabSize: 2, insertSpaces: true });
+
     // Initial content setup
     try {
       const yamlContent = toYaml(config);
@@ -182,6 +185,9 @@ export default function AdvancedConfigEditor<T>({ config, setConfig, transformOn
           minimap: { enabled: true },
           scrollBeyondLastLine: false,
           automaticLayout: true,
+          tabSize: 2,
+          insertSpaces: true,
+          detectIndentation: false,
         }}
       />
     </div>

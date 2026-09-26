@@ -1,36 +1,30 @@
-import { GroupedSelectOption, SelectOption } from '@/types';
 import { DEFAULT_DINOV3_INCLUDED_CATEGORIES } from './dinov3TaggerOptions';
+import { CloudLora, GroupedSelectOption, SelectOption } from "@/types";
 
 type CaptionGroup = 'image' | 'music' | 'video' | 'image/video/sound';
-type AdditionalSections =
-  | 'caption.model_name_or_path2'
-  | 'caption.caption_prompt'
-  | 'caption.max_res'
-  | 'caption.max_new_tokens'
-  | 'caption.fixed_caption'
-  | 'caption.thinking'
-  | 'caption.vocab_path'
-  | 'caption.selection_mode'
-  | 'caption.threshold_or_top_k'
-  | 'caption.included_categories'
-  | 'caption.tag_formatting'
-  | 'caption.batch_size'
-  | 'caption.layer_offloading';
+type AdditionalSections = 'caption.model_name_or_path2' | 'caption.caption_prompt' | 'caption.max_res' | 'caption.max_new_tokens' | 'caption.fixed_caption' | 'caption.caption_format' | 'caption.extract_vocals_before_transcribe' | 'caption.keep_timestamps' | 'caption.thinking' | 'caption.batch_size' | 'caption.layer_offloading' | 'caption.vocab_path' | 'caption.selection_mode' | 'caption.threshold_or_top_k' | 'caption.included_categories' | 'caption.tag_formatting';
 
 export interface CaptionOption {
-  name: string;
-  label: string;
-  group: CaptionGroup;
-  hasMultiLinePrompts?: boolean;
-  minNewTokens?: number;
-  defaults?: { [key: string]: any };
-  additionalSections?: AdditionalSections[];
-  name_or_path_options?: SelectOption[];
-  name_or_path2_options?: SelectOption[];
-  supportsQuantization?: boolean;
-  supportsLowVram?: boolean;
-  // Named prompts users can swap between; selecting one fills caption_prompt.
-  captionPrompts?: { [name: string]: string };
+    name: string;
+    label: string;
+    group: CaptionGroup;
+    hasMultiLinePrompts?: boolean;
+    minNewTokens?: number;
+    // captioner can run LoRAs on its model (applied as sidechains, never merged)
+    supportsLoras?: boolean;
+    supportsQuantization?: boolean;
+    supportsLowVram?: boolean;
+    // LoRAs published for this model, offered in the LoRA browser alongside
+    // local files. Paths are 'org/repo/path_to/file.safetensors'; the captioner
+    // searches the models folder for the file before downloading it to loras/.
+    cloudLoras?: CloudLora[];
+    defaults?: { [key: string]: any };
+    additionalSections?: AdditionalSections[];
+    name_or_path_options?: SelectOption[];
+    name_or_path2_options?: SelectOption[];
+    // named caption prompts the user can swap between; the picker only shows
+    // when there is more than one, and selecting one just fills caption_prompt
+    captionPrompts?: { [name: string]: string };
 }
 
 const defaultNameOrPath = '';
@@ -41,11 +35,9 @@ const extensionsVideo = ['mp4', 'mov', 'webm', 'mkv', 'avi'];
 
 const defaultExtensions = [...extensionsImage];
 
-const defaultImageCaptionPrompt =
-  'Caption this image as if you were going to try to generate it with an image generator. Be thurough and describe everything in the image. Be decisive by stating things as they are. Do not say things like "It appears that" Or "possibly". Start out with things like "A person on the beach" or "A black dragon". No preamble. Just get to the point.';
+const defaultImageCaptionPrompt = "Caption this image as if you were going to try to generate it with an image generator. Be thurough and describe everything in the image. Be decisive by stating things as they are. Do not say things like \"It appears that\" Or \"possibly\". Start out with things like \"A person on the beach\" or \"A black dragon\". No preamble. Just get to the point.";
 
-const defaultVideoCaptionPrompt =
-  'Caption this video as if you were going to try to generate it with a video generator. Describe the visual content, how it moves and changes over time, and the camera work. Also describe the audio, including any speech, music, or sound effects, and transcribe spoken dialogue verbatim in quotes. Be decisive by stating things as they are. Do not say things like "It appears that" Or "possibly". No preamble. Just get to the point.';
+const defaultVideoCaptionPrompt = "Caption this video as if you were going to try to generate it with a video generator. Describe the visual content, how it moves and changes over time, and the camera work. Also describe the audio, including any speech, music, or sound effects, and transcribe spoken dialogue verbatim in quotes. Be decisive by stating things as they are. Do not say things like \"It appears that\" Or \"possibly\". No preamble. Just get to the point.";
 
 // Captions videos as MiniMax T2VA training prompts, following the official
 // video prompt writing guide (MiniMaxAI/MiniMax-H3 docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md):
@@ -84,11 +76,28 @@ overall_soundscape and non_diegetic_music are always exactly N/A for a still ima
 
 Describe only what is actually visible. Be decisive. No preamble and no extra text - output only the three fields.`;
 
+// Captions a song as a YuE2 training caption: one line of comma-separated style
+// tags, then a [Lyrics] line and the verbatim lyrics with bracketed section
+// headers - the exact prefix layout the yue2 arch's parse_caption expects.
+const yue2CaptionPrompt = `Listen to this song and write a YuE2 training caption for it. Output exactly two parts and nothing else.
+
+Part 1, the first line only: comma-separated style tags describing the music. Cover, in this order where applicable: genre and sub-genre, mood, vocal type (male vocal, female vocal, duet, choir, rap, or instrumental), vocal delivery (breathy, belted, falsetto, spoken, whispered, harmonized), lead instruments and production (acoustic guitar, piano, synth pads, 808 bass, live drums, drum machine, strings, lo-fi, reverb-heavy), tempo feel (slow ballad, mid-tempo, upbeat, fast), and era or scene (90s alt rock, modern trap, bedroom pop). Use concrete lowercase tags, no sentences, no hedging, no artist or song names. Example: alternative rock, melancholic, male vocal, falsetto, electric guitar, piano, live drums, slow ballad, 2000s
+
+Part 2: on the next line write [Lyrics] and then the complete lyrics transcribed verbatim, one sung line per line. Split the song into sections with a bracketed header on its own line before each one, using these names: [Intro], [Verse 1], [Verse 2], [Pre-Chorus], [Chorus], [Bridge], [Instrumental], [Solo], [Outro]. A short descriptor may follow the name inside the brackets, e.g. [Intro choir] or [Chorus harmonized]. Leave one blank line between sections. Repeat a chorus each time it is sung, but write each repeated line once per time it is sung, never more. Wordless vocalizing (na, la, oh, ah, hums, vocal chops) is never transcribed syllable by syllable: describe it once in the section header instead, e.g. [Intro wordless vocals] or [Bridge oohs], and if you cannot make out real words in a passage, treat it as wordless. Do not add timestamps, speaker labels, quotation marks, translations, or commentary, and do not annotate ad-libs beyond the section header. If the song has no vocals at all, Part 2 is [Lyrics] followed by a single [Instrumental] line.
+
+Transcribe only what is actually sung. Be decisive. No preamble, no explanations, no markdown - output only the tag line and the lyrics block.`;
+
+// MOSS-Music description prompts. The lyric transcription prompt is fixed in the
+// captioner (it asks for timestamps as loop anchors and strips them afterwards).
+// Framing the description as a generator prompt is what keeps the model to one
+// plain paragraph instead of a sectioned essay with timings and chord names.
+const mossMusicCaptionPrompt = "Write a prompt that a text-to-music generator could use to recreate this track. One paragraph, under 80 words: genre, mood, instrumentation, tempo feel, production style, vocal style. No timestamps, section timings, chord names, or lyric quotes.";
+const mossMusicTagsPrompt = "Describe this music as a single line of comma-separated style tags: genre, mood, vocal type and delivery, lead instruments, production style, tempo feel, era. Lowercase tags only, no sentences.";
+
 // Editable ADDITIONAL INSTRUCTIONS block injected into the Ideogram system prompt.
 // Users can tweak this for dataset-specific guidance without altering the fixed
 // output contract, element/background rules, or bbox format.
-const defaultIdeogramCaptionPrompt =
-  'Describe only what is actually visible in the image — never invent, add, or infer content that is not present. Identify the medium (photograph, illustration, 3D render, or graphic design) and name any recognizable people, brands, characters, or landmarks. Be decisive and specific: commit to one concrete value per attribute (one color, one material, one pose) and avoid hedging. Transcribe every piece of legible text verbatim.';
+const defaultIdeogramCaptionPrompt = "Describe only what is actually visible in the image — never invent, add, or infer content that is not present. Identify the medium (photograph, illustration, 3D render, or graphic design) and name any recognizable people, brands, characters, or landmarks. Be decisive and specific: commit to one concrete value per attribute (one color, one material, one pose) and avoid hedging. Transcribe every piece of legible text verbatim.";
 
 export const captionerTypes: CaptionOption[] = [
   {
@@ -120,156 +129,255 @@ export const captionerTypes: CaptionOption[] = [
       'caption.tag_formatting',
     ],
   },
-  {
-    name: 'AceStepCaptioner',
-    label: 'Ace Step',
-    group: 'music',
-    defaults: {
-      'config.process[0].caption.model_name_or_path': ['ACE-Step/acestep-transcriber', defaultNameOrPath],
-      'config.process[0].caption.model_name_or_path2': ['ACE-Step/acestep-captioner', undefined],
-      'config.process[0].caption.extensions': [extensionsAudio, defaultExtensions],
+
+    {
+        name: 'AceStepCaptioner',
+        label: 'Ace Step',
+        group: 'music',
+        defaults: {
+            'config.process[0].caption.model_name_or_path': ['ACE-Step/acestep-transcriber', defaultNameOrPath],
+            'config.process[0].caption.model_name_or_path2': ['ACE-Step/acestep-captioner', undefined],
+            'config.process[0].caption.extensions': [extensionsAudio, defaultExtensions],
+            'config.process[0].caption.caption_format': ['ace_step', undefined],
+            'config.process[0].caption.compile': [true, false],
+        },
+        name_or_path_options: [
+            { value: 'ACE-Step/acestep-transcriber', label: 'ACE-Step/acestep-transcriber' },
+        ],
+        name_or_path2_options: [
+            { value: 'ACE-Step/acestep-captioner', label: 'ACE-Step/acestep-captioner' },
+        ],
+        additionalSections: [
+            'caption.model_name_or_path2',
+            'caption.fixed_caption',
+            'caption.caption_format',
+            'caption.extract_vocals_before_transcribe',
+        ],
     },
-    name_or_path_options: [{ value: 'ACE-Step/acestep-transcriber', label: 'ACE-Step/acestep-transcriber' }],
-    name_or_path2_options: [{ value: 'ACE-Step/acestep-captioner', label: 'ACE-Step/acestep-captioner' }],
-    additionalSections: ['caption.model_name_or_path2', 'caption.fixed_caption'],
-  },
-  {
-    name: 'Qwen3VLCaptioner',
-    label: 'Qwen3-VL',
-    group: 'image',
-    defaults: {
-      'config.process[0].caption.model_name_or_path': ['Qwen/Qwen3-VL-8B-Instruct', defaultNameOrPath],
-      'config.process[0].caption.extensions': [extensionsImage, defaultExtensions],
-      'config.process[0].caption.caption_prompt': [defaultImageCaptionPrompt, undefined],
-      'config.process[0].caption.max_res': [512, undefined],
-      'config.process[0].caption.max_new_tokens': [128, undefined],
+    {
+        name: 'MossMusicCaptioner',
+        label: 'MOSS-Music',
+        group: 'music',
+        defaults: {
+            'config.process[0].caption.model_name_or_path': ['OpenMOSS-Team/MOSS-Music-8B-Instruct', defaultNameOrPath],
+            'config.process[0].caption.extensions': [extensionsAudio, defaultExtensions],
+            'config.process[0].caption.caption_format': ['ace_step', undefined],
+            'config.process[0].caption.caption_prompt': [mossMusicCaptionPrompt, undefined],
+            'config.process[0].caption.keep_timestamps': [false, undefined],
+            'config.process[0].caption.compile': [true, false],
+        },
+        name_or_path_options: [
+            { value: 'OpenMOSS-Team/MOSS-Music-8B-Instruct', label: 'OpenMOSS-Team/MOSS-Music-8B-Instruct' },
+        ],
+        captionPrompts: {
+            'Description (ACE-Step)': mossMusicCaptionPrompt,
+            'Style tags (YuE2)': mossMusicTagsPrompt,
+        },
+        additionalSections: [
+            'caption.fixed_caption',
+            'caption.caption_format',
+            'caption.keep_timestamps',
+            'caption.caption_prompt',
+        ],
     },
-    name_or_path_options: [
-      { value: 'Qwen/Qwen3-VL-2B-Instruct', label: 'Qwen/Qwen3-VL-2B-Instruct' },
-      { value: 'Qwen/Qwen3-VL-4B-Instruct', label: 'Qwen/Qwen3-VL-4B-Instruct' },
-      { value: 'Qwen/Qwen3-VL-8B-Instruct', label: 'Qwen/Qwen3-VL-8B-Instruct' },
-      {
-        value: 'huihui-ai/Huihui-Qwen3-VL-8B-Instruct-abliterated',
-        label: 'huihui-ai/Huihui-Qwen3-VL-8B-Instruct-abliterated',
-      },
-      { value: 'Qwen/Qwen3-VL-30B-A3B-Instruct', label: 'Qwen/Qwen3-VL-30B-A3B-Instruct' },
-      { value: 'Qwen/Qwen3.6-27B', label: 'Qwen/Qwen3.6-27B' },
-      { value: 'huihui-ai/Huihui-Qwen3.6-27B-abliterated', label: 'huihui-ai/Huihui-Qwen3.6-27B-abliterated' },
-    ],
-    additionalSections: ['caption.caption_prompt', 'caption.max_res', 'caption.max_new_tokens', 'caption.thinking'],
-  },
-  {
-    name: 'Qwen3OmniCaptioner',
-    label: 'Qwen3-Omni',
-    group: 'image/video/sound',
-    defaults: {
-      'config.process[0].caption.model_name_or_path': ['ai-toolkit/Qwen3-Omni-30B-A3B-Thinking', defaultNameOrPath],
-      'config.process[0].caption.extensions': [[...extensionsVideo, ...extensionsImage], defaultExtensions],
-      'config.process[0].caption.caption_prompt': [defaultVideoCaptionPrompt, undefined],
-      'config.process[0].caption.max_res': [512, undefined],
-      'config.process[0].caption.max_new_tokens': [512, undefined],
-      'config.process[0].caption.batch_size': [1, undefined],
-      'config.process[0].caption.compile': [true, false],
+    {
+        name: 'Qwen3VLCaptioner',
+        label: 'Qwen3-VL',
+        group: 'image',
+        defaults: {
+            'config.process[0].caption.model_name_or_path': ['Qwen/Qwen3-VL-8B-Instruct', defaultNameOrPath],
+            'config.process[0].caption.extensions': [extensionsImage, defaultExtensions],
+            'config.process[0].caption.caption_prompt': [defaultImageCaptionPrompt, undefined],
+            'config.process[0].caption.max_res': [512, undefined],
+            'config.process[0].caption.max_new_tokens': [128, undefined],
+
+        },
+        name_or_path_options: [
+            { value: 'Qwen/Qwen3-VL-2B-Instruct', label: 'Qwen/Qwen3-VL-2B-Instruct' },
+            { value: 'Qwen/Qwen3-VL-4B-Instruct', label: 'Qwen/Qwen3-VL-4B-Instruct' },
+            { value: 'Qwen/Qwen3-VL-8B-Instruct', label: 'Qwen/Qwen3-VL-8B-Instruct' },
+            { value: 'huihui-ai/Huihui-Qwen3-VL-8B-Instruct-abliterated', label: 'huihui-ai/Huihui-Qwen3-VL-8B-Instruct-abliterated' },
+            { value: 'Qwen/Qwen3-VL-30B-A3B-Instruct', label: 'Qwen/Qwen3-VL-30B-A3B-Instruct' },
+            { value: 'Qwen/Qwen3.6-27B', label: 'Qwen/Qwen3.6-27B' },
+            { value: 'huihui-ai/Huihui-Qwen3.6-27B-abliterated', label: 'huihui-ai/Huihui-Qwen3.6-27B-abliterated' },
+        ],
+        additionalSections: [
+            'caption.caption_prompt',
+            'caption.max_res',
+            'caption.max_new_tokens',
+            'caption.thinking',
+        ],
     },
-    name_or_path_options: [
-      { value: 'ai-toolkit/Qwen3-Omni-30B-A3B-Instruct', label: 'ai-toolkit/Qwen3-Omni-30B-A3B-Instruct' },
-      { value: 'ai-toolkit/Qwen3-Omni-30B-A3B-Thinking', label: 'ai-toolkit/Qwen3-Omni-30B-A3B-Thinking' },
-      { value: 'ai-toolkit/Huihui-Qwen3-Omni-30B-A3B-Thinking-abliterated', label: 'ai-toolkit/Huihui-Qwen3-Omni-30B-A3B-Thinking-abliterated' },
-    ],
-    captionPrompts: {
-      General: defaultVideoCaptionPrompt,
-      'MiniMax H4 T2V': minimaxT2VCaptionPrompt,
-      'MiniMax H4 Image': minimaxImageCaptionPrompt,
+    {
+        name: 'Qwen3OmniCaptioner',
+        label: 'Qwen3-Omni',
+        group: 'image/video/sound',
+        defaults: {
+            'config.process[0].caption.model_name_or_path': ['ai-toolkit/Qwen3-Omni-30B-A3B-Thinking', defaultNameOrPath],
+            'config.process[0].caption.extensions': [[...extensionsVideo, ...extensionsImage, ...extensionsAudio], defaultExtensions],
+            'config.process[0].caption.caption_prompt': [defaultVideoCaptionPrompt, undefined],
+            'config.process[0].caption.max_res': [512, undefined],
+            'config.process[0].caption.max_new_tokens': [512, undefined],
+            'config.process[0].caption.batch_size': [1, undefined],
+            'config.process[0].caption.compile': [true, false],
+        },
+        name_or_path_options: [
+            { value: 'ai-toolkit/Qwen3-Omni-30B-A3B-Instruct', label: 'ai-toolkit/Qwen3-Omni-30B-A3B-Instruct' },
+            { value: 'ai-toolkit/Qwen3-Omni-30B-A3B-Thinking', label: 'ai-toolkit/Qwen3-Omni-30B-A3B-Thinking' },
+            { value: 'ai-toolkit/Huihui-Qwen3-Omni-30B-A3B-Thinking-abliterated', label: 'ai-toolkit/Huihui-Qwen3-Omni-30B-A3B-Thinking-abliterated' },
+        ],
+        captionPrompts: {
+            'General': defaultVideoCaptionPrompt,
+            'MiniMax H4 T2V': minimaxT2VCaptionPrompt,
+            'MiniMax H4 Image': minimaxImageCaptionPrompt,
+            'YuE2': yue2CaptionPrompt,
+        },
+        additionalSections: [
+            'caption.caption_prompt',
+            'caption.max_res',
+            'caption.max_new_tokens',
+            'caption.batch_size',
+            'caption.layer_offloading',
+            'caption.thinking',
+        ],
     },
-    additionalSections: ['caption.caption_prompt', 'caption.max_res', 'caption.max_new_tokens', 'caption.batch_size', 'caption.layer_offloading', 'caption.thinking'],
-  },
-  {
-    name: 'Ideogram4Captioner',
-    label: 'Ideogram 4 Captioner',
-    group: 'image',
-    hasMultiLinePrompts: true,
-    // The deconstruction JSON is long; the Python captioner also enforces this floor.
-    minNewTokens: 3072,
-    defaults: {
-      'config.process[0].caption.model_name_or_path': ['Qwen/Qwen3-VL-8B-Instruct', defaultNameOrPath],
-      'config.process[0].caption.extensions': [extensionsImage, defaultExtensions],
-      'config.process[0].caption.caption_prompt': [defaultIdeogramCaptionPrompt, undefined],
-      'config.process[0].caption.max_res': [512, undefined],
-      'config.process[0].caption.max_new_tokens': [4096, undefined],
+    {
+        name: 'Qwen25OmniCaptioner',
+        label: 'Qwen2.5-Omni',
+        group: 'image/video/sound',
+        supportsLoras: true,
+        cloudLoras: [
+            {
+                path: 'ai-toolkit/Qwen2.5-Omni-7B/qwen2_5_omni_7b_lora_caption_this_song.safetensors',
+                name: 'Caption This Song',
+            },
+        ],
+        defaults: {
+            'config.process[0].caption.loras': [[], undefined],
+            'config.process[0].caption.model_name_or_path': ['ai-toolkit/Qwen2.5-Omni-7B/qwen2_5_omni_7b_convrot8.safetensors', defaultNameOrPath],
+            'config.process[0].caption.extensions': [[...extensionsVideo, ...extensionsImage, ...extensionsAudio], defaultExtensions],
+            'config.process[0].caption.caption_prompt': [defaultVideoCaptionPrompt, undefined],
+            'config.process[0].caption.max_res': [512, undefined],
+            'config.process[0].caption.max_new_tokens': [512, undefined],
+            'config.process[0].caption.batch_size': [1, undefined],
+            'config.process[0].caption.compile': [true, false],
+        },
+        name_or_path_options: [
+            { value: 'ai-toolkit/Qwen2.5-Omni-7B/qwen2_5_omni_7b_convrot8.safetensors', label: 'ai-toolkit/Qwen2.5-Omni-7B (convrot8)' },
+            { value: 'Qwen/Qwen2.5-Omni-7B', label: 'Qwen/Qwen2.5-Omni-7B' },
+            { value: 'Qwen/Qwen2.5-Omni-3B', label: 'Qwen/Qwen2.5-Omni-3B' },
+        ],
+        captionPrompts: {
+            'General': defaultVideoCaptionPrompt,
+            'MiniMax H4 T2V': minimaxT2VCaptionPrompt,
+            'MiniMax H4 Image': minimaxImageCaptionPrompt,
+            'YuE2': yue2CaptionPrompt,
+        },
+        additionalSections: [
+            'caption.caption_prompt',
+            'caption.max_res',
+            'caption.max_new_tokens',
+            'caption.batch_size',
+        ],
     },
-    name_or_path_options: [
-      { value: 'Qwen/Qwen3-VL-2B-Instruct', label: 'Qwen/Qwen3-VL-2B-Instruct' },
-      { value: 'Qwen/Qwen3-VL-4B-Instruct', label: 'Qwen/Qwen3-VL-4B-Instruct' },
-      { value: 'Qwen/Qwen3-VL-8B-Instruct', label: 'Qwen/Qwen3-VL-8B-Instruct' },
-      { value: 'Qwen/Qwen3-VL-30B-A3B-Instruct', label: 'Qwen/Qwen3-VL-30B-A3B-Instruct' },
-    ],
-    additionalSections: ['caption.caption_prompt', 'caption.max_res', 'caption.max_new_tokens'],
-  },
+    {
+        name: 'Ideogram4Captioner',
+        label: 'Ideogram 4 Captioner',
+        group: 'image',
+        hasMultiLinePrompts: true,
+        // The deconstruction JSON is long; the Python captioner also enforces this floor.
+        minNewTokens: 3072,
+        defaults: {
+            'config.process[0].caption.model_name_or_path': ['Qwen/Qwen3-VL-8B-Instruct', defaultNameOrPath],
+            'config.process[0].caption.extensions': [extensionsImage, defaultExtensions],
+            'config.process[0].caption.caption_prompt': [defaultIdeogramCaptionPrompt, undefined],
+            'config.process[0].caption.max_res': [512, undefined],
+            'config.process[0].caption.max_new_tokens': [4096, undefined],
+        },
+        name_or_path_options: [
+            { value: 'Qwen/Qwen3-VL-2B-Instruct', label: 'Qwen/Qwen3-VL-2B-Instruct' },
+            { value: 'Qwen/Qwen3-VL-4B-Instruct', label: 'Qwen/Qwen3-VL-4B-Instruct' },
+            { value: 'Qwen/Qwen3-VL-8B-Instruct', label: 'Qwen/Qwen3-VL-8B-Instruct' },
+            { value: 'Qwen/Qwen3-VL-30B-A3B-Instruct', label: 'Qwen/Qwen3-VL-30B-A3B-Instruct' },
+        ],
+        additionalSections: [
+            'caption.caption_prompt',
+            'caption.max_res',
+            'caption.max_new_tokens',
+        ],
+    },
+
 ].sort((a, b) => {
-  // Sort by label, case-insensitive
-  return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+    // Sort by label, case-insensitive
+    return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
 }) as any;
 
 export const groupedCaptionerTypes: GroupedSelectOption[] = captionerTypes.reduce((acc, arch) => {
-  const group = acc.find(g => g.label === arch.group);
-  if (group) {
-    group.options.push({ value: arch.name, label: arch.label });
-  } else {
-    acc.push({
-      label: arch.group,
-      options: [{ value: arch.name, label: arch.label }],
-    });
-  }
-  return acc;
+    const group = acc.find(g => g.label === arch.group);
+    if (group) {
+        group.options.push({ value: arch.name, label: arch.label });
+    } else {
+        acc.push({
+            label: arch.group,
+            options: [{ value: arch.name, label: arch.label }],
+        });
+    }
+    return acc;
 }, [] as GroupedSelectOption[]);
 
 export const quantizationOptions: SelectOption[] = [
-  { value: '', label: '- NONE -' },
-  { value: 'float8', label: 'float8' },
-  { value: 'convrot8', label: '8bit convrot (default)' },
-  { value: 'convrot4', label: '4bit convrot (nvfp4)' },
-  { value: 'convrotint7', label: '7bit convrot' },
-  { value: 'convrotint6', label: '6bit convrot' },
-  { value: 'convrotint5', label: '5bit convrot' },
-  { value: 'convrotint4', label: '4bit convrot' },
-  { value: 'convrotint3', label: '3bit convrot' },
-  { value: 'convrotint2', label: '2bit convrot' },
-  { value: 'convrotbitnet', label: '1.58bit convrot (bitnet)' },
-  { value: 'uint7', label: '7 bit' },
-  { value: 'uint6', label: '6 bit' },
-  { value: 'uint5', label: '5 bit' },
-  { value: 'uint4', label: '4 bit' },
-  { value: 'uint3', label: '3 bit' },
-  { value: 'uint2', label: '2 bit' },
+    { value: '', label: '- NONE -' },
+    { value: 'float8', label: 'float8' },
+    { value: 'convrot8', label: '8bit convrot (default)' },
+    { value: 'convrot4', label: '4bit convrot (nvfp4)' },
+    { value: 'convrotint7', label: '7bit convrot' },
+    { value: 'convrotint6', label: '6bit convrot' },
+    { value: 'convrotint5', label: '5bit convrot' },
+    { value: 'convrotint4', label: '4bit convrot' },
+    { value: 'convrotint3', label: '3bit convrot' },
+    { value: 'convrotint2', label: '2bit convrot' },
+    { value: 'convrotbitnet', label: '1.58bit convrot (bitnet)' },
+    { value: 'uint7', label: '7 bit' },
+    { value: 'uint6', label: '6 bit' },
+    { value: 'uint5', label: '5 bit' },
+    { value: 'uint4', label: '4 bit' },
+    { value: 'uint3', label: '3 bit' },
+    { value: 'uint2', label: '2 bit' },
+];
+
+// AceStepCaptioner output layouts (caption.caption_format)
+export const captionFormatOptions: SelectOption[] = [
+    { value: 'ace_step', label: 'ACE-Step (caption, lyrics, bpm, key, time signature, duration)' },
+    { value: 'yue2', label: 'YuE2 (description, then [Lyrics] block)' },
 ];
 
 export const batchSizeOptions: SelectOption[] = [
-  { value: '1', label: '1 (default)' },
-  { value: '2', label: '2' },
-  { value: '4', label: '4' },
-  { value: '8', label: '8' },
-  { value: '12', label: '12' },
-  { value: '16', label: '16' },
-  { value: '24', label: '24' },
-  { value: '32', label: '32' },
+    { value: '1', label: '1 (default)' },
+    { value: '2', label: '2' },
+    { value: '4', label: '4' },
+    { value: '8', label: '8' },
+    { value: '12', label: '12' },
+    { value: '16', label: '16' },
+    { value: '24', label: '24' },
+    { value: '32', label: '32' },
 ];
 
 export const maxResOptions: SelectOption[] = [
-  { value: '256', label: '256' },
-  { value: '512', label: '512 (default)' },
-  { value: '768', label: '768' },
-  { value: '1024', label: '1024' },
+    { value: '256', label: '256' },
+    { value: '512', label: '512 (default)' },
+    { value: '768', label: '768' },
+    { value: '1024', label: '1024' },
 ];
 export const maxNewTokensOptions: SelectOption[] = [
-  { value: '64', label: '64' },
-  { value: '128', label: '128 (default)' },
-  { value: '256', label: '256' },
-  { value: '512', label: '512' },
-  { value: '1024', label: '1024' },
-  { value: '2048', label: '2048' },
-  { value: '3072', label: '3072' },
-  { value: '4096', label: '4096' },
-  { value: '8192', label: '8192' },
+    { value: '64', label: '64' },
+    { value: '128', label: '128 (default)' },
+    { value: '256', label: '256' },
+    { value: '512', label: '512' },
+    { value: '1024', label: '1024' },
+    { value: '2048', label: '2048' },
+    { value: '3072', label: '3072' },
+    { value: '4096', label: '4096' },
+    { value: '8192', label: '8192' },
 ];
 
 export const defaultQtype = 'float8';

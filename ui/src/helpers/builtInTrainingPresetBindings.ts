@@ -30,7 +30,7 @@ const ARCHITECTURE_BINDINGS = [
   {
     ui_arch: 'sd15',
     model_path: 'stable-diffusion-v1-5/stable-diffusion-v1-5',
-    engine_arch: 'sd15',
+    engine_arch: 'sd1',
     model_class: 'StableDiffusion',
   },
   { ui_arch: 'wan21:1b', model_path: 'Wan-AI/Wan2.1-T2V-1.3B-Diffusers', engine_arch: 'wan21', model_class: 'Wan21' },

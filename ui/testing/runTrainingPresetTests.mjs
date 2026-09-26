@@ -138,7 +138,7 @@ try {
   if (!existsSync(collector)) throw new Error('Required compiled training book fact collector is missing');
   run(process.execPath, [
     '-e',
-    `require(${JSON.stringify(collector)}).writeTrainingBookUiFacts(${JSON.stringify(repositoryRoot)}, ${JSON.stringify(uiFactsPath)})`,
+    `require(${JSON.stringify(collector)}).writeTrainingPresetArchitectureFacts(${JSON.stringify(repositoryRoot)}, ${JSON.stringify(uiFactsPath)})`,
   ]);
   run('python', [join(repositoryRoot, 'scripts', 'generate_training_book_reference.py'), '--check'], repositoryRoot);
   const releaseCheck = join(outputDirectory, 'testing', 'trainingPresetCatalogBuildValidationCli.js');

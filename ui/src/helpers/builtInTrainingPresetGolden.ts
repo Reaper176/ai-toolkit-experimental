@@ -1190,7 +1190,7 @@ export const EXPECTED_BUILT_IN_PRESET_RELEASE = [
     binding: {
       ui_arch: 'sd15',
       model_path: 'stable-diffusion-v1-5/stable-diffusion-v1-5',
-      engine_arch: 'sd15',
+      engine_arch: 'sd1',
       model_class: 'StableDiffusion',
     },
     snapshot: {
