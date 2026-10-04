@@ -42,7 +42,7 @@ class ExampleEntry:
 @dataclass(frozen=True)
 class ExampleManifest:
     schema_version: Literal[1]
-    book_revision: Literal[1]
+    book_revision: Literal[2]
     examples: tuple[ExampleEntry, ...]
 
 
@@ -199,9 +199,9 @@ def load_example_manifest(path: Path) -> ExampleManifest:
     if not isinstance(raw, dict) or set(raw) != {"schema_version", "book_revision", "examples"}:
         raise ExampleError("example manifest has missing or extra keys")
     if (type(raw["schema_version"]) is not int or raw["schema_version"] != 1
-            or type(raw["book_revision"]) is not int or raw["book_revision"] != 1
+            or type(raw["book_revision"]) is not int or raw["book_revision"] != 2
             or not isinstance(raw["examples"], list) or not raw["examples"]):
-        raise ExampleError("example manifest requires schema/book revision 1 and examples")
+        raise ExampleError("example manifest requires schema version 1, book revision 2 and examples")
     entries = []
     for index, item in enumerate(raw["examples"]):
         required = {"path", "architecture", "roles", "chapters", "validation_profile", "tokens"}
@@ -232,7 +232,7 @@ def load_example_manifest(path: Path) -> ExampleManifest:
                                     profile, tuple(tokens)))
     if len(entries) != len({item.path for item in entries}):
         raise ExampleError("duplicate example path")
-    manifest = ExampleManifest(1, 1, tuple(entries))
+    manifest = ExampleManifest(1, 2, tuple(entries))
     if manifest.examples != _EXPECTED_EXAMPLES:
         raise ExampleError("example manifest differs from the exact ordered 13-row matrix")
     book_path = path.parent.parent / "book-manifest.json"

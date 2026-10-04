@@ -152,5 +152,5 @@ Accelerator memory used by weights, activations, gradients, optimizer state, tem
 - [Evidence-driven diagnosis](troubleshooting/diagnosis-guide.md)
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

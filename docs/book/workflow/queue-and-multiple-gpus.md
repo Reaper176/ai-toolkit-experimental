@@ -100,5 +100,5 @@ Queue separation also does not coordinate disk bandwidth, system RAM, CPU worker
 See [saving and resume behavior](saving-resuming-and-optimizer-state.md) before restarting interrupted work, and consult the [job/model reference](../reference/job-and-model.md) for the exact `gpu_ids` configuration boundary.
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

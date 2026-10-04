@@ -4,11 +4,18 @@ import { apiClient } from '@/utils/api';
 
 export const startJob = (jobID: string) => {
   return new Promise<void>((resolve, reject) => {
-    apiClient
-      .get(`/api/jobs/${jobID}/start`)
-      .then(res => res.data)
-      .then(data => {
-        console.log('Job started:', data);
+    apiClient.get(`/api/jobs/${jobID}/start`)
+      .catch(error => {
+        if (error.response?.data?.code !== 'DATASET_PRESET_SNAPSHOT_MISMATCH' ||
+          !window.confirm(
+            'This dataset preset has changed since its snapshot was created. Continue queueing with the files currently on disk?',
+          )) {
+          throw error;
+        }
+        return apiClient.get(`/api/jobs/${jobID}/start?allow_unverified_dataset_snapshots=true`);
+      })
+      .then(res => {
+        console.log('Job started:', res.data);
         resolve();
       })
       .catch(error => {

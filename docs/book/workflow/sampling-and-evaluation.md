@@ -97,5 +97,5 @@ An image folder without this context is difficult to interpret later. Keep the c
 Continue with [loss and checkpoints](loss-and-checkpoints.md) to connect this visual process to raw and smoothed loss, checkpoint cadence, and valleys versus peaks. The [sampling settings reference](../reference/saving-and-sampling.md) documents exact field types and defaults.
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

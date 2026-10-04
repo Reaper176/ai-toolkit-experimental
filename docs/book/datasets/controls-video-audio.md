@@ -109,5 +109,5 @@ Then run a short diagnostic that saves samples early. A low training loss cannot
 If a job fails intermittently, look for the one source with insufficient frames, missing audio, a mismatched basename, unusual dimensions, or corrupt metadata. If it runs but ignores conditioning, verify the architecture consumes the enabled setting and that the control is not uniform, stale, or misaligned.
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

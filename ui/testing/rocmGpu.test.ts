@@ -108,15 +108,17 @@ assert.throws(
 );
 
 async function testRocmQuery() {
-  let invocation: { executable: string; args: string[]; options: Record<string, unknown> } | null = null;
+  const invocations: { executable: string; args: string[]; options: Record<string, unknown> }[] = [];
   const queried = await queryRocmGpuStats(async (executable, args, options) => {
-    invocation = { executable, args, options };
+    invocations.push({ executable, args, options });
     return { stdout: TWO_CARD_OUTPUT };
   });
 
-  assert.equal(invocation?.executable, 'rocm-smi');
-  assert.deepEqual(invocation?.args, ROCM_SMI_ARGS);
-  assert.equal(invocation?.options.encoding, 'utf-8');
+  assert.equal(invocations.length, 1);
+  const [invocation] = invocations;
+  assert.equal(invocation.executable, 'rocm-smi');
+  assert.deepEqual(invocation.args, ROCM_SMI_ARGS);
+  assert.equal(invocation.options.encoding, 'utf-8');
   assert.equal(queried.length, 1);
   assert.equal(queried[0].name, 'AMD Radeon RX 7900 XTX');
 }

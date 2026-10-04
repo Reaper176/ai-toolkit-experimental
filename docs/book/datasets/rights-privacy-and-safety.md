@@ -126,5 +126,5 @@ If any answer is unknown, pause the job. Create a quarantined review area rather
 Re-run preflight when data, consent, license terms, jurisdiction, model, product purpose, audience, or distribution changes. A passed review applies to a defined version and use; it is not permanent blanket permission.
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

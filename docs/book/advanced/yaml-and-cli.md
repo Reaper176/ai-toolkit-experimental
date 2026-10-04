@@ -169,5 +169,5 @@ The [advanced-only settings reference](../reference/advanced-only-settings.md) i
 - [Saving, resuming, and optimizer state](../workflow/saving-resuming-and-optimizer-state.md)
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

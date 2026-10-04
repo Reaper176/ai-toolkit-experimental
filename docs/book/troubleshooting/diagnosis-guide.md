@@ -115,5 +115,5 @@ For symptom-specific reminders, continue to [common failure patterns](common-fai
 - [Common failure patterns](common-failure-patterns.md)
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

@@ -328,7 +328,7 @@ for (const value of [
   new Date(),
   () => 1,
   Symbol('value'),
-  1n,
+  BigInt(1),
   accessorObject,
   hiddenObject,
   { [Symbol('key')]: 1 },

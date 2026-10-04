@@ -726,6 +726,316 @@ In adam8bit, receives train.lr from the dispatcher; discovered defaults are get\
 - Example: `optimizer_params: {}`
 - Source symbols: `toolkit/optimizer.py` :: `get_optimizer` :: `adam8bit__lr` (`optimizer.injected`)
 
+<a id="optimizer-adamconvrot-param-adamw"></a>
+### `optimizer.adamconvrot.param.adamw`
+
+AdamConvRot: Chooses decoupled AdamW decay when true; false adds classic L2 decay into the gradient.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].train.optimizer_params.adamw`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `optimizer` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: process_type=`diffusion_trainer`, optimizer=`adamconvrot`
+- Parser/supported/example types: `boolean` / `boolean` / `boolean`
+- Accepted types/values: not separately constrained; `false`, `true`, `null`
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `accepted`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `{"AdamConvRot.__init__.adamw":"True"}` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: The constructor applies bool(value), so explicit null behaves as false. (process_type=`diffusion_trainer`, optimizer=`adamconvrot`)
+- Benefits: Use decoupled decay for AdamW behavior or gradient-coupled L2 for Adam behavior.
+- Drawbacks: Switching the regularization rule risks invalidating a tuned weight\_decay; compare with the same coefficient.
+- Interactions: Requires `train.optimizer`: Applies when optimizer is adamconvrot. (all supported configurations)
+- Aliases: none
+- Example: `adamw: true`
+- Source symbols: `toolkit/optimizers/adamconvrot.py` :: `AdamConvRot.__init__` :: `adamw` (`optimizer.parameter`)
+
+<a id="optimizer-adamconvrot-param-betas"></a>
+### `optimizer.adamconvrot.param.betas`
+
+AdamConvRot: Sets the first- and second-moment exponential decay coefficients.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].train.optimizer_params.betas`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `optimizer` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: process_type=`diffusion_trainer`, optimizer=`adamconvrot`
+- Parser/supported/example types: `number-list` / `number-list` / `number-list`
+- Accepted types/values: `number-list`; not enumerated
+- Supported range: not numerically bounded; collection length: `2`
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `{"AdamConvRot.__init__.betas":"(0.9, 0.999)"}` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Use these coefficients to tune momentum and variance averaging.
+- Drawbacks: Values outside \[0, 1) raise ValueError; aggressive changes also alter adaptation and quantization behavior.
+- Interactions: Requires `train.optimizer`: Applies when optimizer is adamconvrot. (all supported configurations)
+- Aliases: none
+- Example: `betas: [0.9, 0.999]`
+- Source symbols: `toolkit/optimizers/adamconvrot.py` :: `AdamConvRot.__init__` :: `betas` (`optimizer.parameter`)
+
+<a id="optimizer-adamconvrot-param-blocks-per-program"></a>
+### `optimizer.adamconvrot.param.blocks_per_program`
+
+AdamConvRot: Controls how many 256-element rotation blocks a Triton optimizer kernel program processes.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].train.optimizer_params.blocks_per_program`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `optimizer` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: process_type=`diffusion_trainer`, optimizer=`adamconvrot`
+- Parser/supported/example types: `integer` / `integer` / `integer`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: `[1, +∞]`; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `{"AdamConvRot.__init__.blocks_per_program":"8"}` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Use this kernel launch setting only when profiling optimizer occupancy.
+- Drawbacks: Hardware-dependent tuning risks slower execution or kernel resource failures; retain the default without profiling.
+- Interactions: Requires `train.optimizer`: Applies when optimizer is adamconvrot. (all supported configurations)
+- Aliases: none
+- Example: `blocks_per_program: 8`
+- Source symbols: `toolkit/optimizers/adamconvrot.py` :: `AdamConvRot.__init__` :: `blocks_per_program` (`optimizer.parameter`)
+
+<a id="optimizer-adamconvrot-param-eps"></a>
+### `optimizer.adamconvrot.param.eps`
+
+AdamConvRot: Adds the denominator stability floor. The training dispatcher supplies 1e-6 only when eps is omitted; the direct optimizer constructor default is 1e-8.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].train.optimizer_params.eps`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `optimizer` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: process_type=`diffusion_trainer`, optimizer=`adamconvrot`
+- Parser/supported/example types: `number` / `number` / `number`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: `(0, +∞]`; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `{"AdamConvRot.__init__.eps":"1e-08","get_optimizer.adamconvrot__eps":"1e-06"}` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Use an explicit epsilon to tune numerical damping instead of the dispatcher fallback.
+- Drawbacks: Excessive damping risks suppressing small updates; use a positive finite value.
+- Interactions: Requires `train.optimizer`: Applies when optimizer is adamconvrot. (all supported configurations)
+- Aliases: none
+- Example: `eps: 0.000001`
+- Source symbols: `toolkit/optimizers/adamconvrot.py` :: `AdamConvRot.__init__` :: `eps` (`optimizer.parameter`); `toolkit/optimizer.py` :: `get_optimizer` :: `adamconvrot__eps` (`optimizer.consumed`); `toolkit/optimizer.py` :: `get_optimizer` :: `adamconvrot__eps` (`optimizer.injected`)
+
+<a id="optimizer-adamconvrot-param-fused"></a>
+### `optimizer.adamconvrot.param.fused`
+
+AdamConvRot: When true, updates a parameter in its post-accumulate-gradient hook and releases its gradient during backward.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].train.optimizer_params.fused`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `optimizer` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: process_type=`diffusion_trainer`, optimizer=`adamconvrot`
+- Parser/supported/example types: `boolean` / `boolean` / `boolean`
+- Accepted types/values: not separately constrained; `false`, `true`, `null`
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `accepted`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `{"AdamConvRot.__init__.fused":"False"}` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: The constructor applies bool(value), so explicit null behaves as false. (process_type=`diffusion_trainer`, optimizer=`adamconvrot`)
+- Benefits: Use fused updates to reduce peak gradient memory when accumulation and pre-step clipping are unnecessary.
+- Drawbacks: Fused updates risk incorrect multi-backward accumulation and bypass trainer pre-step clipping/nonfinite-step skipping; the hook zeros nonfinite gradients. Use false for ordinary training.
+- Interactions: Requires `train.optimizer`: Applies when optimizer is adamconvrot. (all supported configurations)
+- Aliases: none
+- Example: `fused: false`
+- Source symbols: `toolkit/optimizers/adamconvrot.py` :: `AdamConvRot.__init__` :: `fused` (`optimizer.parameter`)
+
+<a id="optimizer-adamconvrot-param-lr"></a>
+### `optimizer.adamconvrot.param.lr`
+
+AdamConvRot: The dispatcher injects float(train.lr); the direct AdamConvRot constructor default of 0.001 is not used by training dispatch.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].train.optimizer_params.lr`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `optimizer` / `supported`
+- Persistence/authority: `config` / `runtime-forced`
+- Applies to: process_type=`diffusion_trainer`, optimizer=`adamconvrot`
+- Parser/supported/example types: `number` / `number` / `number`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: `[0, +∞]`; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `{"AdamConvRot.__init__.lr":"0.001","get_optimizer.adamconvrot__lr":"float(learning_rate)"}` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Use train.lr and its schedule to control the learning rate.
+- Drawbacks: Setting optimizer\_params.lr duplicates the dispatcher keyword and raises TypeError.
+- Interactions: Requires `train.optimizer`: Applies when optimizer is adamconvrot. (all supported configurations); Overrides `train.lr`: The dispatcher passes train.lr directly; do not duplicate lr in optimizer\_params. (all supported configurations)
+- Aliases: none
+- Example: `optimizer_params: {}`
+- Source symbols: `toolkit/optimizers/adamconvrot.py` :: `AdamConvRot.__init__` :: `lr` (`optimizer.parameter`); `toolkit/optimizer.py` :: `get_optimizer` :: `adamconvrot__lr` (`optimizer.injected`)
+
+<a id="optimizer-adamconvrot-param-min-quant-numel"></a>
+### `optimizer.adamconvrot.param.min_quant_numel`
+
+AdamConvRot: Quantizes moments only for parameters with at least two dimensions and at least this many elements; other moments stay float32.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].train.optimizer_params.min_quant_numel`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `optimizer` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: process_type=`diffusion_trainer`, optimizer=`adamconvrot`
+- Parser/supported/example types: `integer` / `integer` / `integer`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: `[0, +∞]`; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `{"AdamConvRot.__init__.min_quant_numel":"4096"}` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Use a larger threshold to retain more small-tensor state in full precision.
+- Drawbacks: A larger threshold risks higher optimizer-state memory; a lower threshold subjects more tensors to quantization.
+- Interactions: Requires `train.optimizer`: Applies when optimizer is adamconvrot. (all supported configurations)
+- Aliases: none
+- Example: `min_quant_numel: 4096`
+- Source symbols: `toolkit/optimizers/adamconvrot.py` :: `AdamConvRot.__init__` :: `min_quant_numel` (`optimizer.parameter`)
+
+<a id="optimizer-adamconvrot-param-num-warps"></a>
+### `optimizer.adamconvrot.param.num_warps`
+
+AdamConvRot: Controls the Triton warp count for quantized optimizer kernel launches.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].train.optimizer_params.num_warps`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `optimizer` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: process_type=`diffusion_trainer`, optimizer=`adamconvrot`
+- Parser/supported/example types: `integer` / `integer` / `integer`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: `[1, +∞]`; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `{"AdamConvRot.__init__.num_warps":"4"}` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Use this kernel launch setting to tune occupancy on a measured target GPU.
+- Drawbacks: Unsupported launch choices can fail compilation or reduce performance; retain four without profiling.
+- Interactions: Requires `train.optimizer`: Applies when optimizer is adamconvrot. (all supported configurations)
+- Aliases: none
+- Example: `num_warps: 4`
+- Source symbols: `toolkit/optimizers/adamconvrot.py` :: `AdamConvRot.__init__` :: `num_warps` (`optimizer.parameter`)
+
+<a id="optimizer-adamconvrot-param-qtype"></a>
+### `optimizer.adamconvrot.param.qtype`
+
+AdamConvRot: Selects ConvRot storage width for eligible first- and second-moment tensors. Supports convrot8 and convrotint2 through convrotint8.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].train.optimizer_params.qtype`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `optimizer` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: process_type=`diffusion_trainer`, optimizer=`adamconvrot`
+- Parser/supported/example types: `string` / `string` / `string`
+- Accepted types/values: not separately constrained; `"convrot8"`, `"convrotint2"`, `"convrotint3"`, `"convrotint4"`, `"convrotint5"`, `"convrotint6"`, `"convrotint7"`, `"convrotint8"`
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `{"AdamConvRot.__init__.qtype":"'convrot8'"}` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Use lower bit counts to reduce optimizer-state memory.
+- Drawbacks: Lower precision risks moment quantization error; convrot4 and convrotbitnet raise ValueError here.
+- Interactions: Requires `train.optimizer`: Applies when optimizer is adamconvrot. (all supported configurations)
+- Aliases: none
+- Example: `qtype: convrot8`
+- Source symbols: `toolkit/optimizers/adamconvrot.py` :: `AdamConvRot.__init__` :: `qtype` (`optimizer.parameter`)
+
+<a id="optimizer-adamconvrot-param-weight-decay"></a>
+### `optimizer.adamconvrot.param.weight_decay`
+
+AdamConvRot: Sets regularization strength, interpreted as decoupled weight decay or classic L2 according to adamw.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].train.optimizer_params.weight_decay`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `optimizer` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: process_type=`diffusion_trainer`, optimizer=`adamconvrot`
+- Parser/supported/example types: `number` / `number` / `number`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: `[0, +∞]`; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `{"AdamConvRot.__init__.weight_decay":"0.0"}` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Use nonnegative decay to regularize weights when the training objective needs it.
+- Drawbacks: Excess decay risks erasing learned weights; the adamw flag changes how this coefficient is applied.
+- Interactions: Requires `train.optimizer`: Applies when optimizer is adamconvrot. (all supported configurations)
+- Aliases: none
+- Example: `weight_decay: 0.0`
+- Source symbols: `toolkit/optimizers/adamconvrot.py` :: `AdamConvRot.__init__` :: `weight_decay` (`optimizer.parameter`)
+
 <a id="optimizer-adamw-param-eps"></a>
 ### `optimizer.adamw.param.eps`
 
@@ -2898,5 +3208,5 @@ BaseSDTrainProcess overwrites total\_iters with train.steps for cosine\_with\_re
 <!-- settings-catalog:end -->
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

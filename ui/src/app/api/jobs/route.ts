@@ -4,7 +4,10 @@ import prisma from '@/server/prisma';
 import { isMac } from '@/helpers/basic';
 import { cached } from '@/server/apiCache';
 import { resolveGpuIds } from '@/server/jobGpu';
-import { createDatasetPresetSnapshotStore } from '@/server/datasetPresetSnapshotService';
+import {
+  createDatasetPresetSnapshotStore,
+  DatasetPresetSnapshotVerificationError,
+} from '@/server/datasetPresetSnapshotService';
 import { JobDatasetPresetError, saveJobWithDatasetUsages } from '@/server/jobDatasetPresetService';
 import {
   createJobDatasetVersionPrismaStore,
@@ -112,6 +115,12 @@ export async function POST(request: Request) {
     }
     const clone = body.clone === undefined ? false : body.clone;
     if (typeof clone !== 'boolean') return NextResponse.json({ error: 'Invalid job request' }, { status: 400 });
+    const allowUnverifiedSnapshots = body.allow_unverified_dataset_snapshots === undefined
+      ? false
+      : body.allow_unverified_dataset_snapshots;
+    if (typeof allowUnverifiedSnapshots !== 'boolean') {
+      return NextResponse.json({ error: 'Invalid job request' }, { status: 400 });
+    }
     const gpu_ids = resolveGpuIds(body.gpu_ids, isMac());
     if (gpu_ids === null) {
       return NextResponse.json({ error: 'A GPU selection is required' }, { status: 400 });
@@ -127,7 +136,7 @@ export async function POST(request: Request) {
       job_type: optionalString(body, 'job_type'),
       jobs,
       versions,
-      snapshots: createDatasetPresetSnapshotStore(await getDataRoot()),
+      snapshots: createDatasetPresetSnapshotStore(await getDataRoot(), { allowUnverifiedSnapshots }),
       datasetsRoot: await getDatasetsRoot(),
     });
     return NextResponse.json(training);
@@ -136,6 +145,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Job name already exists' }, { status: 409 });
     }
     if (error instanceof JobDatasetPresetError) {
+      if (error.cause instanceof DatasetPresetSnapshotVerificationError) {
+        return NextResponse.json({
+          code: 'DATASET_PRESET_SNAPSHOT_MISMATCH',
+          error: 'Dataset preset files no longer match their saved snapshot manifest',
+          mismatches: error.cause.mismatches,
+        }, { status: 409 });
+      }
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     if (error instanceof SyntaxError) {

@@ -53,10 +53,10 @@ interface DatasetImageEntry {
   relative_path: string;
 }
 
-export default function DatasetPage({ params }: { params: { datasetName: string } }) {
+export default function DatasetPage({ params }: { params: Promise<{ datasetName: string }> }) {
   const [imgList, setImgList] = useState<DatasetImageEntry[]>([]);
   const [isAutoCaptioning, setIsAutoCaptioning] = useState(false);
-  const usableParams = use(params as any) as { datasetName: string };
+  const usableParams = use(params);
   const datasetName = usableParams.datasetName;
   const router = useRouter();
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -722,10 +722,9 @@ export default function DatasetPage({ params }: { params: { datasetName: string 
       </MainContent>
       <AddImagesModal />
       <DatasetPresetDialog
-        mode={activePreset && activeVersion ? 'version' : 'create'}
         {...(activePreset && activeVersion
-          ? { presetId: activePreset.id, presetName: activePreset.name, baseVersionId: activeVersion.id }
-          : {})}
+          ? { mode: 'version' as const, presetId: activePreset.id, presetName: activePreset.name, baseVersionId: activeVersion.id }
+          : { mode: 'create' as const })}
         isOpen={presetDialogOpen}
         sourceDataset={datasetName}
         selectedPaths={newlySelectedPaths}

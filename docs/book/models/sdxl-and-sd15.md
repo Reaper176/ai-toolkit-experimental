@@ -1044,5 +1044,5 @@ Resolution, batch size, optimizer, text encoder training, rank, and duration all
 - [Optimizers and schedulers reference](../reference/optimizers-and-schedulers.md)
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

@@ -22,7 +22,7 @@ Then choose a checkpoint whose license, language coverage, visual domain, and in
 
 ## Complete architecture overview
 
-The table mirrors the 51 architecture identifiers in the book manifest and the current [model-selection source](https://github.com/ostris/ai-toolkit/blob/main/ui/src/app/jobs/new/options.tsx). “Instruction/edit” means paired source/control and target data may be required. “Experimental” is the UI grouping, not a promise that the architecture is unstable or unsupported.
+The table mirrors the 57 architecture identifiers in the book manifest and the current [model-selection source](https://github.com/ostris/ai-toolkit/blob/main/ui/src/app/jobs/new/options.tsx). The list includes built-in extension UI definitions; installed external extensions can add choices. “Instruction/edit” means paired source/control and target data may be required. “Experimental” is the UI grouping, not a promise that the architecture is unstable or unsupported.
 
 | Architecture | UI family label | Primary workflow |
 |---|---|---|
@@ -33,6 +33,7 @@ The table mirrors the 51 architecture identifiers in the book manifest and the c
 | `boogu_image_edit` | Boogu Image Edit | Instruction/edit |
 | `chroma` | Chroma | Image generation |
 | `ernie_image` | ERNIE-Image | Image generation |
+| `minimax_h3_vsa` | FastH3 8-Step V2 | Video with sparse attention |
 | `flex1` | Flex.1 | Image generation |
 | `flex2` | Flex.2 | Image generation with control modes |
 | `flux` | FLUX.1 | Image generation |
@@ -54,15 +55,19 @@ The table mirrors the 51 architecture identifiers in the book manifest and the c
 | `lumina2` | Lumina2 | Image generation |
 | `mageflow` | Mage-Flow | Image generation |
 | `mageflow_edit` | Mage-Flow Edit | Instruction/edit |
+| `ming_image` | Ming-Image 0.1 Design (w/ Training Adapter) | Image generation with optional RGBA output |
 | `minimax_h3` | MiniMax-H3 | Video |
+| `minimax_h3_ref2va` | MiniMax-H3 Ref2V | Reference-conditioned video with audio |
 | `nucleus_image` | Nucleus-Image | Image generation |
 | `omnigen2` | OmniGen2 | Image generation |
 | `prx_pixel` | PRXPixel | Pixel-space image generation |
 | `qwen_image` | Qwen-Image | Image generation |
+| `qwen_image_2` | Qwen-Image-2.1 | Image generation and editing with optional RGBA output |
 | `qwen_image:2512` | Qwen-Image 2512 | Image generation |
 | `qwen_image_edit` | Qwen-Image Edit | Instruction/edit |
 | `qwen_image_edit_plus` | Qwen-Image Edit 2509 | Instruction/edit |
 | `qwen_image_edit_plus:2511` | Qwen-Image Edit 2511 | Instruction/edit |
+| `qwen25_omni` | Qwen2.5-Omni | Multimodal language model |
 | `sd15` | Stable Diffusion 1.5 | Image generation |
 | `sdxl` | Stable Diffusion XL | Image generation |
 | `wan21:1b` | Wan 2.1 1.3B | Text-to-video |
@@ -72,6 +77,7 @@ The table mirrors the 51 architecture identifiers in the book manifest and the c
 | `wan22_14b:t2v` | Wan 2.2 14B | Text-to-video, multistage |
 | `wan22_14b_i2v` | Wan 2.2 14B I2V | Image-to-video, multistage |
 | `wan22_5b` | Wan 2.2 5B TI2V | Text/image-to-video |
+| `yue2` | YuE2 | Audio |
 | `zimage` | Z-Image | Image generation |
 | `zimage:deturbo` | Z-Image De-Turbo | De-distilled image generation |
 | `zimage_l2p` | Z-Image L2P | Pixel-space image generation |
@@ -109,5 +115,5 @@ These chapters connect the broad selection table to family-specific behavior:
 If the chosen family does not have a focused chapter, use this overview with the [exhaustive model and job settings reference](../reference/job-and-model.md), the UI defaults for that exact identifier, and a short diagnostic run. Continue to the [first LoRA walkthrough](first-lora.md) only after the checkpoint downloads successfully and the modality matches the dataset.
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

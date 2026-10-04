@@ -216,7 +216,19 @@ function discardPersistedPresetPaths(dataset: DatasetConfig): void {
 }
 
 function loaderSettings(dataset: DatasetConfig): DatasetPresetLoaderConfig {
-  const candidate: Record<string, unknown> = {};
+  // Model changes remove optional video/audio settings. Resolve omitted job
+  // fields using DatasetConfig's training runtime defaults, while keeping
+  // stored preset manifests subject to the complete, strict schema.
+  const candidate: Record<string, unknown> = {
+    shuffle_tokens: false,
+    num_frames: 1,
+    fps: 24,
+    auto_frame_count: false,
+    do_i2v: false,
+    do_audio: false,
+    audio_normalize: false,
+    audio_preserve_pitch: false,
+  };
   for (const key of LOADER_CONFIG_KEYS) {
     const value = dataset[key as keyof DatasetConfig];
     if (value !== undefined) candidate[key] = value;
@@ -224,7 +236,8 @@ function loaderSettings(dataset: DatasetConfig): DatasetPresetLoaderConfig {
   try {
     return validateLoaderConfig(candidate);
   } catch (error) {
-    throw new JobDatasetPresetError('Dataset preset loader settings are invalid', { cause: error });
+    const detail = error instanceof Error ? `: ${error.message}` : '';
+    throw new JobDatasetPresetError(`Dataset preset loader settings are invalid${detail}`, { cause: error });
   }
 }
 
@@ -387,6 +400,7 @@ async function resolveJobDatasetPresetsInternal(input: {
       if (!sameHistoricalUsage) throw new JobDatasetPresetError('An active dataset preset version is required');
     }
     const resolvedLoader = loaderSettings(dataset);
+    Object.assign(dataset, resolvedLoader);
     let mediaRoot: string;
     try {
       mediaRoot = input.snapshots.resolveMediaRoot(authoritative.version.manifest_path);

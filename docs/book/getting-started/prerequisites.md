@@ -70,5 +70,5 @@ Before the first job, verify that:
 The next practical run uses [`first-lora-flex1.yaml`](../examples/first-lora-flex1.yaml). Read [safe saving and resume behavior](../workflow/saving-resuming-and-optimizer-state.md) before relying on a checkpoint as the only copy of ongoing work.
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

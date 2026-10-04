@@ -681,6 +681,17 @@
           "default": null,
           "title": "Ui Optional"
         },
+        "ui_optional_when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiOptionalWhen"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "ui_nullable": {
           "anyOf": [
             {
@@ -901,6 +912,25 @@
         "applicability"
       ],
       "title": "SettingDefault",
+      "type": "object"
+    },
+    "UiArchitectureCheckboxOptionsPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "payload_kind": {
+          "const": "checkbox-options",
+          "title": "Payload Kind",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/UiCheckboxOptions"
+        }
+      },
+      "required": [
+        "payload_kind",
+        "value"
+      ],
+      "title": "UiArchitectureCheckboxOptionsPayload",
       "type": "object"
     },
     "UiArchitectureCustomOptionsPayload": {
@@ -1415,6 +1445,140 @@
       "title": "UiBooleanValue",
       "type": "object"
     },
+    "UiCheckboxOption": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "doc": {
+          "$ref": "#/$defs/UiStaticJsx"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "default_value": {
+          "title": "Default Value",
+          "type": "boolean"
+        },
+        "writes": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/UiCheckboxWrite"
+            },
+            {
+              "$ref": "#/$defs/UiCheckboxWrite"
+            }
+          ],
+          "title": "Writes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "doc",
+        "path",
+        "default_value",
+        "writes"
+      ],
+      "title": "UiCheckboxOption",
+      "type": "object"
+    },
+    "UiCheckboxOptions": {
+      "additionalProperties": false,
+      "properties": {
+        "present": {
+          "title": "Present",
+          "type": "boolean"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/UiCheckboxOption"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "present"
+      ],
+      "title": "UiCheckboxOptions",
+      "type": "object"
+    },
+    "UiCheckboxWrite": {
+      "additionalProperties": false,
+      "properties": {
+        "selected_value": {
+          "title": "Selected Value",
+          "type": "boolean"
+        },
+        "operation": {
+          "enum": [
+            "write",
+            "delete"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "value": {
+          "discriminator": {
+            "mapping": {
+              "array": "#/$defs/UiArrayValue",
+              "boolean": "#/$defs/UiBooleanValue",
+              "null": "#/$defs/UiNullValue",
+              "number": "#/$defs/UiNumberValue",
+              "object": "#/$defs/UiObjectValue",
+              "string": "#/$defs/UiStringValue",
+              "undefined": "#/$defs/UiUndefinedValue"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UiUndefinedValue"
+            },
+            {
+              "$ref": "#/$defs/UiNullValue"
+            },
+            {
+              "$ref": "#/$defs/UiBooleanValue"
+            },
+            {
+              "$ref": "#/$defs/UiNumberValue"
+            },
+            {
+              "$ref": "#/$defs/UiStringValue"
+            },
+            {
+              "$ref": "#/$defs/UiArrayValue"
+            },
+            {
+              "$ref": "#/$defs/UiObjectValue"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "selected_value",
+        "operation",
+        "value"
+      ],
+      "title": "UiCheckboxWrite",
+      "type": "object"
+    },
     "UiCustomOption": {
       "additionalProperties": false,
       "properties": {
@@ -1777,6 +1941,19 @@
         },
         "guard": {
           "$ref": "#/$defs/UiPredicate"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "const": "delete",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation"
         }
       },
       "required": [
@@ -1786,6 +1963,21 @@
         "guard"
       ],
       "title": "UiOptionWrite",
+      "type": "object"
+    },
+    "UiOptionalWhen": {
+      "additionalProperties": false,
+      "properties": {
+        "architecture_group": {
+          "minLength": 1,
+          "title": "Architecture Group",
+          "type": "string"
+        }
+      },
+      "required": [
+        "architecture_group"
+      ],
+      "title": "UiOptionalWhen",
       "type": "object"
     },
     "UiOwnedArchitectureContainer": {
@@ -1879,11 +2071,14 @@
             "group",
             "model_path",
             "gate_url",
+            "generate_name_override",
+            "generate",
             "is_video_model",
             "has_multiline_prompts",
             "accuracy_recovery_adapters",
             "sample_tags",
             "custom_model_select_options",
+            "custom_model_checkbox_options",
             "model_notes",
             "controls",
             "disable_sections",
@@ -1895,6 +2090,7 @@
         "payload": {
           "discriminator": {
             "mapping": {
+              "checkbox-options": "#/$defs/UiArchitectureCheckboxOptionsPayload",
               "custom-options": "#/$defs/UiArchitectureCustomOptionsPayload",
               "jsx": "#/$defs/UiArchitectureJsxPayload",
               "presence": "#/$defs/UiArchitecturePresencePayload",
@@ -1914,6 +2110,9 @@
             },
             {
               "$ref": "#/$defs/UiArchitectureCustomOptionsPayload"
+            },
+            {
+              "$ref": "#/$defs/UiArchitectureCheckboxOptionsPayload"
             }
           ],
           "title": "Payload"
@@ -2396,6 +2595,17 @@
         "optional": {
           "title": "Optional",
           "type": "boolean"
+        },
+        "optional_when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiOptionalWhen"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "nullable": {
           "title": "Nullable",

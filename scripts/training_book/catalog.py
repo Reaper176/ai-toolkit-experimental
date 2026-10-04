@@ -286,6 +286,7 @@ class SettingContract(_StrictModel):
     supported_type: _NonBlank
     ui_type: _SemanticType | None
     ui_optional: StrictBool | None = None
+    ui_optional_when: UiOptionalWhen | None = None
     ui_nullable: StrictBool | None = None
     ui_accepted_values: tuple[Any, ...] | None = None
     ui_suggested_values: tuple[Any, ...] | None = None
@@ -313,6 +314,8 @@ class SettingContract(_StrictModel):
 
     @model_validator(mode="after")
     def _accepted_values_and_range(self) -> "SettingContract":
+        if "ui_optional_when" in self.model_fields_set and (self.ui_optional_when is None or self.ui_optional is not True):
+            raise ValueError("ui_optional_when requires a condition and ui_optional true")
         _validate_ui_scales(
             self.ui_type,
             self.config_to_ui_scale,
@@ -682,6 +685,14 @@ class UiOptionWrite(_StrictModel):
     path: StrictStr
     value: UiValue
     guard: UiPredicate
+    operation: Literal["delete"] | None = None
+
+    @model_validator(mode="after")
+    def _delete_value(self) -> "UiOptionWrite":
+        if "operation" in self.model_fields_set:
+            if self.operation != "delete" or not isinstance(self.value, UiUndefinedValue):
+                raise ValueError("select option delete requires undefined value")
+        return self
 
     @field_validator("path")
     @classmethod
@@ -706,6 +717,51 @@ class UiCustomOptions(_StrictModel):
         supplied = "value" in self.model_fields_set
         if supplied != self.present or (supplied and self.value is None):
             raise ValueError("custom options presence/value mismatch")
+        return self
+
+
+class UiCheckboxWrite(_StrictModel):
+    selected_value: StrictBool
+    operation: Literal["write", "delete"]
+    value: UiValue
+
+    @model_validator(mode="after")
+    def _operation_value(self) -> "UiCheckboxWrite":
+        if self.operation == "delete" and not isinstance(self.value, UiUndefinedValue):
+            raise ValueError("checkbox delete requires undefined value")
+        if self.operation == "write" and not isinstance(self.value, UiBooleanValue):
+            raise ValueError("checkbox write requires boolean value")
+        return self
+
+
+class UiCheckboxOption(_StrictModel):
+    label: StrictStr
+    doc: UiStaticJsx
+    path: StrictStr
+    default_value: StrictBool
+    writes: tuple[UiCheckboxWrite, UiCheckboxWrite]
+
+    @field_validator("path")
+    @classmethod
+    def _canonical_path(cls, value: str) -> str:
+        return _require_canonical_location(value)
+
+    @model_validator(mode="after")
+    def _boolean_states(self) -> "UiCheckboxOption":
+        if {item.selected_value for item in self.writes} != {False, True}:
+            raise ValueError("checkbox writes require both distinct boolean states")
+        return self
+
+
+class UiCheckboxOptions(_StrictModel):
+    present: StrictBool
+    value: tuple[UiCheckboxOption, ...] | None = None
+
+    @model_validator(mode="after")
+    def _presence(self) -> "UiCheckboxOptions":
+        supplied = "value" in self.model_fields_set
+        if supplied != self.present or (supplied and self.value is None):
+            raise ValueError("checkbox options presence/value mismatch")
         return self
 
 
@@ -738,17 +794,27 @@ class UiModelArchitecture(_StrictModel):
     group: StrictStr
     model_path: UiPresence
     gate_url: UiPresence
+    generate_name_override: UiPresence | None = None
+    generate: UiPresence | None = None
     is_video_model: UiPresence
     has_multiline_prompts: UiPresence
     accuracy_recovery_adapters: UiPresence
     sample_tags: UiPresence
     custom_model_select_options: UiCustomOptions
+    custom_model_checkbox_options: UiCheckboxOptions | None = None
     model_notes: UiStaticJsx
     controls: tuple[StrictStr, ...]
     defaults: tuple[UiArchitectureDefault, ...]
     default_containers: tuple[UiArchitectureContainer, ...]
     disable_sections: tuple[StrictStr, ...]
     additional_sections: tuple[StrictStr, ...]
+
+    @model_validator(mode="after")
+    def _checkbox_presence(self) -> "UiModelArchitecture":
+        for name in ("custom_model_checkbox_options", "generate_name_override", "generate"):
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError(f"{name} cannot be null")
+        return self
 
 
 class UiDefault(_StrictModel):
@@ -768,6 +834,10 @@ class UiDefault(_StrictModel):
         return _require_portable_source(value)
 
 
+class UiOptionalWhen(_StrictModel):
+    architecture_group: Annotated[StrictStr, Field(min_length=1)]
+
+
 class UiValueContract(_StrictModel):
     ui_type: _SemanticType | None
     widget_kind: Literal[
@@ -775,6 +845,7 @@ class UiValueContract(_StrictModel):
         "json", "read-only",
     ] | None
     optional: StrictBool
+    optional_when: UiOptionalWhen | None = None
     nullable: StrictBool
     accepted_values: tuple[UiValue, ...] | None = None
     suggested_values: tuple[UiValue, ...] | None = None
@@ -794,6 +865,8 @@ class UiValueContract(_StrictModel):
 
     @model_validator(mode="after")
     def _ordered(self) -> "UiValueContract":
+        if "optional_when" in self.model_fields_set and (self.optional_when is None or not self.optional):
+            raise ValueError("optional_when requires a condition and optional true")
         _validate_ui_scales(
             self.ui_type,
             self.config_to_ui_scale,
@@ -1012,9 +1085,15 @@ class UiArchitectureCustomOptionsPayload(_StrictModel):
     value: UiCustomOptions
 
 
+class UiArchitectureCheckboxOptionsPayload(_StrictModel):
+    payload_kind: Literal["checkbox-options"]
+    value: UiCheckboxOptions
+
+
 UiArchitecturePayload = Annotated[
     UiArchitectureValuePayload | UiArchitecturePresencePayload
-    | UiArchitectureJsxPayload | UiArchitectureCustomOptionsPayload,
+    | UiArchitectureJsxPayload | UiArchitectureCustomOptionsPayload
+    | UiArchitectureCheckboxOptionsPayload,
     Field(discriminator="payload_kind"),
 ]
 
@@ -1035,9 +1114,9 @@ class UiOwnedArchitectureField(_StrictModel):
     fact_type: Literal["architecture-field"]
     architecture: StrictStr
     field: Literal[
-        "label", "group", "model_path", "gate_url", "is_video_model",
+        "label", "group", "model_path", "gate_url", "generate_name_override", "generate", "is_video_model",
         "has_multiline_prompts", "accuracy_recovery_adapters", "sample_tags",
-        "custom_model_select_options", "model_notes", "controls",
+        "custom_model_select_options", "custom_model_checkbox_options", "model_notes", "controls",
         "disable_sections", "additional_sections",
     ]
     payload: UiArchitecturePayload
@@ -1049,11 +1128,14 @@ class UiOwnedArchitectureField(_StrictModel):
             "group": "value",
             "model_path": "presence",
             "gate_url": "presence",
+            "generate_name_override": "presence",
+            "generate": "presence",
             "is_video_model": "presence",
             "has_multiline_prompts": "presence",
             "accuracy_recovery_adapters": "presence",
             "sample_tags": "presence",
             "custom_model_select_options": "custom-options",
+            "custom_model_checkbox_options": "checkbox-options",
             "model_notes": "jsx",
             "controls": "value",
             "disable_sections": "value",
@@ -1303,6 +1385,16 @@ def project_training_book_ui_facts(
                     ),
                 ),
             ))
+        for field in ("generate_name_override", "generate"):
+            value = getattr(architecture, field)
+            if value is not None:
+                projected.append(UiProjectedFact(
+                    config_scope,
+                    _architecture_field_fact(
+                        architecture.name, field,
+                        UiArchitecturePresencePayload(payload_kind="presence", value=value),
+                    ),
+                ))
         projected.append(UiProjectedFact(
             config_scope,
             _architecture_field_fact(
@@ -1314,6 +1406,18 @@ def project_training_book_ui_facts(
                 ),
             ),
         ))
+        if architecture.custom_model_checkbox_options is not None:
+            projected.append(UiProjectedFact(
+                config_scope,
+                _architecture_field_fact(
+                    architecture.name,
+                    "custom_model_checkbox_options",
+                    UiArchitectureCheckboxOptionsPayload(
+                        payload_kind="checkbox-options",
+                        value=architecture.custom_model_checkbox_options,
+                    ),
+                ),
+            ))
         projected.append(UiProjectedFact(
             config_scope,
             _architecture_field_fact(
@@ -1565,6 +1669,11 @@ def _validate_setting_source_contract(
             f"UI owner {setting.id!r} optionality mismatch: emitted "
             f"{emitted.optional!r}, catalog ui_optional "
             f"{contract.ui_optional!r}"
+        )
+    if contract.ui_optional_when != emitted.optional_when:
+        raise CatalogError(
+            f"UI owner {setting.id!r} optionality condition mismatch: emitted "
+            f"{emitted.optional_when!r}, catalog {contract.ui_optional_when!r}"
         )
     if contract.ui_nullable != emitted.nullable:
         raise CatalogError(
@@ -1940,6 +2049,7 @@ def _validate_architecture_projected_exclusions(
         architecture = tail.split("::tag=", 1)[0]
         field_name = (
             "sample_tags" if "::tag=" in tail
+            else "custom_model_checkbox_options" if "::Checkbox::" in fact.symbol
             else "custom_model_select_options"
         )
         field = fields.get((architecture, field_name))
@@ -1986,6 +2096,20 @@ def _validate_architecture_projected_exclusions(
                     f"sample-tag exclusion {fact.symbol!r} contract disagrees "
                     "with owned tag metadata"
                 )
+        elif field_name == "custom_model_checkbox_options":
+            assert isinstance(field.payload, UiArchitectureCheckboxOptionsPayload)
+            emitted_label = fact.ui_label.value
+            matches = [
+                option for option in (field.payload.value.value or ())
+                if isinstance(emitted_label, UiStringValue)
+                and option.label == emitted_label.value and option.path == fact.path
+            ]
+            if len(matches) != 1 or fact.value_contract.widget_kind != "checkbox" or fact.value_contract.ui_type != "boolean":
+                raise CatalogError(f"checkbox exclusion {fact.symbol!r} lacks an exact owned checkbox projection")
+            expected_values = tuple(write.value for write in matches[0].writes)
+            if (fact.value_contract.accepted_values != expected_values
+                    or not fact.value_contract.optional or fact.value_contract.nullable):
+                raise CatalogError(f"checkbox exclusion {fact.symbol!r} contract disagrees with owned checkbox writes")
         else:
             assert isinstance(
                 field.payload, UiArchitectureCustomOptionsPayload

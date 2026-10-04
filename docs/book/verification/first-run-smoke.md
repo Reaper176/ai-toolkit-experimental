@@ -2,6 +2,8 @@
 
 [Table of contents](../README.md)
 
+This is historical GPU evidence for book revision 1. Revision 2 updates the source audit; its GPU workflow has not yet been rerun. The required-smoke check intentionally rejects this older record for revision 2.
+
 <!-- smoke-record:start -->
 ```json
 {
@@ -51,5 +53,5 @@
 <!-- book-navigation:end -->
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

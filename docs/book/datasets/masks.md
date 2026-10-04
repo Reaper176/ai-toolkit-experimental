@@ -107,5 +107,5 @@ When mask behavior looks reversed, absent, or unstable, inspect the effective da
 If loss becomes nonfinite, look for an all-black effective mask with a zero floor, a missing or corrupt mask, invalid geometry, or an incompatible prior/Turbo combination. If boundaries appear in samples, soften or improve the mask edge, retain a small floor, and confirm crop alignment. If nothing changes, verify the mask was resolved and that it contains nonuniform values after editor storage normalization.
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

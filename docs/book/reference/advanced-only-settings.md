@@ -1532,6 +1532,37 @@ Selects the top-level adapter family.
 - Example: `type: control_lora`
 - Source symbols: `toolkit/config_modules.py` :: `AdapterConfig.__init__` :: `type` (`kwargs.get`)
 
+<a id="environment-aitk-h3-vsa-backend"></a>
+### `environment.aitk_h3_vsa_backend`
+
+Selects MiniMax H3 VSA fine-stage attention backend at module import: auto chooses eligible vendored FastVideo Triton kernels, flex uses FlexAttention, fv\_triton requires the Triton path.
+
+- UI label: not exposed in the Simple UI
+- Locations: Environment `AITK_H3_VSA_BACKEND`
+- Surfaces: `cli`
+- UI projection: none
+- Scope/lifecycle: `environment` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: all supported configurations
+- Parser/supported/example types: `string` / `string` / `string`
+- Accepted types/values: not separately constrained; `"auto"`, `"flex"`, `"fv_triton"`
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `"auto"` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Allows diagnosing or choosing the sparse-attention implementation.
+- Drawbacks: fv\_triton rejects ineligible batches, dtypes, devices, or scales; VSA needs Triton availability. Set before launching the process.
+- Interactions: none
+- Aliases: none
+- Example: `AITK_H3_VSA_BACKEND=auto`
+- Source symbols: `extensions_built_in/diffusion_models/minimax_h3/src/vsa.py` :: `<module>` :: `AITK_H3_VSA_BACKEND` (`os.environ.get`)
+
 <a id="environment-aitk-job-id"></a>
 ### `environment.aitk_job_id`
 
@@ -1562,6 +1593,37 @@ Carries the server-assigned job identifier into a diffusion trainer process.
 - Aliases: none
 - Example: `AITK_JOB_ID=job_123`
 - Source symbols: `extensions_built_in/sd_trainer/DiffusionTrainer.py` :: `DiffusionTrainer.__init__` :: `AITK_JOB_ID` (`os.environ.get`); `extensions_built_in/sd_trainer/UITrainer.py` :: `UITrainer.__init__` :: `AITK_JOB_ID` (`os.environ.get`)
+
+<a id="environment-hf-hub-offline"></a>
+### `environment.hf_hub_offline`
+
+When exactly 1, delegates directly to the Hugging Face loader in its offline mode instead of trying a local-only load and then retrying online.
+
+- UI label: not exposed in the Simple UI
+- Locations: Environment `HF_HUB_OFFLINE`
+- Surfaces: `cli`
+- UI projection: none
+- Scope/lifecycle: `environment` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: all supported configurations
+- Parser/supported/example types: `string` / `string` / `string`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: absent (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Controls offline component loading.
+- Drawbacks: Offline loading requires cached artifacts; this setting does not provide missing model data.
+- Interactions: none
+- Aliases: none
+- Example: `HF_HUB_OFFLINE=1`
+- Source symbols: `toolkit/models/v2/_mixin.py` :: `OstrisModelMixin._local_first` :: `HF_HUB_OFFLINE` (`os.environ.get`)
 
 <a id="logging-log-every"></a>
 ### `logging.log_every`
@@ -1749,6 +1811,1308 @@ Enables verbose logger output.
 - Example: `verbose: true`
 - Source symbols: `toolkit/config_modules.py` :: `LoggingConfig.__init__` :: `verbose` (`kwargs.get`)
 
+<a id="model-ming-image-model-kwargs-rgba"></a>
+### `model.ming_image.model_kwargs.rgba`
+
+Preserves transparency when loading dataset images and returning decoded samples from this RGBA VAE model. RGB inputs receive opaque alpha when encoded.
+
+- UI label: Transparency (RGBA)
+- Locations: Yaml `config.process[*].model.model_kwargs.rgba`
+- Surfaces: `simple-ui`, `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`ming_image`
+- Parser/supported/example types: `boolean` / `boolean` / `boolean`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: `boolean`; optional=`true`, nullable=`false`
+- UI values/range/suggestions: `true`, `false`; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `false` (all supported configurations)
+- Other runtime/default transitions: On Select present as `false` (ui_architecture=`ming_image`); On Leave absent (ui_architecture=`ming_image`)
+- Architecture overrides: On Select present as `false` for ui_architecture=`ming_image`; On Leave absent for ui_architecture=`ming_image`
+- Normalization: The Transparency checkbox writes true when checked and deletes model\_kwargs.rgba when unchecked, restoring the false engine fallback. (ui_architecture=`ming_image`)
+- Benefits: Supports training and generating images with alpha channels.
+- Drawbacks: Output formats must retain alpha; disabling drops decoded alpha. Changing image loading requires rebuilding relevant caches.
+- Interactions: none
+- Aliases: none
+- Example: `rgba: false`
+- Source symbols: `extensions_built_in/diffusion_models/ming_image/ming_image.py` :: `MingImageModel.load_rgba` :: `rgba` (`model_kwargs.get`)
+
+<a id="model-minimax-h3-ref2va-model-kwargs-dopsd"></a>
+### `model.minimax_h3_ref2va.model_kwargs.dopsd`
+
+Enables D-OPSD: a no-gradient teacher using the target as its own reference supervises the reference-free student.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.dopsd`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`minimax_h3_ref2va`
+- Parser/supported/example types: `boolean` / `boolean` / `boolean`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `false` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Supports self-reference distillation training.
+- Drawbacks: Requires target pixel caching and extra teacher computation.
+- Interactions: none
+- Aliases: none
+- Example: `dopsd: false`
+- Source symbols: `extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py` :: `MinimaxH3Ref2VAModel.__init__` :: `dopsd` (`model_kwargs.get`)
+
+<a id="model-minimax-h3-ref2va-model-kwargs-dopsd-bleed-strength"></a>
+### `model.minimax_h3_ref2va.model_kwargs.dopsd_bleed_strength`
+
+Scales an additional ordinary-target loss during D-OPSD. Its mean magnitude is first normalized to the current distillation loss, then multiplied by this strength.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.dopsd_bleed_strength`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`minimax_h3_ref2va`
+- Parser/supported/example types: `number` / `number` / `number`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `1.0` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Retains ordinary denoising supervision alongside self-reference distillation.
+- Drawbacks: Higher values emphasize the ordinary target relative to the teacher. Only active when the trainer has a D-OPSD normal target.
+- Interactions: none
+- Aliases: none
+- Example: `dopsd_bleed_strength: 1.0`
+- Source symbols: `extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py` :: `MinimaxH3Ref2VAModel.__init__` :: `dopsd_bleed_strength` (`model_kwargs.get`)
+
+<a id="model-minimax-h3-ref2va-model-kwargs-image-ref-video-frames"></a>
+### `model.minimax_h3_ref2va.model_kwargs.image_ref_video_frames`
+
+Number of frames for still images presented as videos; aligned down to the model frame-count grid.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.image_ref_video_frames`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`minimax_h3_ref2va`
+- Parser/supported/example types: `integer` / `integer` / `integer`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `5` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Controls temporal extent of static video references.
+- Drawbacks: Used only when image\_refs\_as\_video is enabled; effective length follows model alignment, not arbitrary frame counts.
+- Interactions: none
+- Aliases: none
+- Example: `image_ref_video_frames: 5`
+- Source symbols: `extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py` :: `MinimaxH3Ref2VAModel._image_ref_video_frames` :: `image_ref_video_frames` (`model_kwargs.get`)
+
+<a id="model-minimax-h3-ref2va-model-kwargs-image-refs-as-video"></a>
+### `model.minimax_h3_ref2va.model_kwargs.image_refs_as_video`
+
+Presents still control images as silent static video clips instead of native picture references.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.image_refs_as_video`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`minimax_h3_ref2va`
+- Parser/supported/example types: `boolean` / `boolean` / `boolean`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `false` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Exercises the same conditioning path as video references.
+- Drawbacks: Changes rotary timing, sizing and text embedding cache identity.
+- Interactions: none
+- Aliases: none
+- Example: `image_refs_as_video: false`
+- Source symbols: `extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py` :: `MinimaxH3Ref2VAModel._image_ref_video_frames` :: `image_refs_as_video` (`model_kwargs.get`)
+
+<a id="model-minimax-h3-vsa-model-kwargs-dit-fasth3-path"></a>
+### `model.minimax_h3_vsa.model_kwargs.dit_fasth3_path`
+
+Optional explicit checkpoint path for the FastH3 diffusion-transformer component.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.dit_fasth3_path`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`minimax_h3_vsa`
+- Parser/supported/example types: `string` / `string` / `string`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `accepted`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `null` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Allows using an existing local checkpoint.
+- Drawbacks: The checkpoint must include VSA compression-gate weights.
+- Interactions: none
+- Aliases: none
+- Example: `dit_fasth3_path: null`
+- Source symbols: `extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py` :: `MinimaxH3Model._resolve_comfy_file` :: `dit_fasth3_path` (`model_kwargs.get`)
+
+<a id="model-minimax-h3-vsa-model-kwargs-vsa"></a>
+### `model.minimax_h3_vsa.model_kwargs.vsa`
+
+Enables the VSA-trained sparse attention policy for FastH3.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.vsa`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`minimax_h3_vsa`
+- Parser/supported/example types: `boolean` / `boolean` / `boolean`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `true` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Uses the checkpoint sparse policy.
+- Drawbacks: Disabling selects dense attention; this architecture still requires a VSA-trained checkpoint.
+- Interactions: none
+- Aliases: none
+- Example: `vsa: true`
+- Source symbols: `extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py` :: `MinimaxH3FastModel.__init__` :: `vsa` (`model_kwargs.get`)
+
+<a id="model-minimax-h3-vsa-model-kwargs-vsa-sparsity"></a>
+### `model.minimax_h3_vsa.model_kwargs.vsa_sparsity`
+
+Controls FastH3 VSA sparsity; 0.8 is the checkpoint trained policy.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.vsa_sparsity`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`minimax_h3_vsa`
+- Parser/supported/example types: `number` / `number` / `number`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: `[0, 1]`; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `0.8` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Exposes the sparse-attention compute/coverage tradeoff.
+- Drawbacks: Changing trained sparsity can change quality; only used when vsa is enabled.
+- Interactions: none
+- Aliases: none
+- Example: `vsa_sparsity: 0.8`
+- Source symbols: `extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py` :: `MinimaxH3FastModel.__init__` :: `vsa_sparsity` (`model_kwargs.get`)
+
+<a id="model-components-model-kwargs-use-comfy-weights"></a>
+### `model.model_kwargs.use_comfy_weights`
+
+Prefers registered Comfy-format checkpoint candidates when loading through v2 component resolvers. Local directories and unregistered sources still load as named.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.use_comfy_weights`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: process_type=`diffusion_trainer`
+- Parser/supported/example types: `boolean` / `boolean` / `boolean`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `true` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Can reuse packaged single-file or prequantized weights.
+- Drawbacks: False opts out of candidate resolution; explicitly named single files are still single files.
+- Interactions: none
+- Aliases: none
+- Example: `use_comfy_weights: true`
+- Source symbols: `extensions_built_in/diffusion_models/ming_image/ming_image.py` :: `MingImageModel.load_model` :: `use_comfy_weights` (`model_kwargs.get`); `extensions_built_in/diffusion_models/z_image/z_image.py` :: `ZImageModel.load_transformer` :: `use_comfy_weights` (`model_kwargs.get`); `toolkit/models/base_model.py` :: `BaseModel.component_load_kwargs` :: `use_comfy_weights` (`model_kwargs.get`)
+
+<a id="model-qwen25-omni-model-kwargs-debug"></a>
+### `model.qwen25_omni.model_kwargs.debug`
+
+Enables Qwen2.5-Omni training diagnostics.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.debug`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`qwen25_omni`
+- Parser/supported/example types: `boolean` / `boolean` / `boolean`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `false` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Assists diagnosis of media/text training behavior.
+- Drawbacks: Additional logging adds noise and overhead.
+- Interactions: none
+- Aliases: none
+- Example: `debug: false`
+- Source symbols: `extensions_built_in/llm_models/qwen25_omni.py` :: `Qwen25OmniLLM.__init__` :: `debug` (`model_kwargs.get`)
+
+<a id="model-qwen25-omni-model-kwargs-instruction"></a>
+### `model.qwen25_omni.model_kwargs.instruction`
+
+User instruction paired with every media input during training.
+
+- UI label: LLM Prompt
+- Locations: Yaml `config.process[*].model.model_kwargs.instruction`
+- Surfaces: `simple-ui`, `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`qwen25_omni`
+- Parser/supported/example types: `string` / `string` / `string`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: `string`; optional=`false`, nullable=`false`
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `"Describe this in detail."` (all supported configurations)
+- Other runtime/default transitions: On Select present as `"Describe this in detail."` (ui_architecture=`qwen25_omni`); On Leave absent (ui_architecture=`qwen25_omni`)
+- Architecture overrides: On Select present as `"Describe this in detail."` for ui_architecture=`qwen25_omni`; On Leave absent for ui_architecture=`qwen25_omni`
+- Normalization: none
+- Benefits: Aligns caption targets with the prompt used for later captioning.
+- Drawbacks: Use compatible wording during inference; changing the instruction changes the training task.
+- Interactions: none
+- Aliases: none
+- Example: `instruction: "Describe this in detail."`
+- Source symbols: `extensions_built_in/llm_models/qwen25_omni.py` :: `Qwen25OmniLLM.__init__` :: `instruction` (`model_kwargs.get`)
+
+<a id="model-qwen25-omni-model-kwargs-loss-chunk"></a>
+### `model.qwen25_omni.model_kwargs.loss_chunk`
+
+Number of target positions projected through the language-model head per cross-entropy chunk.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.loss_chunk`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`qwen25_omni`
+- Parser/supported/example types: `integer` / `integer` / `integer`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `512` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Limits peak vocabulary-logit memory.
+- Drawbacks: Smaller chunks add overhead; zero or negative is invalid for the chunk loop.
+- Interactions: none
+- Aliases: none
+- Example: `loss_chunk: 512`
+- Source symbols: `extensions_built_in/llm_models/qwen25_omni.py` :: `Qwen25OmniLLM.__init__` :: `loss_chunk` (`model_kwargs.get`)
+
+<a id="model-qwen25-omni-model-kwargs-max-new-tokens"></a>
+### `model.qwen25_omni.model_kwargs.max_new_tokens`
+
+Maximum new text tokens generated for training samples.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.max_new_tokens`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`qwen25_omni`
+- Parser/supported/example types: `integer` / `integer` / `integer`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `512` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Bounds caption sample length and decode time.
+- Drawbacks: Too few tokens can truncate generated captions.
+- Interactions: none
+- Aliases: none
+- Example: `max_new_tokens: 512`
+- Source symbols: `extensions_built_in/llm_models/qwen25_omni.py` :: `Qwen25OmniLLM.__init__` :: `max_new_tokens` (`model_kwargs.get`)
+
+<a id="model-qwen25-omni-model-kwargs-max-pixels"></a>
+### `model.qwen25_omni.model_kwargs.max_pixels`
+
+Maximum image/video pixel budget passed to the multimodal processor.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.max_pixels`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`qwen25_omni`
+- Parser/supported/example types: `integer` / `integer` / `integer`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `262144` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Caps visual token and memory cost.
+- Drawbacks: Lower budgets lose visual detail.
+- Interactions: none
+- Aliases: none
+- Example: `max_pixels: 262144`
+- Source symbols: `extensions_built_in/llm_models/qwen25_omni.py` :: `Qwen25OmniLLM.__init__` :: `max_pixels` (`model_kwargs.get`)
+
+<a id="model-qwen25-omni-model-kwargs-min-pixels"></a>
+### `model.qwen25_omni.model_kwargs.min_pixels`
+
+Minimum pixel budget passed to the multimodal processor.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.min_pixels`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`qwen25_omni`
+- Parser/supported/example types: `integer` / `integer` / `integer`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `50176` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Controls the lower visual-token budget.
+- Drawbacks: A large minimum can upscale small inputs and increase memory use.
+- Interactions: none
+- Aliases: none
+- Example: `min_pixels: 50176`
+- Source symbols: `extensions_built_in/llm_models/qwen25_omni.py` :: `Qwen25OmniLLM.__init__` :: `min_pixels` (`model_kwargs.get`)
+
+<a id="model-qwen25-omni-model-kwargs-sample-compile"></a>
+### `model.qwen25_omni.model_kwargs.sample_compile`
+
+Enables static-cache compiled decode for text samples.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.sample_compile`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`qwen25_omni`
+- Parser/supported/example types: `boolean` / `boolean` / `boolean`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `false` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: May accelerate repeated sample generation.
+- Drawbacks: Compilation and cache allocation add overhead and device constraints.
+- Interactions: none
+- Aliases: none
+- Example: `sample_compile: false`
+- Source symbols: `extensions_built_in/llm_models/qwen25_omni.py` :: `Qwen25OmniLLM.__init__` :: `sample_compile` (`model_kwargs.get`)
+
+<a id="model-qwen25-omni-model-kwargs-system-prompt"></a>
+### `model.qwen25_omni.model_kwargs.system_prompt`
+
+Optional system message supplied to the Qwen2.5-Omni chat template; null leaves template behavior unchanged.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.system_prompt`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`qwen25_omni`
+- Parser/supported/example types: `string` / `string` / `string`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `accepted`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `null` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Allows controlling the system context for training and sampling.
+- Drawbacks: Different system context can change caption style and behavior.
+- Interactions: none
+- Aliases: none
+- Example: `system_prompt: null`
+- Source symbols: `extensions_built_in/llm_models/qwen25_omni.py` :: `Qwen25OmniLLM.__init__` :: `system_prompt` (`model_kwargs.get`)
+
+<a id="model-qwen25-omni-model-kwargs-video-fps"></a>
+### `model.qwen25_omni.model_kwargs.video_fps`
+
+Frame rate used for video sample loading and for interpreting dataset video-frame timing.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.video_fps`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`qwen25_omni`
+- Parser/supported/example types: `integer` / `integer` / `integer`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `24` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Keeps video presentation timing explicit.
+- Drawbacks: Match the dataset extraction rate; mismatched timing changes the model presentation.
+- Interactions: none
+- Aliases: none
+- Example: `video_fps: 24`
+- Source symbols: `extensions_built_in/llm_models/qwen25_omni.py` :: `Qwen25OmniLLM.__init__` :: `video_fps` (`model_kwargs.get`)
+
+<a id="model-qwen-image-2-model-kwargs-control-image-max-pixels"></a>
+### `model.qwen_image_2.model_kwargs.control_image_max_pixels`
+
+Caps reference-image pixel area when no target size is known or match\_target\_res is false; smaller images keep their size apart from grid alignment.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.control_image_max_pixels`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`qwen_image_2`
+- Parser/supported/example types: `integer` / `integer` / `integer`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `1048576` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Controls reference token and latent size.
+- Drawbacks: Reference resizing changes vision tokens and conditioning; compare at consistent rules.
+- Interactions: none
+- Aliases: none
+- Example: `control_image_max_pixels: 1048576`
+- Source symbols: `extensions_built_in/diffusion_models/qwen_image_2/qwen_image_2.py` :: `QwenImage2Model.control_image_max_pixels` :: `control_image_max_pixels` (`model_kwargs.get`)
+
+<a id="model-qwen-image-2-model-kwargs-match-target-res"></a>
+### `model.qwen_image_2.model_kwargs.match_target_res`
+
+Scales each reference image to the target pixel area while preserving its own aspect ratio; false uses control\_image\_max\_pixels instead.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.match_target_res`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`qwen_image_2`
+- Parser/supported/example types: `boolean` / `boolean` / `boolean`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `true` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Controls reference token and latent size.
+- Drawbacks: Reference resizing changes vision tokens and conditioning; compare at consistent rules.
+- Interactions: none
+- Aliases: none
+- Example: `match_target_res: true`
+- Source symbols: `extensions_built_in/diffusion_models/qwen_image_2/qwen_image_2.py` :: `QwenImage2Model.match_target_res` :: `match_target_res` (`model_kwargs.get`)
+
+<a id="model-qwen-image-2-model-kwargs-rgba"></a>
+### `model.qwen_image_2.model_kwargs.rgba`
+
+Preserves transparency when loading dataset images and returning decoded samples from this RGBA VAE model. RGB inputs receive opaque alpha when encoded.
+
+- UI label: Transparency (RGBA)
+- Locations: Yaml `config.process[*].model.model_kwargs.rgba`
+- Surfaces: `simple-ui`, `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `supported`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`qwen_image_2`
+- Parser/supported/example types: `boolean` / `boolean` / `boolean`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: `boolean`; optional=`true`, nullable=`false`
+- UI values/range/suggestions: `true`, `false`; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `false` (all supported configurations)
+- Other runtime/default transitions: On Select present as `false` (ui_architecture=`qwen_image_2`); On Leave absent (ui_architecture=`qwen_image_2`)
+- Architecture overrides: On Select present as `false` for ui_architecture=`qwen_image_2`; On Leave absent for ui_architecture=`qwen_image_2`
+- Normalization: The Transparency checkbox writes true when checked and deletes model\_kwargs.rgba when unchecked, restoring the false engine fallback. (ui_architecture=`qwen_image_2`)
+- Benefits: Supports training and generating images with alpha channels.
+- Drawbacks: Output formats must retain alpha; disabling drops decoded alpha. Changing image loading requires rebuilding relevant caches.
+- Interactions: none
+- Aliases: none
+- Example: `rgba: false`
+- Source symbols: `extensions_built_in/diffusion_models/qwen_image_2/qwen_image_2.py` :: `QwenImage2Model.load_rgba` :: `rgba` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-abc-dropout"></a>
+### `model.yue2.model_kwargs.abc_dropout`
+
+Probability of dropping the cached ABC sheet during training and using the off-mode prefix.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.abc_dropout`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `number` / `number` / `number`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: `[0, 1]`; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `0.5` (all supported configurations)
+- Other runtime/default transitions: On Select present as `0.5` (ui_architecture=`yue2`); On Leave absent (ui_architecture=`yue2`)
+- Architecture overrides: On Select present as `0.5` for ui_architecture=`yue2`; On Leave absent for ui_architecture=`yue2`
+- Normalization: none
+- Benefits: Trains the LoRA to work with and without sheet conditioning.
+- Drawbacks: Changes conditioning exposure; use a probability from zero to one.
+- Interactions: none
+- Aliases: none
+- Example: `abc_dropout: 0.5`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `abc_dropout` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-abc-max-tokens"></a>
+### `model.yue2.model_kwargs.abc_max_tokens`
+
+Maximum ABC lead-sheet tokens generated before audio-token sampling.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.abc_max_tokens`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `integer` / `integer` / `integer`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `8192` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Caps the sheet-generation budget.
+- Drawbacks: A small cap can truncate the lead sheet; a large cap costs generation time.
+- Interactions: none
+- Aliases: none
+- Example: `abc_max_tokens: 8192`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `abc_max_tokens` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-ar-cuda-graphs"></a>
+### `model.yue2.model_kwargs.ar_cuda_graphs`
+
+Enables CUDA graph use in the YuE2 autoregressive sampling pipeline.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.ar_cuda_graphs`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `boolean` / `boolean` / `boolean`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `true` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Can reduce autoregressive decode launch overhead.
+- Drawbacks: Graph capture has device and shape constraints; disable when diagnosing capture problems.
+- Interactions: none
+- Aliases: none
+- Example: `ar_cuda_graphs: true`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.load_model` :: `ar_cuda_graphs` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-ar-kl-weight"></a>
+### `model.yue2.model_kwargs.ar_kl_weight`
+
+Weight of KL(base || LoRA) over autoregressive next-token distributions, using a no-LoRA teacher pass.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.ar_kl_weight`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `number` / `number` / `number`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `0.0` (all supported configurations)
+- Other runtime/default transitions: On Select present as `0.2` (ui_architecture=`yue2`); On Leave absent (ui_architecture=`yue2`)
+- Architecture overrides: On Select present as `0.2` for ui_architecture=`yue2`; On Leave absent for ui_architecture=`yue2`
+- Normalization: none
+- Benefits: Can restrain autoregressive memorization.
+- Drawbacks: Positive values add a teacher forward pass and can limit adaptation.
+- Interactions: none
+- Aliases: none
+- Example: `ar_kl_weight: 0.0`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `ar_kl_weight` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-ar-loss-weight"></a>
+### `model.yue2.model_kwargs.ar_loss_weight`
+
+Multiplier on the autoregressive next-token cross-entropy auxiliary loss.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.ar_loss_weight`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `number` / `number` / `number`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `1.0` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Balances composition/lyrics learning against NAR flow loss.
+- Drawbacks: Loss scaling is not equivalent to changing Adam learning rate.
+- Interactions: none
+- Aliases: none
+- Example: `ar_loss_weight: 1.0`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `ar_loss_weight` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-ar-lr-multiplier"></a>
+### `model.yue2.model_kwargs.ar_lr_multiplier`
+
+Multiplier on the AR expert LoRA parameter-group learning rate.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.ar_lr_multiplier`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `number` / `number` / `number`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `1.0` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Adjusts AR adaptation speed separately from the NAR expert.
+- Drawbacks: Changes optimization balance; retain one unless comparing controlled runs.
+- Interactions: none
+- Aliases: none
+- Example: `ar_lr_multiplier: 1.0`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `ar_lr_multiplier` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-ar-max-tokens"></a>
+### `model.yue2.model_kwargs.ar_max_tokens`
+
+Caps AR next-token training at the start of each song; zero or negative uses the whole available song.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.ar_max_tokens`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `integer` / `integer` / `integer`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `0` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Can reduce AR training compute.
+- Drawbacks: A positive cap excludes later-song targets; it does not choose a random AR window.
+- Interactions: none
+- Aliases: none
+- Example: `ar_max_tokens: 0`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `ar_max_tokens` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-cot"></a>
+### `model.yue2.model_kwargs.cot`
+
+Selects ABC sheet conditioning: full includes chords, melody selects melody-only instruction, off skips the sheet.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.cot`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `string` / `string` / `string`
+- Accepted types/values: not separately constrained; `"full"`, `"melody"`, `"off"`
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `"full"` (all supported configurations)
+- Other runtime/default transitions: On Select present as `"full"` (ui_architecture=`yue2`); On Leave absent (ui_architecture=`yue2`)
+- Architecture overrides: On Select present as `"full"` for ui_architecture=`yue2`; On Leave absent for ui_architecture=`yue2`
+- Normalization: none
+- Benefits: Matches the intended YuE2 sheet-conditioned or sheet-free sampling path.
+- Drawbacks: Changing the mode requires rebuilding dataset latent caches.
+- Interactions: none
+- Aliases: none
+- Example: `cot: "full"`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `cot` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-debug"></a>
+### `model.yue2.model_kwargs.debug`
+
+Enables additional autoregressive diagnostic readouts at the configured logging interval.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.debug`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `boolean` / `boolean` / `boolean`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `false` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Exposes token and end-token behavior during troubleshooting.
+- Drawbacks: Adds logging overhead and is normally unnecessary.
+- Interactions: none
+- Aliases: none
+- Example: `debug: false`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `debug` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-do-separation"></a>
+### `model.yue2.model_kwargs.do_separation`
+
+Separates songs into vocal and instrumental stems at cache time; AR loss then covers mix and both stems.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.do_separation`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `boolean` / `boolean` / `boolean`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `false` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Adds explicit stem-conditioned training examples.
+- Drawbacks: Adds separator cost and cache size; enabling requires rebuilding latent caches.
+- Interactions: none
+- Aliases: none
+- Example: `do_separation: false`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `do_separation` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-loss-log-every"></a>
+### `model.yue2.model_kwargs.loss_log_every`
+
+Interval used by YuE2 AR diagnostic/loss readouts; nonpositive disables periodic readouts.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.loss_log_every`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `integer` / `integer` / `integer`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `25` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Controls diagnostic verbosity.
+- Drawbacks: Frequent readouts add overhead.
+- Interactions: none
+- Aliases: none
+- Example: `loss_log_every: 25`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `loss_log_every` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-merge-nar-lora"></a>
+### `model.yue2.model_kwargs.merge_nar_lora`
+
+Merges the tokenizer-associated NAR adapter into the model at load time when enabled.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.merge_nar_lora`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `boolean` / `boolean` / `boolean`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `false` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Allows using the paired NAR correction adapter with the selected semantic tokenizer.
+- Drawbacks: Changes base NAR weights; keep its adapter and tokenizer head compatible.
+- Interactions: none
+- Aliases: none
+- Example: `merge_nar_lora: false`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `merge_nar_lora` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-nar-lora-path"></a>
+### `model.yue2.model_kwargs.nar_lora_path`
+
+Location of the NAR correction adapter used when merge\_nar\_lora is enabled.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.nar_lora_path`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `string` / `string` / `string`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `"Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4/nar_lora_joint_v4.pt"` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Allows selecting a compatible adapter locally or from the configured hub source.
+- Drawbacks: An incompatible adapter changes the base NAR behavior or fails loading.
+- Interactions: none
+- Aliases: none
+- Example: `nar_lora_path: "Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4/nar_lora_joint_v4.pt"`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `nar_lora_path` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-sample-ar-repetition-penalty"></a>
+### `model.yue2.model_kwargs.sample_ar_repetition_penalty`
+
+Repetition penalty passed to YuE2 autoregressive audio-token sampling.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.sample_ar_repetition_penalty`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `number` / `number` / `number`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `1.1` (all supported configurations)
+- Other runtime/default transitions: On Select present as `1.2` (ui_architecture=`yue2`); On Leave absent (ui_architecture=`yue2`)
+- Architecture overrides: On Select present as `1.2` for ui_architecture=`yue2`; On Leave absent for ui_architecture=`yue2`
+- Normalization: none
+- Benefits: Controls repeated-token behavior in generated audio.
+- Drawbacks: Large penalties can derail song structure; one disables the usual penalty effect.
+- Interactions: none
+- Aliases: none
+- Example: `sample_ar_repetition_penalty: 1.1`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `sample_ar_repetition_penalty` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-sample-ar-temperature"></a>
+### `model.yue2.model_kwargs.sample_ar_temperature`
+
+Temperature passed to autoregressive audio-token sampling.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.sample_ar_temperature`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `number` / `number` / `number`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `1.0` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Controls sampling diversity.
+- Drawbacks: Changing temperature affects generated composition and may make comparisons less stable.
+- Interactions: none
+- Aliases: none
+- Example: `sample_ar_temperature: 1.0`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `sample_ar_temperature` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-sample-max-seconds"></a>
+### `model.yue2.model_kwargs.sample_max_seconds`
+
+Fallback maximum sample duration when neither item/sample duration nor prompt duration provides a truthy value.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.sample_max_seconds`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `number` / `number` / `number`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `120.0` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Bounds the default autoregressive audio generation budget.
+- Drawbacks: Long budgets increase time and may be reduced to fit context capacity.
+- Interactions: none
+- Aliases: none
+- Example: `sample_max_seconds: 120.0`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `sample_max_seconds` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-semantic-head-path"></a>
+### `model.yue2.model_kwargs.semantic_head_path`
+
+Location of the community semantic-tokenizer projection head used to derive codec training targets from audio.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.semantic_head_path`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `string` / `string` / `string`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `"Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4/tokenizer_head_joint_v4.pt"` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Allows selecting a compatible audio-to-token encoder head.
+- Drawbacks: Changing the head changes token targets and cache identity; tokenizer approximations do not guarantee bit-faithful reconstruction.
+- Interactions: none
+- Aliases: none
+- Example: `semantic_head_path: "Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4/tokenizer_head_joint_v4.pt"`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `semantic_head_path` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-separation-music-weight"></a>
+### `model.yue2.model_kwargs.separation_music_weight`
+
+Multiplier on the instrumental-stem AR loss when do\_separation is enabled.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.separation_music_weight`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `number` / `number` / `number`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `1.0` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Balances instrumental stem learning relative to mix and vocals.
+- Drawbacks: Has no effect when stem separation is disabled.
+- Interactions: none
+- Aliases: none
+- Example: `separation_music_weight: 1.0`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `separation_music_weight` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-separation-vocals-weight"></a>
+### `model.yue2.model_kwargs.separation_vocals_weight`
+
+Multiplier on the vocal-stem AR loss when do\_separation is enabled.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.separation_vocals_weight`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `number` / `number` / `number`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `0.5` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Balances lyric/vocal stem learning against mix and instrumental loss.
+- Drawbacks: Overemphasizing vocal stems can bias samples toward vocals-only output.
+- Interactions: none
+- Aliases: none
+- Example: `separation_vocals_weight: 0.5`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `separation_vocals_weight` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-sheetsage-path"></a>
+### `model.yue2.model_kwargs.sheetsage_path`
+
+Checkpoint location for the SheetSage2 transcriber that produces cached ABC lead sheets.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.sheetsage_path`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `string` / `string` / `string`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `"Comfy-Org/YuE2/audio_encoders/sheetsage2_bf16.safetensors"` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: none
+- Benefits: Allows choosing the lead-sheet transcription checkpoint.
+- Drawbacks: Requires a compatible checkpoint; changes to generated sheets require rebuilding affected caches.
+- Interactions: none
+- Aliases: none
+- Example: `sheetsage_path: "Comfy-Org/YuE2/audio_encoders/sheetsage2_bf16.safetensors"`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `sheetsage_path` (`model_kwargs.get`)
+
+<a id="model-yue2-model-kwargs-train-window-frames"></a>
+### `model.yue2.model_kwargs.train_window_frames`
+
+Maximum NAR training window length in audio latent/semantic frames; the crop is shared by audio latents and semantic tokens.
+
+- UI label: not exposed in the Simple UI
+- Locations: Yaml `config.process[*].model.model_kwargs.train_window_frames`
+- Surfaces: `advanced-yaml`
+- UI projection: none
+- Scope/lifecycle: `model` / `experimental`
+- Persistence/authority: `config` / `user`
+- Applies to: ui_architecture=`yue2`
+- Parser/supported/example types: `integer` / `integer` / `integer`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: present as `1500` (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: Zero or a negative value uses the full available sequence; otherwise long sequences are cropped to a random shared window. (all supported configurations)
+- Benefits: Bounds NAR training memory independently of AR whole-song loss.
+- Drawbacks: Short windows reduce the musical context available to NAR training.
+- Interactions: none
+- Aliases: none
+- Example: `train_window_frames: 1500`
+- Source symbols: `extensions_built_in/audio_models/yue2/yue2_model.py` :: `YuE2AudioModel.__init__` :: `train_window_frames` (`model_kwargs.get`)
+
 <a id="process-guidance-guidance-scale"></a>
 ### `process.guidance.guidance_scale`
 
@@ -1906,6 +3270,37 @@ Points the diffusion trainer at the SQLite database used for UI job status.
 
 
 ## Environment
+
+<a id="environment-ai-toolkit-disable-monitor"></a>
+### `environment.ai_toolkit_disable_monitor`
+
+Disables CPU/GPU monitor sampling when the value is exactly 1 at first monitor initialization. The monitor object and SSE route remain available.
+
+- UI label: not exposed in the Simple UI
+- Locations: Environment `AI_TOOLKIT_DISABLE_MONITOR`
+- Surfaces: `cli`
+- UI projection: none
+- Scope/lifecycle: `environment` / `supported`
+- Persistence/authority: `runtime` / `runtime-forced`
+- Applies to: all supported configurations
+- Parser/supported/example types: `string` / `string-or-absent` / `string`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: absent (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: Absent or any value other than the exact string 1 leaves monitoring enabled. Set before launching the UI process. (all supported configurations)
+- Benefits: Allows running the UI without monitoring subprocesses and periodic hardware sampling.
+- Drawbacks: Monitor values and history stop updating. Changing the value after the process-wide monitor singleton is initialized does not restart or stop that singleton.
+- Interactions: none
+- Aliases: none
+- Example: `AI_TOOLKIT_DISABLE_MONITOR=1 npm run start`
+- Source symbols: none
 
 <a id="environment-ai-toolkit-offload-depth"></a>
 ### `environment.ai_toolkit_offload_depth`
@@ -2065,7 +3460,7 @@ Controls Hugging Face Xet high-performance transfer mode.
 <a id="environment-models-path"></a>
 ### `environment.models_path`
 
-Overrides the toolkit-wide local models directory.
+Overrides the shared local models directory. The UI server checks this nonblank environment value before the database Models Folder Path setting.
 
 - UI label: not exposed in the Simple UI
 - Locations: Environment `MODELS_PATH`
@@ -2085,7 +3480,7 @@ Overrides the toolkit-wide local models directory.
 - Engine fallback: present as `{"expression":"toolkit_root/models"}` (all supported configurations)
 - Other runtime/default transitions: none
 - Architecture overrides: none
-- Normalization: Only a present nonblank value overrides the default &lt;toolkit-root&gt;/models directory; blank strings use the default. (all supported configurations)
+- Normalization: Only a present nonblank value overrides the default &lt;toolkit-root&gt;/models directory; blank strings use the default. (all supported configurations); The UI server getModelsPath resolver gives a nonblank MODELS\_PATH environment value precedence over the saved Models Folder Path setting, then falls back to &lt;UI working directory&gt;/../models. The environment value is tested with trim but returned unchanged. (all supported configurations)
 - Benefits: Places shared model assets on a larger or centrally managed volume.
 - Drawbacks: A wrong directory can make local model assets appear missing.
 - Interactions: none
@@ -2123,6 +3518,37 @@ Seeds Python, NumPy, Torch, and all CUDA generators before jobs run.
 - Aliases: none
 - Example: `SEED=42 python run.py config/character.yaml`
 - Source symbols: `run.py` :: `<module>` :: `SEED` (`os.environ[]`)
+
+<a id="environment-training-guide-repository-root"></a>
+### `environment.training_guide_repository_root`
+
+Overrides the repository root used by the Training Guide reader to locate its manifest and book files.
+
+- UI label: not exposed in the Simple UI
+- Locations: Environment `TRAINING_GUIDE_REPOSITORY_ROOT`
+- Surfaces: `cli`
+- UI projection: none
+- Scope/lifecycle: `environment` / `supported`
+- Persistence/authority: `runtime` / `runtime-forced`
+- Applies to: all supported configurations
+- Parser/supported/example types: `string` / `string-or-absent` / `string`
+- Accepted types/values: not separately constrained; not enumerated
+- Supported range: not numerically bounded; collection length: not fixed
+- Null behavior: `rejected`
+- UI type/presence: not exposed; not exposed
+- UI values/range/suggestions: not enumerated; not numerically bounded; none
+- UI normalization scales: none
+- UI-created value: not declared
+- Engine fallback: absent (all supported configurations)
+- Other runtime/default transitions: none
+- Architecture overrides: none
+- Normalization: When unset, the reader uses path.resolve(process.cwd(), ".."). The nullish fallback does not treat an empty string as absent. (all supported configurations)
+- Benefits: Allows reading a selected checkout in tests or a deployment with a separate guide source root.
+- Drawbacks: A wrong root causes guide loading to fail. This does not change model, dataset, or training-output roots.
+- Interactions: none
+- Aliases: none
+- Example: `TRAINING_GUIDE_REPOSITORY_ROOT=/workspace/ai-toolkit npm run start`
+- Source symbols: none
 
 <a id="environment-use-bf16-rope"></a>
 ### `environment.use_bf16_rope`
@@ -2440,7 +3866,7 @@ Database-backed token forwarded to training jobs.
 <a id="settings-models-path"></a>
 ### `settings.models-path`
 
-Database fallback for the shared models root.
+Database fallback for the shared models root after the MODELS\_PATH environment override; used by model/LoRA listing and upload routes.
 
 - UI label: Models Folder Path
 - Locations: Ui State `settings.MODELS_PATH`
@@ -2460,7 +3886,7 @@ Database fallback for the shared models root.
 - Engine fallback: not declared
 - Other runtime/default transitions: none
 - Architecture overrides: none
-- Normalization: none
+- Normalization: Used by the UI server only when MODELS\_PATH is absent or blank; an empty database value falls back to the repository models directory. (all supported configurations)
 - Benefits: Records the exact current global or server setting boundary.
 - Drawbacks: Changing this value can affect every UI session or queued job.
 - Interactions: none
@@ -2471,7 +3897,7 @@ Database fallback for the shared models root.
 <a id="settings-training-folder"></a>
 ### `settings.training-folder`
 
-Database-backed root for training outputs.
+Database-backed root for training outputs, job notes/loss files, inference engine discovery, and output LoRA listing.
 
 - UI label: Training Folder Path
 - Locations: Ui State `settings.TRAINING_FOLDER`
@@ -4334,7 +5760,7 @@ Sets the maximum text token length used by this model family.
 <a id="model-minimax-h3-model-kwargs-partition"></a>
 ### `model.minimax_h3.model_kwargs.partition`
 
-Selects the Minimax H3 diffusion-transformer partition.
+Selects the Minimax H3 diffusion-transformer partition. Ref2VA accepts only ref2va or ref2va\_pruned and defaults to ref2va\_pruned.
 
 - UI label: not exposed in the Simple UI
 - Locations: Yaml `config.process[*].model.model_kwargs.partition`
@@ -4342,7 +5768,7 @@ Selects the Minimax H3 diffusion-transformer partition.
 - UI projection: none
 - Scope/lifecycle: `model` / `supported`
 - Persistence/authority: `config` / `user`
-- Applies to: ui_architecture=`minimax_h3`
+- Applies to: ui_architecture=`minimax_h3`; ui_architecture=`minimax_h3_ref2va`
 - Parser/supported/example types: `string` / `string` / `string`
 - Accepted types/values: not separately constrained; not enumerated
 - Supported range: not numerically bounded; collection length: not fixed
@@ -4351,21 +5777,21 @@ Selects the Minimax H3 diffusion-transformer partition.
 - UI values/range/suggestions: not enumerated; not numerically bounded; none
 - UI normalization scales: none
 - UI-created value: not declared
-- Engine fallback: present as `"fl2va_pruned"` (ui_architecture=`minimax_h3`)
+- Engine fallback: present as `"fl2va_pruned"` (ui_architecture=`minimax_h3`); present as `"ref2va_pruned"` (ui_architecture=`minimax_h3_ref2va`)
 - Other runtime/default transitions: none
-- Architecture overrides: Engine Fallback present as `"fl2va_pruned"` for ui_architecture=`minimax_h3`
+- Architecture overrides: Engine Fallback present as `"fl2va_pruned"` for ui_architecture=`minimax_h3`; Engine Fallback present as `"ref2va_pruned"` for ui_architecture=`minimax_h3_ref2va`
 - Normalization: none
 - Benefits: Exposes the model-family tuning value without changing common training settings.
 - Drawbacks: Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.
 - Interactions: none
 - Aliases: none
 - Example: `partition: fl2va_pruned`
-- Source symbols: `extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py` :: `MinimaxH3Model._dit_component` :: `partition` (`model_kwargs.get`)
+- Source symbols: `extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py` :: `MinimaxH3Model._dit_component` :: `partition` (`model_kwargs.get`); `extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py` :: `MinimaxH3Ref2VAModel._dit_component` :: `partition` (`model_kwargs.get`)
 
 <a id="model-minimax-h3-model-kwargs-sample-audio"></a>
 ### `model.minimax_h3.model_kwargs.sample_audio`
 
-Enables audio generation in Minimax H3 training samples.
+Enables audio generation in Minimax H3 training samples. Also applies to Ref2VA sample generation.
 
 - UI label: not exposed in the Simple UI
 - Locations: Yaml `config.process[*].model.model_kwargs.sample_audio`
@@ -4373,7 +5799,7 @@ Enables audio generation in Minimax H3 training samples.
 - UI projection: none
 - Scope/lifecycle: `model` / `supported`
 - Persistence/authority: `config` / `user`
-- Applies to: ui_architecture=`minimax_h3`
+- Applies to: ui_architecture=`minimax_h3`; ui_architecture=`minimax_h3_ref2va`
 - Parser/supported/example types: `boolean` / `boolean` / `boolean`
 - Accepted types/values: not separately constrained; `false`, `true`, `null`
 - Supported range: not numerically bounded; collection length: not fixed
@@ -4382,16 +5808,16 @@ Enables audio generation in Minimax H3 training samples.
 - UI values/range/suggestions: not enumerated; not numerically bounded; none
 - UI normalization scales: none
 - UI-created value: not declared
-- Engine fallback: present as `true` (ui_architecture=`minimax_h3`)
+- Engine fallback: present as `true` (ui_architecture=`minimax_h3`); present as `true` (ui_architecture=`minimax_h3_ref2va`)
 - Other runtime/default transitions: none
-- Architecture overrides: Engine Fallback present as `true` for ui_architecture=`minimax_h3`
+- Architecture overrides: Engine Fallback present as `true` for ui_architecture=`minimax_h3`; Engine Fallback present as `true` for ui_architecture=`minimax_h3_ref2va`
 - Normalization: Explicit null is preserved and acts falsey at boolean consumers. (ui_architecture=`minimax_h3`)
 - Benefits: Makes the optional model-family behavior reproducible in configuration.
 - Drawbacks: Unsupported values can reduce quality, increase memory or compute, or fail in the model-specific consumer.
 - Interactions: none
 - Aliases: none
 - Example: `sample_audio: true`
-- Source symbols: `extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py` :: `MinimaxH3Model.generate_single_image` :: `sample_audio` (`model_kwargs.get`)
+- Source symbols: `extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py` :: `MinimaxH3Model.generate_single_image` :: `sample_audio` (`model_kwargs.get`); `extensions_built_in/diffusion_models/minimax_h3/minimax_h3.py` :: `MinimaxH3Ref2VAModel.generate_single_image` :: `sample_audio` (`model_kwargs.get`)
 
 <a id="model-minimax-h3-model-kwargs-text-encoder-path"></a>
 ### `model.minimax_h3.model_kwargs.text_encoder_path`
@@ -4488,5 +5914,5 @@ Uses OmniGen 2 image-refiner transformer blocks for layer targeting.
 <!-- settings-catalog:end -->
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

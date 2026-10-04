@@ -451,7 +451,7 @@ export async function startAndWatchJob(jobID: string) {
     async prepare(jobConfig) {
       return prepareJobDatasetPresetsForTraining(jobConfig, {
         versions: createJobDatasetVersionPrismaStore(prisma),
-        snapshots: createDatasetPresetSnapshotStore(await getDataRoot()),
+        snapshots: createDatasetPresetSnapshotStore(await getDataRoot(), { allowUnverifiedSnapshots: true }),
       });
     },
     async claim(attempt) {

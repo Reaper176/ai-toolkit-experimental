@@ -91,5 +91,5 @@ If loss is non-finite, stop and diagnose rather than waiting for a sample. If lo
 See [sampling and evaluation](sampling-and-evaluation.md) for the fixed comparison suite, [training settings](../reference/training.md) for loss and optimizer controls, and [saving settings](../reference/saving-and-sampling.md) for exact cadence and retention fields.
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

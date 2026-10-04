@@ -135,5 +135,5 @@ State whether the job ever loaded, cached, trained, sampled, or saved. “Traini
 - [Queue and GPU behavior](../workflow/queue-and-multiple-gpus.md)
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

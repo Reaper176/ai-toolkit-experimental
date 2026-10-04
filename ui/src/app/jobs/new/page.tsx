@@ -21,6 +21,7 @@ import AdvancedConfigEditor from '@/components/AdvancedConfigEditor';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { TrainingPresetControl } from '@/components/TrainingPresetControl';
 import { apiClient } from '@/utils/api';
+import { isAxiosError } from 'axios';
 import { isMac } from '@/helpers/basic';
 import { createTrainingPresetPageState, trainingPresetPageReducer } from './trainingPresetPageState';
 import type { DatasetPresetDetail } from '@/hooks/useDatasetPresets';
@@ -248,35 +249,54 @@ export default function TrainingForm() {
     }
     setStatus('saving');
 
-    apiClient
-      .post('/api/jobs', buildTrainingJobSaveRequest({
+    const saveRequest = buildTrainingJobSaveRequest({
         runId,
         cloneId,
         name: jobConfig.config.name,
         gpuIds: gpuIDs,
         jobConfig,
-      }))
-      .then(res => {
+      });
+    try {
+      let res;
+      try {
+        res = await apiClient.post('/api/jobs', saveRequest);
+      } catch (error) {
+        if (!isAxiosError<{ code?: string }>(error) ||
+          error.response?.data?.code !== 'DATASET_PRESET_SNAPSHOT_MISMATCH' ||
+          !window.confirm(
+            'This dataset preset has changed since its snapshot was created. Continue with the files currently on disk?',
+          )) {
+          throw error;
+        }
+        res = await apiClient.post('/api/jobs', {
+          ...saveRequest,
+          allow_unverified_dataset_snapshots: true,
+        });
+      }
         setStatus('success');
         if (runId) {
           router.push(`/jobs/${runId}`);
         } else {
           router.push(`/jobs/${res.data.id}`);
         }
-      })
-      .catch(error => {
-        if (error.response?.status === 409) {
-          alert('Training name already exists. Please choose a different name.');
+    } catch (error) {
+        const response = isAxiosError<{ code?: string; error?: string }>(error) ? error.response : undefined;
+        if (response?.status === 409) {
+          if (response.data?.code === 'DATASET_PRESET_SNAPSHOT_MISMATCH') {
+            alert('Dataset preset snapshot was not approved.');
+          } else {
+            alert('Training name already exists. Please choose a different name.');
+          }
         } else {
-          alert('Failed to save job. Please try again.');
+          const serverMessage = response?.data?.error;
+          alert(serverMessage ? `Failed to save job: ${serverMessage}` : 'Failed to save job. Please try again.');
         }
-        console.log('Error saving training:', error);
-      })
-      .finally(() =>
+        console.error('Error saving training:', error);
+    } finally {
         setTimeout(() => {
           setStatus('idle');
-        }, 2000),
-      );
+        }, 2000);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

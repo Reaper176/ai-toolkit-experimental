@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "book_revision": 1,
+  "book_revision": 2,
   "examples": [
     {
       "path": "first-lora-flex1.yaml",

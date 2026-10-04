@@ -124,5 +124,5 @@ A resumed counter is not proof that the numerical trajectory was restored. Recor
 See [loss and checkpoints](loss-and-checkpoints.md) for selecting the recovery point and the [saving settings reference](../reference/saving-and-sampling.md) for exact cadence, format, and retention controls.
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

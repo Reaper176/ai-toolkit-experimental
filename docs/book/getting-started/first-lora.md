@@ -92,5 +92,5 @@ Restarting from a LoRA checkpoint and restoring optimizer state are related but 
 After the first run, continue to the [training mental model](training-mental-model.md) to understand what rank, learning rate, steps, captions, and noise are doing beneath the form.
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

@@ -172,6 +172,7 @@ export interface DatasetPresetSnapshotDependencies {
   beforeMaskDestinationOpen?: (sourcePath: string) => void | Promise<void>;
   beforePortableMaskPublication?: (sourcePath: string) => void | Promise<void>;
   maskFilesystemStrategy?: 'descriptor' | 'portable';
+  allowUnverifiedSnapshots?: boolean;
 }
 
 interface ParsedManifestPath {
@@ -496,6 +497,7 @@ export function createDatasetPresetSnapshotStore(
     beforeMaskDestinationOpen: dependencies?.beforeMaskDestinationOpen,
     beforePortableMaskPublication: dependencies?.beforePortableMaskPublication,
     maskFilesystemStrategy: dependencies?.maskFilesystemStrategy,
+    allowUnverifiedSnapshots: dependencies?.allowUnverifiedSnapshots ?? false,
   };
   let rootPin: RootPin | undefined;
 
@@ -1278,7 +1280,7 @@ export function createDatasetPresetSnapshotStore(
     validateDirectoryPinSync(versionPin, 'Version root', parsed.presetRoot);
     validateDirectoryPinSync(presetPin, 'Preset root', managedRoot);
     requirePinnedRootsSync();
-    if (mismatches.length > 0) {
+    if (mismatches.length > 0 && !resolvedDependencies.allowUnverifiedSnapshots) {
       throw new DatasetPresetSnapshotVerificationError(parsed.presetId, parsed.version, mismatches);
     }
     return manifest;

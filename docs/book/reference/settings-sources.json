@@ -9,6 +9,7 @@
         "extensions_built_in/diffusion_models/**/*.py",
         "extensions_built_in/flex2/**/*.py",
         "extensions_built_in/audio_models/**/*.py",
+        "extensions_built_in/llm_models/**/*.py",
         "toolkit/config.py",
         "toolkit/config_modules.py",
         "toolkit/data_loader.py",
@@ -44,7 +45,12 @@
         "ui/src/app/api/**/*.ts",
         "ui/src/middleware.ts",
         "ui/src/docs.tsx",
-        "ui/src/types.ts"
+        "ui/src/types.ts",
+        "extensions_built_in/**/ui.tsx",
+        "extensions_built_in/**/ui.ts",
+        "extensions_built_in/**/ui.jsx",
+        "extensions_built_in/**/ui.js",
+        "ui/src/extensions/**/*"
       ]
     }
   ],

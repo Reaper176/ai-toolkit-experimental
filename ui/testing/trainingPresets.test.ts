@@ -164,7 +164,7 @@ Object.defineProperty(accessorCurrent.config.process[0].train, 'changing_value',
   configurable: true,
   get: () => {
     unsafeAccessorReads += 1;
-    return unsafeAccessorReads === 1 ? undefined : 1n;
+    return unsafeAccessorReads === 1 ? undefined : BigInt(1);
   },
 });
 assert.throws(

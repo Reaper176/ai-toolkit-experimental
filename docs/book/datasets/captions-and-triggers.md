@@ -103,5 +103,5 @@ Run a deterministic audit whenever the dataset version changes:
 For a diagnostic run, keep caption processing simple. Confirm that the baseline learns and responds to text before adding random triggers, token dropout, or shuffling. When a change helps one prompt but harms another, compare the same checkpoint cadence and fixed seeds, then decide whether the issue is caption content, trigger behavior, or training configuration.
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

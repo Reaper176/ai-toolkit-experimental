@@ -91,7 +91,9 @@ _SOURCE_OWNERS = {"python-ast", "typescript-test"}
 _INVENTORY_BASELINE_TOTAL = 965
 _INVENTORY_BASELINE_GROUPS = {
     "toolkit/config_modules.py": 436,
-    "TrainConfig": 126,
+    # v0.13.23 removes latent_multiplier and standardize_latents, and adds
+    # first_timestep_chance: the audited TrainConfig floor decreases by one.
+    "TrainConfig": 125,
     "ModelConfig": 60,
     "DatasetConfig": 78,
     "AdapterConfig": 49,
@@ -109,7 +111,7 @@ _Identity = tuple[str, str, str, str]
 
 
 def validate_inventory_baseline(counts: dict[str, int], total: int) -> None:
-    """Reject any reduction from the immutable Task 2 production inventory."""
+    """Reject reductions below audited production inventory floors."""
 
     if total < _INVENTORY_BASELINE_TOTAL:
         raise DiscoveryError(
@@ -327,6 +329,11 @@ def _literal_strings(node: ast.AST, values: dict[str, tuple[str, ...]]) -> tuple
     if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
         result: list[str] = []
         for element in node.elts:
+            # Nested collections are not a finite domain of scalar strings.
+            # Leave them unknown so non-config iteration remains harmless and
+            # configuration reads using unpacked values still fail closed.
+            if isinstance(element, (ast.Tuple, ast.List, ast.Set)):
+                return None
             element_values = _literal_strings(element, values)
             if element_values is None:
                 return None
@@ -649,6 +656,29 @@ def _inherits_from(
     return False
 
 
+def _caller_may_execute_inherited_body(
+    classes: dict[str, list[_ClassInfo]],
+    effective_owners: frozenset[_MethodOwner],
+    original_owner: _MethodOwner,
+    method_name: str,
+) -> bool:
+    if original_owner in effective_owners:
+        return True
+    for owner in effective_owners:
+        info = _class_info(classes, owner)
+        if info is None:
+            return True
+        method = next((node for node in info.node.body
+                       if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                       and node.name == method_name), None)
+        # Calls may delegate to the inherited body directly via super(), or
+        # indirectly via another helper. Only a call-free replacement proves
+        # this caller cannot execute the base body on the subclass instance.
+        if method is None or method.decorator_list or any(isinstance(node, ast.Call) for node in ast.walk(method)):
+            return True
+    return False
+
+
 def _inherited_caller_has_producer_override(
     *,
     classes: dict[str, list[_ClassInfo]],
@@ -677,7 +707,7 @@ def _inherited_caller_has_producer_override(
             )
             if caller_uncertain:
                 return True
-            if caller_owners != {caller_owner}:
+            if not _caller_may_execute_inherited_body(classes, caller_owners, caller_owner, caller.function.name):
                 continue
             producer_owners, producer_uncertain = _resolve_method_owners(
                 classes=classes,
@@ -757,84 +787,120 @@ def _parameter_domains(
                         )
                     )
                 if inherited_override_cache[cache_key]:
+                    # Inherited callers dispatch on the runtime subclass. Keep
+                    # every known producer; accept only if each return domain
+                    # can be proved, rather than trusting the base method.
+                    expanded_owners = set(owners)
+                    for candidates in classes.values():
+                        for candidate in candidates:
+                            if not _inherits_from(
+                                classes=classes, candidate=candidate,
+                                ancestor=(caller.source, caller.class_name),
+                            ):
+                                continue
+                            caller_owners, caller_uncertain = _resolve_method_owners(
+                                classes=classes, caller_source=candidate.source,
+                                caller_class=candidate.node.name, method_name=caller.function.name,
+                                super_only=False,
+                            )
+                            if caller_uncertain:
+                                return None
+                            if not _caller_may_execute_inherited_body(
+                                classes, caller_owners, (caller.source, caller.class_name), caller.function.name,
+                            ):
+                                continue
+                            candidate_owners, candidate_uncertain = _resolve_method_owners(
+                                classes=classes, caller_source=candidate.source,
+                                caller_class=candidate.node.name, method_name=call.func.attr,
+                                super_only=False,
+                            )
+                            if candidate_uncertain or len(candidate_owners) != 1:
+                                return None
+                            expanded_owners.update(candidate_owners)
+                    owners = frozenset(expanded_owners)
+
+            def resolve_return(producer_owner: _MethodOwner) -> tuple[str, ...] | None:
+                producer_class_info = _class_info(classes, producer_owner)
+                if producer_class_info is None:
                     return None
-            producer_class_info = _class_info(classes, producer_owner)
-            if producer_class_info is None:
-                return None
-            producer = next(
-                (
-                    node
-                    for node in producer_class_info.node.body
-                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                    and node.name == call.func.attr
-                ),
-                None,
-            )
-            if (
-                not isinstance(producer, ast.FunctionDef)
-                or producer.decorator_list
-                or any(
-                    isinstance(inner, (ast.Yield, ast.YieldFrom))
-                    for inner in ast.walk(producer)
+                producer = next(
+                    (
+                        node
+                        for node in producer_class_info.node.body
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and node.name == call.func.attr
+                    ),
+                    None,
                 )
-            ):
-                return None
-            local_values: dict[str, tuple[str, ...]] = {}
-            guard_positions: dict[str, int] = {}
-            for position, inner in enumerate(producer.body):
                 if (
-                    isinstance(inner, ast.If)
-                    and not inner.orelse
-                    and inner.body
-                    and isinstance(inner.body[-1], ast.Raise)
-                    and isinstance(inner.test, ast.Compare)
-                    and len(inner.test.ops) == 1
-                    and isinstance(inner.test.ops[0], ast.NotIn)
-                    and isinstance(inner.test.left, ast.Name)
-                    and len(inner.test.comparators) == 1
+                    not isinstance(producer, ast.FunctionDef)
+                    or producer.decorator_list
+                    or any(
+                        isinstance(inner, (ast.Yield, ast.YieldFrom))
+                        for inner in ast.walk(producer)
+                    )
                 ):
-                    values = _literal_strings(inner.test.comparators[0], {})
-                    if values:
-                        name = inner.test.left.id
-                        local_values[name] = values
-                        guard_positions[name] = position
-            returns = [
-                (position, statement)
-                for position, statement in enumerate(producer.body)
-                if isinstance(statement, ast.Return)
-            ]
-            if not returns or len(returns) != sum(
-                isinstance(inner, ast.Return) for inner in ast.walk(producer)
-            ):
-                return None
-            resolved: set[str] = set()
-            for return_position, statement in returns:
-                if statement.value is None:
                     return None
-                referenced_names = {
-                    inner.id
-                    for inner in ast.walk(statement.value)
-                    if isinstance(inner, ast.Name)
-                }
-                for name in referenced_names.intersection(local_values):
-                    guard_position = guard_positions[name]
-                    if guard_position >= return_position:
-                        return None
-                    if any(
-                        isinstance(inner, ast.Name)
-                        and inner.id == name
-                        and isinstance(inner.ctx, ast.Store)
-                        for intervening in producer.body[
-                            guard_position + 1 : return_position
-                        ]
-                        for inner in ast.walk(intervening)
+                local_values: dict[str, tuple[str, ...]] = {}
+                guard_positions: dict[str, int] = {}
+                for position, inner in enumerate(producer.body):
+                    if (
+                        isinstance(inner, ast.If)
+                        and not inner.orelse
+                        and inner.body
+                        and isinstance(inner.body[-1], ast.Raise)
+                        and isinstance(inner.test, ast.Compare)
+                        and len(inner.test.ops) == 1
+                        and isinstance(inner.test.ops[0], ast.NotIn)
+                        and isinstance(inner.test.left, ast.Name)
+                        and len(inner.test.comparators) == 1
                     ):
-                        return None
-                values = _literal_strings(statement.value, local_values)
-                if values is None:
+                        values = _literal_strings(inner.test.comparators[0], {})
+                        if values:
+                            name = inner.test.left.id
+                            local_values[name] = values
+                            guard_positions[name] = position
+                returns = [
+                    (position, statement)
+                    for position, statement in enumerate(producer.body)
+                    if isinstance(statement, ast.Return)
+                ]
+                if not returns or len(returns) != sum(
+                    isinstance(inner, ast.Return) for inner in ast.walk(producer)
+                ):
                     return None
-                resolved.update(values)
-            return tuple(sorted(resolved)) or None
+                resolved: set[str] = set()
+                for return_position, statement in returns:
+                    if statement.value is None:
+                        return None
+                    referenced_names = {
+                        inner.id
+                        for inner in ast.walk(statement.value)
+                        if isinstance(inner, ast.Name)
+                    }
+                    for name in referenced_names.intersection(local_values):
+                        guard_position = guard_positions[name]
+                        if guard_position >= return_position:
+                            return None
+                        if any(
+                            isinstance(inner, ast.Name)
+                            and inner.id == name
+                            and isinstance(inner.ctx, ast.Store)
+                            for intervening in producer.body[
+                                guard_position + 1 : return_position
+                            ]
+                            for inner in ast.walk(intervening)
+                        ):
+                            return None
+                    values = _literal_strings(statement.value, local_values)
+                    if values is None:
+                        return None
+                    resolved.update(values)
+                return tuple(sorted(resolved)) or None
+            domains = [resolve_return(owner) for owner in owners]
+            if any(domain is None for domain in domains):
+                return None
+            return tuple(sorted({value for domain in domains for value in domain or ()})) or None
 
         def call_values(
             argument: ast.AST,
@@ -2070,10 +2136,9 @@ class _SettingVisitor(ast.NodeVisitor):
                 if all(resolution.literals is not None for resolution in element_resolutions)
                 else None
             )
-            iterable = literals if not any(
-                isinstance(element, (ast.Tuple, ast.List, ast.Set))
-                for element in value.elts
-            ) else None
+            if any(isinstance(element, (ast.Tuple, ast.List, ast.Set)) for element in value.elts):
+                literals = None
+            iterable = literals
             resolutions[id(value)] = _AssignmentResolution(None, literals, iterable)
             return
         self.visit(value)

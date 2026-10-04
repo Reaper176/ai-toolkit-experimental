@@ -770,6 +770,11 @@ def _render_setting(setting: Setting) -> list[str]:
         else f"optional={_code_span(str(contract.ui_optional).lower())}, "
         f"nullable={_code_span(str(contract.ui_nullable).lower())}"
     )
+    if contract.ui_optional_when is not None:
+        ui_presence = (
+            f"optional only when architecture group is {_code_span(contract.ui_optional_when.architecture_group)}; "
+            f"required otherwise, nullable={_code_span(str(contract.ui_nullable).lower())}"
+        )
     scales = (
         "none"
         if contract.config_to_ui_scale is None

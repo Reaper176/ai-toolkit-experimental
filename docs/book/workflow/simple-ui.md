@@ -83,5 +83,5 @@ For each experiment:
 Continue with [sampling and evaluation](sampling-and-evaluation.md) before judging the result, and read [saving and optimizer state](saving-resuming-and-optimizer-state.md) before reusing files from the source job in a clone.
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

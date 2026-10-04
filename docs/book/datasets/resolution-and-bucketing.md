@@ -93,5 +93,5 @@ When samples show rigid framing, cropped anatomy, tiny subjects, stretched detai
 If the baseline composition becomes correct, restore at most one augmentation and measure its effect. If detail remains absent at every setting, return to source quality: raising `resolution` cannot restore detail, and more steps can only reinforce the information that survived preprocessing.
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

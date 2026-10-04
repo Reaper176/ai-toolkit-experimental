@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { readFrozenPresetMask } from '../src/server/datasetPresetFileService';
 import { buildDatasetPresetManifest, manifestSha256 } from '../src/helpers/datasetPresets';
 import { DEFAULT_DATASET_PRESET_LOADER_CONFIG } from '../src/components/DatasetPresetDialog';
-import { serveFrozenVersionFile } from '../src/app/api/dataset-preset-versions/[versionId]/files/route';
+import { serveFrozenVersionFile } from '../src/server/datasetPresetFileRouteHandler';
 
 async function run() {
   const root = await mkdtemp(join(tmpdir(), 'preset-mask-file-'));

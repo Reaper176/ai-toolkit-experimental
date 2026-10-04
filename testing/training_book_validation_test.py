@@ -56,17 +56,63 @@ from scripts.training_book.discovery import (  # noqa: E402
 
 
 FULL_ARCHITECTURES = (
-    "ace_step_15", "ace_step_15_xl", "anima", "boogu_image", "boogu_image_edit",
-    "chroma", "ernie_image", "flex1", "flex2", "flux", "flux_kontext", "flux2",
-    "flux2_klein_4b", "flux2_klein_9b", "hidream", "hidream_e1", "hidream_o1",
-    "ideogram4", "krea2", "krea2:o_edit", "krea2:turbo", "krea2:o_edit_turbo",
-    "ltx2", "ltx2.3", "ltx2.5", "lumina2", "mageflow", "mageflow_edit",
-    "minimax_h3", "nucleus_image", "omnigen2", "prx_pixel", "qwen_image",
-    "qwen_image:2512", "qwen_image_edit", "qwen_image_edit_plus",
-    "qwen_image_edit_plus:2511", "sd15", "sdxl", "wan21:1b", "wan21:14b",
-    "wan21_i2v:14b480p", "wan21_i2v:14b", "wan22_14b:t2v", "wan22_14b_i2v",
-    "wan22_5b", "zimage", "zimage:deturbo", "zimage_l2p", "zimage:turbo",
-    "zeta_chroma",
+    'ace_step_15',
+    'ace_step_15_xl',
+    'anima',
+    'boogu_image',
+    'boogu_image_edit',
+    'chroma',
+    'ernie_image',
+    'minimax_h3_vsa',
+    'flex1',
+    'flex2',
+    'flux',
+    'flux_kontext',
+    'flux2',
+    'flux2_klein_4b',
+    'flux2_klein_9b',
+    'hidream',
+    'hidream_e1',
+    'hidream_o1',
+    'ideogram4',
+    'krea2',
+    'krea2:o_edit',
+    'krea2:turbo',
+    'krea2:o_edit_turbo',
+    'ltx2',
+    'ltx2.3',
+    'ltx2.5',
+    'lumina2',
+    'mageflow',
+    'mageflow_edit',
+    'ming_image',
+    'minimax_h3',
+    'minimax_h3_ref2va',
+    'nucleus_image',
+    'omnigen2',
+    'prx_pixel',
+    'qwen_image',
+    'qwen_image_2',
+    'qwen_image:2512',
+    'qwen_image_edit',
+    'qwen_image_edit_plus',
+    'qwen_image_edit_plus:2511',
+    'qwen25_omni',
+    'sd15',
+    'sdxl',
+    'wan21:1b',
+    'wan21:14b',
+    'wan21_i2v:14b480p',
+    'wan21_i2v:14b',
+    'wan22_14b:t2v',
+    'wan22_14b_i2v',
+    'wan22_5b',
+    'yue2',
+    'zimage',
+    'zimage:deturbo',
+    'zimage_l2p',
+    'zimage:turbo',
+    'zeta_chroma',
 )
 
 
@@ -139,6 +185,18 @@ def load_production_training_book_preset_facts():
         raise AssertionError("canonical training-book preset facts have an invalid envelope")
     return tuple(payload["presets"])
 
+def isolated_training_book_repository(root: Path) -> Path:
+    """Copy mutable book inputs; link only read-only repository dependencies."""
+    root.mkdir(parents=True, exist_ok=True)
+    for entry in REPOSITORY_ROOT.iterdir():
+        target = root / entry.name
+        if entry.name in {"docs", "scripts"}:
+            shutil.copytree(entry, target)
+        else:
+            target.symlink_to(entry, target_is_directory=entry.is_dir())
+    return root
+
+
 BOOK_PAGES = (
     "README.md",
     "getting-started/prerequisites.md",
@@ -192,6 +250,7 @@ PYTHON_DISCOVERY_GLOBS = (
     "extensions_built_in/diffusion_models/**/*.py",
     "extensions_built_in/flex2/**/*.py",
     "extensions_built_in/audio_models/**/*.py",
+    "extensions_built_in/llm_models/**/*.py",
     "toolkit/config.py",
     "toolkit/config_modules.py",
     "toolkit/data_loader.py",
@@ -226,6 +285,11 @@ TYPESCRIPT_DISCOVERY_GLOBS = (
     "ui/src/middleware.ts",
     "ui/src/docs.tsx",
     "ui/src/types.ts",
+    "extensions_built_in/**/ui.tsx",
+    "extensions_built_in/**/ui.ts",
+    "extensions_built_in/**/ui.jsx",
+    "extensions_built_in/**/ui.js",
+    "ui/src/extensions/**/*",
 )
 
 INITIAL_EXCLUDED_SYMBOL_REASONS = {
@@ -2138,22 +2202,21 @@ class CatalogContractTests(unittest.TestCase):
         )
 
     def test_catalog_contract_cli_rejects_committed_schema_drift(self):
-        schema_path = (
-            REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json"
-        )
-        original = schema_path.read_bytes()
-        try:
+        original_path = REPOSITORY_ROOT / "docs/book/reference/settings-catalog.schema.json"
+        original = original_path.read_bytes()
+        with tempfile.TemporaryDirectory() as directory:
+            root = isolated_training_book_repository(Path(directory) / "repository")
+            schema_path = root / "docs/book/reference/settings-catalog.schema.json"
             schema_path.write_text("{}\n", encoding="utf-8")
             result = subprocess.run(
                 [sys.executable, "scripts/validate_training_book.py"],
-                cwd=REPOSITORY_ROOT,
+                cwd=root,
                 capture_output=True,
                 text=True,
                 check=False,
             )
-        finally:
-            schema_path.write_bytes(original)
 
+        self.assertEqual(original_path.read_bytes(), original)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("schema drift", result.stderr)
 
@@ -2243,6 +2306,125 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
                 for item in projected
             ],
         }
+
+    def test_ui_checkbox_facts_require_exact_boolean_write_delete_contracts(self):
+        facts = self.valid_facts()
+        checkbox = {"present": True, "value": [{
+            "label": "Transparency (RGBA)", "doc": {"present": False},
+            "path": "config.process[*].model.model_kwargs.rgba", "default_value": False,
+            "writes": [
+                {"selected_value": True, "operation": "write", "value": {"kind": "boolean", "value": True}},
+                {"selected_value": False, "operation": "delete", "value": {"kind": "undefined"}},
+            ],
+        }]}
+        facts["model_architectures"][0]["custom_model_checkbox_options"] = checkbox
+        parsed = validate_training_book_ui_facts(facts)
+        projected = catalog_module.project_training_book_ui_facts(parsed)
+        self.assertTrue(any(getattr(item.fact, "field", None) == "custom_model_checkbox_options" for item in projected))
+        checkbox_fact = next(item.fact for item in projected if getattr(item.fact, "field", None) == "custom_model_checkbox_options")
+        owner = catalog_module.UiFactOwner(setting_id="ui.architecture.fixture", fact=checkbox_fact)
+        control = {
+            "fact_type": "source-claim", "source_path": "ui/src/example.tsx",
+            "symbol": "SimpleJob::Checkbox::rgba::Transparency (RGBA)::architecture=fixture",
+            "path": "config.process[*].model.model_kwargs.rgba", "kind": "setting",
+            "ui_label": {"present": True, "value": {"kind": "string", "value": "Transparency (RGBA)"}},
+            "value_contract": {"ui_type": "boolean", "widget_kind": "checkbox", "optional": True,
+                               "nullable": False, "accepted_values": [{"kind": "boolean", "value": True}, {"kind": "undefined"}]},
+        }
+        def check_projection(value):
+            exclusion = catalog_module.UiFactExclusion.model_validate({"fact": value, "reason": "architecture-projected-control"})
+            catalog_module._validate_architecture_projected_exclusions(
+                projected, {checkbox_fact.model_dump_json(): owner}, {exclusion.fact.model_dump_json(): exclusion})
+        check_projection(control)
+        for mutation in ("path", "label", "values"):
+            altered = deepcopy(control)
+            if mutation == "path": altered["path"] = "config.process[*].model.model_kwargs.other"
+            elif mutation == "label": altered["ui_label"]["value"]["value"] = "Other"
+            else: altered["value_contract"]["accepted_values"] = [{"kind": "boolean", "value": False}]
+            with self.subTest(projection=mutation), self.assertRaises(CatalogError):
+                check_projection(altered)
+        for field, bad_value in (("default_value", 0), ("path", "config.process[0].model.model_kwargs.rgba")):
+            mutated = deepcopy(facts)
+            mutated["model_architectures"][0]["custom_model_checkbox_options"]["value"][0][field] = bad_value
+            with self.subTest(field=field), self.assertRaises(CatalogError):
+                validate_training_book_ui_facts(mutated)
+        for mutation in ("delete_value", "missing_state", "duplicate_state", "null"):
+            mutated = deepcopy(facts)
+            options = mutated["model_architectures"][0]["custom_model_checkbox_options"]
+            writes = options["value"][0]["writes"]
+            if mutation == "delete_value": writes[1]["value"] = {"kind": "boolean", "value": False}
+            elif mutation == "missing_state": writes.pop()
+            elif mutation == "duplicate_state": writes[1]["selected_value"] = True
+            else: mutated["model_architectures"][0]["custom_model_checkbox_options"] = None
+            with self.subTest(mutation=mutation), self.assertRaises(CatalogError):
+                validate_training_book_ui_facts(mutated)
+
+    def test_select_delete_projection_requires_explicit_undefined(self):
+        value = {"selected_value": "disabled", "path": "config.process[*].model.model_kwargs.dopsd",
+                 "guard": {"kind": "always"}, "value": {"kind": "undefined"}, "operation": "delete"}
+        parsed = catalog_module.UiOptionWrite.model_validate(value)
+        self.assertEqual(parsed.operation, "delete")
+        for mutation in ({"value": {"kind": "boolean", "value": False}}, {"operation": "write"}, {"operation": None}):
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                catalog_module.UiOptionWrite.model_validate({**value, **mutation})
+        del value["operation"]
+        self.assertNotIn("operation", catalog_module.UiOptionWrite.model_validate(value).model_fields_set)
+
+    def test_ui_conditional_optionality_preserves_architecture_group(self):
+        value = {"ui_type": "string", "widget_kind": "text", "optional": True,
+                 "nullable": False, "optional_when": {"architecture_group": "llm"}}
+        self.assertEqual(catalog_module.UiValueContract.model_validate(value).optional_when.architecture_group, "llm")
+        for mutation in ({"optional": False}, {"optional_when": None},
+                         {"optional_when": {"architecture_group": ""}},
+                         {"optional_when": {"architecture_group": "llm", "unknown": True}}):
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                catalog_module.UiValueContract.model_validate({**value, **mutation})
+
+    def test_ui_conditional_optionality_requires_matching_owner_and_rendering(self):
+        raw = self.valid_facts()
+        raw["config_claims"][0]["kind"] = "setting"
+        raw["config_claims"][0]["value_contract"].update(optional=True, optional_when={"architecture_group": "llm"})
+        facts = validate_training_book_ui_facts(raw)
+        projected = catalog_module.project_training_book_ui_facts(facts)
+        entry = CatalogContractTests().valid_catalog_entry()
+        entry["contract"].update(ui_optional=True, ui_optional_when={"architecture_group": "llm"})
+        data = self.ownership_catalog_data(projected, train_entry=entry)
+        catalog = validate_settings_catalog(data, CatalogContractTests().discovered_steps())
+        catalog_module.validate_ui_fact_ownership(facts, catalog, (), scope="ui-defaults-transitions")
+        rendered = markdown_module.render_settings_catalog_block(catalog.settings[:1])
+        self.assertIn("optional only when architecture group is `llm`", rendered)
+        for condition in (None, {"architecture_group": "image"}):
+            mutated = deepcopy(data)
+            if condition is None:
+                del mutated["settings"][0]["contract"]["ui_optional_when"]
+            else:
+                mutated["settings"][0]["contract"]["ui_optional_when"] = condition
+            changed = validate_settings_catalog(mutated, CatalogContractTests().discovered_steps())
+            with self.subTest(condition=condition), self.assertRaisesRegex(CatalogError, "optionality condition"):
+                catalog_module.validate_ui_fact_ownership(facts, changed, (), scope="ui-defaults-transitions")
+
+    def test_optional_generation_architecture_metadata_has_exact_ownership(self):
+        raw = self.valid_facts()
+        raw["model_architectures"][0].update(
+            generate_name_override={"present": True, "value": {"kind": "string", "value": "Prompt"}},
+            generate={"present": True, "value": {"kind": "boolean", "value": True}},
+        )
+        facts = validate_training_book_ui_facts(raw)
+        projected = catalog_module.project_training_book_ui_facts(facts)
+        fields = {item.fact.field for item in projected if item.fact.fact_type == "architecture-field"}
+        self.assertTrue({"generate", "generate_name_override"} <= fields)
+        data = self.ownership_catalog_data(projected)
+        catalog = validate_settings_catalog(data, CatalogContractTests().discovered_steps())
+        catalog_module.validate_ui_fact_ownership(facts, catalog, (), scope="ui-defaults-transitions")
+        for name in ("generate", "generate_name_override"):
+            mutated = deepcopy(raw)
+            mutated["model_architectures"][0][name] = None
+            with self.subTest(name=name), self.assertRaises(CatalogError):
+                validate_training_book_ui_facts(mutated)
+        data["ui_claims"] = [item for item in data["ui_claims"] if item["fact"].get("field") != "generate_name_override"]
+        catalog = validate_settings_catalog(data, CatalogContractTests().discovered_steps())
+        with self.assertRaisesRegex(CatalogError, "unowned UI facts"):
+            catalog_module.validate_ui_fact_ownership(facts, catalog, (), scope="ui-defaults-transitions")
 
     def test_ui_facts_contract_accepts_exact_tagged_shape(self):
         facts = validate_training_book_ui_facts(self.valid_facts())
@@ -3895,8 +4077,8 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             setting.id for setting in catalog.settings
             if setting.id.startswith("ui.dataset.resolution-")
         }
-        self.assertEqual(len(selectors), 51)
-        self.assertEqual(len(qtype_controls), 49)
+        self.assertEqual(len(selectors), 57)
+        self.assertEqual(len(qtype_controls), 55)
         self.assertEqual(
             resolution_ids,
             {
@@ -3911,10 +4093,11 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         ] + [
             settings["ui.model.match-target-res-control"],
             settings["ui.optimizer.weight-decay-control"],
+            settings["ui.sample.prompt-control"],
         ]
-        self.assertEqual(len(mediators), 59)
+        self.assertEqual(len(mediators), 66)
         self.assertEqual(
-            sum(len(setting.interactions) for setting in mediators), 68
+            sum(len(setting.interactions) for setting in mediators), 75
         )
         self.assertTrue(
             all(
@@ -3975,8 +4158,8 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         exclusions = load_ui_exclusions(
             REPOSITORY_ROOT / "docs/book/reference/settings-exclusions.json"
         )
-        self.assertEqual(len(catalog.ui_claims), 2461)
-        self.assertEqual(len(exclusions), 115)
+        self.assertEqual(len(catalog.ui_claims), 2852)
+        self.assertEqual(len(exclusions), 135)
         self.assertEqual(
             {exclusion.reason for exclusion in exclusions},
             {
@@ -4028,9 +4211,10 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             for architecture in facts.model_architectures
             if "model.quantize" not in architecture.disable_sections
             and "model.quantize_te" not in architecture.disable_sections
+            and architecture.group != "llm"
         }
-        self.assertEqual(len(visible_architectures), 49)
-        self.assertEqual(len(visible_te_architectures), 48)
+        self.assertEqual(len(visible_architectures), 55)
+        self.assertEqual(len(visible_te_architectures), 52)
         expected_projections = {
             "config.process[*].model.qtype": (
                 visible_architectures, "string", "Transformer"
@@ -4162,9 +4346,9 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
         ]
         self.assertEqual(catalog_data["schema_version"], 2)
         self.assertEqual(exclusions_data["schema_version"], 2)
-        self.assertEqual(len(catalog_data["ui_claims"]), 2461)
-        self.assertEqual(len(exclusions_data["ui_exclusions"]), 115)
-        self.assertEqual(len(server_facts), 214)
+        self.assertEqual(len(catalog_data["ui_claims"]), 2852)
+        self.assertEqual(len(exclusions_data["ui_exclusions"]), 135)
+        self.assertEqual(len(server_facts), 239)
         self.assertTrue(all(
             set(fact["server_state_contract"]) == {
                 "operation", "provenance", "authority", "persistence",
@@ -4397,7 +4581,7 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             if exclusion.fact.fact_type == "source-claim"
             and exclusion.fact.path == "http.Authorization"
         ]
-        self.assertEqual(len(outbound_headers), 4)
+        self.assertEqual(len(outbound_headers), 5)
         server_owned = [
             exclusion for exclusion in outbound_headers
             if exclusion.reason == "server-owned-value"
@@ -4414,7 +4598,7 @@ class TrainingBookUiFactsContractTests(unittest.TestCase):
             exclusion for exclusion in outbound_headers
             if exclusion.reason == "transient-ui-state"
         ]
-        self.assertEqual(len(transient), 3)
+        self.assertEqual(len(transient), 4)
         self.assertEqual(
             {
                 (
@@ -4578,6 +4762,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "batch_size",
             "content_or_style",
             "embedding_lr",
+            "first_timestep_chance",
             "gradient_accumulation",
             "gradient_accumulation_steps",
             "learnable_snr_gos",
@@ -4645,7 +4830,6 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "img_multiplier",
             "inverted_mask_prior",
             "inverted_mask_prior_multiplier",
-            "latent_multiplier",
             "loss_target",
             "loss_type",
             "match_noise_norm",
@@ -4668,7 +4852,6 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "signal_correction_noise_scale",
             "skip_first_sample",
             "standardize_images",
-            "standardize_latents",
             "t0_loss_target",
             "t0_velocity_equiv_weight",
             "target_noise_multiplier",
@@ -4714,6 +4897,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
         {
             "augmentations",
             "augments",
+            "batch_size",
             "bucket_tolerance",
             "buckets",
             "caption_dropout_rate",
@@ -4797,6 +4981,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
             "fast_image_size",
             "load_image_when_caching_latents",
             "num_workers",
+            "pin_memory",
             "prefetch_factor",
         }
     )
@@ -4978,6 +5163,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
                     "extensions_built_in/diffusion_models/",
                     "extensions_built_in/flex2/",
                     "extensions_built_in/audio_models/",
+                    "extensions_built_in/llm_models/",
                     "toolkit/models/",
                 )
             )
@@ -5460,7 +5646,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
             fact for fact in self.discovered
             if self._in_scope(fact, "model-family-qwen-sd")
         )
-        self.assertEqual(len(facts), 13)
+        self.assertEqual(len(facts), 14)
         claimed = {
             (claim.source, claim.symbol, claim.key, claim.read_kind)
             for claim in self.claims if self._in_scope(claim, "model-family-qwen-sd")
@@ -5472,7 +5658,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 for fact in facts if fact.read_kind == "model_kwargs.get"
             },
         )
-        self.assertEqual(len(claimed), 1)
+        self.assertEqual(len(claimed), 2)
         self.assertEqual(
             len(tuple(item for item in self.exclusions if self._in_scope(item, "model-family-qwen-sd"))),
             12,
@@ -5500,13 +5686,13 @@ class CatalogProductionSliceTests(unittest.TestCase):
             fact for fact in self.discovered
             if self._in_scope(fact, "model-family-remaining")
         )
-        self.assertEqual(len(facts), 139)
+        self.assertEqual(len(facts), 192)
         user_facts = tuple(
             fact for fact in facts
             if fact.read_kind == "model_kwargs.get"
-            or fact.key in {"HF_TOKEN", "USE_BF16_ROPE"}
+            or fact.key in {"HF_TOKEN", "USE_BF16_ROPE", "HF_HUB_OFFLINE", "AITK_H3_VSA_BACKEND"}
         )
-        self.assertEqual(len(user_facts), 65)
+        self.assertEqual(len(user_facts), 112)
         claimed = {
             (claim.source, claim.symbol, claim.key, claim.read_kind)
             for claim in self.claims
@@ -5523,7 +5709,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
             item for item in self.exclusions
             if self._in_scope(item, "model-family-remaining")
         )
-        self.assertEqual(len(remaining_exclusions), 74)
+        self.assertEqual(len(remaining_exclusions), 80)
         self.assertEqual(
             {item.reason for item in remaining_exclusions},
             {"model-developer API", "generation-only"},
@@ -6168,7 +6354,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
             (REPOSITORY_ROOT / "toolkit/optimizer.py").read_text(encoding="utf-8")
         )
         explicit_keywords = {
-            keyword.arg
+            (node.lineno, keyword.arg)
             for node in ast.walk(tree)
             if isinstance(node, ast.Call)
             and any(
@@ -6185,7 +6371,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
             for fact in self.discovered
             if fact.source == "toolkit/optimizer.py"
             and fact.read_kind == "optimizer.injected"
-            and fact.key.split("__")[-1] in explicit_keywords
+            and (fact.line, fact.key.split("__")[-1]) in explicit_keywords
         }
         catalog = load_settings_catalog(
             REPOSITORY_ROOT / "docs/book/reference/settings-catalog.json",
@@ -6223,6 +6409,12 @@ class CatalogProductionSliceTests(unittest.TestCase):
             ("toolkit/optimizer.py", "get_optimizer", "adamw8__decouple", "optimizer.injected"),
             boundary_exclusions,
         )
+        self.assertNotIn(
+            ("toolkit/optimizer.py", "get_optimizer", "adamconvrot__eps", "optimizer.injected"),
+            duplicate_facts,
+        )
+        convrot_eps = next(s for s in settings if s.id == "optimizer.adamconvrot.param.eps")
+        self.assertEqual(convrot_eps.authority, "user")
         adam8 = next(s for s in settings if s.id == "optimizer.adam8.param.decouple")
         self.assertEqual(adam8.authority, "user")
         self.assertEqual({item.optimizer for item in adam8.applicability}, {"adam8"})
@@ -6318,8 +6510,15 @@ class CatalogProductionSliceTests(unittest.TestCase):
                 self.assertEqual(setting.contract.null, "accepted")
                 normalization = " ".join(item.description for item in setting.normalizations).casefold()
                 self.assertIn("explicit null", normalization)
-                self.assertIn("preserved", normalization)
-                self.assertIn("falsey", normalization)
+                if fact_id[1] == "AdamConvRot.__init__":
+                    source = (REPOSITORY_ROOT / fact_id[0]).read_text(encoding="utf-8")
+                    self.assertIn(f"self.{fact_id[2]} = bool({fact_id[2]})", source)
+                    self.assertIn("bool(value)", normalization)
+                    self.assertIn("false", normalization)
+                    self.assertNotIn("preserved", normalization)
+                else:
+                    self.assertIn("preserved", normalization)
+                    self.assertIn("falsey", normalization)
 
     def test_catalog_scheduler_total_iters_precedence_is_source_derived(self):
         source = (REPOSITORY_ROOT / "jobs/process/BaseSDTrainProcess.py").read_text(encoding="utf-8")
@@ -6355,7 +6554,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
             if setting.id.startswith(("optimizer.", "scheduler."))
             and ".param." in setting.id
         ]
-        self.assertEqual(len(rows), 93)
+        self.assertEqual(len(rows), 103)
         forbidden = (
             "configures ", "keeps ", "scoped to the constructor behavior",
             "values outside the selected", "constructor contract can fail",
@@ -6745,7 +6944,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
             | self.DATASET_CACHE_KEYS,
             set(dataset_facts),
         )
-        self.assertEqual(len(dataset_facts), 78)
+        self.assertEqual(len(dataset_facts), 80)
         self.assertTrue(self.DATASET_CACHE_KEYS.isdisjoint(self.DATASET_CORE_KEYS))
         self.assertTrue(self.DATASET_CACHE_KEYS.isdisjoint(self.DATASET_MODALITY_KEYS))
         for key in self.DATASET_CACHE_KEYS:
@@ -6767,7 +6966,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
             fact for fact in self.discovered
             if fact.source in self.DATA_LOADER_SOURCES
         )
-        self.assertEqual(len(loader_facts), 57)
+        self.assertEqual(len(loader_facts), 59)
         loader_exclusions = {
             (item.source, item.symbol, item.key, item.read_kind): item
             for item in self.exclusions
@@ -7035,7 +7234,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
             fact for fact in self.discovered
             if self._in_scope(fact, "save-sample-validation")
         )
-        self.assertEqual(len(facts), 56)
+        self.assertEqual(len(facts), 58)
         by_symbol = {}
         for fact in facts:
             by_symbol.setdefault(fact.symbol, set()).add(fact.key)
@@ -7123,7 +7322,7 @@ class CatalogProductionSliceTests(unittest.TestCase):
                     self.assertNotIn(identity, owned)
                     owned[identity] = setting
         self.assertEqual(set(owned), boolean_facts)
-        self.assertEqual(len(owned), 41)
+        self.assertEqual(len(owned), 42)
         for identity, setting in owned.items():
             with self.subTest(setting=setting.id, source=identity):
                 self.assertEqual(setting.contract.null, "accepted")
@@ -11074,6 +11273,62 @@ class ChildResolver(make_base()):
                 self.repository_root, ("unsupported_producer_inheritance.py",)
             )
 
+    def test_discovery_unions_finite_producer_overrides_of_inherited_callers(self):
+        self.write_source("finite_override.py", """class BaseResolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+    def component(self):
+        return "dit"
+    def load(self):
+        return self.resolve(self.component())
+class ChildResolver(BaseResolver):
+    def component(self):
+        return "vae"
+""")
+        facts = discover_python_settings(self.repository_root, ("finite_override.py",))
+        self.assertEqual({fact.key for fact in facts}, {"dit_path", "vae_path"})
+
+    def test_discovery_ignores_producers_when_subclass_replaces_caller(self):
+        self.write_source("replaced_caller.py", """class BaseResolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+    def component(self):
+        return "dit"
+    def load(self):
+        return self.resolve(self.component())
+class ChildResolver(BaseResolver):
+    def component(self):
+        return "vae"
+class OtherResolver(BaseResolver):
+    def load(self):
+        return 42
+    def component(self):
+        return external_name()
+""")
+        facts = discover_python_settings(self.repository_root, ("replaced_caller.py",))
+        self.assertEqual({fact.key for fact in facts}, {"dit_path", "vae_path"})
+
+    def test_discovery_retains_producers_when_override_delegates_to_base_caller(self):
+        template = """class BaseResolver:
+    def resolve(self, component):
+        return self.model_config.model_kwargs.get(f"{component}_path", None)
+    def component(self):
+        return "dit"
+    def load(self):
+        return self.resolve(self.component())
+class ChildResolver(BaseResolver):
+    def component(self):
+        return PRODUCER
+    def load(self):
+        return super().load()
+"""
+        self.write_source("delegating_override.py", template.replace("PRODUCER", '"vae"'))
+        facts = discover_python_settings(self.repository_root, ("delegating_override.py",))
+        self.assertEqual({fact.key for fact in facts}, {"dit_path", "vae_path"})
+        self.write_source("delegating_override.py", template.replace("PRODUCER", 'external_name()'))
+        with self.assertRaisesRegex(DiscoveryError, "dynamic.*call site"):
+            discover_python_settings(self.repository_root, ("delegating_override.py",))
+
     def test_discovery_rejects_producer_overrides_of_inherited_callers(self):
         self.write_source(
             "inherited_caller_override.py",
@@ -11841,6 +12096,19 @@ class Outer:
             tuple((fact.symbol, fact.key) for fact in discovered),
             (("Outer.Inner.load", "function_path"),),
         )
+
+    def test_discovery_nested_literal_sequences_are_not_scalar_domains(self):
+        self.write_source("nested_sequence.py", """pairs = (("old", "new"), ("first", "second"))
+for old, new in pairs:
+    value = old.replace(old, new)
+""")
+        self.assertEqual(discover_python_settings(self.repository_root, ("nested_sequence.py",)), ())
+        self.write_source("nested_sequence_read.py", """pairs = (("old", "new"),)
+for old, new in pairs:
+    model_config.model_kwargs.get(old)
+""")
+        with self.assertRaises(DiscoveryError):
+            discover_python_settings(self.repository_root, ("nested_sequence_read.py",))
 
     def test_discovery_rejects_scalar_string_iterable_domains(self):
         bodies = (
@@ -14567,7 +14835,7 @@ def build(network_kwargs):
         self.assertEqual(inventory["schema_version"], 1)
         self.assertGreaterEqual(inventory["summary"]["total"], 965)
         self.assertGreaterEqual(inventory["summary"]["major_groups"]["toolkit/config_modules.py"], 436)
-        self.assertGreaterEqual(inventory["summary"]["major_groups"]["TrainConfig"], 126)
+        self.assertGreaterEqual(inventory["summary"]["major_groups"]["TrainConfig"], 125)
         self.assertGreaterEqual(inventory["summary"]["major_groups"]["ModelConfig"], 60)
         self.assertGreaterEqual(inventory["summary"]["major_groups"]["DatasetConfig"], 78)
         self.assertGreaterEqual(inventory["summary"]["major_groups"]["AdapterConfig"], 49)
@@ -14630,7 +14898,7 @@ def build(network_kwargs):
     def test_discovery_inventory_floor_rejects_each_one_row_reduction(self):
         baseline = {
             "toolkit/config_modules.py": 436,
-            "TrainConfig": 126,
+            "TrainConfig": 125,
             "ModelConfig": 60,
             "DatasetConfig": 78,
             "AdapterConfig": 49,
@@ -16508,7 +16776,7 @@ class GeneratedReferenceTests(unittest.TestCase):
             )
 
     def test_generated_reference_pages_have_generated_book_blocks(self):
-        footer = "Verified against ai-toolkit-experimental book revision 1 (2026-08-14)."
+        footer = "Verified against ai-toolkit-experimental book revision 2 (2026-09-26)."
         for relative_page in self.REFERENCE_PAGES:
             with self.subTest(page=relative_page):
                 text = (
@@ -17129,11 +17397,11 @@ class BookArtifactTests(unittest.TestCase):
         )
 
         self.assertEqual(manifest.schema_version, 1)
-        self.assertEqual(manifest.book_revision, 1)
-        self.assertEqual(manifest.verified_date, "2026-08-14")
+        self.assertEqual(manifest.book_revision, 2)
+        self.assertEqual(manifest.verified_date, "2026-09-26")
         self.assertEqual(
             manifest.required_footer,
-            "Verified against ai-toolkit-experimental book revision 1 (2026-08-14).",
+            "Verified against ai-toolkit-experimental book revision 2 (2026-09-26).",
         )
         self.assertEqual(
             manifest.preset_architectures,
@@ -17190,13 +17458,14 @@ class BookArtifactTests(unittest.TestCase):
         self.assertEqual(actual, expected)
         self.assertEqual(tuple(page.path for page in manifest.pages), BOOK_PAGES)
 
-    def test_existing_repository_smoke_record_matches_the_current_edition(self):
+    def test_historical_repository_smoke_record_does_not_verify_current_edition(self):
         record = REPOSITORY_ROOT / "docs/book/verification/first-run-smoke.md"
         if not record.exists():
             self.skipTest("supported-GPU smoke has not been recorded yet")
         manifest = load_book_manifest(REPOSITORY_ROOT / "docs/book/book-manifest.json")
 
-        validate_smoke_record(REPOSITORY_ROOT, manifest)
+        with self.assertRaisesRegex(ValueError, "book_revision"):
+            validate_smoke_record(REPOSITORY_ROOT, manifest)
 
     def test_every_existing_page_has_generated_navigation_footer_and_valid_links(self):
         from scripts.training_book.markdown import validate_book_pages
@@ -17243,13 +17512,16 @@ class BookArtifactTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_validation_cli_rejects_failed_smoke_unless_explicitly_skipped(self):
-        smoke_path = REPOSITORY_ROOT / "docs/book/verification/first-run-smoke.md"
-        original_smoke = smoke_path.read_text(encoding="utf-8")
+        original_path = REPOSITORY_ROOT / "docs/book/verification/first-run-smoke.md"
+        original_smoke = original_path.read_text(encoding="utf-8")
         failed_smoke = original_smoke.replace(
             '"status": "passed"', '"status": "failed"', 1
         )
         self.assertNotEqual(failed_smoke, original_smoke)
         with tempfile.TemporaryDirectory() as directory:
+            root = isolated_training_book_repository(Path(directory) / "repository")
+            smoke_path = root / "docs/book/verification/first-run-smoke.md"
+            smoke_path.write_text(failed_smoke, encoding="utf-8")
             facts_path = Path(directory) / "preset-facts.json"
             facts_path.write_text(
                 json.dumps({
@@ -17264,25 +17536,15 @@ class BookArtifactTests(unittest.TestCase):
                 "--preset-facts",
                 facts_path,
             ]
-            try:
-                smoke_path.write_text(failed_smoke, encoding="utf-8")
-                required = subprocess.run(
-                    base,
-                    cwd=REPOSITORY_ROOT,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                skipped = subprocess.run(
-                    [*base, "--skip-smoke"],
-                    cwd=REPOSITORY_ROOT,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-            finally:
-                smoke_path.write_text(original_smoke, encoding="utf-8")
+            required = subprocess.run(
+                base, cwd=root, capture_output=True, text=True, check=False,
+            )
+            skipped = subprocess.run(
+                [*base, "--skip-smoke"], cwd=root,
+                capture_output=True, text=True, check=False,
+            )
 
+        self.assertEqual(original_path.read_text(encoding="utf-8"), original_smoke)
         self.assertNotEqual(required.returncode, 0)
         self.assertIn("status", required.stderr)
         self.assertEqual(skipped.returncode, 0, skipped.stdout + skipped.stderr)
@@ -17835,7 +18097,7 @@ class TrainingBookExamplesContractTests(unittest.TestCase):
         directory = REPOSITORY_ROOT / "docs/book/examples"
         manifest = load_example_manifest(directory / "manifest.json")
         self.assertEqual(manifest.schema_version, 1)
-        self.assertEqual(manifest.book_revision, 1)
+        self.assertEqual(manifest.book_revision, 2)
         self.assertEqual(
             tuple((Path(item.path).name, item.architecture, item.validation_profile)
                   for item in manifest.examples), self.EXPECTED,

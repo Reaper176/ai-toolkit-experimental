@@ -76,5 +76,5 @@ The preset workflow can retain a **source-missing** item from a prior verified m
 Record the dataset version beside checkpoints and sample comparisons. If two runs use different data, treat them as different experiments even when their YAML settings match. Provenance makes a useful result reproducible and makes privacy, consent, licensing, and deletion decisions traceable; those responsibilities are covered in [rights, privacy, and safety](rights-privacy-and-safety.md).
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->

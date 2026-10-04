@@ -2905,6 +2905,62 @@
       "key": "vae_type",
       "read_kind": "get_conf",
       "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/audio_models/yue2/yue2_model.py",
+      "symbol": "YuE2AudioModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/audio_models/yue2/yue2_model.py",
+      "symbol": "YuE2AudioModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ming_image/ming_image.py",
+      "symbol": "MingImageModel.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/ming_image/ming_image.py",
+      "symbol": "MingImageModel.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/qwen_image_2/qwen_image_2.py",
+      "symbol": "QwenImage2Model.get_loss_target",
+      "key": "batch",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "extensions_built_in/diffusion_models/qwen_image_2/qwen_image_2.py",
+      "symbol": "QwenImage2Model.get_loss_target",
+      "key": "noise",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "dopsd_self_ref",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
+    },
+    {
+      "source": "toolkit/data_transfer_object/data_loader.py",
+      "symbol": "FileItemDTO.__init__",
+      "key": "text_embedding_uses_target_size",
+      "read_kind": "kwargs.get",
+      "reason": "model-developer API"
     }
   ],
   "ui_exclusions": [
@@ -3024,7 +3080,7 @@
             },
             {
               "kind": "string",
-              "value": "ostris/minimax_h3_training_adapter/minimax_h3_training_adapter_v1.safetensors"
+              "value": "ostris/minimax_h3_training_adapter/minimax_h3_training_adapter_v3.safetensors"
             }
           ]
         },
@@ -6090,6 +6146,595 @@
         "fact_type": "source-claim"
       },
       "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::SelectInput::config.process[*].model.assistant_lora_path::Distillation Handling Method::architecture=minimax_h3_ref2va",
+        "path": "config.process[*].model.assistant_lora_path",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Distillation Handling Method"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "select",
+          "optional": true,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "undefined"
+            },
+            {
+              "kind": "string",
+              "value": "ostris/minimax_h3_training_adapter/minimax_h3_ref2va_training_adapter_v2.safetensors"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::SelectInput::config.process[*].model.assistant_lora_path::Distillation Handling Method::architecture=minimax_h3_vsa",
+        "path": "config.process[*].model.assistant_lora_path",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Distillation Handling Method"
+          }
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": "select",
+          "optional": true,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "ostris/minimax_h3_training_adapter/fastvideo_fasth3_8step_v2_training_adapter_v1.safetensors"
+            },
+            {
+              "kind": "undefined"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::SelectInput::config.process[*].model.model_kwargs.dopsd::Distillation Handling Method::architecture=minimax_h3_ref2va",
+        "path": "config.process[*].model.model_kwargs.dopsd",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Distillation Handling Method"
+          }
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "select",
+          "optional": true,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "undefined"
+            },
+            {
+              "kind": "boolean",
+              "value": true
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::SelectInput::config.process[*].model.model_kwargs.dopsd_bleed_strength::Distillation Handling Method::architecture=minimax_h3_ref2va",
+        "path": "config.process[*].model.model_kwargs.dopsd_bleed_strength",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Distillation Handling Method"
+          }
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "select",
+          "optional": true,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "undefined"
+            },
+            {
+              "kind": "number",
+              "value": 1
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::SelectInput::config.process[*].model.model_kwargs.image_ref_video_frames::Image Reference Presentation::architecture=minimax_h3_ref2va",
+        "path": "config.process[*].model.model_kwargs.image_ref_video_frames",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Image Reference Presentation"
+          }
+        },
+        "value_contract": {
+          "ui_type": null,
+          "widget_kind": "select",
+          "optional": true,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "undefined"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::SelectInput::config.process[*].model.model_kwargs.image_refs_as_video::Image Reference Presentation::architecture=minimax_h3_ref2va",
+        "path": "config.process[*].model.model_kwargs.image_refs_as_video",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Image Reference Presentation"
+          }
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "select",
+          "optional": true,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "undefined"
+            },
+            {
+              "kind": "boolean",
+              "value": true
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::SelectInput::config.process[*].train.do_guidance_loss::Distillation Handling Method::architecture=minimax_h3_ref2va",
+        "path": "config.process[*].train.do_guidance_loss",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Distillation Handling Method"
+          }
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "select",
+          "optional": true,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": true
+            },
+            {
+              "kind": "undefined"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::SelectInput::config.process[*].train.guidance_loss_target::Distillation Handling Method::architecture=minimax_h3_ref2va",
+        "path": "config.process[*].train.guidance_loss_target",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Distillation Handling Method"
+          }
+        },
+        "value_contract": {
+          "ui_type": "number",
+          "widget_kind": "select",
+          "optional": true,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "number",
+              "value": 3.5
+            },
+            {
+              "kind": "undefined"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::Checkbox::config.process[*].model.model_kwargs.rgba::Transparency (RGBA)::architecture=ming_image",
+        "path": "config.process[*].model.model_kwargs.rgba",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Transparency (RGBA)"
+          }
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "checkbox",
+          "optional": true,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": true
+            },
+            {
+              "kind": "undefined"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/jobs/new/SimpleJob.tsx",
+        "symbol": "SimpleJob::Checkbox::config.process[*].model.model_kwargs.rgba::Transparency (RGBA)::architecture=qwen_image_2",
+        "path": "config.process[*].model.model_kwargs.rgba",
+        "kind": "setting",
+        "ui_label": {
+          "present": true,
+          "value": {
+            "kind": "string",
+            "value": "Transparency (RGBA)"
+          }
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": "checkbox",
+          "optional": true,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": true
+            },
+            {
+              "kind": "undefined"
+            }
+          ]
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "architecture-projected-control"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/kill/route.ts",
+        "symbol": "GET::job.info",
+        "path": "job.info",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "Job force stopped"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/kill/route.ts",
+        "symbol": "GET::job.pid",
+        "path": "job.pid",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "integer",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": true,
+          "accepted_values": [
+            {
+              "kind": "null"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/kill/route.ts",
+        "symbol": "GET::job.status",
+        "path": "job.status",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "string",
+              "value": "stopped"
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/app/api/jobs/[jobID]/kill/route.ts",
+        "symbol": "GET::job.stop",
+        "path": "job.stop",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "boolean",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false,
+          "accepted_values": [
+            {
+              "kind": "boolean",
+              "value": true
+            }
+          ]
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "database",
+          "authority": "server-overwritten",
+          "persistence": "database"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "runtime-derived-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/components/JobNotes.tsx",
+        "symbol": "JobNotes::flush::Authorization.bearer",
+        "path": "http.Authorization",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "write",
+          "provenance": "http",
+          "authority": "user",
+          "persistence": "transient"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "transient-ui-state"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/server/cpuStats.ts",
+        "symbol": "<module>::os.platform",
+        "path": "server.platform",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "derive",
+          "provenance": "runtime",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/server/cpuStats.ts",
+        "symbol": "<module>::os.platform::role=server-platform/lhs:===/initializer:isLinux",
+        "path": "server.platform",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "derive",
+          "provenance": "runtime",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/server/cpuStats.ts",
+        "symbol": "<module>::os.platform::role=server-platform/lhs:===/initializer:isMac",
+        "path": "server.platform",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "derive",
+          "provenance": "runtime",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/server/monitor.ts",
+        "symbol": "<module>::os.platform",
+        "path": "server.platform",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "string",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "derive",
+          "provenance": "runtime",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
+    },
+    {
+      "fact": {
+        "source_path": "ui/src/server/monitor.ts",
+        "symbol": "<module>::process.env.pass-through",
+        "path": "process.env.inherited",
+        "kind": "server-state",
+        "ui_label": {
+          "present": false
+        },
+        "value_contract": {
+          "ui_type": "object",
+          "widget_kind": null,
+          "optional": false,
+          "nullable": false
+        },
+        "server_state_contract": {
+          "operation": "read",
+          "provenance": "environment",
+          "authority": "runtime-forced",
+          "persistence": "runtime"
+        },
+        "fact_type": "source-claim"
+      },
+      "reason": "server-owned-value"
     }
   ]
 }

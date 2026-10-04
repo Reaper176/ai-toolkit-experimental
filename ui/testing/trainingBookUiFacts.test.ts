@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import NextLink from 'next/link';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -1409,7 +1410,7 @@ function runtimeJsxFact(node: unknown): StaticJsxFact {
     }
     assert.equal(typeof child, 'object', 'runtime JSX must remain a finite React node');
     const element = child as { type?: unknown; props?: Record<string, unknown> };
-    const tag = typeof element.type === 'string'
+    const tag = element.type === NextLink ? 'Link' : typeof element.type === 'string'
       ? element.type
       : typeof element.type === 'function'
         ? element.type.name
@@ -5377,7 +5378,8 @@ export const modelArchs = [{
     label: 'Mode', options: [{ value: 'a', label: 'Mode A' }, { value: 'b', label: 'Mode B' }],
     getValue: config => {
       const path = config?.config?.process?.[0]?.model?.assistant_lora_path;
-      return path && path.trim() !== '' ? 'b' : 'a';
+      if (path && path.trim() !== '') return 'b';
+      return 'a';
     },
     onChange: (value, config, setJobConfig) => {
       if (value === 'a') setJobConfig(undefined, 'config.process[0].model.assistant_lora_path');
@@ -5908,6 +5910,124 @@ for (const [label, mutated] of [
     rmSync(mutationRoot, { recursive: true });
   }
 }
+
+
+const staticMappedDefaults = `
+const tagValue = (prompt: string, tag: string) => {
+  const m = prompt.match(new RegExp(\`<\${tag}>([\\\\s\\\\S]*?)</\${tag}>\`));
+  return m ? m[1].trim() : '';
+};
+const base = { sample_steps: 20, samples: [{ prompt: '<CAPTION> style </CAPTION><LYRICS> lyric </LYRICS>', keep: true }] };
+const mapped = { ...base, sample_steps: 32, samples: base.samples.map(s => ({ ...s, prompt: \`\${tagValue(s.prompt, 'CAPTION')}\\n[Lyrics]\\n\${tagValue(s.prompt, 'LYRICS')}\\n\` })) };
+export const modelArchs = [{ name: 'fixture', label: 'Fixture', group: 'audio', defaults: { 'config.process[0].sample': [mapped, base] } }];
+`;
+const mappedRoot = fixtureRoot(staticMappedDefaults);
+try {
+  const facts = collectTrainingBookUiFacts(mappedRoot);
+  const samples = facts.model_architectures[0].defaults.find(item => item.path === 'config.process[*].sample.samples')!;
+  assert.deepEqual(samples.selected, { present: true, value: { kind: 'array', items: [{ kind: 'object', entries: [
+    { key: 'keep', value: { kind: 'boolean', value: true } },
+    { key: 'prompt', value: { kind: 'string', value: 'style\n[Lyrics]\nlyric\n' } },
+  ] }] } });
+  for (const mutation of [
+    staticMappedDefaults.replace('m[1].trim()', 'm[0].trim()'),
+    staticMappedDefaults.replace('s => ({ ...s,', 'async s => ({ ...s,'),
+    staticMappedDefaults.replace('...base, sample_steps', '...sideEffect(), sample_steps'),
+    staticMappedDefaults.replace('tagValue(s.prompt', 'unknownHelper(s.prompt'),
+  ]) {
+    write(mappedRoot, 'ui/src/app/jobs/new/options.tsx', mutation);
+    assert.throws(() => collectTrainingBookUiFacts(mappedRoot), /unsupported|static map/);
+  }
+} finally { rmSync(mappedRoot, { recursive: true }); }
+
+const mapperScopeRoot = fixtureRoot(`
+const s = 'outer';
+const outer = { prompt: s };
+const mapped = ['inner'].map(s => ({ global: outer.prompt, local: s, shadowedUndefined: ['defined'].map(undefined => undefined), nested: ['nested'].map(t => ({ outerLocal: s, innerLocal: t })) }));
+export const modelArchs = [{ name: 'fixture', label: 'Fixture', group: 'image', defaults: { 'config.process[0].sample.samples': [mapped, []] } }];
+`);
+try {
+  const samples = collectTrainingBookUiFacts(mapperScopeRoot).model_architectures[0].defaults[0].selected.value;
+  assert.deepEqual(samples, { kind: 'array', items: [{ kind: 'object', entries: [
+    { key: 'global', value: { kind: 'string', value: 'outer' } },
+    { key: 'local', value: { kind: 'string', value: 'inner' } },
+    { key: 'nested', value: { kind: 'array', items: [{ kind: 'object', entries: [
+      { key: 'innerLocal', value: { kind: 'string', value: 'nested' } },
+      { key: 'outerLocal', value: { kind: 'string', value: 'inner' } },
+    ] }] } },
+    { key: 'shadowedUndefined', value: { kind: 'array', items: [{ kind: 'string', value: 'defined' }] } },
+  ] }] });
+} finally { rmSync(mapperScopeRoot, { recursive: true }); }
+const moduleScopeRoot = fixtureRoot(`
+import { sampleBase } from '@/helpers/defaultSamples';
+const s = 'option-module';
+export const modelArchs = [{ name: 'fixture', label: 'Fixture', group: 'image', defaults: { 'config.process[0].sample.samples': [[{ ...sampleBase, custom: s }], []] } }];
+`);
+try {
+  const samplesPath = join(moduleScopeRoot, 'ui/src/helpers/defaultSamples.ts');
+  writeFileSync(samplesPath, `${readFileSync(samplesPath, 'utf8')}\nconst s = 'sample-module'; export const sampleBase = {prompt: s};`);
+  const selected = collectTrainingBookUiFacts(moduleScopeRoot).model_architectures[0].defaults[0].selected.value;
+  assert.deepEqual(selected, { kind: 'array', items: [{ kind: 'object', entries: [
+    { key: 'custom', value: { kind: 'string', value: 'option-module' } },
+    { key: 'prompt', value: { kind: 'string', value: 'sample-module' } },
+  ] }] });
+} finally { rmSync(moduleScopeRoot, { recursive: true }); }
+
+
+const checkboxSource = `export const modelArchs = [{ name: 'fixture', label: 'Fixture', group: 'image', customModelSelectOptions: [{
+  type: "checkbox", label: "Transparency (RGBA)",
+  getValue: (config: JobConfig) => config?.config?.process?.[0]?.model?.model_kwargs?.rgba ?? false,
+  onChange: (value: boolean, config: JobConfig, setJobConfig: (value: any, key: string) => void,) => {
+    const kwargs = { ...(config?.config?.process?.[0]?.model?.model_kwargs ?? {}), };
+    if (value) { kwargs.rgba = true; } else { delete kwargs.rgba; }
+    setJobConfig(kwargs, "config.process[0].model.model_kwargs");
+  },
+}] }];`;
+const checkboxRoot = fixtureRoot(checkboxSource);
+try {
+  const facts = collectTrainingBookUiFacts(checkboxRoot);
+  const checkbox = facts.model_architectures[0].custom_model_checkbox_options!.value![0];
+  assert.equal(checkbox.default_value, false);
+  assert.deepEqual(checkbox.writes, [
+    { selected_value: true, operation: 'write', value: { kind: 'boolean', value: true } },
+    { selected_value: false, operation: 'delete', value: { kind: 'undefined' } },
+  ]);
+  for (const mutation of [
+    checkboxSource.replace('rgba ?? false', 'rgba ?? true'),
+    checkboxSource.replace('kwargs.rgba = true', 'kwargs.rgba = false'),
+    checkboxSource.replace('delete kwargs.rgba', 'kwargs.rgba = undefined'),
+    checkboxSource.replace('...(config?.config?.process?.[0]?.model?.model_kwargs ?? {})', '...(config?.config?.process?.[0]?.train ?? {})'),
+    checkboxSource.replace('setJobConfig(kwargs,', 'setJobConfig({},'),
+    checkboxSource.replace('setJobConfig(kwargs, "config.process[0].model.model_kwargs");', 'setJobConfig(kwargs, "config.process[0].model.model_kwargs"); sideEffect();'),
+  ]) {
+    write(checkboxRoot, 'ui/src/app/jobs/new/options.tsx', mutation);
+    assert.throws(() => collectTrainingBookUiFacts(checkboxRoot), /unsupported checkbox/);
+  }
+} finally { rmSync(checkboxRoot, { recursive: true }); }
+
+const entityRoot = fixtureRoot(source.replace('the model page', 'the model &amp; &lt;tag&gt; &apos;quoted&apos; &#65; &#x1F600; page'));
+try {
+  assert.ok(collectTrainingBookUiFacts(entityRoot).model_architectures[0].model_notes.text_literals?.includes("the model & <tag> 'quoted' A 😀 page"));
+  write(entityRoot, 'ui/src/app/jobs/new/options.tsx', source.replace('the model page', '&unsupportedEntity;'));
+  assert.throws(() => collectTrainingBookUiFacts(entityRoot), /unsupported JSX named entity/);
+} finally { rmSync(entityRoot, { recursive: true }); }
+
+const optionalPromptSource = `
+import { useMemo } from 'react';
+import { useModelArchs } from '@/extensions/modelArchs';
+function Fixture({ jobConfig, setJobConfig }) {
+  const { archs: modelArchs, groupedModelOptions } = useModelArchs();
+  const modelArch = useMemo(() => { return modelArchs.find(a => a.name === jobConfig.config.process[0].model.arch); }, [modelArchs, jobConfig.config.process[0].model.arch]);
+  const isLlmModel = !!(modelArch?.group === 'llm');
+  return <TextInput label="Prompt" value={jobConfig.config.process[0].sample.neg} onChange={value => setJobConfig(value, 'config.process[0].sample.neg')} required={!isLlmModel} />;
+}`;
+assert.deepEqual(collectVisibleControlClaimsFromSource(optionalPromptSource)[0].value_contract.optional_when, { architecture_group: 'llm' });
+for (const mutation of [
+  optionalPromptSource.replace("from '@/extensions/modelArchs'", "from './impostor'"),
+  optionalPromptSource.replace('a.name === jobConfig.config.process[0].model.arch', "a.name === 'fixed'"),
+  optionalPromptSource.replace('[modelArchs, jobConfig.config.process[0].model.arch]', '[]'),
+  optionalPromptSource.replace("modelArch?.group === 'llm'", "modelArch?.name === 'llm'"),
+]) assert.throws(() => collectVisibleControlClaimsFromSource(mutation), /dynamic required/);
 
 const liveRoot = process.env.TRAINING_BOOK_REPOSITORY_ROOT;
 if (liveRoot !== undefined) {
@@ -7610,7 +7730,7 @@ if (liveRoot !== undefined) {
     'defineProperties abrupt construction prepass uses normalized exact invocation identity',
   );
   assert.equal(summaryArchFacts.length, 30);
-  assert.equal(declaredTypeScriptSources.length, 155, 'every concrete TypeScript source matched by the declared globs is scanned');
+  assert.equal(declaredTypeScriptSources.length, 176, 'every concrete TypeScript source matched by the declared globs is scanned');
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/JobLossGraph.tsx'));
   assert.ok(declaredTypeScriptSources.includes('ui/src/components/Card.tsx'), 'declared files with no relevant facts remain part of source coverage');
   assert.deepEqual(
@@ -8297,7 +8417,7 @@ if (liveRoot !== undefined) {
       "  setJobConfig(99, 'config.process[0].train.steps');\n\n  // update samples",
     )],
     ['export binding', modelArchChangeSource.replace('export const handleModelArchChange', 'const handleModelArchChange')],
-    ['architecture import binding', modelArchChangeSource.replace("from './options'", "from './otherOptions'")],
+    ['architecture parameter binding', modelArchChangeSource.replaceAll('modelArchs.find(', 'otherModelArchs.find(')],
     ['cleanup import binding', modelArchChangeSource.replace("from '@/helpers/animaModelPaths'", "from '@/helpers/otherAnimaPaths'")],
     ['shadowed setter', modelArchChangeSource.replace(
       "    setJobConfig(false, 'config.process[0].model.low_vram');",
@@ -9711,6 +9831,12 @@ ${architectureCommit}`,
     'behavior acceptance exact-once/default-loop/optional-chain matrix',
   );
   const liveSimpleJobSource = readFileSync(join(liveRoot, 'ui/src/app/jobs/new/SimpleJob.tsx'), 'utf8');
+  for (const mutation of [
+    liveSimpleJobSource.replace("customOption.type === 'checkbox'", "customOption.type !== 'checkbox'"),
+    liveSimpleJobSource.replace("customOption.type === 'checkbox'", 'true'),
+    liveSimpleJobSource.replace("customOption.type === 'checkbox'", "otherOption.type === 'checkbox'"),
+  ]) assert.throws(() => validateArchitectureProjectedControlTemplates(mutation, 'ui/src/app/jobs/new/SimpleJob.tsx', true, true, true), /discriminator/);
+
   validateArchitectureProjectedControlTemplates(liveSimpleJobSource, 'ui/src/app/jobs/new/SimpleJob.tsx', true, true);
   assert.throws(
     () => validateArchitectureProjectedControlTemplates(
@@ -9758,7 +9884,7 @@ ${architectureCommit}`,
   const manifest = JSON.parse(readFileSync(join(liveRoot, 'docs/book/book-manifest.json'), 'utf8'));
   const names = liveFacts.model_architectures.map(item => item.name);
   assert.deepEqual(names, runtimeModelArchs.map(item => item.name), 'emitted architecture order must equal the executed live modelArchs export');
-  assert.deepEqual(names, manifest.full_architectures, 'live modelArchs order must equal the 51-architecture edition manifest');
+  assert.deepEqual(names, manifest.full_architectures, 'live modelArchs order must equal the bundled-architecture edition manifest');
   const knownModelArchKeys = new Set(Object.keys(modelArchProjectionBoundary));
   for (const [index, runtimeArchitecture] of runtimeModelArchs.entries()) {
     const emitted = liveFacts.model_architectures[index];
@@ -9774,6 +9900,8 @@ ${architectureCommit}`,
     assert.deepEqual(emitted.disable_sections, runtimeArchitecture.disableSections ?? []);
     assert.deepEqual(emitted.additional_sections, runtimeArchitecture.additionalSections ?? []);
     assert.deepEqual(emitted.gate_url, runtimePresence(runtimeArchitecture, 'gateUrl'));
+    if (Object.prototype.hasOwnProperty.call(runtimeArchitecture, 'generateNameOverride')) assert.deepEqual(emitted.generate_name_override, runtimePresence(runtimeArchitecture, 'generateNameOverride'));
+    if (Object.prototype.hasOwnProperty.call(runtimeArchitecture, 'generate')) assert.deepEqual(emitted.generate, runtimePresence(runtimeArchitecture, 'generate'));
     assert.deepEqual(emitted.is_video_model, runtimePresence(runtimeArchitecture, 'isVideoModel'));
     assert.deepEqual(emitted.has_multiline_prompts, runtimePresence(runtimeArchitecture, 'hasMultiLinePrompts'));
     assert.deepEqual(emitted.accuracy_recovery_adapters, runtimePresence(runtimeArchitecture, 'accuracyRecoveryAdapters'));
@@ -9797,11 +9925,11 @@ ${architectureCommit}`,
     if (runtimeArchitecture.customModelSelectOptions !== undefined) {
       assert.deepEqual(
         emitted.custom_model_select_options.value?.map(option => ({ label: option.label, options: 'options' in option ? option.options : assert.fail('Unsupported checkbox projection') })),
-        runtimeArchitecture.customModelSelectOptions.map(option => ({ label: option.label, options: 'options' in option ? option.options : assert.fail('Unsupported checkbox projection') })),
+        runtimeArchitecture.customModelSelectOptions.filter(option => option.type !== 'checkbox').map(option => ({ label: option.label, options: option.options })),
         `${runtimeArchitecture.name} custom option order and shape must equal executed runtime data`,
       );
       assert.ok(runtimeArchitecture.customModelSelectOptions.every(option => typeof option.getValue === 'function' && typeof option.onChange === 'function'));
-      for (const [optionIndex, runtimeOption] of runtimeArchitecture.customModelSelectOptions.entries()) {
+      for (const [optionIndex, runtimeOption] of runtimeArchitecture.customModelSelectOptions.filter(option => option.type !== 'checkbox').entries()) {
         assert.ok('options' in runtimeOption, 'Bundled custom controls must have a supported select projection');
         const emittedOption: CustomModelSelectOptionFact | undefined = emitted.custom_model_select_options.value?.[optionIndex];
         assert.ok(emittedOption !== undefined);
@@ -9819,7 +9947,7 @@ ${architectureCommit}`,
               const config = {
                 config: {
                   process: [{
-                    model: { assistant_lora_path: hasAssistantPath ? 'adapter.safetensors' : undefined },
+                    model: { assistant_lora_path: hasAssistantPath ? 'adapter.safetensors' : undefined, model_kwargs: { sibling: 'preserved', image_ref_video_frames: 22, image_refs_as_video: hasGuidance, dopsd: hasAssistantPath, dopsd_bleed_strength: 0.5 } },
                     train: {
                       do_guidance_loss: hasGuidance || undefined,
                       guidance_loss_target: hasGuidanceTarget ? 3.5 : undefined,
@@ -9835,22 +9963,56 @@ ${architectureCommit}`,
                 `${runtimeArchitecture.name}.${runtimeOption.label} getter runtime/fact mismatch`,
               );
               for (const selected of runtimeOption.options.map(item => String(item.value))) {
-                const writes: Array<{ selected_value: string; path: string; value: TrainingBookValueFact; guard: ModelOptionPredicateFact }> = [];
-                runtimeOption.onChange(selected, config as unknown as JobConfig, (value, path) => {
-                  writes.push({ selected_value: selected, path: normalizeTrainingBookPath(path), value: runtimeValue(value), guard: { kind: 'always' } });
-                });
-                const expectedWrites: Array<{ selected_value: string; path: string; value: TrainingBookValueFact; guard: { kind: 'always' } }> = emittedOption!.writes
-                  .filter(write => write.selected_value === selected && runtimePredicate(write.guard, config))
-                  .map(write => ({ ...write, guard: { kind: 'always' as const } }));
-                assert.deepEqual(
-                  writes,
-                  expectedWrites,
-                  `${runtimeArchitecture.name}.${runtimeOption.label}.${selected} setter runtime/fact mismatch`,
-                );
+                const runtimeConfig = structuredClone(config);
+                const expectedConfig = structuredClone(config);
+                const setPath = (target: any, path: string, value: unknown, deletion = false) => {
+                  const keys = path.replace(/\[\*\]|\[0\]/g, '.0').split('.');
+                  let owner = target;
+                  for (const key of keys.slice(0, -1)) owner = owner[key] ??= {};
+                  if (deletion) delete owner[keys[keys.length - 1]];
+                  else owner[keys[keys.length - 1]] = value;
+                };
+                const materialize = (fact: TrainingBookValueFact): any => {
+                  if (fact.kind === 'undefined') return undefined;
+                  if (fact.kind === 'null') return null;
+                  if (fact.kind === 'array') return fact.items.map(materialize);
+                  if (fact.kind === 'object') return Object.fromEntries(fact.entries.map(entry => [entry.key, materialize(entry.value)]));
+                  return fact.value;
+                };
+                runtimeOption.onChange(selected, runtimeConfig as unknown as JobConfig, (value, path) => setPath(runtimeConfig, path, value));
+                const expectedWrites = emittedOption!.writes.filter(write => write.selected_value === selected && runtimePredicate(write.guard, config));
+                for (const write of expectedWrites) setPath(expectedConfig, write.path, materialize(write.value), write.operation === 'delete');
+                assert.deepEqual(runtimeConfig, expectedConfig, `${runtimeArchitecture.name}.${runtimeOption.label}.${selected} runtime/fact effects and sibling preservation must match`);
+
               }
             }
           }
         }
+      }
+    }
+  }
+  for (const architecture of runtimeModelArchs) {
+    const emitted = liveFacts.model_architectures.find(item => item.name === architecture.name)!;
+    const checkboxes = architecture.customModelSelectOptions?.filter(option => option.type === 'checkbox') ?? [];
+    assert.equal(emitted.custom_model_checkbox_options?.value?.length ?? 0, checkboxes.length);
+    for (const [index, checkbox] of checkboxes.entries()) {
+      const fact = emitted.custom_model_checkbox_options!.value![index];
+      assert.equal(fact.label, checkbox.label);
+      assert.equal(fact.path, 'config.process[*].model.model_kwargs.rgba');
+      const doc = checkbox.doc === undefined ? { present: false as const } : runtimeJsxFact(checkbox.doc.description);
+      if (checkbox.doc?.title !== undefined) doc.text_literals = [String(checkbox.doc.title), ...(doc.text_literals ?? [])];
+      assert.deepEqual(fact.doc, doc, `${architecture.name} checkbox documentation must equal runtime JSX`);
+      for (const previous of [undefined, false, true]) for (const selected of [false, true]) {
+        const config = { config: { process: [{ model: { model_kwargs: { sibling: 'preserved', rgba: previous } } }] } };
+        assert.equal(checkbox.getValue(config as unknown as JobConfig), previous ?? fact.default_value);
+        let commit: unknown;
+        checkbox.onChange(selected, config as unknown as JobConfig, (value, path) => { assert.equal(path, 'config.process[0].model.model_kwargs'); commit = value; });
+        const expected: Record<string, unknown> = { ...config.config.process[0].model.model_kwargs };
+        const write = fact.writes.find(item => item.selected_value === selected)!;
+        if (write.operation === 'delete') delete expected.rgba;
+        else expected.rgba = write.value.kind === 'boolean' ? write.value.value : assert.fail('Checkbox write must be boolean');
+        assert.deepEqual(commit, expected);
+        assert.equal(config.config.process[0].model.model_kwargs.rgba, previous, 'checkbox must preserve original object identity contents');
       }
     }
   }
@@ -9862,7 +10024,7 @@ ${architectureCommit}`,
     ...runtimeDefaultFacts(defaultIdeogramSamplesConfig, 'defaultIdeogramSamplesConfig', 'ui/src/helpers/defaultSamples.ts', 'config.process[*].sample'),
   ].sort((left, right) => compareCodePoint(`${left.path}\0${left.source_path}\0${left.symbol}`, `${right.path}\0${right.source_path}\0${right.symbol}`));
   assert.deepEqual(liveFacts.defaults, runtimeDefaults, 'emitted defaults must equal all executed live default exports');
-  assert.equal(new Set(names).size, 51);
+  assert.equal(new Set(names).size, runtimeModelArchs.length);
   assert.deepEqual(manifest.preset_architectures.filter((name: string) => names.includes(name)), manifest.preset_architectures);
   assert.deepEqual(manifest.focused_architectures.filter((name: string) => names.includes(name)), manifest.focused_architectures);
   assert.ok(liveFacts.defaults.some(item => item.symbol === 'defaultJobConfig'));
@@ -9894,7 +10056,7 @@ ${architectureCommit}`,
   const settingClaims = liveFacts.config_claims.filter(
     item => item.kind === 'setting' && item.behavior_contract === undefined,
   );
-  assert.equal(settingClaims.length, 316, 'every current directly bound or architecture-projected config control must emit');
+  assert.equal(settingClaims.length, 349, 'every current directly bound or architecture-projected config control must emit');
   assert.ok(settingClaims.every(item => item.ui_label.present), 'all current visible config controls must resolve an exact label');
   assert.deepEqual(
     settingClaims
@@ -10013,11 +10175,14 @@ ${architectureCommit}`,
       'ui/src/app/api/img/caption/route.ts',
       'ui/src/app/api/img/delete/route.ts',
       'ui/src/app/api/img/upload/route.ts',
+      'ui/src/app/api/inference/[...path]/route.ts',
       'ui/src/app/api/jobs/[jobID]/delete/route.ts',
       'ui/src/app/api/jobs/[jobID]/files/route.ts',
+      'ui/src/app/api/jobs/[jobID]/kill/route.ts',
       'ui/src/app/api/jobs/[jobID]/log/route.ts',
       'ui/src/app/api/jobs/[jobID]/loss/route.ts',
       'ui/src/app/api/jobs/[jobID]/mark_stopped/route.ts',
+      'ui/src/app/api/jobs/[jobID]/notes/route.ts',
       'ui/src/app/api/jobs/[jobID]/plugin/route.ts',
       'ui/src/app/api/jobs/[jobID]/sample_now/route.ts',
       'ui/src/app/api/jobs/[jobID]/samples/route.ts',
@@ -10025,6 +10190,8 @@ ${architectureCommit}`,
       'ui/src/app/api/jobs/[jobID]/start/route.ts',
       'ui/src/app/api/jobs/[jobID]/stop/route.ts',
       'ui/src/app/api/jobs/route.ts',
+      'ui/src/app/api/loras/route.ts',
+      'ui/src/app/api/loras/upload/route.ts',
       'ui/src/app/api/ostris_cloud/route.ts',
       'ui/src/app/api/queue/[queueID]/start/route.ts',
       'ui/src/app/api/queue/[queueID]/stop/route.ts',
@@ -10038,15 +10205,20 @@ ${architectureCommit}`,
       'ui/src/components/AuthWrapper.tsx',
       'ui/src/components/CaptionDatasetModal.tsx',
       'ui/src/components/JobLossGraph.tsx',
+      'ui/src/components/JobNotes.tsx',
       'ui/src/components/Sidebar.tsx',
       'ui/src/components/ThemeProvider.tsx',
       'ui/src/hooks/useSettings.tsx',
       'ui/src/middleware.ts',
+      'ui/src/server/cpuStats.ts',
       'ui/src/server/datasetPresetRouteHandlers.ts',
+      'ui/src/server/inferenceEngine.ts',
       'ui/src/server/jobDatasetPresetPrismaStore.ts',
       'ui/src/server/macstats.ts',
+      'ui/src/server/monitor.ts',
       'ui/src/server/prisma.ts',
       'ui/src/server/settings.ts',
+      'ui/src/server/trainingGuideReader.ts',
       'ui/src/server/trainingPresetCatalogBuildValidation.ts',
       'ui/src/utils/api.ts',
       'ui/src/utils/callScript.ts',
@@ -10079,19 +10251,19 @@ ${architectureCommit}`,
   assert.ok(importedDeviceClaims.every(item => item.server_state_contract?.authority === 'ui-derived'));
   assert.ok(importedDeviceClaims.every(item => item.server_state_contract?.persistence === 'config'));
   const modelArchitectureClaim = settingClaims.find(item => item.path === 'config.process[*].model.arch');
-  assert.equal(modelArchitectureClaim?.value_contract.accepted_values?.length, 51);
+  assert.equal(modelArchitectureClaim?.value_contract.accepted_values?.length, runtimeModelArchs.length);
   const textEncoderQuantization = settingClaims.filter(item => item.path === 'config.process[*].model.qtype_te');
-  assert.equal(textEncoderQuantization.length, 48, 'the nested Text Encoder selector must honor both quantization guards');
+  assert.equal(textEncoderQuantization.length, runtimeModelArchs.filter(architecture => !architecture.disableSections?.includes('model.quantize') && !architecture.disableSections?.includes('model.quantize_te') && architecture.group !== 'llm').length, 'the nested Text Encoder selector must honor both quantization guards');
   assert.ok(textEncoderQuantization.every(item => item.value_contract.accepted_values?.length === 18));
   const transformerQuantization = settingClaims.filter(item => item.path === 'config.process[*].model.qtype');
-  assert.equal(transformerQuantization.length, 49, 'architectures hiding model.quantize must not emit a Transformer control');
+  assert.equal(transformerQuantization.length, runtimeModelArchs.filter(architecture => !architecture.disableSections?.includes('model.quantize')).length, 'architectures hiding model.quantize must not emit a Transformer control');
   assert.ok(transformerQuantization.every(item =>
     item.value_contract.accepted_values?.every(value => value.kind !== 'string' || value.value !== '')),
   'empty Transformer selection writes the default qtype, not an empty string');
   const transformerQuantizeToggles = settingClaims.filter(item => item.path === 'config.process[*].model.quantize');
   const textEncoderQuantizeToggles = settingClaims.filter(item => item.path === 'config.process[*].model.quantize_te');
-  assert.equal(transformerQuantizeToggles.length, 49);
-  assert.equal(textEncoderQuantizeToggles.length, 48);
+  assert.equal(transformerQuantizeToggles.length, transformerQuantization.length);
+  assert.equal(textEncoderQuantizeToggles.length, textEncoderQuantization.length);
   for (const claim of [...transformerQuantizeToggles, ...textEncoderQuantizeToggles]) {
     assert.equal(claim.value_contract.ui_type, 'boolean');
     assert.deepEqual(claim.value_contract.accepted_values, [
@@ -10138,7 +10310,7 @@ ${architectureCommit}`,
     }
     if (architecture.custom_model_select_options.present) {
       for (const option of architecture.custom_model_select_options.value ?? []) {
-        const projected = settingClaims.filter(item => item.symbol.includes(`::${option.label}::architecture=${architecture.name}`));
+        const projected = settingClaims.filter(item => item.symbol.endsWith(`::${option.label}::architecture=${architecture.name}`));
         assert.ok(projected.length > 0, `${architecture.name}.${option.label} custom selector must emit projected source facts`);
         for (const item of projected) {
           const writes = option.writes.filter(write => write.path === item.path).map(write => write.value);

@@ -12,8 +12,9 @@ import { getDataRoot } from '@/server/settings';
 
 const versions = createJobDatasetVersionPrismaStore(prisma);
 
-export async function GET(request: NextRequest, { params }: { params: { jobID: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ jobID: string }> }) {
   const { jobID } = await params;
+  const allowUnverifiedSnapshots = new URL(request.url).searchParams.get('allow_unverified_dataset_snapshots') === 'true';
 
   const job = await prisma.job.findUnique({
     where: { id: jobID },
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest, { params }: { params: { jobID: s
       async prepare(jobConfig) {
         return prepareJobDatasetPresetsForTraining(jobConfig, {
           versions,
-          snapshots: createDatasetPresetSnapshotStore(await getDataRoot()),
+          snapshots: createDatasetPresetSnapshotStore(await getDataRoot(), { allowUnverifiedSnapshots }),
         });
       },
       async mutateQueue(attempt) {

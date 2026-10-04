@@ -1,5 +1,6 @@
 import type { JobConfig } from '../types';
 import { JobDatasetPresetError, JobDatasetPresetPreflightError } from './jobDatasetPresetService';
+import { DatasetPresetSnapshotVerificationError } from './datasetPresetSnapshotService';
 
 export interface StoredStartJob {
   id: string;
@@ -98,6 +99,18 @@ export function classifyQueuePreflightError(error: unknown): {
   body: Record<string, unknown>;
 } {
   if (error instanceof JobDatasetPresetPreflightError) {
+    if (error.cause instanceof DatasetPresetSnapshotVerificationError) {
+      return {
+        status: 409,
+        body: {
+          code: 'DATASET_PRESET_SNAPSHOT_MISMATCH',
+          error: error.message,
+          preset: error.preset,
+          version: error.version,
+          mismatches: error.cause.mismatches,
+        },
+      };
+    }
     return {
       status: 409,
       body: { error: error.message, preset: error.preset, version: error.version, missing: error.missing },

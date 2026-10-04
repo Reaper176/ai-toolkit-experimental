@@ -43,17 +43,63 @@ from generate_training_book_reference import generate_reference_pages
 
 
 FULL_ARCHITECTURES = (
-    "ace_step_15", "ace_step_15_xl", "anima", "boogu_image", "boogu_image_edit",
-    "chroma", "ernie_image", "flex1", "flex2", "flux", "flux_kontext", "flux2",
-    "flux2_klein_4b", "flux2_klein_9b", "hidream", "hidream_e1", "hidream_o1",
-    "ideogram4", "krea2", "krea2:o_edit", "krea2:turbo", "krea2:o_edit_turbo",
-    "ltx2", "ltx2.3", "ltx2.5", "lumina2", "mageflow", "mageflow_edit",
-    "minimax_h3", "nucleus_image", "omnigen2", "prx_pixel", "qwen_image",
-    "qwen_image:2512", "qwen_image_edit", "qwen_image_edit_plus",
-    "qwen_image_edit_plus:2511", "sd15", "sdxl", "wan21:1b", "wan21:14b",
-    "wan21_i2v:14b480p", "wan21_i2v:14b", "wan22_14b:t2v", "wan22_14b_i2v",
-    "wan22_5b", "zimage", "zimage:deturbo", "zimage_l2p", "zimage:turbo",
-    "zeta_chroma",
+    'ace_step_15',
+    'ace_step_15_xl',
+    'anima',
+    'boogu_image',
+    'boogu_image_edit',
+    'chroma',
+    'ernie_image',
+    'minimax_h3_vsa',
+    'flex1',
+    'flex2',
+    'flux',
+    'flux_kontext',
+    'flux2',
+    'flux2_klein_4b',
+    'flux2_klein_9b',
+    'hidream',
+    'hidream_e1',
+    'hidream_o1',
+    'ideogram4',
+    'krea2',
+    'krea2:o_edit',
+    'krea2:turbo',
+    'krea2:o_edit_turbo',
+    'ltx2',
+    'ltx2.3',
+    'ltx2.5',
+    'lumina2',
+    'mageflow',
+    'mageflow_edit',
+    'ming_image',
+    'minimax_h3',
+    'minimax_h3_ref2va',
+    'nucleus_image',
+    'omnigen2',
+    'prx_pixel',
+    'qwen_image',
+    'qwen_image_2',
+    'qwen_image:2512',
+    'qwen_image_edit',
+    'qwen_image_edit_plus',
+    'qwen_image_edit_plus:2511',
+    'qwen25_omni',
+    'sd15',
+    'sdxl',
+    'wan21:1b',
+    'wan21:14b',
+    'wan21_i2v:14b480p',
+    'wan21_i2v:14b',
+    'wan22_14b:t2v',
+    'wan22_14b_i2v',
+    'wan22_5b',
+    'yue2',
+    'zimage',
+    'zimage:deturbo',
+    'zimage_l2p',
+    'zimage:turbo',
+    'zeta_chroma',
 )
 
 CORE_PROCESS_SOURCES = frozenset(
@@ -91,7 +137,7 @@ CORE_MODULE_SYMBOLS = frozenset(
     }
 )
 TRAIN_SCHEDULE_KEYS = frozenset(
-    """adapter_lr batch_size content_or_style embedding_lr gradient_accumulation
+    """adapter_lr batch_size content_or_style embedding_lr first_timestep_chance gradient_accumulation
     gradient_accumulation_steps learnable_snr_gos linear_timesteps linear_timesteps2
     lr lr_scheduler lr_scheduler_params max_denoising_steps min_denoising_steps
     min_snr_gamma next_sample_timesteps noise_scheduler num_train_timesteps refiner_lr
@@ -121,18 +167,18 @@ TRAIN_NUMERIC_KEYS = frozenset(
     do_signal_amplification do_signal_correction_noise dtype dynamic_noise_offset
     ema_config force_consistent_noise force_first_sample gradient_checkpointing
     guidance_loss_schedule guidance_loss_target img_multiplier inverted_mask_prior
-    inverted_mask_prior_multiplier latent_multiplier loss_target loss_type
+    inverted_mask_prior_multiplier loss_target loss_type
     match_noise_norm max_cfg_scale max_grad_norm max_loss max_loss_debug
     max_negative_prompts noise_multiplier noise_offset noisy_latent_multiplier
     optimal_noise_pairing_samples pred_scaler prompt_dropout_prob
     prompt_saturation_chance random_noise_multiplier random_noise_shift
     show_turbo_outputs signal_amplification_strength signal_correction_noise_scale
-    skip_first_sample standardize_images standardize_latents t0_loss_target
+    skip_first_sample standardize_images t0_loss_target
     t0_velocity_equiv_weight target_noise_multiplier target_norm_std
     target_norm_std_value unconditional_prompt""".split()
 )
 DATASET_CORE_KEYS = frozenset(
-    """augmentations augments bucket_tolerance buckets caption_dropout_rate
+    """augmentations augments batch_size bucket_tolerance buckets caption_dropout_rate
     caption_ext caption_type dataset_path default_caption diff_output_preservation
     diff_output_preservation_class extra_values flip_x flip_y folder_path
     guidance_type is_reg keep_tokens loss_multiplier network_weight num_repeats poi
@@ -153,7 +199,7 @@ DATASET_MODALITY_KEYS = frozenset(
 DATASET_CACHE_KEYS = frozenset(
     """cache_clip_vision_to_disk cache_latents cache_latents_num_workers
     cache_latents_to_disk cache_tensors_to_disk cache_text_embeddings debug
-    fast_image_size load_image_when_caching_latents num_workers
+    fast_image_size load_image_when_caching_latents num_workers pin_memory
     prefetch_factor""".split()
 )
 DATA_LOADER_SOURCES = frozenset(
@@ -263,6 +309,7 @@ def _in_model_family_remaining(item) -> bool:
             "extensions_built_in/diffusion_models/",
             "extensions_built_in/flex2/",
             "extensions_built_in/audio_models/",
+            "extensions_built_in/llm_models/",
             "toolkit/models/",
         )
     )
@@ -570,9 +617,9 @@ def main() -> None:
         manifest.required_footer,
     ) != (
         1,
-        1,
-        "2026-08-14",
-        "Verified against ai-toolkit-experimental book revision 1 (2026-08-14).",
+        2,
+        "2026-09-26",
+        "Verified against ai-toolkit-experimental book revision 2 (2026-09-26).",
     ):
         raise ValueError("canonical training-book edition metadata drifted")
     if manifest.preset_architectures != (

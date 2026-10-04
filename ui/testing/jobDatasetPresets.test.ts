@@ -176,6 +176,34 @@ async function runResolutionTests(): Promise<void> {
   }), /turbo/i, 'persisted queue preflight rejects a newly incompatible training config');
 }
 
+async function runOptionalLoaderSettingsTests(): Promise<void> {
+  const f = fixtures([{ id: 'v1' }]);
+  const defaults = {
+    shuffle_tokens: false, num_frames: 1, fps: 24, auto_frame_count: false,
+    do_i2v: false, do_audio: false, audio_normalize: false, audio_preserve_pitch: false,
+  };
+  const inputDataset = dataset('v1');
+  for (const key of Object.keys(defaults)) delete (inputDataset as unknown as Record<string, unknown>)[key];
+  const input = job([inputDataset]);
+  const resolved = await resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: input,
+    versions: f.versions, snapshots: f.snapshots });
+  for (const [key, value] of Object.entries(defaults)) {
+    assert.equal((resolved.usages[0].resolved_loader_config as unknown as Record<string, unknown>)[key], value);
+    assert.equal((resolved.jobConfig.config.process[0].datasets[0] as unknown as Record<string, unknown>)[key], value,
+      'saved training settings agree with recorded provenance');
+    assert.equal(key in inputDataset, false, 'resolution does not mutate the submitted job');
+  }
+  await assert.doesNotReject(prepareJobDatasetPresetsForTraining(input, {
+    versions: f.versions, snapshots: f.snapshots,
+  }), 'previously saved jobs also receive runtime defaults');
+  for (const invalid of [null, '24', 0]) {
+    const bad = dataset('v1');
+    (bad as unknown as Record<string, unknown>).fps = invalid;
+    await assert.rejects(resolveJobDatasetPresets({ jobId: null, clone: false, jobConfig: job([bad]),
+      versions: f.versions, snapshots: f.snapshots }), /loader settings are invalid: Loader config\.fps/);
+  }
+}
+
 async function runLegacyChecksumCompatibility(): Promise<void> {
   const f = fixtures([{ id: 'legacy' }]);
   const record = f.records.get('legacy')!;
@@ -517,6 +545,7 @@ async function runPreflightTests(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  await runOptionalLoaderSettingsTests();
   await runLegacyChecksumCompatibility();
   await runResolutionTests();
   await runExternalAuxiliaryPathTests();

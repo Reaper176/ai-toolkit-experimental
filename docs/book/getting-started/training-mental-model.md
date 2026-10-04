@@ -66,5 +66,5 @@ These states do not have a single loss threshold. Raw loss is noisy because batc
 When diagnosing, change one axis at a time and keep an experiment log. Start with data and captions, then consider learning rate and duration, then capacity. The [loss and checkpoint chapter](../workflow/loss-and-checkpoints.md) develops the evaluation process, and [dataset curation](../datasets/curation.md) explains how the evidence presented to the model shapes every setting decision.
 
 <!-- book-verification:start -->
-Verified against ai-toolkit-experimental book revision 1 (2026-08-14).
+Verified against ai-toolkit-experimental book revision 2 (2026-09-26).
 <!-- book-verification:end -->
