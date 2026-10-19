@@ -23,7 +23,7 @@ python3 -m manager doctor      # diagnose problems
   cu130 wheels when the driver supports CUDA 13 (cu126 fallback for older
   drivers, refused outright on Blackwell GPUs which need cu130), the same
   stack on Linux aarch64 (DGX Spark / Grace), PyPI wheels on Mac,
-  rocm7.1 (experimental) for AMD, `--cpu` to force a CPU install. **Torch
+  AMD ROCm 10.1 SDK wheels with PyTorch 2.14 (experimental), `--cpu` to force a CPU install. **Torch
   pins there must be updated together with the README install instructions,
   and run_mac.zsh.**
 - **Accelerators everywhere wheels exist**, via per-spec `extra_packages`

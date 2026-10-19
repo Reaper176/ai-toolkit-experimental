@@ -1,8 +1,9 @@
 """Maps detected hardware to an environment spec.
 
 This is the single source of truth for "what does this machine need to run
-this commit of AI Toolkit". One universal torch version across all platforms;
-per-platform accelerator extras (flash-attn, NATTEN, triton) wherever prebuilt
+this commit of AI Toolkit". Most platforms share the torch pins below;
+AMD uses the matching torch build from its ROCm SDK index.
+Per-platform accelerator extras (flash-attn, NATTEN, triton) wherever prebuilt
 wheels exist. **Update the pins below together with the README install
 instructions and run_mac.zsh.**
 
@@ -49,9 +50,11 @@ without). Wheel URLs containing a cpXY tag are skipped automatically if the
 venv python doesn't match.
 """
 
+import glob
 import os
+import re
 
-from .util import REPO_ROOT
+from .util import REPO_ROOT, venv_dir
 
 # ---- version pins (edit these to move the fleet forward) -------------------
 
@@ -175,7 +178,7 @@ class EnvSpec(object):
         self.runtime_env = {}
 
     def torch_args(self):
-        args = ["%s==%s" % (k, v) for k, v in sorted(self.torch_packages.items())]
+        args = self.torch_constraints()
         if self.torch_index:
             args += ["--index-url", self.torch_index]
         for links in self.torch_links:
@@ -194,7 +197,7 @@ class EnvSpec(object):
         on top — which leaves torchaudio/torchvision linked against a libtorch
         that is no longer there.
         """
-        tag = "+%s" % self.backend if self.torch_index else ""
+        tag = "+%s" % self.backend if self.torch_index or self.backend.startswith("rocm") else ""
         return [
             "%s==%s%s" % (k, v, tag) for k, v in sorted(self.torch_packages.items())
         ]
@@ -259,6 +262,41 @@ def _natten_pin(flavor):
         TORCH["torch"].replace(".", ""),
         flavor.replace(".", ""),
     )
+
+
+def _rocm_device_extras():
+    """Keep an existing SDK's GPU selection; new installs include all devices."""
+    patterns = [
+        os.path.join(venv_dir(), "lib", "python*", "site-packages", "rocm_sdk_device_gfx*.dist-info"),
+        os.path.join(venv_dir(), "Lib", "site-packages", "rocm_sdk_device_gfx*.dist-info"),
+    ]
+    devices = set()
+    for pattern in patterns:
+        for path in glob.glob(pattern):
+            match = re.match(r"rocm_sdk_device_(gfx[0-9a-f]+)-", os.path.basename(path))
+            if match:
+                devices.add("device-" + match.group(1))
+    return sorted(devices) or ["device-all"]
+
+
+def _rocm_find_links(devices):
+    # ROCm 10.1 SDK targets and shared torch kernel families.
+    targets = (
+        "gfx1010 gfx1011 gfx1012 gfx1030 gfx1031 gfx1032 gfx1033 gfx1034 gfx1035 gfx1036 "
+        "gfx1100 gfx1101 gfx1102 gfx1103 gfx1150 gfx1151 gfx1152 gfx1153 "
+        "gfx1200 gfx1201 gfx1250 gfx908 gfx90a gfx942 gfx950"
+    ).split() if devices == ["device-all"] else [device[len("device-"):] for device in devices]
+    packages = {"torch", "torchvision", "torchaudio", "rocm", "rocm-bootstrap", "rocm-sdk-core", "rocm-sdk-libraries", "triton"}
+    for target in targets:
+        for prefix in ("rocm-sdk-device-", "amd-torch-device-", "amd-torchvision-device-"):
+            packages.add(prefix + target)
+        if target.startswith("gfx110"):
+            packages.add("amd-torch-device-gfx110x")
+        elif target.startswith("gfx115"):
+            packages.add("amd-torch-device-gfx115x")
+        elif target.startswith("gfx120"):
+            packages.add("amd-torch-device-gfx12-0")
+    return ["https://stable.repo.amd.com/rocm/whl-next/%s/" % name for name in sorted(packages)]
 
 
 def _cuda_flavor(detection):
@@ -443,12 +481,22 @@ def _build_spec(detection, allow_cpu=False):
         return _cuda_spec(detection)
 
     if detection["backend"] == "rocm":
+        device_extras = _rocm_device_extras()
+        devices = ",".join(device_extras)
+        links = _rocm_find_links(device_extras)
         return EnvSpec(
-            "rocm7.1",
-            TORCH,
-            torch_index=PYTORCH_INDEX + "rocm7.1",
-            extra_packages=[TORCHCODEC],
-            # runs on ROCm via the triton bundled with rocm torch
+            "rocm10.1.0",
+            {"torch": "2.14.0", "torchvision": "0.29.0a0", "torchaudio": "2.11.0.3"},
+            torch_links=links,
+            find_links=links,
+            extra_packages=[
+                TORCHCODEC,
+                "torch[%s]==2.14.0+rocm10.1.0" % devices,
+                "torchvision[%s]==0.29.0a0+rocm10.1.0" % devices,
+                "rocm[libraries,%s]==10.1.0" % devices,
+                "triton==3.8.0+git669b31ac.rocm10.1.0",
+            ],
+            # AMD's SDK build supplies Triton separately from torch.
             optional_packages=[FLA],
             notes=[
                 "AMD ROCm support is experimental and largely untested.",
