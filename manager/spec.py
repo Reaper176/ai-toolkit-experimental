@@ -484,13 +484,14 @@ def _build_spec(detection, allow_cpu=False):
         device_extras = _rocm_device_extras()
         devices = ",".join(device_extras)
         links = _rocm_find_links(device_extras)
+        links.append("https://download.pytorch.org/whl/cpu/torchcodec/")
         return EnvSpec(
             "rocm10.1.0",
             {"torch": "2.14.0", "torchvision": "0.29.0a0", "torchaudio": "2.11.0.3"},
             torch_links=links,
             find_links=links,
             extra_packages=[
-                TORCHCODEC,
+                "torchcodec==0.15.0+cpu",
                 "torch[%s]==2.14.0+rocm10.1.0" % devices,
                 "torchvision[%s]==0.29.0a0+rocm10.1.0" % devices,
                 "rocm[libraries,%s]==10.1.0" % devices,

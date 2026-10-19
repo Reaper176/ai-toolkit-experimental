@@ -19,6 +19,8 @@ class RocmEnvironmentTests(unittest.TestCase):
             self.assertIn('torch[device-gfx1100]==2.14.0+rocm10.1.0', spec.extra_packages)
             self.assertIn('torchvision[device-gfx1100]==0.29.0a0+rocm10.1.0', spec.extra_packages)
             self.assertIn('rocm[libraries,device-gfx1100]==10.1.0', spec.extra_packages)
+            self.assertIn('torchcodec==0.15.0+cpu', spec.extra_packages)
+            self.assertIn('https://download.pytorch.org/whl/cpu/torchcodec/', spec.find_links)
             self.assertIn('https://stable.repo.amd.com/rocm/whl-next/triton/', spec.find_links)
             self.assertIn('https://stable.repo.amd.com/rocm/whl-next/amd-torch-device-gfx110x/', spec.find_links)
             self.assertNotIn('--index-url', spec.torch_args())
