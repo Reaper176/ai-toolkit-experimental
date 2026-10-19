@@ -467,3 +467,20 @@ test('release architecture projection fails closed on dynamic release fields', (
 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+
+test('release projection accepts static JSX and deferred option callbacks', () => {
+  const root = mkdtempSync(join(tmpdir(), 'training-preset-ui-helpers-'));
+  try {
+    mkdirSync(join(root, 'ui/src/helpers'), { recursive: true });
+    mkdirSync(join(root, 'extensions_built_in/fixture'), { recursive: true });
+    writeFileSync(join(root, 'ui/src/helpers/defaultSamples.ts'), '');
+    const source = join(root, 'extensions_built_in/fixture/ui.tsx');
+    const registry = `export const AI_TOOLKIT_UI_MODELS = [{name: 'fixture', label: 'Fixture', group: 'image', notes, options}];`;
+    const helpers = `const notes = <p>Static helper notes</p>; const options = [{getValue: (config) => config.enabled, onChange: () => { throw new Error('must not execute'); }}];`;
+    writeFileSync(source, helpers + registry);
+    assert.equal(collectTrainingPresetArchitectureFacts(root).model_architectures[0].name, 'fixture');
+    writeFileSync(source, `const notes = getNotes(); const options = [];` + registry);
+    assert.throws(() => collectTrainingPresetArchitectureFacts(root), /unsupported/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

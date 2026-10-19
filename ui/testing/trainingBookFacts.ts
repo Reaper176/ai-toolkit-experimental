@@ -4965,6 +4965,24 @@ export function bundledArchitectureSourcePaths(root: string): string[] {
 }
 
 /** Narrow release-gate projection: no claims about the book's behavior/default inventory. */
+function validateInertBundledUiInitializer(expression: ts.Expression, repo: AstRepository): void {
+  expression = unwrap(expression);
+  if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) return;
+  if (ts.isJsxElement(expression) || ts.isJsxFragment(expression) || ts.isJsxSelfClosingElement(expression)) {
+    jsxFact(expression, repo);
+    return;
+  }
+  if (ts.isArrayLiteralExpression(expression)) {
+    for (const element of expression.elements) validateInertBundledUiInitializer(element, repo);
+    return;
+  }
+  if (ts.isObjectLiteralExpression(expression)) {
+    for (const value of objectProperties(expression).values()) validateInertBundledUiInitializer(value, repo);
+    return;
+  }
+  repo.value(expression);
+}
+
 export function collectTrainingPresetArchitectureFacts(root: string): {
   model_architectures: Array<Pick<ModelArchitectureFact, 'name' | 'model_path' | 'gate_url' | 'controls'>>;
 } {
@@ -4985,8 +5003,8 @@ export function collectTrainingPresetArchitectureFacts(root: string): {
           if (exportedRegistry || !statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) fail(declaration, 'bundled UI registry requires exactly one exported const binding');
           exportedRegistry = true;
         } else {
-          // Extra initialization must be inert: no calls, alias mutation, or side effects.
-          repo.value(declaration.initializer);
+          // Extra initialization must be inert: callbacks are stored, never executed.
+          validateInertBundledUiInitializer(declaration.initializer, repo);
         }
       }
     }
